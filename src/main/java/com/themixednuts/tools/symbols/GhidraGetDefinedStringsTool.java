@@ -1,4 +1,4 @@
-package com.themixednuts.tools.memory;
+package com.themixednuts.tools.symbols;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -49,9 +49,13 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 
 						Address cursor = getOptionalStringArgument(args, "cursor").map(program.getAddressFactory()::getAddress)
 								.orElse(null);
+						Optional<String> filter = getOptionalStringArgument(args, "filter");
+						Optional<Integer> minLength = getOptionalIntArgument(args, "minLength");
 
 						List<Data> dataNodes = StreamSupport.stream(listing.getDefinedData(true).spliterator(), false)
 								.filter(Data::hasStringValue)
+								.filter(data -> minLength.isEmpty() || data.getDefaultValueRepresentation().length() >= minLength.get())
+								.filter(data -> filter.isEmpty() || data.getDefaultValueRepresentation().contains(filter.get()))
 								.dropWhile(data -> cursor != null && data.getAddress().compareTo(cursor) <= 0)
 								.limit(PAGE_SIZE + 1)
 								.collect(Collectors.toList());
@@ -106,6 +110,10 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 			ObjectNode minLengthProp = properties.putObject("minLength");
 			minLengthProp.put("type", "integer");
 			minLengthProp.put("description", "Optional minimum length for strings to be included.");
+
+			ObjectNode filterProp = properties.putObject("filter");
+			filterProp.put("type", "string");
+			filterProp.put("description", "Optional filter for strings to be included (ie search term).");
 
 			schemaRoot.putArray("required").add("fileName");
 

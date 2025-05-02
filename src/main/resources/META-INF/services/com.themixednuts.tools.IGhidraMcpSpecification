@@ -10,7 +10,7 @@ com.themixednuts.tools.functions.GhidraSearchFunctionsByName
 com.themixednuts.tools.projectmanagement.GhidraListFilesTool
 com.themixednuts.tools.symbols.GhidraListClassNamesTool
 com.themixednuts.tools.symbols.GhidraListNamespacesTool
-com.themixednuts.tools.memory.GhidraGetDefinedStringsTool
+com.themixednuts.tools.symbols.GhidraGetDefinedStringsTool
 com.themixednuts.tools.memory.GhidraGetXRefsFromTool
 com.themixednuts.tools.memory.GhidraGetXRefsToTool
 com.themixednuts.tools.memory.GhidraListImportsTool
