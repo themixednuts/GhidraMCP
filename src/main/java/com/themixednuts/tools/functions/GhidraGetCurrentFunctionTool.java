@@ -1,11 +1,11 @@
-package com.themixednuts.tools.projectmanagement;
+package com.themixednuts.tools.functions;
 
 import java.util.Arrays;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.tools.functions.GhidraFunctionsToolInfo;
+import com.themixednuts.utils.GhidraFunctionsToolInfo;
 
 import ghidra.app.services.CodeViewerService;
 import ghidra.app.services.ProgramManager;
@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-@GhidraMcpTool(key = "Get Current Function", category = "Project Management", description = "Enable the MCP tool to get the function currently selected in the active Ghidra tool.", mcpName = "get_current_function", mcpDescription = "Retrieve details of the function containing the current cursor location in the active Ghidra Code Browser window for the specified program.")
+@GhidraMcpTool(key = "Get Current Function", category = "Functions", description = "Enable the MCP tool to get the function currently selected in the active Ghidra tool.", mcpName = "get_current_function", mcpDescription = "Retrieve details of the function containing the current cursor location in the active Ghidra Code Browser window for the specified program.")
 public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 	public GhidraGetCurrentFunctionTool() {
 	}

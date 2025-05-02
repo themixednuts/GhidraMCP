@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraFunctionsToolInfo;
 
 import ghidra.framework.model.Project;
 import ghidra.util.Msg;

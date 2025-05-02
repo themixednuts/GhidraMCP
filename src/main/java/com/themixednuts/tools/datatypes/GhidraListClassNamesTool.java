@@ -1,4 +1,4 @@
-package com.themixednuts.tools.symbols;
+package com.themixednuts.tools.datatypes;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -17,7 +17,7 @@ import java.util.stream.StreamSupport;
 import java.util.stream.Collectors;
 import java.util.Optional;
 
-@GhidraMcpTool(key = "List Class Names", category = "Symbols", description = "Enable the MCP tool to list class names in a file.", mcpName = "list_classes", mcpDescription = "List the names of all classes (including namespaces if applicable) defined within the specified program.")
+@GhidraMcpTool(key = "List Class Names", category = "Data Types", description = "Enable the MCP tool to list class names in a file.", mcpName = "list_classes", mcpDescription = "List the names of all classes (including namespaces if applicable) defined within the specified program.")
 public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 	public GhidraListClassNamesTool() {
 	}

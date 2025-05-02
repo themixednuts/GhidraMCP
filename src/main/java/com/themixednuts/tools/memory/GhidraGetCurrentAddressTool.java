@@ -1,4 +1,4 @@
-package com.themixednuts.tools.projectmanagement;
+package com.themixednuts.tools.memory;
 
 import java.util.Arrays;
 import java.util.Optional;
@@ -20,7 +20,7 @@ import reactor.core.publisher.Mono;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-@GhidraMcpTool(key = "Get Current Address", category = "Project Management", description = "Enable the MCP tool to get the current address in the active Ghidra tool.", mcpName = "get_current_address", mcpDescription = "Retrieve the memory address currently indicated by the cursor in the active Ghidra Code Browser window associated with the specified program.")
+@GhidraMcpTool(key = "Get Current Address", category = "Memory", description = "Enable the MCP tool to get the current address in the active Ghidra tool.", mcpName = "get_current_address", mcpDescription = "Retrieve the memory address currently indicated by the cursor in the active Ghidra Code Browser window associated with the specified program.")
 public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
 	public GhidraGetCurrentAddressTool() {
 	}

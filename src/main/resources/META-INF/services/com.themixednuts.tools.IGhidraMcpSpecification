@@ -8,7 +8,7 @@ com.themixednuts.tools.functions.GhidraRenameFunctionByNameTool
 com.themixednuts.tools.functions.GhidraRenameSymbolInFunctionTool
 com.themixednuts.tools.functions.GhidraSearchFunctionsByName
 com.themixednuts.tools.projectmanagement.GhidraListFilesTool
-com.themixednuts.tools.symbols.GhidraListClassNamesTool
+com.themixednuts.tools.datatypes.GhidraListClassNamesTool
 com.themixednuts.tools.symbols.GhidraListNamespacesTool
 com.themixednuts.tools.symbols.GhidraGetDefinedStringsTool
 com.themixednuts.tools.memory.GhidraGetXRefsFromTool
@@ -24,5 +24,5 @@ com.themixednuts.tools.functions.GhidraUpdateFunctionPrototypeTool
 com.themixednuts.tools.symbols.GhidraGetCommentAtAddressTool
 com.themixednuts.tools.symbols.GhidraSetCommentAtAddressTool
 com.themixednuts.tools.symbols.GhidraRenameDataAtAddressTool
-com.themixednuts.tools.projectmanagement.GhidraGetCurrentFunctionTool
-com.themixednuts.tools.projectmanagement.GhidraGetCurrentAddressTool 
+com.themixednuts.tools.functions.GhidraGetCurrentFunctionTool
+com.themixednuts.tools.memory.GhidraGetCurrentAddressTool 

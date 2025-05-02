@@ -1,4 +1,4 @@
-package com.themixednuts.tools.functions;
+package com.themixednuts.utils;
 
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
