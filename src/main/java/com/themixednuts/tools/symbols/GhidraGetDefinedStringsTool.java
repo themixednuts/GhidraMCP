@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Defined Strings", category = "Memory", description = "Enable the MCP tool to get the defined strings in the project.", mcpName = "get_defined_strings", mcpDescription = "Retrieve a list of defined string data items from the specified program, including their label, address, value, and type. Supports pagination and optional minimum length filtering.")
+@GhidraMcpTool(key = "Get Defined Strings", category = "Symbols", description = "Enable the MCP tool to get the defined strings in the project.", mcpName = "get_defined_strings", mcpDescription = "Retrieve a list of defined string data items from the specified program, including their label, address, value, and type. Supports pagination and optional minimum length filtering.")
 public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 	private static final int PAGE_SIZE = 100; // Number of strings per page
 
