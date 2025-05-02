@@ -93,8 +93,8 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 						}
 
 					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
+						Msg.error(this, e.getMessage(), e);
+						return Mono.just(new CallToolResult(e.getClass().getSimpleName() + ": " + e.getMessage(), true));
 					});
 				});
 	}
