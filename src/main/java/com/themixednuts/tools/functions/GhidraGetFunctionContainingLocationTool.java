@@ -76,7 +76,7 @@ public class GhidraGetFunctionContainingLocationTool implements IGhidraMcpSpecif
 			addressProp.put("type", "string");
 			addressProp.put("description", "The address to get the function containing");
 
-			properties.putArray("required").add("fileName").add("address");
+			schemaRoot.putArray("required").add("fileName").add("address");
 
 			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
 		} catch (JsonProcessingException e) {
