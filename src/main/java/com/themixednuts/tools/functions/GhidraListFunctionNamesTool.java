@@ -60,7 +60,8 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 								.collect(Collectors.toList());
 
 						boolean hasMore = functions.size() > PAGE_SIZE;
-						functions = functions.subList(0, PAGE_SIZE);
+						int actualPageSize = Math.min(functions.size(), PAGE_SIZE);
+						functions = functions.subList(0, actualPageSize);
 
 						Address nextCursor = hasMore ? functions.stream()
 								.map(Function::getEntryPoint)

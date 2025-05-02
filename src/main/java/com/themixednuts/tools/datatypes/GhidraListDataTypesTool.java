@@ -62,9 +62,8 @@ public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 								.collect(Collectors.toList());
 
 						boolean hasMore = dataTypes.size() > PAGE_SIZE;
-						if (hasMore) {
-							dataTypes = dataTypes.subList(0, PAGE_SIZE);
-						}
+						int actualPageSize = Math.min(dataTypes.size(), PAGE_SIZE);
+						dataTypes = dataTypes.subList(0, actualPageSize);
 
 						String nextCursor = (hasMore && !dataTypes.isEmpty())
 								? dataTypes.get(dataTypes.size() - 1).getPathName()

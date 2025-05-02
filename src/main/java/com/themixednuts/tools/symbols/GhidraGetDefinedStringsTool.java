@@ -55,13 +55,15 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 						List<Data> dataNodes = StreamSupport.stream(listing.getDefinedData(true).spliterator(), false)
 								.filter(Data::hasStringValue)
 								.filter(data -> minLength.isEmpty() || data.getDefaultValueRepresentation().length() >= minLength.get())
-								.filter(data -> filter.isEmpty() || data.getDefaultValueRepresentation().contains(filter.get()))
+								.filter(data -> filter.isEmpty()
+										|| data.getDefaultValueRepresentation().toLowerCase().contains(filter.get().toLowerCase()))
 								.dropWhile(data -> cursor != null && data.getAddress().compareTo(cursor) <= 0)
 								.limit(PAGE_SIZE + 1)
 								.collect(Collectors.toList());
 
 						boolean hasMore = dataNodes.size() > PAGE_SIZE;
-						dataNodes = dataNodes.subList(0, PAGE_SIZE);
+						int actualPageSize = Math.min(dataNodes.size(), PAGE_SIZE);
+						dataNodes = dataNodes.subList(0, actualPageSize);
 
 						List<ObjectNode> pageNodes = dataNodes.stream().map(data -> {
 							ObjectNode dataNode = IGhidraMcpSpecification.mapper.createObjectNode();
@@ -78,7 +80,7 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 								.orElse(null) : null;
 
 						ObjectNode result = IGhidraMcpSpecification.mapper.createObjectNode();
-						result.set("strings", IGhidraMcpSpecification.mapper.valueToTree(pageNodes));
+						result.set("results", IGhidraMcpSpecification.mapper.valueToTree(pageNodes));
 						if (nextCursor != null) {
 							result.put("nextCursor", nextCursor.toString());
 						}
