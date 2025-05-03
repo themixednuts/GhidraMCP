@@ -47,15 +47,15 @@ public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("structName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_STRUCT_PATH,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the struct data type (e.g., 'MyStruct', '/windows/POINTL')."));
+						.description("The name or path of the struct data type (e.g., 'MyStruct', '/windows/POINTL')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("structName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME)
+				.requiredProperty(IGhidraMcpSpecification.ARG_STRUCT_PATH);
 
 		return schemaRoot.build();
 	}
@@ -63,15 +63,15 @@ public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String structName = getRequiredStringArgument(args, "structName");
-			DataType dt = program.getDataTypeManager().getDataType(structName);
+			String structPath = getRequiredStringArgument(args, IGhidraMcpSpecification.ARG_STRUCT_PATH);
+			DataType dt = program.getDataTypeManager().getDataType(structPath);
 
 			if (dt == null) {
-				return createErrorResult("Structure data type not found: " + structName);
+				return createErrorResult("Structure data type not found: " + structPath);
 			}
 
 			if (!(dt instanceof Structure)) {
-				return createErrorResult("Data type '".concat(structName).concat("' is not a Structure. Found: ")
+				return createErrorResult("Data type '".concat(structPath).concat("' is not a Structure. Found: ")
 						.concat(dt.getClass().getSimpleName()));
 			}
 

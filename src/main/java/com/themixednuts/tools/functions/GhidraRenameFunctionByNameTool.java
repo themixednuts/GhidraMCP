@@ -49,19 +49,19 @@ public class GhidraRenameFunctionByNameTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("currentName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current name of the function to rename."));
-		schemaRoot.property("newName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The new name for the function."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("currentName")
-				.requiredProperty("newName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
@@ -69,8 +69,8 @@ public class GhidraRenameFunctionByNameTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String currentFunctionName = getRequiredStringArgument(args, "currentName");
-			String newName = getRequiredStringArgument(args, "newName");
+			String currentFunctionName = getRequiredStringArgument(args, ARG_NAME);
+			String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
 			Optional<Function> targetFunctionOpt = StreamSupport
 					.stream(program.getSymbolTable().getSymbolIterator(currentFunctionName, true).spliterator(), false)

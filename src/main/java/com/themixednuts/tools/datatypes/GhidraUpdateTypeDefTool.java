@@ -47,24 +47,24 @@ public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("typedefPath",
+		schemaRoot.property(ARG_TYPEDEF_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the typedef to update (e.g., /MyTypes/MyIntPtr)"));
 
-		schemaRoot.property("newUnderlyingTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional new underlying data type path (e.g., 'long *', '/OtherStruct')."));
 
-		schemaRoot.property("newDescription",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional new description text. An empty string clears the description."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("typedefPath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_TYPEDEF_PATH);
 
 		// Note: The logic for requiring at least one 'new...' property is handled
 		// in the execute method, as standard JSON Schema doesn't easily express
@@ -77,9 +77,9 @@ public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			final String typedefPathString = getRequiredStringArgument(args, "typedefPath"); // Final for lambda
-			Optional<String> newUnderlyingTypePathOpt = getOptionalStringArgument(args, "newUnderlyingTypePath");
-			Optional<String> newDescriptionOpt = getOptionalStringArgument(args, "newDescription");
+			final String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH); // Final for lambda
+			Optional<String> newUnderlyingTypePathOpt = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH);
+			Optional<String> newDescriptionOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
 			if (newUnderlyingTypePathOpt.isEmpty() && newDescriptionOpt.isEmpty()) {
 				return createErrorResult("No changes specified. Provide at least newUnderlyingTypePath or newDescription.");

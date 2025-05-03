@@ -23,49 +23,81 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 **Project Management** (`projectmanagement`)
 
-- [x] List open programs.
-- [ ] Get current program information (architecture, image base, etc.).
+- [x] List open programs/files (`GhidraListFilesTool`).
+- [x] Get current program information (architecture, image base, etc.) (`GhidraGetCurrentProgramInfoTool`).
 
 **Functions** (`functions`)
 
-- [x] List functions within a program.
-- [x] Retrieve function details by name or address.
-- [x] Rename functions.
-- [ ] Get/Set function comments.
-- [ ] Add/Remove functions.
+- [x] List functions within a program (`GhidraListFunctionNamesTool`).
+- [x] Retrieve function details by name or address (`GhidraGetFunctionByNameTool`, `GhidraGetFunctionByAddressTool`).
+- [x] Get the function containing a specific address/location (`GhidraGetFunctionContainingLocationTool`).
+- [x] Get the current function based on cursor location (`GhidraGetCurrentFunctionTool`).
+- [x] Rename functions by name or address (`GhidraRenameFunctionByNameTool`, `GhidraRenameFunctionByAddressTool`).
+- [x] List symbols (variables, parameters) within a function (`GhidraListSymbolsInFunctionTool`).
+- [x] Get symbol details by name within a function (`GhidraGetSymbolByNameInFunctionTool`).
+- [x] Rename symbols within a function (`GhidraRenameSymbolInFunctionTool`).
+- [x] Change symbol data type within a function (`GhidraChangeSymbolDataTypeInFunctionTool`).
+- [x] Get/Set function comments (Use `GhidraGetCommentAtAddressTool` / `GhidraSetCommentAtAddressTool` at function entry point).
+- [x] Add function (`GhidraAddFunctionTool`).
+- [x] Remove function (`GhidraRemoveFunctionTool`).
+- [x] Update function prototype/signature (`GhidraUpdateFunctionPrototypeTool`).
 
-**Symbols** (`symbols`)
+**Symbols & Labels** (`symbols`)
 
-- [x] List symbols within functions.
-- [x] Get symbol details by name.
-- [x] Rename symbols.
-- [x] Modify symbol data types.
-- [ ] List all labels/symbols in the program.
-- [ ] Add/Remove labels at addresses.
-- [ ] Get/Set comments on symbols/labels.
+- [x] List defined strings (`GhidraGetDefinedStringsTool`).
+- [x] List namespaces (`GhidraListNamespacesTool`).
+- [x] Set comment at a specific address (`GhidraSetCommentAtAddressTool`).
+- [x] Get comment at a specific address (`GhidraGetCommentAtAddressTool`).
+- [x] Rename data/label at a specific address (`GhidraRenameDataAtAddressTool`).
+- [x] Clear symbol/label at a specific address (`GhidraClearSymbolTool`).
+- [x] List all labels/symbols in the program (`GhidraListAllSymbolsTool`).
+- [x] Add label at address (`GhidraAddLabelTool`).
+- [x] Remove label at address (`GhidraRemoveLabelTool`).
 
 **Data Types** (`datatypes`)
 
-- [x] List classes and namespaces.
-- [ ] List defined structures and enums.
-- [ ] Get details of specific structures/enums.
-- [ ] Create/Define new structures/enums.
-- [ ] Modify existing structures/enums.
-- [ ] Apply data type at a specific address.
+- [x] List data types (`GhidraListDataTypesTool`).
+- [x] List data type categories (`GhidraListCategoriesTool`).
+- [x] Create a new data type category (`GhidraCreateCategoryTool`).
+- [x] Rename a data type category (`GhidraRenameCategoryTool`).
+- [x] Delete a data type category (`GhidraDeleteCategoryTool`).
+- [x] Move a data type category (`GhidraMoveCategoryTool`).
+- [x] List namespaces (`GhidraListNamespacesTool`).
+- [x] List class names (`GhidraListClassNamesTool`).
+- [x] List defined structures and enums (Covered by `GhidraListDataTypesTool`).
+- [x] Get details of specific structures (`GhidraGetStructDefinitionTool`).
+- [x] Get details of specific enums (`GhidraGetEnumDefinitionTool`).
+- [x] Get details of specific unions (`GhidraGetUnionDefinitionTool`).
+- [x] Get details of specific typedefs (`GhidraGetTypeDefDefinitionTool`).
+- [x] Get details of specific function definitions (`GhidraGetFunctionDefinitionTool`).
+- [x] Create/Define new structures (`GhidraCreateStructTool`).
+- [x] Create/Define new enums (`GhidraCreateEnumTool`).
+- [x] Create/Define new unions (`GhidraCreateUnionTool`).
+- [x] Create/Define new typedefs (`GhidraCreateTypeDefTool`).
+- [x] Create/Define new function definitions (`GhidraCreateFunctionDefinitionTool`).
+- [x] Modify existing structures (Add/Edit/Delete members) (`GhidraAddStructMemberTool`, `GhidraEditStructMemberTool`, `GhidraDeleteStructMemberTool`).
+- [x] Modify existing enums (Add/Edit/Delete entries) (`GhidraAddEnumEntryTool`, `GhidraEditEnumEntryTool`, `GhidraDeleteEnumEntryTool`).
+- [x] Modify existing unions (Add members) (`GhidraAddUnionMemberTool`).
+- [x] Modify existing function definitions (`GhidraUpdateFunctionDefinitionTool`).
+- [x] Modify existing typedefs (`GhidraUpdateTypeDefTool`).
+- [x] Rename data types (`GhidraRenameDataTypeTool`).
+- [x] Delete data types (`GhidraDeleteDataTypeTool`).
+- [x] Apply data type at a specific address (`GhidraApplyDataTypeTool`).
 
 **Memory & Addresses** (`memory`)
 
-- [x] List memory segments.
-- [x] Get defined strings.
-- [ ] Read bytes from an address.
-- [ ] Write bytes to an address (Patching).
-- [ ] Search memory for bytes, strings, or instructions.
-- [x] Get cross-references (XRefs) _to_ and _from_ specific addresses.
-- [ ] Get/Set EOL, Pre, Post, Plate comments at addresses.
+- [x] List memory segments (`GhidraListSegmentsTool`).
+- [x] Get current address/location based on cursor (`GhidraGetCurrentAddressTool`).
+- [x] Read bytes from an address (`GhidraReadBytesTool`).
+- [x] Write bytes to an address (Patching) (`GhidraWriteBytesTool`).
+- [x] Search memory for bytes or strings (`GhidraSearchMemoryTool`).
+- [x] Get cross-references (XRefs) _to_ a specific address (`GhidraGetXRefsToTool`).
+- [x] Get cross-references (XRefs) _from_ a specific address (`GhidraGetXRefsFromTool`).
+- [x] List imported libraries/functions (`GhidraListImportsTool`).
 
 **Decompiler** (`decompiler`)
 
-- [x] Provide decompiled code for functions.
+- [x] Provide decompiled code for functions by name (`GhidraDecompileFunctionByNameTool`).
 
 **Bookmarks**
 
@@ -74,8 +106,7 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 **Analysis & Scripting**
 
-- [ ] Trigger auto-analysis (or specific analyzers).
-- [ ] Clear code bytes / Undefine data at an address.
+- [x] Trigger auto-analysis (`GhidraTriggerAnalysisTool`).
 - [ ] Run existing Ghidra scripts.
 
 ## Installation

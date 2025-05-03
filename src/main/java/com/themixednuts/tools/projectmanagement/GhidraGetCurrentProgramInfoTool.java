@@ -1,31 +1,27 @@
-package com.themixednuts.tools.memory;
+package com.themixednuts.tools.projectmanagement;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.Optional;
-
-import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.models.MemoryBlockInfo;
+import com.themixednuts.tools.ToolCategory;
+import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.models.ProgramInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.util.Msg;
+
+import java.util.Map;
+import java.util.Optional;
+
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Segments", category = ToolCategory.MEMORY, description = "Lists memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory blocks (segments) in the program, including their names, start/end addresses, size, and permissions.")
-public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(key = "Get Current Program Info", category = ToolCategory.PROJECT_MANAGEMENT, description = "Retrieves information about the currently open program.", mcpName = "get_current_program_info", mcpDescription = "Retrieves detailed information about the currently open program.")
+public class GhidraGetCurrentProgramInfoTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -53,22 +49,18 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
+						.description("The name of the program file (used for context)."));
 		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			MemoryBlock[] blocks = program.getMemory().getBlocks();
+		return getProgram(args, tool)
+				.flatMap(currentProgram -> {
 
-			List<MemoryBlockInfo> blockInfos = Arrays.stream(blocks)
-					.map(MemoryBlockInfo::new)
-					.sorted(Comparator.comparing(MemoryBlockInfo::getStartAddress))
-					.collect(Collectors.toList());
-
-			return createSuccessResult(blockInfos);
-		}).onErrorResume(e -> createErrorResult(e));
+					return createSuccessResult(new ProgramInfo(currentProgram));
+				})
+				.onErrorResume(e -> createErrorResult(e));
 	}
 }

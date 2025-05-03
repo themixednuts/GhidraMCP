@@ -49,25 +49,25 @@ public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("typedefPath",
+		schemaRoot.property(ARG_TYPEDEF_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path for the new typedef (e.g., /MyTypes/MyIntPtr)"));
 
-		schemaRoot.property("underlyingTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Full path or name of the data type to alias (e.g., 'int *', '/MyStruct')."));
 
-		schemaRoot.property("description",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional description for the typedef."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("typedefPath")
-				.requiredProperty("underlyingTypePath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_TYPEDEF_PATH)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -78,9 +78,9 @@ public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 			// Setup: Parse args, resolve path, check existence, resolve underlying type,
 			// ensure category
 			// Argument parsing errors caught by onErrorResume
-			String typedefPathString = getRequiredStringArgument(args, "typedefPath");
-			String underlyingTypePath = getRequiredStringArgument(args, "underlyingTypePath");
-			final Optional<String> descriptionOpt = getOptionalStringArgument(args, "description"); // Final for lambda
+			String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH);
+			String underlyingTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+			final Optional<String> descriptionOpt = getOptionalStringArgument(args, ARG_COMMENT); // Final for lambda
 
 			CategoryPath categoryPath; // Not final here
 			final String typedefName; // Final for lambda

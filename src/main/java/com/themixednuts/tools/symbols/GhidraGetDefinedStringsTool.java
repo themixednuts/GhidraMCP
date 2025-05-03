@@ -55,10 +55,10 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("minLength",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_LENGTH,
 				JsonSchemaBuilder.integer(mapper)
 						.description("Optional minimum length for strings to be included.")
 						.minimum(1));
@@ -66,7 +66,7 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional filter to apply to the strings."));
 
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME);
 
 		return schemaRoot.build();
 	}
@@ -76,7 +76,7 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 			PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			Listing listing = program.getListing();
-			Optional<String> cursorOpt = getOptionalStringArgument(args, "cursor");
+			Optional<String> cursorOpt = getOptionalStringArgument(args, IGhidraMcpSpecification.ARG_CURSOR);
 			Address cursor = null;
 			if (cursorOpt.isPresent()) {
 				cursor = program.getAddressFactory().getAddress(cursorOpt.get());
@@ -84,7 +84,7 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 			final Address finalCursor = cursor;
 
 			Optional<String> filterOpt = getOptionalStringArgument(args, "filter");
-			Optional<Integer> minLengthOpt = getOptionalIntArgument(args, "minLength");
+			Optional<Integer> minLengthOpt = getOptionalIntArgument(args, IGhidraMcpSpecification.ARG_LENGTH);
 
 			List<Data> limitedData = StreamSupport.stream(listing.getDefinedData(true).spliterator(), false)
 					.filter(Data::hasStringValue)

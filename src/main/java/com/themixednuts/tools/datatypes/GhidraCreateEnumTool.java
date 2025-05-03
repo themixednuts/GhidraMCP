@@ -55,31 +55,31 @@ public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("enumPath",
+		schemaRoot.property(ARG_ENUM_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path for the new enum (e.g., /MyCategory/MyEnum)"));
 
-		schemaRoot.property("enumSize",
+		schemaRoot.property(ARG_SIZE,
 				JsonSchemaBuilder.integer(mapper)
 						.description("The size of the enum in bytes (1, 2, 4, or 8)."));
 
 		IObjectSchemaBuilder entrySchema = JsonSchemaBuilder.object(mapper)
 				.description("Definition for a single enum entry.")
-				.property("entryName",
+				.property(ARG_NAME,
 						JsonSchemaBuilder.string(mapper)
 								.description("Name for the enum entry."))
-				.property("entryValue",
+				.property(ARG_VALUE,
 						JsonSchemaBuilder.integer(mapper)
 								.description("Integer value for the enum entry."))
-				.property("entryComment",
+				.property(ARG_COMMENT,
 						JsonSchemaBuilder.string(mapper)
 								.description("Optional comment for the enum entry."))
-				.requiredProperty("entryName")
-				.requiredProperty("entryValue");
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_VALUE);
 
 		IArraySchemaBuilder entriesArraySchema = JsonSchemaBuilder.array(mapper)
 				.items(entrySchema)
@@ -88,9 +88,9 @@ public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
 		schemaRoot.property("entries", entriesArraySchema);
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("enumPath")
-				.requiredProperty("enumSize"); // entries is optional
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ENUM_PATH)
+				.requiredProperty(ARG_SIZE); // entries is optional
 
 		return schemaRoot.build();
 	}
@@ -101,8 +101,8 @@ public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 			// Setup: Parse args, validate, resolve path, check existence, ensure category,
 			// resolve entries
 			// Argument parsing errors caught by onErrorResume
-			String enumPathString = getRequiredStringArgument(args, "enumPath");
-			final Integer enumSizeInt = getRequiredIntArgument(args, "enumSize"); // Final for lambda
+			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+			final Integer enumSizeInt = getRequiredIntArgument(args, ARG_SIZE); // Final for lambda
 			Optional<ArrayNode> entriesOpt = getOptionalArrayNodeArgument(args, "entries");
 
 			// Validate size
@@ -142,9 +142,9 @@ public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 					if (!entryNode.isObject()) {
 						return createErrorResult("Invalid entry definition: Expected an object.");
 					}
-					String entryName = getRequiredStringArgument(entryNode, "entryName");
-					Long entryValue = getRequiredLongArgument(entryNode, "entryValue");
-					String entryComment = getOptionalStringArgument(entryNode, "entryComment").orElse(null);
+					String entryName = getRequiredStringArgument(entryNode, ARG_NAME);
+					Long entryValue = getRequiredLongArgument(entryNode, ARG_VALUE);
+					String entryComment = getOptionalStringArgument(entryNode, ARG_COMMENT).orElse(null);
 					resolvedEntries.add(new ResolvedEnumEntry(entryName, entryValue, entryComment));
 				}
 			}

@@ -48,10 +48,10 @@ public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 

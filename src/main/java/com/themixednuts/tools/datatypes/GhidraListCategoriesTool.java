@@ -67,15 +67,15 @@ public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("rootCategoryPath",
+		schemaRoot.property(ARG_CATEGORY_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"Optional: The root category path to start listing from (e.g., '/windows'). Defaults to the root '/'."));
 
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
 		return schemaRoot.build();
 	}
@@ -84,8 +84,8 @@ public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			DataTypeManager dtm = program.getDataTypeManager();
-			String rootPathString = getOptionalStringArgument(args, "rootCategoryPath").orElse("/");
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			String rootPathString = getOptionalStringArgument(args, ARG_CATEGORY_PATH).orElse("/");
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			final String finalCursor = cursor;
 
 			Category rootCategory = dtm.getCategory(new CategoryPath(rootPathString));

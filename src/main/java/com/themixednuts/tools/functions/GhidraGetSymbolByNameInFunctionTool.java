@@ -20,7 +20,7 @@ import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -56,19 +56,19 @@ public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecificat
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the function containing the symbol."));
-		schemaRoot.property("symbolName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the symbol (local variable or parameter) to retrieve."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionName")
-				.requiredProperty("symbolName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNCTION_NAME)
+				.requiredProperty(ARG_NAME);
 
 		return schemaRoot.build();
 	}
@@ -78,8 +78,8 @@ public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecificat
 		DecompInterface decomp = new DecompInterface();
 
 		return getProgram(args, tool).flatMap(program -> {
-			String functionName = getRequiredStringArgument(args, "functionName");
-			String symbolName = getRequiredStringArgument(args, "symbolName");
+			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
+			String symbolName = getRequiredStringArgument(args, ARG_NAME);
 
 			Optional<Function> targetFunctionOpt = StreamSupport
 					.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
@@ -92,14 +92,21 @@ public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecificat
 			Function targetFunction = targetFunctionOpt.get();
 
 			decomp.openProgram(program);
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, new ConsoleTaskMonitor());
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
 
-			if (result == null || !result.decompileCompleted()) {
+			HighFunction highFunction = null;
+			if (targetFunction.isThunk()) {
+				targetFunction = targetFunction.getThunkedFunction(true);
+			}
+			if (result != null && result.getHighFunction() != null) {
+				highFunction = result.getHighFunction();
+			} else {
 				String errorMsg = "Decompilation failed: "
 						+ (result != null ? result.getErrorMessage() : "Unknown decompiler error");
 				return createErrorResult(errorMsg);
 			}
-			HighFunction highFunction = result.getHighFunction();
+
 			if (highFunction == null) {
 				return createErrorResult("Decompilation failed (no high function)");
 			}

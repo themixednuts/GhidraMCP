@@ -50,19 +50,20 @@ public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The memory address where the data type should be applied (e.g., '0x1004010', 'MyLabel')."));
-		schemaRoot.property("dataTypeName",
+						.description("The address where the data type should be applied (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name or path of the data type to apply (e.g., 'dword', '/windows/DWORD', '/MyStruct')."));
+						.description("The full path of the data type to apply (e.g., /MyStruct, /integer, /dword)."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address")
-				.requiredProperty("dataTypeName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -70,8 +71,8 @@ public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressStr = getRequiredStringArgument(args, "address");
-			String dataTypeName = getRequiredStringArgument(args, "dataTypeName");
+			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+			String dataTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
 			DataTypeManager dtm = program.getDataTypeManager();
 			Listing listing = program.getListing();
 
@@ -80,15 +81,15 @@ public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 				return createErrorResult("Invalid address format: " + addressStr);
 			}
 
-			DataType dt = dtm.getDataType(dataTypeName);
+			DataType dt = dtm.getDataType(dataTypePath);
 			if (dt == null) {
-				return createErrorResult("Data type not found: " + dataTypeName);
+				return createErrorResult("Data type not found: " + dataTypePath);
 			}
 
-			return executeInTransaction(program, "Apply Data Type: " + dataTypeName + " to " + addressStr, () -> {
+			return executeInTransaction(program, "Apply Data Type: " + dataTypePath + " to " + addressStr, () -> {
 				try {
 					Data newData = listing.createData(addr, dt);
-					return createSuccessResult("Data type '" + dataTypeName + "' applied successfully at address "
+					return createSuccessResult("Data type '" + dataTypePath + "' applied successfully at address "
 							+ newData.getAddress().toString());
 				} catch (ghidra.program.model.util.CodeUnitInsertionException e) {
 					return createErrorResult("Failed to apply data type: " + e.getMessage());

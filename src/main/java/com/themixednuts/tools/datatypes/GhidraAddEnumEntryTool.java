@@ -47,18 +47,18 @@ public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper).description("The file name of the Ghidra tool window to target"));
-		schemaRoot.property("enumPath", JsonSchemaBuilder.string(mapper)
+		schemaRoot.property(ARG_ENUM_PATH, JsonSchemaBuilder.string(mapper)
 				.description("The full path of the enum to add the entry to (e.g., /MyCategory/MyEnum)"));
-		schemaRoot.property("entryName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper).description("The name for the new enum entry"));
-		schemaRoot.property("entryValue",
+		schemaRoot.property(ARG_VALUE,
 				JsonSchemaBuilder.integer(mapper).description("The integer value for the new enum entry"));
-		schemaRoot.property("entryComment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper).description("Optional comment for the new enum entry"));
-		schemaRoot.requiredProperty("fileName").requiredProperty("enumPath").requiredProperty("entryName")
-				.requiredProperty("entryValue");
+		schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ENUM_PATH).requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_VALUE);
 
 		return schemaRoot.build();
 	}
@@ -66,10 +66,10 @@ public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String enumPathString = getRequiredStringArgument(args, "enumPath");
-			String entryName = getRequiredStringArgument(args, "entryName");
-			Long entryValue = getRequiredLongArgument(args, "entryValue");
-			String entryComment = getOptionalStringArgument(args, "entryComment").orElse(null);
+			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+			String entryName = getRequiredStringArgument(args, ARG_NAME);
+			Long entryValue = getRequiredLongArgument(args, ARG_VALUE);
+			String entryComment = getOptionalStringArgument(args, ARG_COMMENT).orElse(null);
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(enumPathString);

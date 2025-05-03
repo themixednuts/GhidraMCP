@@ -26,10 +26,8 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Imports", category = ToolCategory.MEMORY, description = "Enable the MCP tool to list imports in a file.", mcpName = "list_imports", mcpDescription = "List the names and details of all imported symbols (functions, data from external libraries) used by the specified program. Supports pagination.")
+@GhidraMcpTool(key = "List Imports", category = ToolCategory.MEMORY, description = "Lists imported symbols (typically functions from external libraries).", mcpName = "list_imports", mcpDescription = "Returns a paginated list of imported symbols and the libraries they belong to.")
 public class GhidraListImportsTool implements IGhidraMcpSpecification {
-	public GhidraListImportsTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -55,10 +53,10 @@ public class GhidraListImportsTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
@@ -66,7 +64,7 @@ public class GhidraListImportsTool implements IGhidraMcpSpecification {
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			SymbolTable symbolTable = program.getSymbolTable();
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			final String finalCursor = cursor; // Effectively final for lambda
 
 			List<Symbol> limitedSymbols = StreamSupport

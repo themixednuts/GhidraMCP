@@ -14,7 +14,7 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Function;
 import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -53,15 +53,15 @@ public class GhidraDecompileFunctionByNameTool implements IGhidraMcpSpecificatio
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the function to decompile."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNCTION_NAME);
 
 		return schemaRoot.build();
 	}
@@ -71,7 +71,7 @@ public class GhidraDecompileFunctionByNameTool implements IGhidraMcpSpecificatio
 		DecompInterface decomp = new DecompInterface();
 
 		return getProgram(args, tool).flatMap(program -> {
-			String functionName = getRequiredStringArgument(args, "functionName");
+			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
 
 			Optional<Function> targetFunctionOpt = StreamSupport
 					.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
@@ -84,20 +84,19 @@ public class GhidraDecompileFunctionByNameTool implements IGhidraMcpSpecificatio
 			Function targetFunction = targetFunctionOpt.get();
 
 			decomp.openProgram(program);
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, new ConsoleTaskMonitor());
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
 
 			if (result != null && result.decompileCompleted() && result.getDecompiledFunction() != null) {
 				String decompiledCode = result.getDecompiledFunction().getC();
-				return createSuccessResult(
-						decompiledCode != null ? decompiledCode : "// Decompilation produced null output.");
+				return createSuccessResult(Map.of("decompiledCode",
+						decompiledCode != null ? decompiledCode : "// Decompilation produced null output."));
 			} else {
 				String errorMsg = result != null ? result.getErrorMessage() : "Unknown decompiler error";
 				return createErrorResult("Decompilation failed: " + errorMsg);
 			}
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		}).doFinally(signalType -> {
+		}).onErrorResume(e -> createErrorResult(e)).doFinally(signalType -> {
 			if (decomp != null) {
 				decomp.dispose();
 			}

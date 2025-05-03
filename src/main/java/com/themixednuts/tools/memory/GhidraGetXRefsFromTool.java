@@ -54,15 +54,16 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The source address to find cross-references from (e.g., '0x1004010')."));
+						.description("The address to find cross-references from (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS);
 
 		return schemaRoot.build();
 	}
@@ -70,7 +71,7 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressStr = getRequiredStringArgument(args, "address");
+			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 			Address addr = program.getAddressFactory().getAddress(addressStr);
 			if (addr == null) {
 				return createErrorResult("Invalid address provided: " + addressStr);
@@ -78,7 +79,7 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 			ReferenceManager refManager = program.getReferenceManager();
 			Reference[] refsFrom = refManager.getReferencesFrom(addr);
 
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			final String finalCursor = cursor;
 
 			List<ReferenceInfo> limitedRefs = Arrays.stream(refsFrom)

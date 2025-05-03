@@ -47,16 +47,16 @@ public class GhidraGetFunctionDefinitionTool implements IGhidraMcpSpecification 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionDefinitionName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FUNC_DEF_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description(
-								"The name of the function definition data type (e.g., 'MyFuncSig', '/windows/FuncSig_WINAPI')."));
+								"The name or path of the function definition data type (e.g., 'MyFuncSig', '/windows/FuncSig_WINAPI')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionDefinitionName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME)
+				.requiredProperty(IGhidraMcpSpecification.ARG_FUNC_DEF_PATH);
 
 		return schemaRoot.build();
 	}
@@ -64,16 +64,16 @@ public class GhidraGetFunctionDefinitionTool implements IGhidraMcpSpecification 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String funcDefName = getRequiredStringArgument(args, "functionDefinitionName");
-			DataType dt = program.getDataTypeManager().getDataType(funcDefName);
+			String funcDefPath = getRequiredStringArgument(args, IGhidraMcpSpecification.ARG_FUNC_DEF_PATH);
+			DataType dt = program.getDataTypeManager().getDataType(funcDefPath);
 
 			if (dt == null) {
-				return createErrorResult("Function definition data type not found: " + funcDefName);
+				return createErrorResult("Function definition data type not found: " + funcDefPath);
 			}
 
 			if (!(dt instanceof FunctionDefinition)) {
 				return createErrorResult(
-						"Data type '".concat(funcDefName).concat("' is not a Function Definition. Found: ")
+						"Data type '".concat(funcDefPath).concat("' is not a Function Definition. Found: ")
 								.concat(dt.getClass().getSimpleName()));
 			}
 

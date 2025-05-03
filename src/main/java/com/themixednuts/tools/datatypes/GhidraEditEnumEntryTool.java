@@ -47,33 +47,33 @@ public class GhidraEditEnumEntryTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("enumPath",
+		schemaRoot.property(ARG_ENUM_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the enum containing the entry (e.g., /MyCategory/MyEnum)"));
 
-		schemaRoot.property("entryName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current name of the entry to edit."));
 
-		schemaRoot.property("newEntryName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: The new name for the entry."));
 
-		schemaRoot.property("newEntryValue",
+		schemaRoot.property(ARG_VALUE,
 				JsonSchemaBuilder.integer(mapper) // Use integer for schema
 						.description("Optional: The new integer value for the entry."));
 
-		schemaRoot.property("newEntryComment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: The new comment for the entry. Use empty string \"\" to clear."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("enumPath")
-				.requiredProperty("entryName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ENUM_PATH)
+				.requiredProperty(ARG_NAME);
 
 		return schemaRoot.build();
 	}
@@ -81,11 +81,11 @@ public class GhidraEditEnumEntryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String enumPathString = getRequiredStringArgument(args, "enumPath");
-			String entryName = getRequiredStringArgument(args, "entryName");
-			Optional<String> newNameOpt = getOptionalStringArgument(args, "newEntryName");
-			Optional<Long> newValueOpt = getOptionalLongArgument(args, "newEntryValue");
-			Optional<String> newCommentOpt = getOptionalStringArgument(args, "newEntryComment");
+			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+			String entryName = getRequiredStringArgument(args, ARG_NAME);
+			Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+			Optional<Long> newValueOpt = getOptionalLongArgument(args, ARG_VALUE);
+			Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
 			if (newNameOpt.isEmpty() && newValueOpt.isEmpty() && newCommentOpt.isEmpty()) {
 				return createErrorResult(

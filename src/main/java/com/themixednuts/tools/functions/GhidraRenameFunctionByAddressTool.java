@@ -48,19 +48,20 @@ public class GhidraRenameFunctionByAddressTool implements IGhidraMcpSpecificatio
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The entry point address of the function to rename (e.g., '0x1004010')."));
-		schemaRoot.property("newName",
+						.description("The current entry point address of the function to rename (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The new name for the function."));
+						.description("The desired new name for the function."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address")
-				.requiredProperty("newName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS)
+				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
@@ -68,8 +69,8 @@ public class GhidraRenameFunctionByAddressTool implements IGhidraMcpSpecificatio
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressStr = getRequiredStringArgument(args, "address");
-			String newName = getRequiredStringArgument(args, "newName");
+			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+			String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
 			Address addr = program.getAddressFactory().getAddress(addressStr);
 			if (addr == null) {

@@ -53,15 +53,15 @@ public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecificati
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("functionDefinitionPath",
+		schemaRoot.property(ARG_FUNC_DEF_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path for the new function definition (e.g., /MyTypes/MyFunctionSig)"));
 
-		schemaRoot.property("returnTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Full path or name of the return data type (e.g., 'int', '/MyStruct*', 'void')."));
 
@@ -90,16 +90,16 @@ public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecificati
 		// Schema for a single parameter
 		IObjectSchemaBuilder parameterSchema = JsonSchemaBuilder.object(mapper)
 				.description("Definition for a single function parameter.")
-				.property("parameterName",
+				.property(ARG_NAME,
 						JsonSchemaBuilder.string(mapper)
 								.description("Optional name for the parameter. Can be omitted."))
-				.property("parameterTypePath",
+				.property(ARG_DATA_TYPE_PATH,
 						JsonSchemaBuilder.string(mapper)
 								.description("Full path or name of the parameter's data type (e.g., 'dword', '/MyStruct')."))
-				.property("comment",
+				.property(ARG_COMMENT,
 						JsonSchemaBuilder.string(mapper)
 								.description("Optional comment for the parameter."))
-				.requiredProperty("parameterTypePath");
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		// Optional parameters array
 		schemaRoot.property("parameters",
@@ -107,9 +107,9 @@ public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecificati
 						.items(parameterSchema)
 						.description("Optional list of parameters for the function definition."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionDefinitionPath")
-				.requiredProperty("returnTypePath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNC_DEF_PATH)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -119,8 +119,8 @@ public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecificati
 		return getProgram(args, tool).flatMap(program -> {
 			// Setup: Parse args, resolve types, check existence, ensure category
 			// Argument parsing errors caught by onErrorResume
-			String functionDefinitionPathString = getRequiredStringArgument(args, "functionDefinitionPath");
-			String returnTypePath = getRequiredStringArgument(args, "returnTypePath");
+			String functionDefinitionPathString = getRequiredStringArgument(args, ARG_FUNC_DEF_PATH);
+			String returnTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
 			final Optional<String> callingConventionNameOpt = getOptionalStringArgument(args, "callingConventionName"); // Final
 			Optional<ArrayNode> parametersOpt = getOptionalArrayNodeArgument(args, "parameters");
 			final boolean hasVarArgs = getOptionalBooleanArgument(args, "hasVarArgs").orElse(false); // Final
@@ -169,9 +169,9 @@ public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecificati
 					if (!paramNode.isObject()) {
 						return createErrorResult("Invalid parameter definition: Expected an object.");
 					}
-					String paramTypePath = getRequiredStringArgument(paramNode, "parameterTypePath");
-					Optional<String> paramNameOpt = getOptionalStringArgument(paramNode, "parameterName");
-					Optional<String> paramCommentOpt = getOptionalStringArgument(paramNode, "comment");
+					String paramTypePath = getRequiredStringArgument(paramNode, ARG_DATA_TYPE_PATH);
+					Optional<String> paramNameOpt = getOptionalStringArgument(paramNode, ARG_NAME);
+					Optional<String> paramCommentOpt = getOptionalStringArgument(paramNode, ARG_COMMENT);
 
 					DataType paramDt = dtm.getDataType(paramTypePath);
 					if (paramDt == null) {

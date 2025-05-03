@@ -19,10 +19,11 @@ alwaysApply: false
 				return null;
 			}
 
-      String schema = parseSchema(schema()).orElse(null);
-			if (schema == null) {
-						return null;
-			}			
+			Optional<String> schema = parseSchema(schema());
+			if (schema.isEmpty()) {
+				Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+				return null;
+			}
 			
       return new AsyncToolSpecification(
           new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),

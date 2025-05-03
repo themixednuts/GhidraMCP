@@ -28,7 +28,7 @@ import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -62,23 +62,23 @@ public class GhidraChangeSymbolDataTypeInFunctionTool implements IGhidraMcpSpeci
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the function containing the symbol."));
-		schemaRoot.property("symbolName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the local variable or parameter whose data type will be changed."));
-		schemaRoot.property("newDataType",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the new data type to apply (e.g., 'int', 'char*', 'MyStruct')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionName")
-				.requiredProperty("symbolName")
-				.requiredProperty("newDataType");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNCTION_NAME)
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -89,9 +89,9 @@ public class GhidraChangeSymbolDataTypeInFunctionTool implements IGhidraMcpSpeci
 
 		return getProgram(args, tool).flatMap(program -> { // Program is available
 
-			String functionName = getRequiredStringArgument(args, "functionName");
-			String symbolName = getRequiredStringArgument(args, "symbolName");
-			String newDataTypeName = getRequiredStringArgument(args, "newDataType");
+			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
+			String symbolName = getRequiredStringArgument(args, ARG_NAME);
+			String newDataTypeName = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
 
 			Optional<Function> targetFunctionOpt = StreamSupport
 					.stream(program.getSymbolTable().getSymbolIterator(functionName, true).spliterator(), false)
@@ -106,7 +106,8 @@ public class GhidraChangeSymbolDataTypeInFunctionTool implements IGhidraMcpSpeci
 			Function targetFunction = targetFunctionOpt.get();
 
 			decomp.openProgram(program);
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, new ConsoleTaskMonitor());
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
 
 			if (result == null || !result.decompileCompleted()) {
 				String errorMsg = "Decompilation failed: "

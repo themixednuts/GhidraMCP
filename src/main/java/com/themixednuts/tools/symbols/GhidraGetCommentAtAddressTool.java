@@ -51,19 +51,20 @@ public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The address to get comments from (e.g., '0x1004010')."));
+						.description("The address to retrieve the comment from (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 		schemaRoot.property("commentType",
 				JsonSchemaBuilder.string(mapper)
-						.description("The type of comment to retrieve.")
+						.description("The type of comment to retrieve (e.g., EOL_COMMENT, PRE_COMMENT). Optional, defaults to all.")
 						.enumValues("EOL_COMMENT", "PRE_COMMENT", "POST_COMMENT", "PLATE_COMMENT", "REPEATABLE_COMMENT"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address")
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS)
 				.requiredProperty("commentType");
 
 		return schemaRoot.build();
@@ -72,7 +73,7 @@ public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressStr = getRequiredStringArgument(args, "address");
+			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 			Address addr = program.getAddressFactory().getAddress(addressStr);
 			if (addr == null) {
 				return createErrorResult("Invalid address provided: " + addressStr);

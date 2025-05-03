@@ -26,7 +26,7 @@ import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -60,18 +60,19 @@ public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional name of the function to list symbols from."));
-		schemaRoot.property("functionAddress",
+		schemaRoot.property(ARG_FUNCTION_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
 						.description(
-								"Optional entry point address of the function (e.g., '0x1004010'). Preferred over name if both provided."));
+								"Optional entry point address of the function (e.g., '0x1004010'). Preferred over name if both provided.")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
 		return schemaRoot.build();
 	}
@@ -81,9 +82,9 @@ public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification 
 		DecompInterface decomp = new DecompInterface();
 
 		return getProgram(args, tool).flatMap(program -> {
-			Optional<String> functionNameOpt = getOptionalStringArgument(args, "functionName");
-			Optional<String> functionAddressOpt = getOptionalStringArgument(args, "functionAddress");
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			Optional<String> functionNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+			Optional<String> functionAddressOpt = getOptionalStringArgument(args, ARG_FUNCTION_ADDRESS);
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 
 			if (functionNameOpt.isEmpty() && functionAddressOpt.isEmpty()) {
 				return createErrorResult("Error: Either functionName or functionAddress must be provided.");
@@ -109,7 +110,8 @@ public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification 
 			}
 
 			decomp.openProgram(program);
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, new ConsoleTaskMonitor());
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
 
 			if (result == null || !result.decompileCompleted()) {
 				String errorMsg = result != null ? result.getErrorMessage() : "Unknown decompiler error";

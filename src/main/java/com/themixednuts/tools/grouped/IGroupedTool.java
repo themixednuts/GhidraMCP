@@ -17,6 +17,11 @@ import com.themixednuts.tools.ToolCategory;
  */
 public interface IGroupedTool {
 
+	// Constants for common grouped arguments
+	public static final String ARG_OPERATION = "operation";
+	public static final String ARG_ARGUMENTS = "arguments";
+	public static final String ARG_OPERATIONS = "operations";
+
 	/**
 	 * Finds the classes of granular tools belonging to the specified target
 	 * category.

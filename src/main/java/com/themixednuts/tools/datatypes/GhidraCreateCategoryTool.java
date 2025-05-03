@@ -48,17 +48,17 @@ public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("categoryPath",
+		schemaRoot.property(ARG_CATEGORY_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"The full path for the new category (e.g., '/MyNewCategory/SubCategory'). Leading '/' is required.")
 						.pattern("^/.+$"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("categoryPath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_CATEGORY_PATH);
 
 		return schemaRoot.build();
 	}
@@ -66,7 +66,7 @@ public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String categoryPathString = getRequiredStringArgument(args, "categoryPath");
+			String categoryPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
 			CategoryPath categoryPath = new CategoryPath(categoryPathString);
 			DataTypeManager dtm = program.getDataTypeManager();
 

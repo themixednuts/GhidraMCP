@@ -49,29 +49,29 @@ public class GhidraAddStructMemberTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
-		schemaRoot.property("structPath",
+		schemaRoot.property(ARG_STRUCT_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the structure to modify (e.g., /MyCategory/MyStruct)"));
-		schemaRoot.property("memberName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("Name for the new member."));
-		schemaRoot.property("memberTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Full path or name of the member's data type (e.g., 'dword', '/MyOtherStruct')."));
-		schemaRoot.property("offset",
+		schemaRoot.property(ARG_OFFSET,
 				JsonSchemaBuilder.integer(mapper)
 						.description("Optional offset for the new member within the struct. If omitted, the member is appended."));
-		schemaRoot.property("comment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional comment for the new member."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("structPath")
-				.requiredProperty("memberName")
-				.requiredProperty("memberTypePath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_STRUCT_PATH)
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -79,11 +79,11 @@ public class GhidraAddStructMemberTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String structPathString = getRequiredStringArgument(args, "structPath");
-			final String memberName = getRequiredStringArgument(args, "memberName");
-			String memberTypePath = getRequiredStringArgument(args, "memberTypePath");
-			final Optional<Integer> offsetOpt = getOptionalIntArgument(args, "offset");
-			final Optional<String> commentOpt = getOptionalStringArgument(args, "comment");
+			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+			final String memberName = getRequiredStringArgument(args, ARG_NAME);
+			String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+			final Optional<Integer> offsetOpt = getOptionalIntArgument(args, ARG_OFFSET);
+			final Optional<String> commentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(structPathString);

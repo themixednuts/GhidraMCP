@@ -51,10 +51,10 @@ public class GhidraListFilesTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of any open program file (used for context)."));
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 

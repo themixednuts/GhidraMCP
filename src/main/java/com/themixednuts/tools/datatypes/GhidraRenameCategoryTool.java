@@ -47,19 +47,19 @@ public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("originalCategoryPath",
+		schemaRoot.property(ARG_CATEGORY_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current full path of the category to rename (e.g., '/OldCategory/SubCategory')."));
-		schemaRoot.property("newCategoryName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The desired new name for the category (just the final part of the path)."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("originalCategoryPath")
-				.requiredProperty("newCategoryName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_CATEGORY_PATH)
+				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
@@ -67,8 +67,8 @@ public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String originalPathString = getRequiredStringArgument(args, "originalCategoryPath");
-			String newName = getRequiredStringArgument(args, "newCategoryName");
+			String originalPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
+			String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 			DataTypeManager dtm = program.getDataTypeManager();
 			Category category = dtm.getCategory(new ghidra.program.model.data.CategoryPath(originalPathString));
 

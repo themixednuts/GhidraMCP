@@ -46,40 +46,40 @@ public class GhidraEditStructMemberTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("structPath",
+		schemaRoot.property(ARG_STRUCT_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the struct containing the member (e.g., /MyCategory/MyStruct)"));
 
-		schemaRoot.property("memberOffset",
+		schemaRoot.property(ARG_OFFSET,
 				JsonSchemaBuilder.integer(mapper)
 						.description("The current offset (in bytes) of the member to edit.")
 						.minimum(0)); // Offset cannot be negative
 
-		schemaRoot.property("newMemberName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: The new name for the member."));
 
-		schemaRoot.property("newMemberTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: The new data type path (e.g., 'dword', '/MyStruct')."));
 
-		schemaRoot.property("newMemberSize",
+		schemaRoot.property(ARG_SIZE,
 				JsonSchemaBuilder.integer(mapper)
 						.description(
 								"Optional: The new explicit size in bytes. Often inferred from type, but needed for arrays or flexible types.")
 						.minimum(1)); // Size must be positive
 
-		schemaRoot.property("newMemberComment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: The new comment. Use empty string \"\" to clear."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("structPath")
-				.requiredProperty("memberOffset");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_STRUCT_PATH)
+				.requiredProperty(ARG_OFFSET);
 
 		// Note: The logic for requiring at least one 'new*' property is handled
 		// in the execute method.
@@ -92,12 +92,12 @@ public class GhidraEditStructMemberTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool).flatMap(program -> {
 			// Setup: Parse args, validate, find struct/component, resolve new type/size
 			// Argument parsing errors caught by onErrorResume
-			String structPathString = getRequiredStringArgument(args, "structPath");
-			final Integer memberOffset = getRequiredIntArgument(args, "memberOffset"); // Final for lambda
-			Optional<String> newNameOpt = getOptionalStringArgument(args, "newMemberName");
-			Optional<String> newTypePathOpt = getOptionalStringArgument(args, "newMemberTypePath");
-			Optional<Integer> newSizeOpt = getOptionalIntArgument(args, "newMemberSize");
-			Optional<String> newCommentOpt = getOptionalStringArgument(args, "newMemberComment");
+			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+			final Integer memberOffset = getRequiredIntArgument(args, ARG_OFFSET); // Final for lambda
+			Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+			Optional<String> newTypePathOpt = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH);
+			Optional<Integer> newSizeOpt = getOptionalIntArgument(args, ARG_SIZE);
+			Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
 			// Validate: At least one change requested
 			if (newNameOpt.isEmpty() && newTypePathOpt.isEmpty() && newSizeOpt.isEmpty() && newCommentOpt.isEmpty()) {

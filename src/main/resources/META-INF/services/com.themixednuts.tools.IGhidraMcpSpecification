@@ -55,4 +55,15 @@ com.themixednuts.tools.grouped.GroupedDatatypeOperationsTool
 com.themixednuts.tools.grouped.GroupedDecompilerOperationsTool
 com.themixednuts.tools.grouped.GroupedMemoryOperationsTool
 com.themixednuts.tools.grouped.GroupedProjectManagementOperationsTool
-com.themixednuts.tools.grouped.GroupedSymbolOperationsTool 
+com.themixednuts.tools.grouped.GroupedSymbolOperationsTool
+com.themixednuts.tools.projectmanagement.GhidraGetCurrentProgramInfoTool
+com.themixednuts.tools.functions.GhidraAddFunctionTool
+com.themixednuts.tools.functions.GhidraRemoveFunctionTool
+com.themixednuts.tools.symbols.GhidraListAllSymbolsTool
+com.themixednuts.tools.symbols.GhidraAddLabelTool
+com.themixednuts.tools.symbols.GhidraRemoveLabelTool
+com.themixednuts.tools.analysis.GhidraTriggerAnalysisTool
+com.themixednuts.tools.grouped.GroupedAnalysisOperationsTool
+com.themixednuts.tools.memory.GhidraReadBytesTool
+com.themixednuts.tools.memory.GhidraWriteBytesTool
+com.themixednuts.tools.memory.GhidraSearchMemoryTool 

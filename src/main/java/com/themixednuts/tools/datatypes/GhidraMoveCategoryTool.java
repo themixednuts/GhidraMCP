@@ -49,10 +49,10 @@ public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("categoryToMovePath",
+		schemaRoot.property(ARG_CATEGORY_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current full path of the category to move (e.g., '/SourceCategory/MyCategory')."));
 		schemaRoot.property("newParentCategoryPath",
@@ -60,8 +60,8 @@ public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 						.description(
 								"The full path of the destination parent category (e.g., '/DestinationCategory'). Use '/' for the root."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("categoryToMovePath")
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_CATEGORY_PATH)
 				.requiredProperty("newParentCategoryPath");
 
 		return schemaRoot.build();
@@ -70,7 +70,7 @@ public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String categoryToMovePathString = getRequiredStringArgument(args, "categoryToMovePath");
+			String categoryToMovePathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
 			String newParentPathString = getRequiredStringArgument(args, "newParentCategoryPath");
 
 			final CategoryPath categoryToMovePath = new CategoryPath(categoryToMovePathString);

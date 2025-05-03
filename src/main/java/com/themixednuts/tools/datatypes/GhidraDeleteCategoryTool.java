@@ -49,18 +49,18 @@ public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("categoryPath",
+		schemaRoot.property(ARG_CATEGORY_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"The full path of the category to delete (e.g., /MyTypes/ToDelete). Cannot be the root '/'.")
 						.pattern("^/.+$"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("categoryPath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_CATEGORY_PATH);
 
 		return schemaRoot.build();
 	}
@@ -68,7 +68,7 @@ public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String categoryPathString = getRequiredStringArgument(args, "categoryPath");
+			String categoryPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
 
 			CategoryPath categoryPath;
 			categoryPath = new CategoryPath(categoryPathString);

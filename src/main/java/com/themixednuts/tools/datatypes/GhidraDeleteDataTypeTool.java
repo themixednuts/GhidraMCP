@@ -19,7 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.SourceArchive;
-import ghidra.util.task.TaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 
 @GhidraMcpTool(key = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Removes a user-defined data type (struct, enum, etc.).")
 public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
@@ -48,16 +48,16 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("path",
+		schemaRoot.property(ARG_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the data type to delete (e.g., /MyCategory/MyType)"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("path");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_PATH);
 
 		return schemaRoot.build();
 	}
@@ -65,7 +65,7 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String pathString = getRequiredStringArgument(args, "path");
+			String pathString = getRequiredStringArgument(args, ARG_PATH);
 
 			final DataTypeManager dtm = program.getDataTypeManager();
 			final DataType dt = dtm.getDataType(pathString);
@@ -82,8 +82,9 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 			}
 
 			final String finalPathString = pathString;
-			return executeInTransaction(program, "MCP - Delete Data Type", () -> {
-				boolean removed = dtm.remove(dt, TaskMonitor.DUMMY);
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			return executeInTransaction(program, "Delete Data Type " + finalPathString, () -> {
+				boolean removed = dtm.remove(dt, monitor);
 
 				if (removed) {
 					return createSuccessResult("Data type '" + finalPathString + "' deleted successfully.");

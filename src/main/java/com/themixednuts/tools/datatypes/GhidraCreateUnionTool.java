@@ -54,28 +54,28 @@ public class GhidraCreateUnionTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("unionPath",
+		schemaRoot.property(ARG_UNION_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path for the new union (e.g., /MyCategory/MyUnion)"));
 
 		// Schema for a single member definition
 		IObjectSchemaBuilder memberSchema = JsonSchemaBuilder.object(mapper)
 				.description("Definition for a single union member.")
-				.property("memberName",
+				.property(ARG_NAME,
 						JsonSchemaBuilder.string(mapper)
 								.description("Name for the new member."))
-				.property("memberTypePath",
+				.property(ARG_DATA_TYPE_PATH,
 						JsonSchemaBuilder.string(mapper)
 								.description("Full path or name of the member's data type (e.g., 'dword', '/MyStruct')."))
-				.property("comment",
+				.property(ARG_COMMENT,
 						JsonSchemaBuilder.string(mapper)
 								.description("Optional comment for the new member."))
-				.requiredProperty("memberName")
-				.requiredProperty("memberTypePath");
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		// Optional members array property
 		schemaRoot.property("members",
@@ -83,8 +83,8 @@ public class GhidraCreateUnionTool implements IGhidraMcpSpecification {
 						.items(memberSchema)
 						.description("Optional list of members to add to the new union."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("unionPath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_UNION_PATH);
 
 		return schemaRoot.build();
 	}
@@ -92,7 +92,7 @@ public class GhidraCreateUnionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String unionPathString = getRequiredStringArgument(args, "unionPath");
+			String unionPathString = getRequiredStringArgument(args, ARG_UNION_PATH);
 			Optional<ArrayNode> membersOpt = getOptionalArrayNodeArgument(args, "members");
 
 			CategoryPath categoryPath; // Not final here
@@ -122,9 +122,9 @@ public class GhidraCreateUnionTool implements IGhidraMcpSpecification {
 					if (!memberNode.isObject()) {
 						return createErrorResult("Invalid member definition: Expected an object.");
 					}
-					String memberName = getRequiredStringArgument(memberNode, "memberName");
-					String memberTypePath = getRequiredStringArgument(memberNode, "memberTypePath");
-					String comment = getOptionalStringArgument(memberNode, "comment").orElse(null);
+					String memberName = getRequiredStringArgument(memberNode, ARG_NAME);
+					String memberTypePath = getRequiredStringArgument(memberNode, ARG_DATA_TYPE_PATH);
+					String comment = getOptionalStringArgument(memberNode, ARG_COMMENT).orElse(null);
 
 					DataType memberDataType = dtm.getDataType(memberTypePath);
 					if (memberDataType == null) {

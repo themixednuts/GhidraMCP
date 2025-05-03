@@ -53,16 +53,16 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder parameterSchema = JsonSchemaBuilder.object(mapper)
-				.property("name", JsonSchemaBuilder.string(mapper).description("Parameter name"), true)
-				.property("type", JsonSchemaBuilder.string(mapper).description("Parameter data type name"), true)
-				.property("comment", JsonSchemaBuilder.string(mapper).description("Optional parameter comment"))
+				.property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Parameter name"), true)
+				.property(ARG_DATA_TYPE_PATH, JsonSchemaBuilder.string(mapper).description("Parameter data type name"), true)
+				.property(ARG_COMMENT, JsonSchemaBuilder.string(mapper).description("Optional parameter comment"))
 				.description("Definition of a single parameter.");
 
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionDefinitionName",
+		schemaRoot.property(ARG_FUNC_DEF_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the function definition data type to update."));
 		schemaRoot.property("newReturnType",
@@ -72,7 +72,7 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 				JsonSchemaBuilder.array(mapper)
 						.items(parameterSchema)
 						.description("Optional: A new list of parameters. Replaces existing parameters."));
-		schemaRoot.property("newComment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional: A new comment for the function definition."));
 
@@ -98,8 +98,8 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 						.description("Optional: Set to true to add varargs. Defaults to false.")
 						.defaultValue(false));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionDefinitionName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNC_DEF_PATH);
 
 		return schemaRoot.build();
 	}
@@ -108,10 +108,10 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			DataTypeManager dtm = program.getDataTypeManager();
-			String funcDefName = getRequiredStringArgument(args, "functionDefinitionName");
+			String funcDefName = getRequiredStringArgument(args, ARG_FUNC_DEF_PATH);
 			Optional<String> newReturnTypeOpt = getOptionalStringArgument(args, "newReturnType");
 			Optional<List<Map<String, Object>>> newParamsOpt = getOptionalListArgument(args, "newParameters");
-			Optional<String> newCommentOpt = getOptionalStringArgument(args, "newComment");
+			Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 			Optional<String> newCallingConventionOpt = getOptionalStringArgument(args, "newCallingConvention");
 			boolean removeVarArgs = getOptionalBooleanArgument(args, "removeVarArgs").orElse(false);
 			boolean addVarArgs = getOptionalBooleanArgument(args, "addVarArgs").orElse(false);
@@ -137,9 +137,9 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 				if (newParamsOpt.isPresent()) {
 					List<ParameterDefinition> params = new ArrayList<>();
 					for (Map<String, Object> paramMap : newParamsOpt.get()) {
-						String paramName = getRequiredStringArgument(paramMap, "name");
-						String paramTypeName = getRequiredStringArgument(paramMap, "type");
-						String paramComment = getOptionalStringArgument(paramMap, "comment").orElse(null);
+						String paramName = getRequiredStringArgument(paramMap, ARG_NAME);
+						String paramTypeName = getRequiredStringArgument(paramMap, ARG_DATA_TYPE_PATH);
+						String paramComment = getOptionalStringArgument(paramMap, ARG_COMMENT).orElse(null);
 						DataType paramDt = dtm.getDataType(paramTypeName);
 						if (paramDt == null) {
 							return createErrorResult("Parameter data type not found: " + paramTypeName);

@@ -47,31 +47,32 @@ public class GhidraSetCommentAtAddressTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file to target within the project."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The address where the comment should be set (e.g., '0x1004010')."));
+						.description("The address where the comment should be set (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 		schemaRoot.property("commentType",
 				JsonSchemaBuilder.string(mapper) // This returns IStringSchemaBuilder
 						.description(
 								"The type of comment to set (e.g., 'EOL_COMMENT', 'PRE_COMMENT', 'POST_COMMENT', 'PLATE_COMMENT', 'REPEATABLE_COMMENT').")
 						.enumValues("EOL_COMMENT", "PRE_COMMENT", "POST_COMMENT", "PLATE_COMMENT", "REPEATABLE_COMMENT"));
 
-		schemaRoot.property("comment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("The text content of the comment to set."));
 		// Add optional properties
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"Optional name of the function containing the address. If provided, the address is relative to the function's entry point."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address")
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS)
 				.requiredProperty("commentType")
-				.requiredProperty("comment");
+				.requiredProperty(ARG_COMMENT);
 
 		return schemaRoot.build();
 	}
@@ -81,13 +82,13 @@ public class GhidraSetCommentAtAddressTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool).flatMap(program -> {
 			// --- Setup Phase --- (Argument parsing, address validation, comment type
 			// validation)
-			String addressStr = getRequiredStringArgument(args, "address");
+			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 			Address addr = program.getAddressFactory().getAddress(addressStr);
 			if (addr == null) {
 				return createErrorResult("Invalid address format: " + addressStr);
 			}
 
-			String comment = getRequiredStringArgument(args, "comment");
+			String comment = getRequiredStringArgument(args, ARG_COMMENT);
 			String commentTypeStr = getRequiredStringArgument(args, "commentType");
 
 			int commentTypeInt;

@@ -46,22 +46,22 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("structPath",
+		schemaRoot.property(ARG_STRUCT_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the struct containing the member (e.g., /MyCategory/MyStruct)"));
 
-		schemaRoot.property("memberOffset",
+		schemaRoot.property(ARG_OFFSET,
 				JsonSchemaBuilder.integer(mapper)
 						.description("The offset (in bytes) of the member to delete.")
 						.minimum(0));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("structPath")
-				.requiredProperty("memberOffset");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_STRUCT_PATH)
+				.requiredProperty(ARG_OFFSET);
 
 		return schemaRoot.build();
 	}
@@ -69,8 +69,8 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String structPathString = getRequiredStringArgument(args, "structPath");
-			final Integer memberOffset = getRequiredIntArgument(args, "memberOffset");
+			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+			final Integer memberOffset = getRequiredIntArgument(args, ARG_OFFSET);
 
 			if (memberOffset < 0) {
 				return createErrorResult("Invalid memberOffset: Cannot be negative.");

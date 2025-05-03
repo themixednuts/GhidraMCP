@@ -47,15 +47,15 @@ public class GhidraGetTypeDefDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("typedefName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_TYPEDEF_PATH,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the typedef data type (e.g., 'MyIntTypedef', '/windows/DWORD')."));
+						.description("The name or path of the typedef data type (e.g., 'MyIntTypedef', '/windows/DWORD')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("typedefName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME)
+				.requiredProperty(IGhidraMcpSpecification.ARG_TYPEDEF_PATH);
 
 		return schemaRoot.build();
 	}
@@ -63,15 +63,15 @@ public class GhidraGetTypeDefDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String typedefName = getRequiredStringArgument(args, "typedefName");
-			DataType dt = program.getDataTypeManager().getDataType(typedefName);
+			String typedefPath = getRequiredStringArgument(args, IGhidraMcpSpecification.ARG_TYPEDEF_PATH);
+			DataType dt = program.getDataTypeManager().getDataType(typedefPath);
 
 			if (dt == null) {
-				return createErrorResult("TypeDef data type not found: " + typedefName);
+				return createErrorResult("TypeDef data type not found: " + typedefPath);
 			}
 
 			if (!(dt instanceof TypeDef)) {
-				return createErrorResult("Data type '".concat(typedefName).concat("' is not a TypeDef. Found: ")
+				return createErrorResult("Data type '".concat(typedefPath).concat("' is not a TypeDef. Found: ")
 						.concat(dt.getClass().getSimpleName()));
 			}
 

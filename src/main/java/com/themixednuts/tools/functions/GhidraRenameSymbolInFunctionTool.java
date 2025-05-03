@@ -22,7 +22,7 @@ import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -57,23 +57,23 @@ public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionName",
+		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the function containing the symbol."));
-		schemaRoot.property("currentSymbolName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current name of the local variable or parameter to rename."));
-		schemaRoot.property("newSymbolName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The desired new name for the symbol."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionName")
-				.requiredProperty("currentSymbolName")
-				.requiredProperty("newSymbolName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNCTION_NAME)
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
@@ -83,9 +83,9 @@ public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification
 		DecompInterface decomp = new DecompInterface();
 
 		return getProgram(args, tool).flatMap(program -> {
-			String functionName = getRequiredStringArgument(args, "functionName");
-			String currentSymbolName = getRequiredStringArgument(args, "currentSymbolName");
-			String newSymbolName = getRequiredStringArgument(args, "newSymbolName");
+			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
+			String currentSymbolName = getRequiredStringArgument(args, ARG_NAME);
+			String newSymbolName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
 			Optional<Function> targetFunctionOpt = StreamSupport
 					.stream(program.getSymbolTable().getSymbolIterator(functionName, true).spliterator(), false)
@@ -99,7 +99,8 @@ public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification
 			Function targetFunction = targetFunctionOpt.get();
 
 			decomp.openProgram(program);
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, new ConsoleTaskMonitor());
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
 
 			if (result == null || !result.decompileCompleted()) {
 				String errorMsg = result != null ? result.getErrorMessage() : "Unknown decompiler error";

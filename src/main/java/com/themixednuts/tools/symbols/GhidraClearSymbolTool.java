@@ -50,15 +50,16 @@ public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("address",
+		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
-						.description("The address of the symbol to clear (e.g., '0x1004010')."));
+						.description("The address of the symbol to clear (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("address");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ADDRESS);
 
 		return schemaRoot.build();
 	}
@@ -66,7 +67,7 @@ public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressString = getRequiredStringArgument(args, "address");
+			String addressString = getRequiredStringArgument(args, ARG_ADDRESS);
 			Address address = program.getAddressFactory().getAddress(addressString);
 
 			if (address == null) {

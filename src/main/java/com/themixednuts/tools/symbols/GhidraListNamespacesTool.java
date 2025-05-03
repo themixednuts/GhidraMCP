@@ -53,17 +53,17 @@ public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file to list namespaces from."));
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			final String finalCursor = cursor;
 
 			List<Namespace> allNamespaces = StreamSupport

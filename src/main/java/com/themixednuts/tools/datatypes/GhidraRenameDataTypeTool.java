@@ -46,19 +46,19 @@ public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("oldPath",
+		schemaRoot.property(ARG_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current full path of the data type to rename (e.g., /MyCategory/MyType)."));
-		schemaRoot.property("newName",
+		schemaRoot.property(ARG_NEW_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The desired new name for the data type (just the name, not the full path)."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("oldPath")
-				.requiredProperty("newName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_PATH)
+				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
@@ -66,8 +66,8 @@ public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String oldPathString = getRequiredStringArgument(args, "oldPath");
-			final String newName = getRequiredStringArgument(args, "newName");
+			String oldPathString = getRequiredStringArgument(args, ARG_PATH);
+			final String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			final DataType dataType = dtm.getDataType(oldPathString);

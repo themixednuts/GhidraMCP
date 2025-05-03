@@ -47,21 +47,21 @@ public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("enumPath",
+		schemaRoot.property(ARG_ENUM_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the enum containing the entry (e.g., /MyCategory/MyEnum)"));
 
-		schemaRoot.property("entryName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the enum entry to delete."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("enumPath")
-				.requiredProperty("entryName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ENUM_PATH)
+				.requiredProperty(ARG_NAME);
 
 		return schemaRoot.build();
 	}
@@ -71,8 +71,8 @@ public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool).flatMap(program -> {
 			// Setup: Parse args, find enum, check entry exists
 			// Argument parsing errors caught by onErrorResume
-			String enumPathString = getRequiredStringArgument(args, "enumPath");
-			final String entryName = getRequiredStringArgument(args, "entryName"); // Final for lambda
+			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+			final String entryName = getRequiredStringArgument(args, ARG_NAME); // Final for lambda
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(enumPathString);

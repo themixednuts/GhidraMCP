@@ -47,15 +47,15 @@ public class GhidraGetUnionDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("unionName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_UNION_PATH,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the union data type (e.g., 'MyUnion', '/std/MyVariant')."));
+						.description("The name or path of the union data type (e.g., 'MyUnion', '/std/MyVariant')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("unionName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME)
+				.requiredProperty(IGhidraMcpSpecification.ARG_UNION_PATH);
 
 		return schemaRoot.build();
 	}
@@ -63,15 +63,15 @@ public class GhidraGetUnionDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String unionName = getRequiredStringArgument(args, "unionName");
-			DataType dt = program.getDataTypeManager().getDataType(unionName);
+			String unionPath = getRequiredStringArgument(args, IGhidraMcpSpecification.ARG_UNION_PATH);
+			DataType dt = program.getDataTypeManager().getDataType(unionPath);
 
 			if (dt == null) {
-				return createErrorResult("Union data type not found: " + unionName);
+				return createErrorResult("Union data type not found: " + unionPath);
 			}
 
 			if (!(dt instanceof Union)) {
-				return createErrorResult("Data type '".concat(unionName).concat("' is not a Union. Found: ")
+				return createErrorResult("Data type '".concat(unionPath).concat("' is not a Union. Found: ")
 						.concat(dt.getClass().getSimpleName()));
 			}
 

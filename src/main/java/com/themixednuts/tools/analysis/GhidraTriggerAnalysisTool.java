@@ -1,31 +1,27 @@
-package com.themixednuts.tools.memory;
+package com.themixednuts.tools.analysis;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.models.MemoryBlockInfo;
+import com.themixednuts.tools.ToolCategory;
+import com.themixednuts.utils.GhidraMcpTaskMonitor; // Import the custom monitor
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Segments", category = ToolCategory.MEMORY, description = "Lists memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory blocks (segments) in the program, including their names, start/end addresses, size, and permissions.")
-public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(key = "Trigger Auto-Analysis", category = ToolCategory.ANALYSIS, description = "Starts the standard Ghidra auto-analysis process for the specified program.", mcpName = "trigger_auto_analysis", mcpDescription = "Triggers the standard Ghidra auto-analysis process (respecting current analysis options). Analysis runs in the background.")
+public class GhidraTriggerAnalysisTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -34,17 +30,13 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		Optional<String> schemaStringOpt = parseSchema(schema());
 		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
-		String schemaJson = schemaStringOpt.get();
-
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaStringOpt.get()),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
@@ -60,15 +52,23 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			MemoryBlock[] blocks = program.getMemory().getBlocks();
+		return getProgram(args, tool)
+				.flatMap(program -> {
+					AutoAnalysisManager analysisManager = AutoAnalysisManager.getAnalysisManager(program);
+					if (analysisManager.isAnalyzing()) {
+						// Optionally return an error or info message if analysis is already running
+						return createErrorResult("Analysis is already running for program: " + program.getName());
+					}
 
-			List<MemoryBlockInfo> blockInfos = Arrays.stream(blocks)
-					.map(MemoryBlockInfo::new)
-					.sorted(Comparator.comparing(MemoryBlockInfo::getStartAddress))
-					.collect(Collectors.toList());
+					// Use the custom Task Monitor that reports progress via MCP
+					GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
 
-			return createSuccessResult(blockInfos);
-		}).onErrorResume(e -> createErrorResult(e));
+					// StartAnalysis runs in the background, so we return success immediately.
+					// The monitor will send progress updates.
+					analysisManager.startAnalysis(monitor);
+
+					return createSuccessResult("Auto-analysis started for program: " + program.getName());
+				})
+				.onErrorResume(e -> createErrorResult(e)); // Handle errors like program not found
 	}
 }

@@ -54,17 +54,17 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String cursorStr = getOptionalStringArgument(args, "cursor").orElse(null);
+			String cursorStr = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			Address cursorAddr = null;
 			if (cursorStr != null) {
 				cursorAddr = program.getAddressFactory().getAddress(cursorStr);

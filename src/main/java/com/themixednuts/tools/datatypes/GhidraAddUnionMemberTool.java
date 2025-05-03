@@ -46,30 +46,30 @@ public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property("unionPath",
+		schemaRoot.property(ARG_UNION_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the union to add the member to (e.g., /MyCategory/MyUnion)"));
 
-		schemaRoot.property("memberName",
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name for the new member."));
 
-		schemaRoot.property("memberTypePath",
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("Full path or name of the member's data type (e.g., 'dword', '/MyStruct')."));
 
-		schemaRoot.property("comment",
+		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional comment for the new member."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("unionPath")
-				.requiredProperty("memberName")
-				.requiredProperty("memberTypePath");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_UNION_PATH)
+				.requiredProperty(ARG_NAME)
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
@@ -77,10 +77,10 @@ public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String unionPathString = getRequiredStringArgument(args, "unionPath");
-			final String memberName = getRequiredStringArgument(args, "memberName");
-			String memberTypePath = getRequiredStringArgument(args, "memberTypePath");
-			final String comment = getOptionalStringArgument(args, "comment").orElse(null);
+			String unionPathString = getRequiredStringArgument(args, ARG_UNION_PATH);
+			final String memberName = getRequiredStringArgument(args, ARG_NAME);
+			String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+			final String comment = getOptionalStringArgument(args, ARG_COMMENT).orElse(null);
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(unionPathString);

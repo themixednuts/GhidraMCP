@@ -56,18 +56,18 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("functionAddress",
+		schemaRoot.property(ARG_FUNCTION_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
 						.description("The address of the function entry point (e.g., '0x1004010')."));
 		schemaRoot.property("prototype",
 				JsonSchemaBuilder.string(mapper)
 						.description("The new function prototype string (e.g., 'void FUN_00401000(int param1, char *param2)')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionAddress")
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_FUNCTION_ADDRESS)
 				.requiredProperty("prototype");
 
 		return schemaRoot.build();
@@ -76,7 +76,7 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String addressString = getRequiredStringArgument(args, "functionAddress");
+			String addressString = getRequiredStringArgument(args, ARG_FUNCTION_ADDRESS);
 			String newPrototypeString = getRequiredStringArgument(args, "prototype");
 
 			Address functionAddress = program.getAddressFactory().getAddress(addressString);

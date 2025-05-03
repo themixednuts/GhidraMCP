@@ -20,10 +20,8 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Current Address", category = ToolCategory.MEMORY, description = "Enable the MCP tool to get the current address in the active Ghidra tool.", mcpName = "get_current_address", mcpDescription = "Retrieve the memory address currently indicated by the cursor in the active Ghidra Code Browser window associated with the specified program.")
+@GhidraMcpTool(key = "Get Current Address", category = ToolCategory.MEMORY, description = "Gets the current cursor address in the specified program window.", mcpName = "get_current_address", mcpDescription = "Returns the memory address currently indicated by the cursor in the Ghidra listing view.")
 public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
-	public GhidraGetCurrentAddressTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -49,10 +47,10 @@ public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.requiredProperty("fileName");
+						.description("The name of the program file window."));
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
@@ -76,8 +74,6 @@ public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
 
 			return createSuccessResult(location.getAddress().toString());
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

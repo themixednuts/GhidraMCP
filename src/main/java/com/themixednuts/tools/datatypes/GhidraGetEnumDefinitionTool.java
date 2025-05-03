@@ -48,15 +48,15 @@ public class GhidraGetEnumDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("enumName",
+		schemaRoot.property(IGhidraMcpSpecification.ARG_ENUM_PATH,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the enum data type (e.g., 'ColorEnum', '/windows/WINBOOL')."));
+						.description("The name or path of the enum data type (e.g., 'ColorEnum', '/windows/WINBOOL')."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("enumName");
+		schemaRoot.requiredProperty(IGhidraMcpSpecification.ARG_FILE_NAME)
+				.requiredProperty(IGhidraMcpSpecification.ARG_ENUM_PATH);
 
 		return schemaRoot.build();
 	}
@@ -64,15 +64,15 @@ public class GhidraGetEnumDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String enumName = getRequiredStringArgument(args, "enumName");
-			DataType dt = program.getDataTypeManager().getDataType(enumName);
+			String enumPath = getRequiredStringArgument(args, IGhidraMcpSpecification.ARG_ENUM_PATH);
+			DataType dt = program.getDataTypeManager().getDataType(enumPath);
 
 			if (dt == null) {
-				return createErrorResult("Enum data type not found: " + enumName);
+				return createErrorResult("Enum data type not found: " + enumPath);
 			}
 
 			if (!(dt instanceof Enum)) {
-				return createErrorResult("Data type '".concat(enumName).concat("' is not an Enum. Found: ")
+				return createErrorResult("Data type '".concat(enumPath).concat("' is not an Enum. Found: ")
 						.concat(dt.getClass().getSimpleName()));
 			}
 

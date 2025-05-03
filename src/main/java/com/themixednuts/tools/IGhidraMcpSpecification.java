@@ -51,6 +51,31 @@ public interface IGhidraMcpSpecification {
 	static final int DEFAULT_PAGE_LIMIT = 50;
 
 	// ===================================================================================
+	// Common Argument Name Constants
+	// ===================================================================================
+	public static final String ARG_FILE_NAME = "fileName";
+	public static final String ARG_ADDRESS = "address";
+	public static final String ARG_OFFSET = "offset";
+	public static final String ARG_NAME = "name";
+	public static final String ARG_NEW_NAME = "newName";
+	public static final String ARG_PATH = "path";
+	public static final String ARG_COMMENT = "comment";
+	public static final String ARG_VALUE = "value";
+	public static final String ARG_LENGTH = "length";
+	public static final String ARG_SIZE = "size";
+	public static final String ARG_CURSOR = "cursor";
+	public static final String ARG_NEXT_CURSOR = "nextCursor";
+	public static final String ARG_FUNCTION_NAME = "functionName";
+	public static final String ARG_FUNCTION_ADDRESS = "functionAddress";
+	public static final String ARG_DATA_TYPE_PATH = "dataTypePath";
+	public static final String ARG_CATEGORY_PATH = "categoryPath";
+	public static final String ARG_STRUCT_PATH = "structPath";
+	public static final String ARG_ENUM_PATH = "enumPath";
+	public static final String ARG_UNION_PATH = "unionPath";
+	public static final String ARG_TYPEDEF_PATH = "typedefPath";
+	public static final String ARG_FUNC_DEF_PATH = "functionDefinitionPath";
+
+	// ===================================================================================
 	// Core Interface Methods
 	// ===================================================================================
 

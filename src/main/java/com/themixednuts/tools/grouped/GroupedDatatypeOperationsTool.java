@@ -78,7 +78,7 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
 
@@ -92,31 +92,31 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 
 		IObjectSchemaBuilder operationSchema = JsonSchemaBuilder.object(mapper)
 				.description("A single datatype operation.")
-				.property("operation",
+				.property(ARG_OPERATION,
 						JsonSchemaBuilder.string(mapper)
 								.description("The specific granular tool mcpName to execute.")
 								.enumValues(availableOps))
-				.property("arguments",
+				.property(ARG_ARGUMENTS,
 						JsonSchemaBuilder.object(mapper)
 								.description("The arguments specific to the chosen operation (tool)."))
-				.requiredProperty("operation")
-				.requiredProperty("arguments");
+				.requiredProperty(ARG_OPERATION)
+				.requiredProperty(ARG_ARGUMENTS);
 
-		schemaRoot.property("operations",
+		schemaRoot.property(ARG_OPERATIONS,
 				JsonSchemaBuilder.array(mapper)
 						.items(operationSchema)
 						.description("A list of datatype operations to perform."));
 
-		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("operations");
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		String fileName = getOptionalStringArgument(args, "fileName").orElse(null);
-		List<Map<String, Object>> operations = getOptionalListArgument(args, "operations").orElse(null);
+		String fileName = getOptionalStringArgument(args, ARG_FILE_NAME).orElse(null);
+		List<Map<String, Object>> operations = getOptionalListArgument(args, ARG_OPERATIONS).orElse(null);
 
 		if (operations == null || operations.isEmpty()) {
 			return createErrorResult("No operations provided.");
@@ -127,13 +127,14 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 				.flatMap(indexedOperation -> { // Expects Mono<Map.Entry<String, CallToolResult>>
 					long index = indexedOperation.getT1();
 					Map<String, Object> operationArgs = indexedOperation.getT2();
-					String operationName = getOptionalStringArgument(operationArgs, "operation").orElse(null);
-					Map<String, Object> granularArgs = getOptionalMapArgument(operationArgs, "arguments").orElse(null);
-					final String opId = (operationName != null ? operationName : "operation") + "_" + index;
+					String operationName = getOptionalStringArgument(operationArgs, ARG_OPERATION).orElse(null);
+					Map<String, Object> granularArgs = getOptionalMapArgument(operationArgs, ARG_ARGUMENTS).orElse(null);
+					final String opId = (operationName != null ? operationName : ARG_OPERATION) + "_" + index;
 
 					if (operationName == null || granularArgs == null) {
 						return createErrorResult(
-								"Invalid operation format at index " + index + ": missing 'operation' or 'arguments' field.")
+								"Invalid operation format at index " + index + ": missing '" + ARG_OPERATION + "' or '" + ARG_ARGUMENTS
+										+ "' field.")
 								.map(errorResult -> Map.entry(opId, errorResult));
 					}
 
@@ -143,8 +144,8 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 								.map(errorResult -> Map.entry(opId, errorResult));
 					}
 
-					if (fileName != null && !granularArgs.containsKey("fileName")) {
-						granularArgs.put("fileName", fileName);
+					if (fileName != null && !granularArgs.containsKey(ARG_FILE_NAME)) {
+						granularArgs.put(ARG_FILE_NAME, fileName);
 					}
 
 					// Instantiate and execute
@@ -153,15 +154,11 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 						// Execute the instantiated tool
 						return targetToolInstance.execute(ex, granularArgs, tool)
 								.map(result -> Map.entry(opId, result)) // Map success to Map.Entry
-								.onErrorResume(execError -> { // Catch execution error
-									Msg.error(this, "Error executing granular tool '" + operationName + "' at index " + index, execError);
-									return createErrorResult("Execution error in '" + operationName + "': " + execError.getMessage())
-											.map(errorResult -> Map.entry(opId, errorResult));
-								});
+								.onErrorResume(execError -> createErrorResult(
+										"Execution error in '" + operationName + "': " + execError.getMessage())
+										.map(errorResult -> Map.entry(opId, errorResult)));
 					} catch (NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException
 							| SecurityException e) {
-						// Handle instantiation errors
-						Msg.error(this, "Failed to instantiate tool '" + operationName + "' at index " + index, e);
 						return createErrorResult("Instantiation error for '" + operationName + "': " + e.getMessage())
 								.map(errorResult -> Map.entry(opId, errorResult));
 					}

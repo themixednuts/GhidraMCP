@@ -52,13 +52,13 @@ public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property("fileName",
+		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
 		schemaRoot.property("searchString",
 				JsonSchemaBuilder.string(mapper)
 						.description("The substring to search for within function names."));
-		schemaRoot.requiredProperty("fileName")
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty("searchString");
 
 		return schemaRoot.build();
@@ -68,7 +68,7 @@ public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			String searchString = getRequiredStringArgument(args, "searchString").toLowerCase();
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 			final String finalCursor = cursor;
 
 			List<Function> limitedFunctions = StreamSupport

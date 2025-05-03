@@ -1,8 +1,7 @@
 package com.themixednuts.tools;
 
 /**
- * Enum defining the categories for Ghidra MCP tools.
- * Used in the @GhidraMcpTool annotation for type safety and consistency.
+ * Enumeration defining the functional categories for Ghidra MCP tools.
  */
 public enum ToolCategory {
 	FUNCTIONS("Functions"),
@@ -11,6 +10,7 @@ public enum ToolCategory {
 	SYMBOLS("Symbols"),
 	MEMORY("Memory"),
 	DECOMPILER("Decompiler"),
+	ANALYSIS("Analysis & Scripting"), // Tools for triggering analysis or running scripts
 	GROUPED("Grouped"), // Category for grouped tools themselves (e.g., for options)
 	UNCATEGORIZED("Uncategorized"); // Default or for tools without a specific group
 
@@ -21,9 +21,8 @@ public enum ToolCategory {
 	}
 
 	/**
-	 * Gets the string representation of the category name, often used for option
-	 * keys.
-	 * 
+	 * Returns the human-readable name of the category.
+	 *
 	 * @return The category name string.
 	 */
 	public String getCategoryName() {
