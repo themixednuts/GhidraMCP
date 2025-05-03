@@ -79,9 +79,6 @@ public class GroupedProjectManagementOperationsTool implements IGhidraMcpSpecifi
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The optional name of a program file to operate on, if relevant to the operation."));
 
 		// Build enum from the stored classes
 		List<String> availableOps = granularToolClasses.stream()
@@ -108,7 +105,6 @@ public class GroupedProjectManagementOperationsTool implements IGhidraMcpSpecifi
 						.items(operationSchema)
 						.description("A list of project management operations to perform."));
 
-		// Only require operations, fileName is optional for project management
 		schemaRoot.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();

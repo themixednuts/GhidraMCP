@@ -106,7 +106,7 @@ public class GroupedSymbolOperationsTool implements IGhidraMcpSpecification, IGr
 						.items(operationSchema)
 						.description("A list of symbol operations to perform."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
+		schemaRoot
 				.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();

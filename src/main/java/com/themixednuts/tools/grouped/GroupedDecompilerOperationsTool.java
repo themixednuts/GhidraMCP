@@ -79,9 +79,6 @@ public class GroupedDecompilerOperationsTool implements IGhidraMcpSpecification,
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
 
 		// Build enum from the stored classes
 		List<String> availableOps = granularToolClasses.stream()
@@ -108,7 +105,7 @@ public class GroupedDecompilerOperationsTool implements IGhidraMcpSpecification,
 						.items(operationSchema)
 						.description("A list of decompiler operations to perform."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
+		schemaRoot
 				.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();

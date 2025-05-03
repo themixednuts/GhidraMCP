@@ -68,6 +68,7 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
 			return null;
 		}
 		String schemaJson = schemaStringOpt.get();
+		Msg.info(this, schemaJson);
 
 		return new AsyncToolSpecification(
 				// Use the parsed schema string
@@ -79,9 +80,6 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
 
 		// Build enum from the stored classes
 		List<String> availableOps = granularToolClasses.stream()
@@ -108,7 +106,7 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
 						.items(operationSchema)
 						.description("A list of function operations to perform."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
+		schemaRoot
 				.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();

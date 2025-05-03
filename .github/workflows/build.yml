@@ -3,6 +3,7 @@ name: Build with Maven
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   pull_request:
     branches: ["main"]
 
@@ -58,3 +59,9 @@ jobs:
           name: GhidraMCP-artifact
           path: |
             release/*
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*

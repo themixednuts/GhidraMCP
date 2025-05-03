@@ -78,9 +78,6 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
 
 		// Build enum from the stored classes
 		List<String> availableOps = granularToolClasses.stream()
@@ -107,8 +104,7 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 						.items(operationSchema)
 						.description("A list of datatype operations to perform."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_OPERATIONS);
+		schemaRoot.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();
 	}

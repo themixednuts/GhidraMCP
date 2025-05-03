@@ -10,7 +10,6 @@ public enum ToolCategory {
 	SYMBOLS("Symbols"),
 	MEMORY("Memory"),
 	DECOMPILER("Decompiler"),
-	ANALYSIS("Analysis & Scripting"), // Tools for triggering analysis or running scripts
 	GROUPED("Grouped"), // Category for grouped tools themselves (e.g., for options)
 	UNCATEGORIZED("Uncategorized"); // Default or for tools without a specific group
 

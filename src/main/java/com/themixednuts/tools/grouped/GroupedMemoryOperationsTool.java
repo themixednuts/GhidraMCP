@@ -77,9 +77,6 @@ public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGr
 	// Change return type to JsonSchema
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
 
 		// Build enum from the stored classes
 		List<String> availableOps = granularToolClasses.stream()
@@ -106,7 +103,7 @@ public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGr
 						.items(operationSchema)
 						.description("A list of memory operations to perform."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
+		schemaRoot
 				.requiredProperty(ARG_OPERATIONS);
 
 		return schemaRoot.build();

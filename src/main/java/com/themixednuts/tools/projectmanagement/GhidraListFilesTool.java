@@ -1,6 +1,5 @@
 package com.themixednuts.tools.projectmanagement;
 
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -8,7 +7,6 @@ import java.util.Optional;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.model.DomainFile;
@@ -51,30 +49,23 @@ public class GhidraListFilesTool implements IGhidraMcpSpecification {
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of any open program file (used for context)."));
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
+		return Mono.fromCallable(() -> {
 			ghidra.framework.model.Project project = tool.getProject();
 			if (project == null) {
 				return createErrorResult("Internal Error: Ghidra Project became unavailable unexpectedly.");
 			}
 
-			List<DomainFile> domainFiles = project.getOpenData();
-			List<String> fileNames = domainFiles.stream()
+			return project.getOpenData()
+					.stream()
 					.map(DomainFile::getName)
 					.sorted()
 					.collect(Collectors.toList());
 
-			return createSuccessResult(fileNames);
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).flatMap(files -> createSuccessResult(files)).onErrorResume(e -> createErrorResult(e));
 	}
 }
