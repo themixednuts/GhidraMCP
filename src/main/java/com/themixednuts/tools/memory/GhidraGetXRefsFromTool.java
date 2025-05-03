@@ -1,95 +1,106 @@
 package com.themixednuts.tools.memory;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraReferenceInfo;
+import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.framework.model.Project;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.util.Msg;
+import ghidra.framework.plugintool.PluginTool;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get XRefs From", category = "Memory", description = "Enable the MCP tool to get the xrefs from a specific address.", mcpName = "get_x_refs_from", mcpDescription = "Retrieve a list of all cross-references (XRefs) originating *from* the specified memory address, showing where this address calls or references other locations.")
+@GhidraMcpTool(key = "Get XRefs From", category = "Memory", description = "Find cross-references FROM a specific address.", mcpName = "get_xrefs_from_address", mcpDescription = "Returns a paginated list of addresses referenced by the instruction or data at the specified source address.")
 public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
-	public GhidraGetXRefsFromTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null; // Signal failure
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						String addressStr = getRequiredStringArgument(args, "address");
-						Address addr = program.getAddressFactory().getAddress(addressStr);
-						ReferenceManager refManager = program.getReferenceManager();
-						Reference[] refIter = refManager.getReferencesFrom(addr);
-
-						List<ObjectNode> refs = Arrays.stream(refIter)
-								.map(ref -> {
-									ObjectNode refNode = IGhidraMcpSpecification.mapper.createObjectNode();
-									refNode.put("fromAddress", ref.getFromAddress().toString());
-									refNode.put("toAddress", ref.getToAddress().toString());
-									refNode.put("type", ref.getReferenceType().getName());
-									return refNode;
-								})
-								.collect(Collectors.toList());
-
-						try {
-							return Mono.just(new CallToolResult(
-									IGhidraMcpSpecification.mapper.writeValueAsString(refs), false));
-						} catch (JsonProcessingException e) {
-							Msg.error(this, "Error serializing xrefs to JSON", e);
-							return Mono.just(new CallToolResult("Error serializing xrefs to JSON", true));
-						}
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(IGhidraMcpSpecification.mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("address",
+				JsonSchemaBuilder.string(IGhidraMcpSpecification.mapper)
+						.description("The source address to find cross-references from (e.g., '0x1004010')."));
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target.");
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("address");
 
-			ObjectNode addressProp = properties.putObject("address");
-			addressProp.put("type", "string");
-			addressProp.put("description", "The address to find references from.");
+		return schemaRoot.build();
+	}
 
-			schemaRoot.putArray("required").add("fileName").add("address");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String addressStr = getRequiredStringArgument(args, "address");
+			Address addr = program.getAddressFactory().getAddress(addressStr);
+			if (addr == null) {
+				return createErrorResult("Invalid address provided: " + addressStr);
+			}
+			ReferenceManager refManager = program.getReferenceManager();
+			Reference[] refsFrom = refManager.getReferencesFrom(addr);
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for get_xrefs_from tool", e);
-			return Optional.empty();
-		}
+			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			final String finalCursor = cursor;
+
+			List<GhidraReferenceInfo> limitedRefs = Arrays.stream(refsFrom)
+					.sorted(Comparator.comparing(ref -> ref.getToAddress().toString()))
+					.dropWhile(ref -> finalCursor != null && ref.getToAddress().toString().compareTo(finalCursor) <= 0)
+					.limit(DEFAULT_PAGE_LIMIT + 1)
+					.map(GhidraReferenceInfo::new)
+					.collect(Collectors.toList());
+
+			boolean hasMore = limitedRefs.size() > DEFAULT_PAGE_LIMIT;
+			List<GhidraReferenceInfo> pageResults = limitedRefs.subList(0,
+					Math.min(limitedRefs.size(), DEFAULT_PAGE_LIMIT));
+
+			String nextCursor = null;
+			if (hasMore && !pageResults.isEmpty()) {
+				nextCursor = pageResults.get(pageResults.size() - 1).getToAddress();
+			}
+
+			PaginatedResult<GhidraReferenceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			return createSuccessResult(paginatedResult);
+
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

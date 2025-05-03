@@ -1,93 +1,88 @@
 package com.themixednuts.tools.functions;
 
-import java.util.Optional;
+import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.framework.model.Project;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Rename Function by Address", category = "Functions", description = "Enable the MCP tool to rename a function by address.", mcpName = "rename_function_by_address", mcpDescription = "Rename a function, identifying it by its memory address and specifying the desired new name.")
+@GhidraMcpTool(key = "Rename Function By Address", category = "Functions", description = "Renames a function identified by its address.", mcpName = "rename_function_by_address", mcpDescription = "Finds a function by its entry point address and renames it.")
 public class GhidraRenameFunctionByAddressTool implements IGhidraMcpSpecification {
-	public GhidraRenameFunctionByAddressTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
+			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						String addressStr = getRequiredStringArgument(args, "address");
-						Address addr = program.getAddressFactory().getAddress(addressStr);
-						Function function = program.getFunctionManager().getFunctionAt(addr);
-
-						if (function == null) {
-							return Mono.just(new CallToolResult("Error: Function not found at address: " + addressStr, true));
-						}
-						String newName = getRequiredStringArgument(args, "newName");
-
-						CallToolResult result = executeInTransaction(program, "Rename Function: " + function.getName(), () -> {
-							function.setName(newName, SourceType.USER_DEFINED);
-							return new CallToolResult("Function renamed successfully.", false);
-						});
-
-						return Mono.just(result);
-
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("address",
+				JsonSchemaBuilder.string(mapper)
+						.description("The entry point address of the function to rename (e.g., '0x1004010')."));
+		schemaRoot.property("newName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The new name for the function."));
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target.");
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("address")
+				.requiredProperty("newName");
 
-			ObjectNode addressProp = properties.putObject("address");
-			addressProp.put("type", "string");
-			addressProp.put("description", "The memory address of the function to rename.");
+		return schemaRoot.build();
+	}
 
-			ObjectNode newNameProp = properties.putObject("newName");
-			newNameProp.put("type", "string");
-			newNameProp.put("description", "The new name for the function.");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String addressStr = getRequiredStringArgument(args, "address");
+			String newName = getRequiredStringArgument(args, "newName");
 
-			schemaRoot.putArray("required").add("fileName").add("address").add("newName");
+			Address addr = program.getAddressFactory().getAddress(addressStr);
+			if (addr == null) {
+				return createErrorResult("Invalid address format (could not parse address): " + addressStr);
+			}
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for rename_function_by_address tool", e);
-			return Optional.empty();
-		}
+			Function function = program.getFunctionManager().getFunctionAt(addr);
+			if (function == null) {
+				return createErrorResult("Error: No function found at address " + addressStr);
+			}
+
+			return executeInTransaction(program, "Rename Function: " + newName, () -> {
+				function.setName(newName, SourceType.USER_DEFINED);
+				return createSuccessResult("Function renamed successfully to " + newName);
+			});
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

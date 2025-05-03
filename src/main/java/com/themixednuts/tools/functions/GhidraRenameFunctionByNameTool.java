@@ -1,96 +1,91 @@
 package com.themixednuts.tools.functions;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.framework.model.Project;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.database.symbol.FunctionSymbol;
 
-@GhidraMcpTool(key = "Rename Function by Name", category = "Functions", description = "Enable the MCP tool to rename a function by name.", mcpName = "rename_function_by_name", mcpDescription = "Rename a function, identifying it by its current name and specifying the desired new name.")
+@GhidraMcpTool(key = "Rename Function By Name", category = "Functions", description = "Renames a function identified by its current name.", mcpName = "rename_function_by_name", mcpDescription = "Finds a function by its current name and renames it.")
 public class GhidraRenameFunctionByNameTool implements IGhidraMcpSpecification {
-	public GhidraRenameFunctionByNameTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
+			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						String functionName = getRequiredStringArgument(args, "oldName");
-						String newName = getRequiredStringArgument(args, "newName");
-
-						Optional<Function> targetFunction = StreamSupport
-								.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
-								.filter(f -> f.getName().equals(functionName))
-								.findFirst();
-
-						if (targetFunction.isEmpty()) {
-							return Mono.just(new CallToolResult("Error: Function '" + functionName + "' not found.", true));
-						}
-
-						CallToolResult result = executeInTransaction(program, "Rename Function: " + functionName, () -> {
-							targetFunction.get().setName(newName, SourceType.USER_DEFINED);
-							return new CallToolResult("Function renamed successfully.", false);
-						});
-
-						return Mono.just(result);
-
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("currentName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The current name of the function to rename."));
+		schemaRoot.property("newName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The new name for the function."));
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target.");
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("currentName")
+				.requiredProperty("newName");
 
-			ObjectNode oldNameProp = properties.putObject("oldName");
-			oldNameProp.put("type", "string");
-			oldNameProp.put("description", "The current name of the function to rename.");
+		return schemaRoot.build();
+	}
 
-			ObjectNode newNameProp = properties.putObject("newName");
-			newNameProp.put("type", "string");
-			newNameProp.put("description", "The new name for the function.");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String currentFunctionName = getRequiredStringArgument(args, "currentName");
+			String newName = getRequiredStringArgument(args, "newName");
 
-			schemaRoot.putArray("required").add("fileName").add("oldName").add("newName");
+			Optional<Function> targetFunctionOpt = StreamSupport
+					.stream(program.getSymbolTable().getSymbolIterator(currentFunctionName, true).spliterator(), false)
+					.filter(symbol -> symbol instanceof FunctionSymbol)
+					.map(symbol -> (Function) symbol.getObject())
+					.findFirst();
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for rename_function_by_name tool", e);
-			return Optional.empty();
-		}
+			if (targetFunctionOpt.isEmpty()) {
+				return createErrorResult("Error: Function '" + currentFunctionName + "' not found.");
+			}
+			Function targetFunction = targetFunctionOpt.get();
+
+			return executeInTransaction(program, "Rename Function: " + newName, () -> {
+				targetFunction.setName(newName, SourceType.USER_DEFINED);
+				return createSuccessResult("Function renamed successfully to " + newName);
+			});
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

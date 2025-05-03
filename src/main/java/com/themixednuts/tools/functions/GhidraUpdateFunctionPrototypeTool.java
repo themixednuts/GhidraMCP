@@ -1,114 +1,128 @@
 package com.themixednuts.tools.functions;
 
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
-import ghidra.app.util.parser.FunctionSignatureParser;
-import ghidra.framework.model.Project;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.app.services.DataTypeQueryService;
+import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.program.model.data.FunctionDefinitionDataType;
-import ghidra.program.model.data.ProgramBasedDataTypeManager;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
-import ghidra.util.Swing;
-import ghidra.util.task.ConsoleTaskMonitor;
+import io.modelcontextprotocol.spec.McpSchema.LoggingLevel;
+import io.modelcontextprotocol.spec.McpSchema.LoggingMessageNotification;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Update Function Prototype", category = "Functions", description = "Enable the MCP tool to update the prototype of a function.", mcpName = "update_function_prototype", mcpDescription = "Modify the function signature (prototype) of a function located at a specific address using a C-style declaration string.")
+@GhidraMcpTool(key = "Update Function Prototype", category = "Functions", description = "Updates the prototype (signature) of a function.", mcpName = "update_function_prototype", mcpDescription = "Updates the function signature (return type, parameters, calling convention) based on a provided prototype string.")
 public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecification {
-	public GhidraUpdateFunctionPrototypeTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
+			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						String functionAddressStr = getRequiredStringArgument(args, "functionAddress");
-						String prototype = getRequiredStringArgument(args, "prototype");
-
-						Address functionAddress = program.getAddressFactory().getAddress(functionAddressStr);
-						Function function = program.getFunctionManager().getFunctionAt(functionAddress);
-						if (function == null) {
-							return Mono.just(new CallToolResult("Function not found", true));
-						}
-
-						AtomicReference<CallToolResult> result = new AtomicReference<>();
-						Swing.runNow(() -> {
-
-							int txId = -1;
-							boolean success = false;
-
-							try {
-								txId = program.startTransaction("Update Function Prototype");
-								ProgramBasedDataTypeManager dtm = program.getDataTypeManager();
-								FunctionSignatureParser parser = new FunctionSignatureParser(dtm, null);
-
-								FunctionDefinitionDataType sig = parser.parse(null, prototype);
-								if (sig == null) {
-									throw new Exception("Failed to parse function prototype");
-								}
-
-								ApplyFunctionSignatureCmd cmd = new ApplyFunctionSignatureCmd(functionAddress, sig,
-										SourceType.USER_DEFINED);
-								success = cmd.applyTo(program, new ConsoleTaskMonitor());
-							} catch (Exception e) {
-								Msg.error(this, "Error updating function prototype", e);
-								result.set(new CallToolResult("Error updating function prototype", true));
-							} finally {
-								program.endTransaction(txId, success);
-							}
-
-						});
-
-						return Mono.just(new CallToolResult("Function prototype updated", false));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			schemaRoot.putObject("properties");
-			ObjectNode fileNameProp = schemaRoot.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target");
-			ObjectNode functionAddressProp = schemaRoot.putObject("functionAddress");
-			functionAddressProp.put("type", "string");
-			functionAddressProp.put("description", "The address of the function to update the prototype of");
-			ObjectNode prototypeProp = schemaRoot.putObject("prototype");
-			prototypeProp.put("type", "string");
-			prototypeProp.put("description", "The new prototype of the function");
-			schemaRoot.putArray("required").add("fileName").add("functionAddress").add("prototype");
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for update_function_prototype tool", e);
-			return Optional.empty();
-		}
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("functionAddress",
+				JsonSchemaBuilder.string(mapper)
+						.description("The address of the function entry point (e.g., '0x1004010')."));
+		schemaRoot.property("prototype",
+				JsonSchemaBuilder.string(mapper)
+						.description("The new function prototype string (e.g., 'void FUN_00401000(int param1, char *param2)')."));
+
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("functionAddress")
+				.requiredProperty("prototype");
+
+		return schemaRoot.build();
+	}
+
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String addressString = getRequiredStringArgument(args, "functionAddress");
+			String newPrototypeString = getRequiredStringArgument(args, "prototype");
+
+			Address functionAddress = program.getAddressFactory().getAddress(addressString);
+			if (functionAddress == null) {
+				return createErrorResult("Invalid function address format: " + addressString);
+			}
+
+			Function targetFunction = program.getFunctionManager().getFunctionAt(functionAddress);
+			if (targetFunction == null) {
+				return createErrorResult("Error: Function not found at address '" + addressString + "'.");
+			}
+
+			ex.loggingNotification(LoggingMessageNotification.builder()
+					.level(LoggingLevel.INFO)
+					.logger(this.getClass().getSimpleName())
+					.data("Attempting to update prototype for " + targetFunction.getName() + " at " + addressString
+							+ " with signature: " + newPrototypeString)
+					.build());
+
+			return executeInTransaction(program,
+					"MCP - Update Function Prototype: " + targetFunction.getName(),
+					() -> {
+						DataTypeManager dtm = program.getDataTypeManager();
+						DataTypeQueryService service = tool.getService(DataTypeQueryService.class);
+						if (service == null) {
+							return createErrorResult("DataTypeQueryService not available.");
+						}
+						FunctionSignatureParser parser = new FunctionSignatureParser(dtm, service);
+
+						FunctionDefinitionDataType parsedSignature = parser.parse(targetFunction.getSignature(),
+								newPrototypeString);
+
+						ApplyFunctionSignatureCmd cmd = new ApplyFunctionSignatureCmd(
+								functionAddress,
+								parsedSignature,
+								SourceType.USER_DEFINED);
+
+						GhidraMcpTaskMonitor mcpMonitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+
+						if (!cmd.applyTo(program, mcpMonitor)) {
+							String errorMsg = "Failed to apply signature: " + cmd.getStatusMsg();
+							return createErrorResult(errorMsg);
+						}
+
+						return createSuccessResult("Function prototype updated successfully for " + targetFunction.getName());
+
+					});
+
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

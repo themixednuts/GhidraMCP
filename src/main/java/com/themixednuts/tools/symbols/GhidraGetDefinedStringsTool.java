@@ -1,20 +1,26 @@
 package com.themixednuts.tools.symbols;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import java.util.Optional;
+import java.util.Comparator;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraDataInfo;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.framework.model.Project;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Listing;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -28,102 +34,86 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(ghidra.framework.plugintool.PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
 			return null; // Signal failure
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						Listing listing = program.getListing();
-
-						Address cursor = getOptionalStringArgument(args, "cursor").map(program.getAddressFactory()::getAddress)
-								.orElse(null);
-						Optional<String> filter = getOptionalStringArgument(args, "filter");
-						Optional<Integer> minLength = getOptionalIntArgument(args, "minLength");
-
-						List<Data> dataNodes = StreamSupport.stream(listing.getDefinedData(true).spliterator(), false)
-								.filter(Data::hasStringValue)
-								.filter(data -> minLength.isEmpty() || data.getDefaultValueRepresentation().length() >= minLength.get())
-								.filter(data -> filter.isEmpty()
-										|| data.getDefaultValueRepresentation().toLowerCase().contains(filter.get().toLowerCase()))
-								.dropWhile(data -> cursor != null && data.getAddress().compareTo(cursor) <= 0)
-								.limit(PAGE_SIZE + 1)
-								.collect(Collectors.toList());
-
-						boolean hasMore = dataNodes.size() > PAGE_SIZE;
-						int actualPageSize = Math.min(dataNodes.size(), PAGE_SIZE);
-						dataNodes = dataNodes.subList(0, actualPageSize);
-
-						List<ObjectNode> pageNodes = dataNodes.stream().map(data -> {
-							ObjectNode dataNode = IGhidraMcpSpecification.mapper.createObjectNode();
-							dataNode.put("label", data.getLabel());
-							dataNode.put("address", data.getAddress().toString());
-							dataNode.put("value", data.getDefaultValueRepresentation());
-							dataNode.put("type", data.getDataType().getDisplayName());
-							return dataNode;
-						}).collect(Collectors.toList());
-
-						Address nextCursor = hasMore ? dataNodes.stream()
-								.map(Data::getAddress)
-								.max(Address::compareTo)
-								.orElse(null) : null;
-
-						ObjectNode result = IGhidraMcpSpecification.mapper.createObjectNode();
-						result.set("results", IGhidraMcpSpecification.mapper.valueToTree(pageNodes));
-						if (nextCursor != null) {
-							result.put("nextCursor", nextCursor.toString());
-						}
-
-						try {
-							return Mono.just(new CallToolResult(IGhidraMcpSpecification.mapper.writeValueAsString(result), false));
-						} catch (JsonProcessingException e) {
-							Msg.error(this, "Error serializing data nodes to JSON", e);
-							return Mono.just(new CallToolResult("Error serializing data nodes to JSON", true));
-						}
-
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage(), e);
-						return Mono.just(new CallToolResult(e.getClass().getSimpleName() + ": " + e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("minLength",
+				JsonSchemaBuilder.integer(mapper)
+						.description("Optional minimum length for strings to be included.")
+						.minimum(1)); // Add minimum constraint
+		schemaRoot.property("filter",
+				JsonSchemaBuilder.string(mapper)
+						.description("Optional filter to apply to the strings."));
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target.");
+		schemaRoot.requiredProperty("fileName");
+		// minLength, filter, cursor are optional
 
-			ObjectNode minLengthProp = properties.putObject("minLength");
-			minLengthProp.put("type", "integer");
-			minLengthProp.put("description", "Optional minimum length for strings to be included.");
+		return schemaRoot.build();
+	}
 
-			ObjectNode filterProp = properties.putObject("filter");
-			filterProp.put("type", "string");
-			filterProp.put("description", "Optional filter for strings to be included (ie search term).");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args,
+			ghidra.framework.plugintool.PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			Listing listing = program.getListing();
+			Optional<String> cursorOpt = getOptionalStringArgument(args, "cursor");
+			Address cursor = null;
+			if (cursorOpt.isPresent()) {
+				cursor = program.getAddressFactory().getAddress(cursorOpt.get());
+			}
+			final Address finalCursor = cursor;
 
-			schemaRoot.putArray("required").add("fileName");
+			Optional<String> filterOpt = getOptionalStringArgument(args, "filter");
+			Optional<Integer> minLengthOpt = getOptionalIntArgument(args, "minLength");
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for get_defined_strings tool", e);
-			return Optional.empty();
-		}
+			List<Data> limitedData = StreamSupport.stream(listing.getDefinedData(true).spliterator(), false)
+					.filter(Data::hasStringValue)
+					.filter(data -> minLengthOpt.isEmpty() || data.getDefaultValueRepresentation().length() >= minLengthOpt.get())
+					.filter(data -> filterOpt.isEmpty()
+							|| data.getDefaultValueRepresentation().toLowerCase().contains(filterOpt.get().toLowerCase()))
+					.sorted(Comparator.comparing(Data::getAddress))
+					.dropWhile(data -> finalCursor != null && data.getAddress().compareTo(finalCursor) <= 0)
+					.limit(PAGE_SIZE + 1)
+					.collect(Collectors.toList());
+
+			boolean hasMore = limitedData.size() > PAGE_SIZE;
+			int actualPageSize = Math.min(limitedData.size(), PAGE_SIZE);
+			List<Data> pageData = limitedData.subList(0, actualPageSize);
+
+			List<GhidraDataInfo> pageResults = pageData.stream()
+					.map(GhidraDataInfo::new)
+					.collect(Collectors.toList());
+
+			String nextCursor = null;
+			if (hasMore && !pageResults.isEmpty()) {
+				nextCursor = pageResults.get(pageResults.size() - 1).getAddress().toString();
+			}
+
+			PaginatedResult<GhidraDataInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			return createSuccessResult(paginatedResult);
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

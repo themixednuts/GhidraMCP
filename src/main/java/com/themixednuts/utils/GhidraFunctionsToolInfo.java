@@ -1,15 +1,25 @@
 package com.themixednuts.utils;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class GhidraFunctionsToolInfo {
+	@JsonProperty("name")
 	private final String name;
+	@JsonProperty("address")
 	private final String address;
+	@JsonProperty("signature")
 	private final String signature;
+	@JsonProperty("calling_convention")
 	private final String callingConvention;
+	@JsonProperty("namespace")
 	private final String namespace;
+	@JsonProperty("body_min_address")
 	private final String bodyMinAddress;
+	@JsonProperty("body_max_address")
 	private final String bodyMaxAddress;
 
 	public GhidraFunctionsToolInfo(Function function) {

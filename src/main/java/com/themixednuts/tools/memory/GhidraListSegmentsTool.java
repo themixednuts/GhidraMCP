@@ -1,74 +1,74 @@
 package com.themixednuts.tools.memory;
 
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.Optional;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraMemoryBlockInfo;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.framework.model.Project;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Memory Segments", category = "Memory", description = "Enable the MCP tool to list memory segments in a file.", mcpName = "list_memory_segments", mcpDescription = "List the names of all defined memory segments (blocks, like .text, .data, .bss) within the specified program.")
+@GhidraMcpTool(key = "List Segments", category = "Memory", description = "Lists memory segments (blocks) in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory segments (name, addresses, size, permissions) defined in the program.")
 public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 	public GhidraListSegmentsTool() {
 	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null; // Signal failure
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						return Mono.just(new CallToolResult(
-								String.join("\n",
-										Arrays.stream(program.getMemory().getBlocks())
-												.map(MemoryBlock::getName)
-												.collect(Collectors.toList())),
-								false));
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.requiredProperty("fileName");
+		return schemaRoot.build();
+	}
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			MemoryBlock[] blocks = program.getMemory().getBlocks();
 
-			schemaRoot.putArray("required").add("fileName");
+			List<GhidraMemoryBlockInfo> blockInfos = Arrays.stream(blocks)
+					.map(GhidraMemoryBlockInfo::new)
+					.sorted(Comparator.comparing(GhidraMemoryBlockInfo::getStartAddress))
+					.collect(Collectors.toList());
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for list_memory_segments tool", e);
-			return Optional.empty();
-		}
+			return createSuccessResult(blockInfos);
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 }

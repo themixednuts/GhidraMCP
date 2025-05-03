@@ -19,73 +19,132 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 
+// Import the service interface
+import com.themixednuts.services.IGhidraMcpToolProvider;
+
+/**
+ * Manages the lifecycle of the embedded Jetty server and the MCP Async Server.
+ * Handles starting, stopping, restarting, and reference counting for the server
+ * components, ensuring they align with the Ghidra plugin and project context.
+ */
 public class GhidraMcpServer {
-	private static Server jettyServer = null; // Jetty server instance
+	/** The embedded Jetty Server instance. */
+	private static Server jettyServer = null;
+	/** The MCP Async Server instance responsible for MCP logic. */
 	private static McpAsyncServer mcpAsyncServer = null;
-	private static GhidraMcpTools mcpTools = null;
-	private static HttpServletSseServerTransportProvider transportProvider = null; // Hold the transport provider
+	/** The MCP transport provider (Servlet) that bridges MCP and HTTP SSE. */
+	private static HttpServletSseServerTransportProvider transportProvider = null;
 
+	/** Synchronization lock for managing server state and reference counting. */
 	private static final Object lock = new Object();
+	/**
+	 * Reference counter to manage server lifecycle across multiple plugin
+	 * instances.
+	 */
 	private static final AtomicInteger refCount = new AtomicInteger(0);
-	private static final String MCP_PATH_SPEC = "/*"; // Path for Jetty to map the servlet
+	/** The HTTP path spec where the MCP transport servlet will be mounted. */
+	private static final String MCP_PATH_SPEC = "/*";
+	/** The last known active Ghidra project, used for change detection. */
 	private static Project project;
+	/**
+	 * Reference to the PluginTool, used for accessing services and project context.
+	 */
+	private static PluginTool currentTool;
 
+	/**
+	 * Starts the MCP server if it's not already running.
+	 * This method is reference-counted; the actual server startup only occurs when
+	 * the count transitions from 0 to 1.
+	 * It also handles project change detection, forcing a restart if the active
+	 * project differs from the one the server was previously running with.
+	 *
+	 * @param port The port number for the embedded HTTP server.
+	 * @param tool The Ghidra {@link PluginTool} providing the context (project,
+	 *             services).
+	 */
 	public static void start(int port, PluginTool tool) {
 		synchronized (lock) {
 			Project currentProject = tool.getProject();
 
+			// Store tool reference for restarts and service access
+			currentTool = tool;
+
+			// Handle project changes: If the project context differs, force a full restart.
 			if (currentProject != null && !currentProject.equals(project)) {
-				Msg.info(GhidraMcpServer.class, "Project changed to " + currentProject.getName());
+				Msg.info(GhidraMcpServer.class,
+						"Project changed to " + currentProject.getName() + ". Forcing MCP server restart.");
 				project = currentProject;
-				GhidraMcpServer.stop();
+				stop(); // Force stop and cleanup
+				refCount.set(0); // Reset ref count for a clean start
 			}
 
 			if (refCount.incrementAndGet() == 1) {
+				// First reference - perform actual startup
 				if (project == null) {
-					Msg.error(GhidraMcpServer.class, "Project is null");
-					return;
+					project = currentProject; // Ensure project field is initialized
+					if (project == null) {
+						Msg.error(GhidraMcpServer.class,
+								"Project is null and could not be retrieved from tool. MCP Server cannot start.");
+						refCount.decrementAndGet(); // Abort startup
+						return;
+					}
 				}
 
-				Msg.info(GhidraMcpServer.class, "Starting MCP Server on port " + port);
+				Msg.info(GhidraMcpServer.class, "Starting MCP Server on port " + port + " for project " + project.getName());
 				try {
-					// 1. Create the Transport Provider (Servlet)
+					// Create the Transport Provider (Servlet)
 					transportProvider = new HttpServletSseServerTransportProvider(
-							new ObjectMapper(), "/mcp/message"); // Internal MCP path
+							new ObjectMapper(), "/mcp/message");
 
-					// 2. Create MCP Server Logic
-					mcpTools = new GhidraMcpTools(project);
+					// Get the Tool Provider Service
+					IGhidraMcpToolProvider toolProvider = tool.getService(IGhidraMcpToolProvider.class);
+					if (toolProvider == null) {
+						Msg.error(GhidraMcpServer.class,
+								"Fatal: Could not retrieve IGhidraMcpToolProvider service! MCP Server cannot start.");
+						refCount.decrementAndGet(); // Abort startup
+						cleanUpResources();
+						return;
+					}
+
+					// Create MCP Server Logic
 					mcpAsyncServer = McpServer.async(transportProvider)
 							.serverInfo("ghidra-mcp", "1.0.0")
 							.capabilities(ServerCapabilities.builder()
 									.tools(true)
 									.logging()
 									.build())
-							.tools(mcpTools.getTools())
+							// Get tools via the service
+							.tools(toolProvider.getAvailableToolSpecifications())
 							.build();
 
-					// 3. Create and Configure Jetty Server
+					// Create and Configure Jetty Server
 					startJettyServer(port);
 
 				} catch (JsonProcessingException e) {
-					Msg.error(GhidraMcpServer.class, "MCP Server JSON configuration error: " + e.getMessage(), e);
-					// Decrement ref count as startup failed
-					refCount.decrementAndGet();
-					cleanUpResources(); // Attempt cleanup
-				} catch (Exception e) {
-					Msg.error(GhidraMcpServer.class, "Failed to start Jetty server: " + e.getMessage(), e);
-					// Decrement ref count as startup failed
-					refCount.decrementAndGet();
-					cleanUpResources(); // Attempt cleanup
+					Msg.error(GhidraMcpServer.class, "MCP Server JSON configuration error during startup: " + e.getMessage(), e);
+					refCount.decrementAndGet(); // Abort startup
+					cleanUpResources();
+				} catch (Exception e) { // Catch broader exceptions (e.g., from getAvailableToolSpecifications)
+					Msg.error(GhidraMcpServer.class, "Failed to start MCP server components: " + e.getMessage(), e);
+					refCount.decrementAndGet(); // Abort startup
+					cleanUpResources();
 				}
 			} else {
-				Msg.info(GhidraMcpServer.class, "MCP Server already running or starting (refCount=" + refCount.get() + ").");
+				Msg.info(GhidraMcpServer.class,
+						"MCP Server already running or starting (refCount=" + refCount.get() + "). Incrementing reference count.");
 			}
 		}
 	}
 
+	/**
+	 * Initializes and starts the embedded Jetty server on the specified port,
+	 * binding only to localhost.
+	 * Configures the MCP transport servlet.
+	 *
+	 * @param port The port number for the Jetty server.
+	 */
 	private static void startJettyServer(int port) {
 		try {
-
 			jettyServer = new Server();
 
 			// Configure Connector
@@ -96,59 +155,118 @@ public class GhidraMcpServer {
 
 			// Configure Servlet Handler
 			ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
-			context.setContextPath("/"); // Root context path
-
-			// Add the MCP Transport Provider Servlet to Jetty
+			context.setContextPath("/");
 			context.addServlet(new ServletHolder(transportProvider), MCP_PATH_SPEC);
-
 			jettyServer.setHandler(context);
 
-			// 4. Start Jetty
+			// Start Jetty
 			jettyServer.start();
 			Msg.info(GhidraMcpServer.class, "Jetty server started successfully at http://127.0.0.1:" + port + "/");
 
 		} catch (Exception e) {
-			Msg.error(GhidraMcpServer.class, "Failed to start Jetty server: " + e.getMessage(), e);
+			Msg.error(GhidraMcpServer.class, "Failed to start Jetty server on port " + port + ": " + e.getMessage(), e);
+			// Ensure resources are cleaned up if Jetty fails to start
+			cleanUpResources();
 		}
 	}
 
+	/**
+	 * Restarts only the Jetty server component, typically used for port changes.
+	 * Stops the existing Jetty instance (if running) and starts a new one on the
+	 * specified port.
+	 *
+	 * @param port The new port number for the Jetty server.
+	 */
 	public static void restartJettyServer(int port) {
-		Msg.info(GhidraMcpServer.class, "Restarting Jetty server...");
+		Msg.info(GhidraMcpServer.class, "Restarting Jetty server on port " + port + "...");
 		if (jettyServer != null) {
 			try {
 				jettyServer.stop();
-				Msg.info(GhidraMcpServer.class, "Jetty server stopped.");
+				Msg.info(GhidraMcpServer.class, "Previous Jetty server instance stopped.");
 			} catch (Exception e) {
-				Msg.error(GhidraMcpServer.class, "Failed to stop Jetty server: " + e.getMessage(), e);
-				return;
+				Msg.error(GhidraMcpServer.class, "Failed to stop existing Jetty server during restart: " + e.getMessage(), e);
+				// Attempt to continue starting the new server anyway, but log the error.
 			}
 		}
+		// Start new Jetty instance
 		startJettyServer(port);
 	}
 
+	/**
+	 * Performs a full restart of the MCP server (both MCP logic and Jetty).
+	 * Used when configuration changes (like tool enablement) require reloading.
+	 * Relies on the stored {@code currentTool} reference to re-initiate the start
+	 * sequence.
+	 *
+	 * @param port The port number to restart the server on.
+	 */
+	public static void restartMcpServer(int port) {
+		synchronized (lock) {
+			if (currentTool == null) {
+				Msg.error(GhidraMcpServer.class,
+						"Cannot restart MCP server: PluginTool reference missing. Server may not have started correctly or was already stopped.");
+				return;
+			}
+			Msg.info(GhidraMcpServer.class, "Performing full MCP Server restart due to configuration change...");
+			// Stop everything cleanly
+			cleanUpResources();
+			// Reset refCount to ensure start logic runs fully
+			refCount.set(0);
+			// Start again with current tool reference (server will get service)
+			start(port, currentTool);
+			Msg.info(GhidraMcpServer.class, "MCP Server restart complete.");
+		}
+	}
+
+	/**
+	 * Decrements the reference count and stops the server if the count reaches
+	 * zero.
+	 * Called by the plugin during its dispose phase.
+	 */
 	public static void dispose() {
 		synchronized (lock) {
 			int count = refCount.decrementAndGet();
-			Msg.info(GhidraMcpServer.class, "dispose: " + count);
+			Msg.debug(GhidraMcpServer.class, "Dispose called, new reference count: " + count);
 			if (count == 0) {
-				Msg.info(GhidraMcpServer.class, "Stopping MCP Server...");
+				Msg.info(GhidraMcpServer.class, "Reference count reached zero. Stopping MCP Server...");
 				cleanUpResources();
-				Msg.info(GhidraMcpServer.class, "MCP Server stopped.");
+				// Also clear context fields when fully stopped
+				project = null;
+				currentTool = null;
+				Msg.info(GhidraMcpServer.class, "MCP Server stopped and context cleared.");
 			} else if (count < 0) {
-				Msg.warn(GhidraMcpServer.class, "Stop server called but refCount was already zero or negative.");
-				refCount.set(0); // Reset to zero just in case
+				Msg.warn(GhidraMcpServer.class,
+						"Dispose called but reference count was already zero or negative. Resetting count to zero.");
+				refCount.set(0); // Ensure count doesn't stay negative
+				// Clear context if it wasn't already
+				if (mcpAsyncServer != null || jettyServer != null) {
+					cleanUpResources();
+				}
+				project = null;
+				currentTool = null;
 			}
 		}
 	}
 
+	/**
+	 * Forces an immediate stop and cleanup of the server resources, resetting the
+	 * reference count.
+	 * Primarily used internally during project changes.
+	 */
 	public static void stop() {
 		synchronized (lock) {
+			Msg.info(GhidraMcpServer.class, "Forcing immediate stop of MCP server.");
 			cleanUpResources();
-			refCount.set(0); // Reset to zero just in case
+			refCount.set(0);
+			project = null; // Clear context on forced stop
+			currentTool = null;
 		}
 	}
 
-	// Helper method for cleanup
+	/**
+	 * Safely stops and nullifies server components (MCP Async Server and Jetty).
+	 * Logs errors if stopping fails but attempts to proceed.
+	 */
 	private static void cleanUpResources() {
 		// Stop MCP Async Server first
 		if (mcpAsyncServer != null) {
@@ -176,5 +294,6 @@ public class GhidraMcpServer {
 
 		// Nullify transport provider
 		transportProvider = null;
+		Msg.debug(GhidraMcpServer.class, "Server resources cleaned up.");
 	}
 }

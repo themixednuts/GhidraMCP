@@ -1,76 +1,98 @@
 package com.themixednuts.tools.symbols;
 
+import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import java.util.Optional;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraNamespaceInfo;
+import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.framework.model.Project;
 import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.Symbol;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "List Namespaces", category = "Symbols", description = "Enable the MCP tool to list namespaces in a file.", mcpName = "list_namespaces", mcpDescription = "List the names of all symbol namespaces (groupings for symbols like classes, functions, etc.) defined within the specified program.")
+@GhidraMcpTool(key = "List Namespaces", category = "Symbols", description = "Enable the MCP tool to list namespaces in a file.", mcpName = "list_namespaces", mcpDescription = "List the names of all symbol namespaces (groupings for symbols like classes, functions, etc.) defined within the specified program. Supports pagination.")
 public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
-	public GhidraListNamespacesTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						return Mono.just(new CallToolResult(
-								String.join("\n",
-										StreamSupport.stream(program.getSymbolTable().getAllSymbols(true).spliterator(), false)
-												.filter(symbol -> symbol instanceof Namespace)
-												.map(symbol -> ((Namespace) symbol).getName())
-												.collect(Collectors.toList())),
-								false));
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file to list namespaces from."));
+		schemaRoot.requiredProperty("fileName");
+		return schemaRoot.build();
+	}
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The file name of the Ghidra tool window to target");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
+			final String finalCursor = cursor;
 
-			schemaRoot.putArray("required").add("fileName");
+			List<Namespace> allNamespaces = StreamSupport
+					.stream(program.getSymbolTable().getSymbolIterator(true).spliterator(), false)
+					.map(Symbol::getParentNamespace)
+					.filter(ns -> ns != null && ns != program.getGlobalNamespace())
+					.distinct()
+					.collect(Collectors.toList());
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for list_namespaces tool", e);
-			return Optional.empty();
-		}
+			List<GhidraNamespaceInfo> limitedNamespaceInfos = allNamespaces.stream()
+					.sorted(Comparator.comparing(ns -> ns.getName(true)))
+					.dropWhile(ns -> finalCursor != null && ns.getName(true).compareTo(finalCursor) <= 0)
+					.limit(DEFAULT_PAGE_LIMIT + 1)
+					.map(GhidraNamespaceInfo::new)
+					.collect(Collectors.toList());
+
+			boolean hasMore = limitedNamespaceInfos.size() > DEFAULT_PAGE_LIMIT;
+			List<GhidraNamespaceInfo> pageResults = limitedNamespaceInfos.subList(0,
+					Math.min(limitedNamespaceInfos.size(), DEFAULT_PAGE_LIMIT));
+
+			String nextCursor = null;
+			if (hasMore && !pageResults.isEmpty()) {
+				nextCursor = pageResults.get(pageResults.size() - 1).getName();
+			}
+
+			PaginatedResult<GhidraNamespaceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			return createSuccessResult(paginatedResult);
+
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 
 }

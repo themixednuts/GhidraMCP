@@ -1,84 +1,76 @@
 package com.themixednuts.tools.projectmanagement;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.Project;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
-
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Files", category = "Project Management", description = "Enable the MCP tool to list project files.", mcpName = "list_open_programs", mcpDescription = "List the file names of all currently open programs within the active Ghidra project.")
+@GhidraMcpTool(key = "List Files", category = "Project Management", description = "Lists the files currently open in the Ghidra project.", mcpName = "list_open_files", mcpDescription = "Returns a list of files currently open in the Ghidra project.")
 public class GhidraListFilesTool implements IGhidraMcpSpecification {
-	// Removed project field
-	// private final Project project;
-
-	// Added public no-arg constructor (required by ServiceLoader when using
-	// provider.get())
 	public GhidraListFilesTool() {
 	}
 
-	// Removed constructor accepting Project
-	// public GhidraListFilesTool(Project project) {
-	// this.project = project;
-	// }
-
 	@Override
-	// Updated signature to accept Project
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					// Use the project parameter directly
-					if (project == null) {
-						return Mono.just(new CallToolResult("Error: Ghidra Project is not available.", true));
-					}
-					List<DomainFile> domainFiles = project.getOpenData();
-					String fileNames = String.join("\n", domainFiles.stream().map(DomainFile::getName).toArray(String[]::new));
-					return Mono.just(new CallToolResult(fileNames.isEmpty() ? "No programs currently open." : fileNames, false));
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of any open program file (used for context)."));
+		schemaRoot.requiredProperty("fileName");
+		return schemaRoot.build();
+	}
 
-			// Define properties... (if any, this one might have none besides base)
-			ObjectNode dummyProp = properties.putObject("random_string");
-			dummyProp.put("type", "string");
-			dummyProp.put("description", "Dummy parameter for no-parameter tools");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			ghidra.framework.model.Project project = tool.getProject();
+			if (project == null) {
+				return createErrorResult("Internal Error: Ghidra Project became unavailable unexpectedly.");
+			}
 
-			// Define required fields (if any)
-			// schemaRoot.putArray("required"); // No required fields for this tool
+			List<DomainFile> domainFiles = project.getOpenData();
+			List<String> fileNames = domainFiles.stream()
+					.map(DomainFile::getName)
+					.sorted()
+					.collect(Collectors.toList());
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Error creating schema for list_open_programs tool", e);
-			return Optional.empty();
-		}
+			return createSuccessResult(fileNames);
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 }

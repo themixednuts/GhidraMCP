@@ -1,88 +1,80 @@
 package com.themixednuts.tools.functions;
 
-import java.util.Optional;
+import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.GhidraFunctionsToolInfo;
-
-import ghidra.framework.model.Project;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Get Function Containing Location", category = "Functions", description = "Enable the MCP tool to get the function containing a given location.", mcpName = "get_function_containing_location", mcpDescription = "Identify and return details of the function that encompasses the specified memory address.")
+@GhidraMcpTool(key = "Get Function Containing Location", category = "Functions", description = "Finds the function that contains a given memory address.", mcpName = "get_function_containing_location", mcpDescription = "Returns details about the function that includes the specified memory address within its body.")
 public class GhidraGetFunctionContainingLocationTool implements IGhidraMcpSpecification {
-	public GhidraGetFunctionContainingLocationTool() {
-	}
 
 	@Override
-	public AsyncToolSpecification specification(Project project) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		Optional<String> schemaJson = schema();
-		if (schemaJson.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
+			return null;
 		}
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson.get()),
-				(ex, args) -> {
-					return getProgram(args, project).flatMap(program -> {
-						String addressStr = getRequiredStringArgument(args, "address");
-
-						Address addr = program.getAddressFactory().getAddress(addressStr);
-						Function func = program.getFunctionManager().getFunctionContaining(addr);
-						if (func == null) {
-							return Mono.just(new CallToolResult("No function at current location: " + addressStr, true));
-						}
-
-						try {
-							return Mono.just(new CallToolResult(
-									IGhidraMcpSpecification.mapper.writeValueAsString(new GhidraFunctionsToolInfo(func)),
-									false));
-						} catch (JsonProcessingException e) {
-							Msg.error(this, "Error serializing function info to JSON", e);
-							return Mono.just(new CallToolResult("Error serializing function info to JSON", true));
-						}
-					}).onErrorResume(e -> {
-						Msg.error(this, e.getMessage());
-						return Mono.just(new CallToolResult(e.getMessage(), true));
-					});
-				});
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public Optional<String> schema() {
-		try {
-			ObjectNode schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-			ObjectNode properties = schemaRoot.putObject("properties");
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property("address",
+				JsonSchemaBuilder.string(mapper)
+						.description("The memory address to check (e.g., '0x1004050')."));
 
-			ObjectNode fileNameProp = properties.putObject("fileName");
-			fileNameProp.put("type", "string");
-			fileNameProp.put("description", "The name of the Ghidra tool window to target");
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("address");
 
-			ObjectNode addressProp = properties.putObject("address");
-			addressProp.put("type", "string");
-			addressProp.put("description", "The address to get the function containing");
+		return schemaRoot.build();
+	}
 
-			schemaRoot.putArray("required").add("fileName").add("address");
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String addressStr = getRequiredStringArgument(args, "address");
 
-			return Optional.of(IGhidraMcpSpecification.mapper.writeValueAsString(schemaRoot));
-		} catch (JsonProcessingException e) {
-			Msg.error(this, "Failed to generate schema for get_current_function tool. Tool will be disabled.");
-			return Optional.empty();
-		}
+			Address addr = program.getAddressFactory().getAddress(addressStr);
+			if (addr == null) {
+				return createErrorResult("Invalid address format (could not parse address): " + addressStr);
+			}
+
+			Function func = program.getFunctionManager().getFunctionContaining(addr);
+			if (func == null) {
+				return createErrorResult("No function found containing address: " + addressStr);
+			}
+
+			GhidraFunctionsToolInfo functionInfo = new GhidraFunctionsToolInfo(func);
+			return createSuccessResult(functionInfo);
+
+		}).onErrorResume(e -> {
+			return createErrorResult(e);
+		});
 	}
 }

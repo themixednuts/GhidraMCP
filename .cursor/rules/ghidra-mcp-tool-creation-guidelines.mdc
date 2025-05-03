@@ -1,0 +1,105 @@
+---
+description: 
+globs: src/main/java/com/themixednuts/tools/**/*.java
+alwaysApply: false
+---
+# Creating New Ghidra MCP Tools
+
+**Key Steps & Patterns:**
+
+1.  **Implement & Annotate:** Implement [IGhidraMcpSpecification.java](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) and add the [GhidraMcpTool.java](mdc:src/main/java/com/themixednuts/annotation/GhidraMcpTool.java) annotation (define `key`, `description`, `category`).
+2.  **Register Service:** Add the fully qualified class name to [com.themixednuts.tools.IGhidraMcpSpecification](mdc:src/main/resources/META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification).
+3.  **`specification(PluginTool tool)`:**
+    *   Return `AsyncToolSpecification` using the lambda format. Example:
+      ```java
+      // Inside specification(PluginTool tool)
+      GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+			if (annotation == null) {
+				Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
+				return null;
+			}
+
+      String schema = parseSchema(schema()).orElse(null);
+			if (schema == null) {
+						return null;
+			}			
+			
+      return new AsyncToolSpecification(
+          new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+          (ex, args) -> execute(ex, args, tool)
+      );
+      ```
+    *   Define input JSON schema via `schema()`. **Do NOT include `cursor` in the input schema.**
+4.  **`execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool)`:**
+    *   **Resource Initialization (if needed):** Initialize resources requiring explicit cleanup (like `DecompInterface decomp = new DecompInterface();`) *before* the main reactive chain (`getProgram(...)`).
+    *   **Main Chain:** Start with `getProgram(args, tool).flatMap(program -> { ... })`.
+    *   **Inside `flatMap` (Setup Phase):**
+        *   Parse arguments (`getRequired...`/`getOptional...`).
+        *   Perform synchronous Ghidra lookups and validations (e.g., find function, data type, check paths).
+        *   Handle *only truly essential* specific validation errors early using `return createErrorResult(...)` if the standard error from `.onErrorResume` would be insufficient (e.g., Object not found).
+        *   **Avoid `try-catch` blocks for argument parsing or standard setup steps, including constructor validation** (e.g., `new CategoryPath(...)` throwing `IllegalArgumentException`). Rely on the final `.onErrorResume` handler for these.
+    *   **Inside `executeInTransaction` Lambda (Modification Phase):**
+        *   Use `return executeInTransaction(program, "Transaction Name", () -> { ... });` if modifications are needed.
+        *   The lambda should *only* contain the Ghidra modification calls (e.g., `struct.add(...)`, `dataType.setName(...)`).
+        *   Return `createSuccessResult(data)` on success.
+        *   Handle *specific, expected* operational errors (e.g., `DuplicateNameException` on rename, `CodeUnitInsertionException` on apply type) with `try-catch` blocks *within the lambda* if a more specific error message is helpful. Return `createErrorResult("Specific error...")` from the `catch` block.
+        *   Do *not* add general `try-catch (Exception e)` blocks inside the transaction lambda; let `executeInTransaction` handle unexpected exceptions.
+    *   **Read-Only Operations:** If the tool is read-only (no `executeInTransaction`), perform the lookups/data gathering directly inside the `flatMap` and return `createSuccessResult(data)` at the end of the `flatMap` lambda.
+    *   **Error Handling (End of Chain):**
+        *   Use `createErrorResult(...)` helpers for returning errors (logs automatically).
+        *   Use `.onErrorResume(e -> createErrorResult(e))` **after** the main `flatMap` (and after `executeInTransaction` if used) to catch any unhandled errors from `getProgram`, the setup phase (including argument parsing), or the transaction itself.
+    *   **Resource Cleanup:** Use `.doFinally(signalType -> { ... })` at the very end of the chain to clean up resources (e.g., `decomp.dispose();`).
+    *   **Task Monitors:** Use `new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName())` when required by Ghidra commands (pass the `McpAsyncServerExchange` and logger name) [GhidraMcpTaskMonitor.java](mdc:src/main/java/com/themixednuts/utils/GhidraMcpTaskMonitor.java).
+5.  **Pagination (if returning large lists):**
+    *   Get the optional cursor:
+      ```java
+      Optional<String> cursorOpt = getOptionalStringArgument(args, "cursor");
+      String cursor = cursorOpt.orElse(null);
+      ```
+    *   Collect and limit items using the stream pattern:
+      ```java
+      List<PojoType> collectedItems = list.stream()
+          .sorted(Comparator.comparing(PojoType::getSortKey)) // Replace PojoType::getSortKey
+          .dropWhile(item -> cursor != null && item.getSortKey().compareTo(cursor) <= 0) // Replace getSortKey
+          .limit(DEFAULT_PAGE_LIMIT + 1)
+          .collect(Collectors.toList());
+      ```
+    *   Determine `hasMore` and get the sublist for the current page:
+      ```java
+      boolean hasMore = collectedItems.size() > DEFAULT_PAGE_LIMIT;
+      List<PojoType> resultsForPage = collectedItems.subList(0, Math.min(collectedItems.size(), DEFAULT_PAGE_LIMIT));
+      ```
+    *   Determine `nextCursor` (use the sort key of the *last* item on the current page):
+      ```java
+      String nextCursor = hasMore && !resultsForPage.isEmpty() 
+                           ? resultsForPage.get(resultsForPage.size() - 1).getSortKey() // Replace getSortKey 
+                           : null;
+      ```
+    *   Return the paginated result:
+      ```java
+      return createSuccessResult(new PaginatedResult<>(resultsForPage, nextCursor));
+      ```
+
+**Key Avoidances:**
+
+*   **Obvious Comments:** Avoid comments that merely restate what the code clearly shows. Focus comments on *why* something is done a certain way if it's non-trivial, or on complex logic.
+*   **General `try-catch`:** Do not use general `try-catch (Exception e)` blocks in the main reactive chain (`flatMap`) or within the `executeInTransaction` lambda.
+    *   For setup errors (including argument parsing and constructor validation like `new CategoryPath(...)` throwing `IllegalArgumentException`), rely on `.onErrorResume(e -> createErrorResult(e))` at the end of the chain. Only use an early `return createErrorResult(...)` in the `flatMap` for very specific checks where the context is crucial for the error message (e.g., confirming an object exists before proceeding).
+    *   For specific, *expected* operational errors *within the transaction lambda* (e.g., `DuplicateNameException`, `CodeUnitInsertionException`) where a tailored message significantly improves clarity over the default exception message, a targeted `try-catch` returning `createErrorResult(...)` is acceptable.
+*   Don't include `cursor` in the input schema definition.
+*   Don't use `PluginTool tool` parameter in `execute`, use `tool` provided by the service instead.
+*   Don't instantiate `CallToolResult` directly; use `createSuccessResult`/`createErrorResult`.
+*   Don't manually log errors when calling `createErrorResult` (it's handled internally).
+*   Don't return raw JSON/simple types if a POJO or `PaginatedResult` fits.
+*   Don't implement pagination manually.
+*   Don't modify program state outside `executeInTransaction`.
+*   Don't forget resource cleanup using `.doFinally`.
+*   Don't use `.block()` in the reactive chain.
+
+
+
+
+
+
+
+
