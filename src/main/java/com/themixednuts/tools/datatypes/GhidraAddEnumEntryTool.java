@@ -1,0 +1,98 @@
+package com.themixednuts.tools.datatypes;
+
+import java.util.Map;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.JsonSchemaBuilder;
+import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.util.Msg;
+import ghidra.program.model.data.*;
+
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
+
+import reactor.core.publisher.Mono;
+
+@GhidraMcpTool(key = "Add Enum Entry", category = "Data Types", description = "Enable the MCP tool to add an entry to an existing enum.", mcpName = "add_enum_entry", mcpDescription = "Adds a new name/value pair entry to an existing enum.")
+public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
+
+	@Override
+	public AsyncToolSpecification specification(PluginTool tool) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+		if (annotation == null) {
+			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
+			return null;
+		}
+
+		String schema = parseSchema(schema()).orElse(null);
+		if (schema == null) {
+			return null;
+		}
+
+		return new AsyncToolSpecification(
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				(ex, args) -> execute(ex, args, tool));
+	}
+
+	@Override
+	public ObjectNode schema() {
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property("fileName",
+				JsonSchemaBuilder.string(mapper).description("The file name of the Ghidra tool window to target"));
+		schemaRoot.property("enumPath", JsonSchemaBuilder.string(mapper)
+				.description("The full path of the enum to add the entry to (e.g., /MyCategory/MyEnum)"));
+		schemaRoot.property("entryName",
+				JsonSchemaBuilder.string(mapper).description("The name for the new enum entry"));
+		schemaRoot.property("entryValue",
+				JsonSchemaBuilder.integer(mapper).description("The integer value for the new enum entry"));
+		schemaRoot.property("entryComment",
+				JsonSchemaBuilder.string(mapper).description("Optional comment for the new enum entry"));
+		schemaRoot.requiredProperty("fileName").requiredProperty("enumPath").requiredProperty("entryName")
+				.requiredProperty("entryValue");
+
+		return schemaRoot.build();
+	}
+
+	@Override
+	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).flatMap(program -> {
+			String enumPathString = getRequiredStringArgument(args, "enumPath");
+			String entryName = getRequiredStringArgument(args, "entryName");
+			Long entryValue = getRequiredLongArgument(args, "entryValue"); // Use Map helper
+			String entryComment = getOptionalStringArgument(args, "entryComment").orElse(null);
+
+			DataTypeManager dtm = program.getDataTypeManager();
+			DataType dt = dtm.getDataType(enumPathString);
+
+			if (dt == null) {
+				return createErrorResult("Enum not found at path: " + enumPathString);
+			}
+			if (!(dt instanceof EnumDataType)) {
+				return createErrorResult("Data type at path is not an Enum: " + enumPathString);
+			}
+			final EnumDataType enumDt = (EnumDataType) dt; // Make final for lambda
+
+			// Now execute the modification within a transaction
+			return executeInTransaction(program, "MCP - Add Enum Entry", () -> {
+				// Inner Callable logic (now just the modification):
+
+				// Use add - it replaces entries with the same name OR value
+				enumDt.add(entryName, entryValue, entryComment);
+
+				// Use helper for success
+				return createSuccessResult("Enum entry '" + entryName + "' added successfully to " + enumPathString + ".");
+			}); // End of Callable for executeInTransaction
+
+		}).onErrorResume(e -> {
+			// Catch errors from getProgram or unexpected setup errors
+			// The helper now handles logging.
+			return createErrorResult(e); // Use helper directly
+		});
+	}
+}

@@ -1,28 +1,24 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.Map;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.JsonSchemaBuilder;
 import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.program.database.symbol.ClassSymbol;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import ghidra.program.model.data.*;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-import java.util.List;
-import java.util.stream.StreamSupport;
-import java.util.stream.Collectors;
-import java.util.Map;
-
-@GhidraMcpTool(key = "List Class Names", category = "Data Types", description = "Enable the MCP tool to list class names in a file.", mcpName = "list_classes", mcpDescription = "List the names of all classes (including namespaces if applicable) defined within the specified program. Supports pagination.")
-public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(key = "Rename Data Type", category = "Data Types", description = "Enable the MCP tool to rename an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames an existing data type (struct, enum, typedef, etc.) identified by its current path.")
+public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -31,7 +27,6 @@ public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
-
 		String schema = parseSchema(schema()).orElse(null);
 		if (schema == null) {
 			return null;
@@ -50,7 +45,17 @@ public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.requiredProperty("fileName");
+		schemaRoot.property("currentPath",
+				JsonSchemaBuilder.string(mapper)
+						.description("The current full path of the data type to rename (e.g., /MyCategory/MyOldName)"));
+
+		schemaRoot.property("newName",
+				JsonSchemaBuilder.string(mapper)
+						.description("The new name for the data type (without category path)."));
+
+		schemaRoot.requiredProperty("fileName")
+				.requiredProperty("currentPath")
+				.requiredProperty("newName");
 
 		return schemaRoot.build();
 	}
@@ -58,37 +63,28 @@ public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
-			final String finalCursor = cursor;
+			String currentPathString = getRequiredStringArgument(args, "currentPath");
+			final String newName = getRequiredStringArgument(args, "newName");
 
-			List<String> allClassNames = StreamSupport
-					.stream(program.getSymbolTable().getAllSymbols(true).spliterator(), false)
-					.filter(symbol -> symbol instanceof ClassSymbol)
-					.map(symbol -> ((ClassSymbol) symbol).getName(true))
-					.distinct()
-					.sorted()
-					.collect(Collectors.toList());
-
-			List<String> limitedClassNames = allClassNames.stream()
-					.dropWhile(name -> finalCursor != null && name.compareTo(finalCursor) <= 0)
-					.limit(DEFAULT_PAGE_LIMIT + 1)
-					.collect(Collectors.toList());
-
-			boolean hasMore = limitedClassNames.size() > DEFAULT_PAGE_LIMIT;
-
-			List<String> pageResults = limitedClassNames.subList(0, Math.min(limitedClassNames.size(), DEFAULT_PAGE_LIMIT));
-
-			String nextCursor = null;
-			if (hasMore && !pageResults.isEmpty()) {
-				nextCursor = pageResults.get(pageResults.size() - 1);
+			if (newName.contains("/") || newName.contains(":")) {
+				return createErrorResult("Invalid newName: Contains forbidden characters like '/' or ':'.");
 			}
 
-			PaginatedResult<String> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
-			return createSuccessResult(paginatedResult);
+			DataTypeManager dtm = program.getDataTypeManager();
+			final DataType dt = dtm.getDataType(currentPathString);
+
+			if (dt == null) {
+				return createErrorResult("Data type not found at path: " + currentPathString);
+			}
+
+			return executeInTransaction(program, "MCP - Rename Data Type", () -> {
+				dt.setName(newName);
+				String finalPath = dt.getPathName();
+				return createSuccessResult("Data type renamed successfully to: " + finalPath);
+			});
 
 		}).onErrorResume(e -> {
 			return createErrorResult(e);
 		});
 	}
-
 }
