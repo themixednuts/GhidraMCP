@@ -3,17 +3,19 @@ package com.themixednuts.tools.functions;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraFunctionsToolInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Function;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -21,9 +23,8 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Search Functions By Name", category = "Functions", description = "Searches for functions matching a name pattern.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names contain the specified search term.")
+@GhidraMcpTool(key = "Search Functions By Name", category = "Functions", description = "Search for functions matching a name pattern.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names contain the specified substring.")
 public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 
 	@Override
@@ -34,28 +35,30 @@ public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("searchTerm",
+		schemaRoot.property("searchString",
 				JsonSchemaBuilder.string(mapper)
-						.description("The text to search for within function names."));
-
+						.description("The substring to search for within function names."));
 		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("searchTerm");
+				.requiredProperty("searchString");
 
 		return schemaRoot.build();
 	}
@@ -63,25 +66,23 @@ public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String searchTerm = getRequiredStringArgument(args, "searchTerm").toLowerCase();
+			String searchString = getRequiredStringArgument(args, "searchString").toLowerCase();
 			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
-			final String finalCursor = cursor; // For lambda capture
+			final String finalCursor = cursor;
 
 			List<Function> limitedFunctions = StreamSupport
 					.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
-					.filter(f -> f.getName().toLowerCase().contains(searchTerm))
+					.filter(function -> function.getName().toLowerCase().contains(searchString))
 					.sorted(Comparator.comparing(Function::getName))
-					.dropWhile(f -> finalCursor != null && f.getName().compareTo(finalCursor) <= 0)
+					.dropWhile(function -> finalCursor != null && function.getName().compareTo(finalCursor) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)
 					.collect(Collectors.toList());
 
 			boolean hasMore = limitedFunctions.size() > DEFAULT_PAGE_LIMIT;
+			List<Function> pageFunctions = limitedFunctions.subList(0, Math.min(limitedFunctions.size(), DEFAULT_PAGE_LIMIT));
 
-			List<Function> pageFunctions = limitedFunctions.subList(0,
-					Math.min(limitedFunctions.size(), DEFAULT_PAGE_LIMIT));
-
-			List<GhidraFunctionsToolInfo> pageResults = pageFunctions.stream()
-					.map(GhidraFunctionsToolInfo::new)
+			List<FunctionInfo> pageResults = pageFunctions.stream()
+					.map(FunctionInfo::new)
 					.collect(Collectors.toList());
 
 			String nextCursor = null;
@@ -89,12 +90,10 @@ public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getName();
 			}
 
-			PaginatedResult<GhidraFunctionsToolInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<FunctionInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

@@ -1,27 +1,30 @@
 package com.themixednuts.tools.datatypes;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.PaginatedResult;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.program.database.symbol.ClassSymbol;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.framework.plugintool.PluginTool;
 
-import java.util.List;
-import java.util.stream.StreamSupport;
-import java.util.stream.Collectors;
-import java.util.Map;
-
-@GhidraMcpTool(key = "List Class Names", category = "Data Types", description = "Enable the MCP tool to list class names in a file.", mcpName = "list_classes", mcpDescription = "List the names of all classes (including namespaces if applicable) defined within the specified program. Supports pagination.")
+@GhidraMcpTool(key = "List Class Names", category = "Data Types", description = "List the names of class structures defined in the program.", mcpName = "list_class_names", mcpDescription = "Returns a paginated list of names of all defined classes (symbols of type CLASS).")
 public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -32,51 +35,49 @@ public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
+						.description("The name of the program file."));
 		schemaRoot.requiredProperty("fileName");
-
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
+			SymbolTable symbolTable = program.getSymbolTable();
 			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
 			final String finalCursor = cursor;
 
-			List<String> allClassNames = StreamSupport
-					.stream(program.getSymbolTable().getAllSymbols(true).spliterator(), false)
-					.filter(symbol -> symbol instanceof ClassSymbol)
-					.map(symbol -> ((ClassSymbol) symbol).getName(true))
+			List<String> limitedClassNames = StreamSupport
+					.stream(symbolTable.getSymbolIterator(true).spliterator(), false)
+					.filter(symbol -> symbol.getSymbolType() == SymbolType.CLASS)
+					.map(Symbol::getName)
 					.distinct()
 					.sorted()
-					.collect(Collectors.toList());
-
-			List<String> limitedClassNames = allClassNames.stream()
 					.dropWhile(name -> finalCursor != null && name.compareTo(finalCursor) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)
 					.collect(Collectors.toList());
 
 			boolean hasMore = limitedClassNames.size() > DEFAULT_PAGE_LIMIT;
-
-			List<String> pageResults = limitedClassNames.subList(0, Math.min(limitedClassNames.size(), DEFAULT_PAGE_LIMIT));
+			List<String> pageResults = limitedClassNames.subList(0,
+					Math.min(limitedClassNames.size(), DEFAULT_PAGE_LIMIT));
 
 			String nextCursor = null;
 			if (hasMore && !pageResults.isEmpty()) {
@@ -86,9 +87,7 @@ public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 			PaginatedResult<String> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

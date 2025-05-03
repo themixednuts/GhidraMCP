@@ -14,6 +14,7 @@ public class GhidraMcpTaskMonitor extends TaskMonitorAdapter {
 
 	private final McpAsyncServerExchange exchange;
 	private final String loggerName;
+	private static final String DEFAULT_LOGGER_NAME = GhidraMcpTaskMonitor.class.getSimpleName();
 
 	/**
 	 * Creates a bridge between Ghidra TaskMonitor and MCP logging.
@@ -23,7 +24,11 @@ public class GhidraMcpTaskMonitor extends TaskMonitorAdapter {
 	 */
 	public GhidraMcpTaskMonitor(McpAsyncServerExchange exchange, String loggerName) {
 		this.exchange = exchange;
-		this.loggerName = loggerName != null ? loggerName : "GhidraMcpTaskMonitor";
+		this.loggerName = loggerName != null ? loggerName : DEFAULT_LOGGER_NAME;
+	}
+
+	public GhidraMcpTaskMonitor(McpAsyncServerExchange exchange) {
+		this(exchange, DEFAULT_LOGGER_NAME);
 	}
 
 	private void sendLog(LoggingLevel level, String message) {

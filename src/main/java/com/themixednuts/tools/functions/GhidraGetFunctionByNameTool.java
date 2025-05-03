@@ -4,12 +4,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraFunctionsToolInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.program.database.symbol.FunctionSymbol;
 import ghidra.util.Msg;
@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.listing.Function;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Get Function by Name", category = "Functions", description = "Enable the MCP tool to get a function by name.", mcpName = "get_function_by_name", mcpDescription = "Retrieve details (entry point, etc.) for a function identified by its exact name.")
+@GhidraMcpTool(key = "Get Function By Name", category = "Functions", description = "Retrieve a specific function by its exact name.", mcpName = "get_function_by_name", mcpDescription = "Returns details of the function matching the specified name.")
 public class GhidraGetFunctionByNameTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -32,29 +32,30 @@ public class GhidraGetFunctionByNameTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target."));
+						.description("The name of the program file."));
 		schemaRoot.property("functionName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the function to retrieve."));
-
+						.description("The exact name of the function to retrieve."));
 		schemaRoot.requiredProperty("fileName")
 				.requiredProperty("functionName");
-
 		return schemaRoot.build();
 	}
 
@@ -70,14 +71,12 @@ public class GhidraGetFunctionByNameTool implements IGhidraMcpSpecification {
 					.findFirst();
 
 			if (targetFunctionOpt.isPresent()) {
-				GhidraFunctionsToolInfo functionInfo = new GhidraFunctionsToolInfo(targetFunctionOpt.get());
+				FunctionInfo functionInfo = new FunctionInfo(targetFunctionOpt.get());
 				return createSuccessResult(functionInfo);
 			} else {
 				return createErrorResult("Error: Function '" + functionName + "' not found.");
 			}
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

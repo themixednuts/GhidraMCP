@@ -1,10 +1,10 @@
 package com.themixednuts.tools.symbols;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Listing;
@@ -20,6 +20,7 @@ import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
 import java.util.Map;
+import java.util.Optional;
 
 @GhidraMcpTool(key = "Clear Symbol", category = "Symbols", description = "Clears a symbol at a specific address.", mcpName = "clear_symbol_at_address", mcpDescription = "Removes the user-defined symbol at the specified address.")
 public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
@@ -32,19 +33,21 @@ public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -100,8 +103,6 @@ public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
 					return createErrorResult(errorMsg);
 				}
 			});
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

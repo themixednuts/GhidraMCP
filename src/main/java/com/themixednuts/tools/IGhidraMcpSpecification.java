@@ -13,8 +13,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainObject;
@@ -76,9 +77,9 @@ public interface IGhidraMcpSpecification {
 	 * The schema dictates the expected structure and types of the arguments
 	 * map passed to the {@link #execute} method.
 	 *
-	 * @return The {@link ObjectNode} representing the JSON schema.
+	 * @return The {@link JsonSchema} representing the JSON schema definition.
 	 */
-	ObjectNode schema();
+	JsonSchema schema();
 
 	// ===================================================================================
 	// Static Schema Helper
@@ -889,22 +890,20 @@ public interface IGhidraMcpSpecification {
 	// ===================================================================================
 
 	/**
-	 * Parses the generated schema {@link ObjectNode} into a JSON string.
+	 * Parses the generated {@link JsonSchema} object into a JSON string using the
+	 * interface's shared {@link ObjectMapper}.
 	 *
-	 * @param schema The schema object to serialize.
+	 * @param schema The {@link JsonSchema} object to serialize.
 	 * @return An {@link Optional} containing the JSON string representation of the
-	 *         schema, or {@link Optional#empty()} if serialization fails.
+	 *         schema, or {@link Optional#empty()} if serialization fails (errors
+	 *         are logged
+	 *         by the {@code JsonSchema.toJsonString} method).
 	 */
-	default Optional<String> parseSchema(ObjectNode schema) {
-		try {
-			return Optional.of(mapper.writeValueAsString(schema));
-		} catch (Exception e) {
-			// Log the error for diagnostics
-			Msg.error(this,
-					"Failed to generate schema JSON for tool: " + e.getMessage(),
-					e);
-			return Optional.empty();
-		}
+	default Optional<String> parseSchema(JsonSchema schema) {
+		// Delegate serialization to the JsonSchema object, using the interface's
+		// mapper.
+		// Error logging is handled within JsonSchema.toJsonString.
+		return schema.toJsonString(mapper);
 	}
 
 	/**

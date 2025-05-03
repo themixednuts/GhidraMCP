@@ -6,16 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraReferenceInfo;
+import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.utils.PaginatedResult;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.ReferenceIterator;
@@ -40,19 +38,21 @@ public class GhidraGetXRefsToTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null; // Signal failure
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -84,15 +84,15 @@ public class GhidraGetXRefsToTool implements IGhidraMcpSpecification {
 			List<Reference> allRefs = new ArrayList<>();
 			refIter.forEach(allRefs::add);
 
-			List<GhidraReferenceInfo> limitedRefs = allRefs.stream()
+			List<ReferenceInfo> limitedRefs = allRefs.stream()
 					.sorted(Comparator.comparing(ref -> ref.getFromAddress().toString()))
 					.dropWhile(ref -> finalCursor != null && ref.getFromAddress().toString().compareTo(finalCursor) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)
-					.map(GhidraReferenceInfo::new)
+					.map(ReferenceInfo::new)
 					.collect(Collectors.toList());
 
 			boolean hasMore = limitedRefs.size() > DEFAULT_PAGE_LIMIT;
-			List<GhidraReferenceInfo> pageResults = limitedRefs.subList(0,
+			List<ReferenceInfo> pageResults = limitedRefs.subList(0,
 					Math.min(limitedRefs.size(), DEFAULT_PAGE_LIMIT));
 
 			String nextCursor = null;
@@ -100,12 +100,10 @@ public class GhidraGetXRefsToTool implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getFromAddress();
 			}
 
-			PaginatedResult<GhidraReferenceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<ReferenceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

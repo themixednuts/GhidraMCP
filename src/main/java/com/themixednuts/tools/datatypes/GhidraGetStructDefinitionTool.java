@@ -1,15 +1,17 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraDataTypeInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.DataTypeInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.Structure;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
@@ -17,11 +19,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Struct Definition", category = "Data Types", description = "Enable the MCP tool to retrieve the definition of a struct.", mcpName = "get_struct_definition", mcpDescription = "Retrieves the definition (including path, size, alignment, and members) for the specified struct data type.")
+@GhidraMcpTool(key = "Get Struct Definition", category = "Data Types", description = "Retrieve the definition of a specific structure data type.", mcpName = "get_struct_definition", mcpDescription = "Get detailed definition of a structure type by its name.")
 public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
-
-	public GhidraGetStructDefinitionTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -30,31 +29,32 @@ public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
-		schemaRoot.property("structPath",
+						.description("The name of the program file."));
+		schemaRoot.property("structName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The full path of the struct to retrieve (e.g., /MyCategory/MyStruct)"));
+						.description("The name of the struct data type (e.g., 'MyStruct', '/windows/POINTL')."));
 
 		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("structPath");
+				.requiredProperty("structName");
 
 		return schemaRoot.build();
 	}
@@ -62,31 +62,21 @@ public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, find struct, check type
-			// Argument parsing errors caught by onErrorResume
-			String structPath = getRequiredStringArgument(args, "structPath");
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(structPath);
+			String structName = getRequiredStringArgument(args, "structName");
+			DataType dt = program.getDataTypeManager().getDataType(structName);
 
 			if (dt == null) {
-				// Use helper directly
-				return createErrorResult("Data type not found at path: " + structPath);
+				return createErrorResult("Structure data type not found: " + structName);
 			}
 
 			if (!(dt instanceof Structure)) {
-				// Use helper directly
-				return createErrorResult("Data type at path '" + structPath + "' is not a Structure.");
+				return createErrorResult("Data type '".concat(structName).concat("' is not a Structure. Found: ")
+						.concat(dt.getClass().getSimpleName()));
 			}
 
-			// Convert to POJO
-			GhidraDataTypeInfo info = new GhidraDataTypeInfo(dt);
-			// Use helper directly
-			return createSuccessResult(info);
+			DataTypeInfo structInfo = new DataTypeInfo(dt);
+			return createSuccessResult(structInfo);
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing)
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

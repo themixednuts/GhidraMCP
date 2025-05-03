@@ -1,26 +1,35 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.Map;
+import java.util.Optional;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.StringFormatType;
 
+import ghidra.framework.cmd.Command;
+import ghidra.framework.model.DomainObject;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
-import ghidra.program.model.util.CodeUnitInsertionException;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.listing.Listing;
+import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
+import ghidra.program.model.util.CodeUnitInsertionException;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.framework.plugintool.PluginTool;
 
-import java.util.Map;
-
-@GhidraMcpTool(key = "Apply Data Type", category = "Data Types", description = "Enable the MCP tool to apply a specific data type at a given address.", mcpName = "apply_data_type_at_address", mcpDescription = "Applies the specified data type to the code unit at the given address.")
+@GhidraMcpTool(key = "Apply Data Type", category = "Data Types", description = "Apply a data type to a specific address.", mcpName = "apply_data_type", mcpDescription = "Applies a specified data type to a given memory address.")
 public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -31,32 +40,31 @@ public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
+						.description("The name of the program file."));
 		schemaRoot.property("address",
 				JsonSchemaBuilder.string(mapper)
-						.description("The address where the data type should be applied (e.g., 0x100400)"));
-
+						.description("The memory address where the data type should be applied (e.g., '0x1004010', 'MyLabel')."));
 		schemaRoot.property("dataTypeName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the data type to apply (e.g., \"dword\", \"MyStruct\")"));
+						.description("The name or path of the data type to apply (e.g., 'dword', '/windows/DWORD', '/MyStruct')."));
 
 		schemaRoot.requiredProperty("fileName")
 				.requiredProperty("address")
@@ -68,48 +76,31 @@ public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, resolve address, find data type
-			// Argument parsing errors caught by onErrorResume
-			String addressString = getRequiredStringArgument(args, "address");
-			String dataTypeNameString = getRequiredStringArgument(args, "dataTypeName");
-
-			final Address address = program.getAddressFactory().getAddress(addressString); // Final for lambda
-			if (address == null) {
-				return createErrorResult("Invalid address format: " + addressString);
-			}
-
+			String addressStr = getRequiredStringArgument(args, "address");
+			String dataTypeName = getRequiredStringArgument(args, "dataTypeName");
 			DataTypeManager dtm = program.getDataTypeManager();
-			final DataType dataType = dtm.getDataType(dataTypeNameString); // Final for lambda
-			if (dataType == null) {
-				return createErrorResult("Data type not found: " + dataTypeNameString);
+			Listing listing = program.getListing();
+
+			Address addr = program.getAddressFactory().getAddress(addressStr);
+			if (addr == null) {
+				return createErrorResult("Invalid address format: " + addressStr);
 			}
 
-			// --- Execute modification in transaction ---
-			final String finalAddressString = addressString; // Capture for messages
-			final String finalDataTypeNameString = dataTypeNameString; // Capture for messages
+			DataType dt = dtm.getDataType(dataTypeName);
+			if (dt == null) {
+				return createErrorResult("Data type not found: " + dataTypeName);
+			}
 
-			return executeInTransaction(program, "MCP - Apply Data Type", () -> {
-				// Inner Callable logic (just the modification):
+			return executeInTransaction(program, "Apply Data Type: " + dataTypeName + " to " + addressStr, () -> {
 				try {
-					program.getListing().createData(address, dataType);
-					// Return success
-					return createSuccessResult(
-							"Data type '" + finalDataTypeNameString + "' applied successfully at " + finalAddressString);
+					Data newData = listing.createData(addr, dt);
+					return createSuccessResult("Data type '" + dataTypeName + "' applied successfully at address "
+							+ newData.getAddress().toString());
+				} catch (ghidra.program.model.util.CodeUnitInsertionException e) {
+					return createErrorResult("Failed to apply data type: " + e.getMessage());
 				}
-				// Catch specific exception for better error message
-				catch (CodeUnitInsertionException e) {
-					// Log is handled by createErrorResult
-					return createErrorResult(
-							"Failed to apply data type at " + finalAddressString + " (conflict?): " + e.getMessage());
-				}
-				// Let executeInTransaction handle other exceptions
-			}); // End of Callable for executeInTransaction
+			});
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

@@ -1,29 +1,30 @@
 package com.themixednuts.tools.functions;
 
 import java.util.Map;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
+import ghidra.app.services.DataTypeQueryService;
+import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataTypeManager;
-import ghidra.app.services.DataTypeQueryService;
-import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
-import io.modelcontextprotocol.spec.McpSchema.LoggingLevel;
-import io.modelcontextprotocol.spec.McpSchema.LoggingMessageNotification;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.LoggingLevel;
+import io.modelcontextprotocol.spec.McpSchema.LoggingMessageNotification;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
@@ -38,18 +39,21 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -117,12 +121,9 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 						}
 
 						return createSuccessResult("Function prototype updated successfully for " + targetFunction.getName());
-
 					});
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

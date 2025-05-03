@@ -2,21 +2,20 @@ package com.themixednuts.tools.symbols;
 
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraNamespaceInfo;
+import com.themixednuts.models.NamespaceInfo;
 import com.themixednuts.utils.PaginatedResult;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.program.model.symbol.Namespace;
-import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -37,19 +36,21 @@ public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -71,15 +72,15 @@ public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
 					.distinct()
 					.collect(Collectors.toList());
 
-			List<GhidraNamespaceInfo> limitedNamespaceInfos = allNamespaces.stream()
+			List<NamespaceInfo> limitedNamespaceInfos = allNamespaces.stream()
 					.sorted(Comparator.comparing(ns -> ns.getName(true)))
 					.dropWhile(ns -> finalCursor != null && ns.getName(true).compareTo(finalCursor) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)
-					.map(GhidraNamespaceInfo::new)
+					.map(NamespaceInfo::new)
 					.collect(Collectors.toList());
 
 			boolean hasMore = limitedNamespaceInfos.size() > DEFAULT_PAGE_LIMIT;
-			List<GhidraNamespaceInfo> pageResults = limitedNamespaceInfos.subList(0,
+			List<NamespaceInfo> pageResults = limitedNamespaceInfos.subList(0,
 					Math.min(limitedNamespaceInfos.size(), DEFAULT_PAGE_LIMIT));
 
 			String nextCursor = null;
@@ -87,12 +88,10 @@ public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getName();
 			}
 
-			PaginatedResult<GhidraNamespaceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<NamespaceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

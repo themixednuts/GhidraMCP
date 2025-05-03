@@ -1,22 +1,21 @@
 package com.themixednuts.tools.functions;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraFunctionsToolInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
-
-import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.Function;
-import ghidra.util.Msg;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-
+import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Function;
+import ghidra.util.Msg;
 import java.util.Map;
+import java.util.Optional;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(key = "Get Function By Address", category = "Functions", description = "Gets details about a function at a specific address.", mcpName = "get_function_by_address", mcpDescription = "Retrieves details (name, signature, etc.) for the function located at the specified entry point address.")
@@ -30,18 +29,21 @@ public class GhidraGetFunctionByAddressTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -71,7 +73,7 @@ public class GhidraGetFunctionByAddressTool implements IGhidraMcpSpecification {
 				return createErrorResult("Error: Function not found at address " + addressStr);
 			}
 
-			GhidraFunctionsToolInfo functionInfo = new GhidraFunctionsToolInfo(func);
+			FunctionInfo functionInfo = new FunctionInfo(func);
 			return createSuccessResult(functionInfo);
 
 		}).onErrorResume(e -> {

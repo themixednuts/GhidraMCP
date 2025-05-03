@@ -7,14 +7,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraReferenceInfo;
+import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.utils.PaginatedResult;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.Reference;
@@ -38,25 +37,27 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null; // Signal failure
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
-				JsonSchemaBuilder.string(IGhidraMcpSpecification.mapper)
+				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
 		schemaRoot.property("address",
-				JsonSchemaBuilder.string(IGhidraMcpSpecification.mapper)
+				JsonSchemaBuilder.string(mapper)
 						.description("The source address to find cross-references from (e.g., '0x1004010')."));
 
 		schemaRoot.requiredProperty("fileName")
@@ -79,15 +80,15 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 			String cursor = getOptionalStringArgument(args, "cursor").orElse(null);
 			final String finalCursor = cursor;
 
-			List<GhidraReferenceInfo> limitedRefs = Arrays.stream(refsFrom)
+			List<ReferenceInfo> limitedRefs = Arrays.stream(refsFrom)
 					.sorted(Comparator.comparing(ref -> ref.getToAddress().toString()))
 					.dropWhile(ref -> finalCursor != null && ref.getToAddress().toString().compareTo(finalCursor) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)
-					.map(GhidraReferenceInfo::new)
+					.map(ReferenceInfo::new)
 					.collect(Collectors.toList());
 
 			boolean hasMore = limitedRefs.size() > DEFAULT_PAGE_LIMIT;
-			List<GhidraReferenceInfo> pageResults = limitedRefs.subList(0,
+			List<ReferenceInfo> pageResults = limitedRefs.subList(0,
 					Math.min(limitedRefs.size(), DEFAULT_PAGE_LIMIT));
 
 			String nextCursor = null;
@@ -95,7 +96,7 @@ public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getToAddress();
 			}
 
-			PaginatedResult<GhidraReferenceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<ReferenceInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
 		}).onErrorResume(e -> {

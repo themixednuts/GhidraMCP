@@ -7,15 +7,15 @@ import java.util.stream.StreamSupport;
 import java.util.Optional;
 import java.util.Comparator;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraDataInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.DataInfo;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 
-import ghidra.framework.model.Project;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Listing;
@@ -30,29 +30,29 @@ import reactor.core.publisher.Mono;
 public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 	private static final int PAGE_SIZE = 100; // Number of strings per page
 
-	public GhidraGetDefinedStringsTool() {
-	}
-
 	@Override
-	public AsyncToolSpecification specification(ghidra.framework.plugintool.PluginTool tool) {
+	public AsyncToolSpecification specification(PluginTool tool) {
 		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		if (annotation == null) {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			return null; // Signal failure
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -60,20 +60,19 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 		schemaRoot.property("minLength",
 				JsonSchemaBuilder.integer(mapper)
 						.description("Optional minimum length for strings to be included.")
-						.minimum(1)); // Add minimum constraint
+						.minimum(1));
 		schemaRoot.property("filter",
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional filter to apply to the strings."));
 
 		schemaRoot.requiredProperty("fileName");
-		// minLength, filter, cursor are optional
 
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args,
-			ghidra.framework.plugintool.PluginTool tool) {
+			PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			Listing listing = program.getListing();
 			Optional<String> cursorOpt = getOptionalStringArgument(args, "cursor");
@@ -100,8 +99,8 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 			int actualPageSize = Math.min(limitedData.size(), PAGE_SIZE);
 			List<Data> pageData = limitedData.subList(0, actualPageSize);
 
-			List<GhidraDataInfo> pageResults = pageData.stream()
-					.map(GhidraDataInfo::new)
+			List<DataInfo> pageResults = pageData.stream()
+					.map(DataInfo::new)
 					.collect(Collectors.toList());
 
 			String nextCursor = null;
@@ -109,11 +108,9 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getAddress().toString();
 			}
 
-			PaginatedResult<GhidraDataInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<DataInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

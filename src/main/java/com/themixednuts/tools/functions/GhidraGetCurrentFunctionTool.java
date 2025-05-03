@@ -1,13 +1,15 @@
 package com.themixednuts.tools.functions;
 
 import java.util.Map;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraFunctionsToolInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import reactor.core.publisher.Mono;
 
 import ghidra.app.services.CodeViewerService;
 import ghidra.framework.plugintool.PluginTool;
@@ -18,7 +20,6 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(key = "Get Current Function", category = "Functions", description = "Enable the MCP tool to get the function currently selected in the active Ghidra tool.", mcpName = "get_current_function", mcpDescription = "Retrieve details of the function containing the current cursor location in the active Ghidra Code Browser window for the specified program.")
 public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
@@ -31,20 +32,20 @@ public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+		Optional<String> schemaStringOpt = parseSchema(schema());
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
-
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -76,11 +77,9 @@ public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 				return createErrorResult("No function found at current location: " + location.getAddress());
 			}
 
-			GhidraFunctionsToolInfo functionInfo = new GhidraFunctionsToolInfo(func);
+			FunctionInfo functionInfo = new FunctionInfo(func);
 			return createSuccessResult(functionInfo);
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

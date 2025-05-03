@@ -1,13 +1,16 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.Category;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.util.Msg;
@@ -16,9 +19,8 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Create Category", category = "Data Types", description = "Enable the MCP tool to create a new data type category.", mcpName = "create_category", mcpDescription = "Creates a new data type category (folder) at the specified path if it doesn't already exist.")
+@GhidraMcpTool(key = "Create Category", category = "Data Types", description = "Create a new data type category.", mcpName = "create_category", mcpDescription = "Creates a new data type category (folder) at the specified path.")
 public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -28,30 +30,31 @@ public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
+						.description("The name of the program file."));
 		schemaRoot.property("categoryPath",
 				JsonSchemaBuilder.string(mapper)
 						.description(
-								"The full path for the new category (e.g., /MyTypes/SubFolder). Must start with '/'.")
-						.pattern("^/.+$")); // Basic check: must start with / and not be root
+								"The full path for the new category (e.g., '/MyNewCategory/SubCategory'). Leading '/' is required.")
+						.pattern("^/.+$"));
 
 		schemaRoot.requiredProperty("fileName")
 				.requiredProperty("categoryPath");
@@ -62,39 +65,19 @@ public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, validate path
-			// Argument parsing errors caught by onErrorResume
 			String categoryPathString = getRequiredStringArgument(args, "categoryPath");
+			CategoryPath categoryPath = new CategoryPath(categoryPathString);
+			DataTypeManager dtm = program.getDataTypeManager();
 
-			final CategoryPath categoryPath; // Final for lambda
-			try {
-				categoryPath = new CategoryPath(categoryPathString);
-				if (categoryPath.isRoot()) { // createCategory cannot create root
-					return createErrorResult("Cannot explicitly create the root category '/'.");
-				}
-			} catch (IllegalArgumentException e) {
-				return createErrorResult("Invalid category path format: " + categoryPathString);
+			if (dtm.getCategory(categoryPath) != null) {
+				return createErrorResult("Category already exists at path: " + categoryPathString);
 			}
 
-			final DataTypeManager dtm = program.getDataTypeManager(); // Final for lambda
-
-			// --- Execute modification in transaction ---
-			final String finalCategoryPathString = categoryPathString; // Capture for message
 			return executeInTransaction(program, "MCP - Create Category", () -> {
-				// Inner Callable logic (just the modification):
-				// createCategory handles existence check internally and returns existing if
-				// found.
-				dtm.createCategory(categoryPath);
-				// Assume success if no exception was thrown.
-				return createSuccessResult(
-						"Category '" + finalCategoryPathString + "' ensured successfully (created if not existing).");
-			}); // End of Callable for executeInTransaction
+				Category createdCategory = dtm.createCategory(categoryPath);
+				return createSuccessResult("Category ensured successfully at: " + createdCategory.getCategoryPath().getPath());
+			});
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

@@ -4,11 +4,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.HighSymbolInfo;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -36,20 +37,23 @@ public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecificat
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> {
 					return execute(ex, args, tool);
 				});
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -110,7 +114,8 @@ public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecificat
 						"Symbol '" + symbolName + "' not found in function '" + functionName + "'");
 			}
 
-			return createSuccessResult(highSymbol);
+			HighSymbolInfo symbolInfo = new HighSymbolInfo(highSymbol);
+			return createSuccessResult(symbolInfo);
 
 		}).onErrorResume(e -> {
 			return createErrorResult(e);

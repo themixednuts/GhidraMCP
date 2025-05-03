@@ -4,13 +4,15 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
@@ -48,19 +50,25 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 			Msg.warn(this, "No granular tool classes found for category: " + annotation.category());
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		// Call the corrected schema() method which returns JsonSchema
+		JsonSchema schemaObject = schema();
+		// Call the correct parseSchema overload
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				// Use the parsed schema string
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	// Change return type to JsonSchema
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -79,7 +87,7 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 				.property("operation",
 						JsonSchemaBuilder.string(mapper)
 								.description("The specific granular tool mcpName to execute.")
-								.enumValues(availableOps.toArray(new String[0])))
+								.enumValues(availableOps))
 				.property("arguments",
 						JsonSchemaBuilder.object(mapper)
 								.description("The arguments specific to the chosen operation (tool)."))
@@ -183,9 +191,6 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 
 					return createSuccessResult(finalJson);
 				})
-				.onErrorResume(e -> { // Catch outer Flux processing errors
-					Msg.error(this, "Error processing grouped datatype operations stream", e);
-					return createErrorResult("Stream processing error: " + e.getMessage());
-				});
+				.onErrorResume(e -> createErrorResult(e));
 	}
 }

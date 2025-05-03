@@ -1,17 +1,22 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.program.model.data.*;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.FunctionDefinition;
+import ghidra.program.model.data.ParameterDefinition;
+import ghidra.program.model.data.ParameterDefinitionImpl;
 import ghidra.program.model.lang.CompilerSpec;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -19,9 +24,8 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Update Function Definition", category = "Data Types", description = "Enable the MCP tool to update properties of a function definition data type.", mcpName = "update_function_definition", mcpDescription = "Updates mutable properties (return type, calling convention, varargs, etc.) of an existing function definition data type. Does not currently support parameter modification.")
+@GhidraMcpTool(key = "Update Function Definition", category = "Data Types", description = "Updates an existing function signature data type.", mcpName = "update_function_definition", mcpDescription = "Modify an existing function definition data type (signature) with new parameters or return type.")
 public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -31,33 +35,47 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
 			return null;
 		}
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
-		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+	public JsonSchema schema() {
+		IObjectSchemaBuilder parameterSchema = JsonSchemaBuilder.object(mapper)
+				.property("name", JsonSchemaBuilder.string(mapper).description("Parameter name"), true)
+				.property("type", JsonSchemaBuilder.string(mapper).description("Parameter data type name"), true)
+				.property("comment", JsonSchemaBuilder.string(mapper).description("Optional parameter comment"))
+				.description("Definition of a single parameter.");
 
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
-		schemaRoot.property("functionDefinitionPath",
+						.description("The name of the program file."));
+		schemaRoot.property("functionDefinitionName",
 				JsonSchemaBuilder.string(mapper)
-						.description("The full path of the function definition to update (e.g., /MyTypes/MyFunctionSig)"));
-
-		schemaRoot.property("newReturnTypePath",
+						.description("The name of the function definition data type to update."));
+		schemaRoot.property("newReturnType",
 				JsonSchemaBuilder.string(mapper)
-						.description("Optional new return type path (e.g., 'int', '/MyStruct*', 'void')."));
+						.description("Optional: The new return data type name."));
+		schemaRoot.property("newParameters",
+				JsonSchemaBuilder.array(mapper)
+						.items(parameterSchema)
+						.description("Optional: A new list of parameters. Replaces existing parameters."));
+		schemaRoot.property("newComment",
+				JsonSchemaBuilder.string(mapper)
+						.description("Optional: A new comment for the function definition."));
 
-		List<String> standardCallingConventions = Arrays.asList(
+		List<String> standardCallingConventions = List.of(
 				CompilerSpec.CALLING_CONVENTION_cdecl,
 				CompilerSpec.CALLING_CONVENTION_stdcall,
 				CompilerSpec.CALLING_CONVENTION_fastcall,
@@ -66,30 +84,21 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 				CompilerSpec.CALLING_CONVENTION_vectorcall,
 				CompilerSpec.CALLING_CONVENTION_rustcall);
 
-		schemaRoot.property("newCallingConventionName",
+		schemaRoot.property("newCallingConvention",
 				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional new calling convention name. Must be one of the standard known conventions. Allowed values: "
-										+ String.join(", ", standardCallingConventions))
-						.enumValues(standardCallingConventions.toArray(new String[0])));
-
-		schemaRoot.property("newHasVarArgs",
+						.description("Optional: The new calling convention name. Must be one of the standard known conventions.")
+						.enumValues(standardCallingConventions));
+		schemaRoot.property("removeVarArgs",
 				JsonSchemaBuilder.bool(mapper)
-						.description("Optional new value for the varargs flag."));
-
-		schemaRoot.property("newHasNoReturn",
+						.description("Optional: Set to true to remove varargs. Defaults to false.")
+						.defaultValue(false));
+		schemaRoot.property("addVarArgs",
 				JsonSchemaBuilder.bool(mapper)
-						.description("Optional new value for the no-return flag."));
-
-		schemaRoot.property("newDescription",
-				JsonSchemaBuilder.string(mapper)
-						.description("Optional new description text."));
+						.description("Optional: Set to true to add varargs. Defaults to false.")
+						.defaultValue(false));
 
 		schemaRoot.requiredProperty("fileName")
-				.requiredProperty("functionDefinitionPath");
-
-		// Note: The logic for requiring at least one 'new...' property is handled
-		// in the execute method.
+				.requiredProperty("functionDefinitionName");
 
 		return schemaRoot.build();
 	}
@@ -97,84 +106,66 @@ public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecificati
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String funcDefPathString = getRequiredStringArgument(args, "functionDefinitionPath");
-
-			final Optional<String> newReturnTypePathOpt = getOptionalStringArgument(args, "newReturnTypePath");
-			final Optional<String> newCallingConventionNameOpt = getOptionalStringArgument(args,
-					"newCallingConventionName");
-			final Optional<Boolean> newHasVarArgsOpt = getOptionalBooleanArgument(args, "newHasVarArgs");
-			final Optional<Boolean> newHasNoReturnOpt = getOptionalBooleanArgument(args, "newHasNoReturn");
-			final Optional<String> newDescriptionOpt = getOptionalStringArgument(args, "newDescription");
-
-			if (newReturnTypePathOpt.isEmpty() && newCallingConventionNameOpt.isEmpty() &&
-					newHasVarArgsOpt.isEmpty() && newHasNoReturnOpt.isEmpty() && newDescriptionOpt.isEmpty()) {
-				return createErrorResult(
-						"No update properties provided. Please specify at least one 'new...' argument.");
-			}
-
 			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(funcDefPathString);
+			String funcDefName = getRequiredStringArgument(args, "functionDefinitionName");
+			Optional<String> newReturnTypeOpt = getOptionalStringArgument(args, "newReturnType");
+			Optional<List<Map<String, Object>>> newParamsOpt = getOptionalListArgument(args, "newParameters");
+			Optional<String> newCommentOpt = getOptionalStringArgument(args, "newComment");
+			Optional<String> newCallingConventionOpt = getOptionalStringArgument(args, "newCallingConvention");
+			boolean removeVarArgs = getOptionalBooleanArgument(args, "removeVarArgs").orElse(false);
+			boolean addVarArgs = getOptionalBooleanArgument(args, "addVarArgs").orElse(false);
 
-			if (dt == null) {
-				return createErrorResult("Function Definition not found at path: " + funcDefPathString);
-			}
-			if (!(dt instanceof FunctionDefinitionDataType)) {
-				return createErrorResult(
-						"Data type at path is not a modifiable Function Definition: " + funcDefPathString);
-			}
-			final FunctionDefinitionDataType funcDef = (FunctionDefinitionDataType) dt;
+			return executeInTransaction(program, "Update Function Definition: " + funcDefName, () -> {
+				DataType dt = dtm.getDataType(funcDefName);
+				if (dt == null) {
+					return createErrorResult("Function definition data type not found: " + funcDefName);
+				}
+				if (!(dt instanceof FunctionDefinition)) {
+					return createErrorResult("Data type '".concat(funcDefName).concat("' is not a Function Definition."));
+				}
+				FunctionDefinition funcDef = (FunctionDefinition) dt;
 
-			final List<String> updatedFields = new ArrayList<>();
-			DataType resolvedNewReturnDt = null;
-
-			if (newReturnTypePathOpt.isPresent()) {
-				String newReturnTypePath = newReturnTypePathOpt.get();
-				if ("void".equalsIgnoreCase(newReturnTypePath)) {
-					resolvedNewReturnDt = VoidDataType.dataType;
-				} else {
-					resolvedNewReturnDt = dtm.getDataType(newReturnTypePath);
-					if (resolvedNewReturnDt == null) {
-						return createErrorResult("New return type not found: " + newReturnTypePath);
+				if (newReturnTypeOpt.isPresent()) {
+					DataType returnDt = dtm.getDataType(newReturnTypeOpt.get());
+					if (returnDt == null) {
+						return createErrorResult("New return data type not found: " + newReturnTypeOpt.get());
 					}
-					resolvedNewReturnDt = resolvedNewReturnDt.clone(dtm);
-				}
-				updatedFields.add("returnType");
-			}
-			final DataType finalNewReturnDt = resolvedNewReturnDt;
-
-			final String finalFuncDefPathString = funcDefPathString;
-			final List<String> finalUpdatedFields = new ArrayList<>(updatedFields);
-			if (newCallingConventionNameOpt.isPresent() && !newCallingConventionNameOpt.get().isBlank())
-				finalUpdatedFields.add("callingConvention");
-			if (newHasVarArgsOpt.isPresent())
-				finalUpdatedFields.add("hasVarArgs");
-			if (newHasNoReturnOpt.isPresent())
-				finalUpdatedFields.add("hasNoReturn");
-			if (newDescriptionOpt.isPresent())
-				finalUpdatedFields.add("description");
-
-			return executeInTransaction(program, "MCP - Update Function Definition", () -> {
-				if (finalNewReturnDt != null) {
-					funcDef.setReturnType(finalNewReturnDt);
+					funcDef.setReturnType(returnDt);
 				}
 
-				if (newCallingConventionNameOpt.isPresent()) {
-					String newCcName = newCallingConventionNameOpt.get().trim();
-					if (!newCcName.isBlank()) {
-						funcDef.setCallingConvention(newCcName);
+				if (newParamsOpt.isPresent()) {
+					List<ParameterDefinition> params = new ArrayList<>();
+					for (Map<String, Object> paramMap : newParamsOpt.get()) {
+						String paramName = getRequiredStringArgument(paramMap, "name");
+						String paramTypeName = getRequiredStringArgument(paramMap, "type");
+						String paramComment = getOptionalStringArgument(paramMap, "comment").orElse(null);
+						DataType paramDt = dtm.getDataType(paramTypeName);
+						if (paramDt == null) {
+							return createErrorResult("Parameter data type not found: " + paramTypeName);
+						}
+						params.add(new ParameterDefinitionImpl(paramName, paramDt, paramComment));
 					}
+					funcDef.setArguments(params.toArray(new ParameterDefinition[0]));
 				}
 
-				newHasVarArgsOpt.ifPresent(funcDef::setVarArgs);
-				newHasNoReturnOpt.ifPresent(funcDef::setNoReturn);
-				newDescriptionOpt.ifPresent(funcDef::setDescription);
+				if (removeVarArgs && addVarArgs) {
+					return createErrorResult("Cannot both add and remove varargs in the same operation.");
+				}
+				if (removeVarArgs) {
+					funcDef.setVarArgs(false);
+				}
+				if (addVarArgs) {
+					funcDef.setVarArgs(true);
+				}
 
-				return createSuccessResult("Function Definition '" + finalFuncDefPathString
-						+ "' updated successfully. Modified fields: " + String.join(", ", finalUpdatedFields));
+				newCommentOpt.ifPresent(funcDef::setComment);
+
+				if (newCallingConventionOpt.isPresent()) {
+					funcDef.setCallingConvention(newCallingConventionOpt.get());
+				}
+
+				return createSuccessResult("Function definition '" + funcDefName + "' updated successfully.");
 			});
-
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

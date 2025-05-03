@@ -5,13 +5,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import java.util.Comparator;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraFunctionsToolInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.program.model.address.Address;
@@ -25,11 +26,8 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "List Function Names", category = "Functions", description = "Enable the MCP tool to list function names in a file.", mcpName = "list_function_names", mcpDescription = "List the names and entry point addresses of functions defined within a specific program. Supports pagination.")
+@GhidraMcpTool(key = "List Function Names", category = "Functions", description = "List names of all functions in the program.", mcpName = "list_function_names", mcpDescription = "Returns a paginated list of all function names and their entry points.")
 public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
-
-	public GhidraListFunctionNamesTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -39,22 +37,24 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
-				JsonSchemaBuilder.string(IGhidraMcpSpecification.mapper)
+				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
 		schemaRoot.requiredProperty("fileName");
 		return schemaRoot.build();
@@ -86,8 +86,8 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 			List<Function> pageFunctions = limitedFunctions.subList(0,
 					Math.min(limitedFunctions.size(), DEFAULT_PAGE_LIMIT));
 
-			List<GhidraFunctionsToolInfo> pageResults = pageFunctions.stream()
-					.map(GhidraFunctionsToolInfo::new)
+			List<FunctionInfo> pageResults = pageFunctions.stream()
+					.map(FunctionInfo::new)
 					.collect(Collectors.toList());
 
 			String nextCursor = null;
@@ -95,7 +95,7 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 				nextCursor = pageResults.get(pageResults.size() - 1).getAddress();
 			}
 
-			PaginatedResult<GhidraFunctionsToolInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
+			PaginatedResult<FunctionInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
 			return createSuccessResult(paginatedResult);
 
 		}).onErrorResume(e -> {

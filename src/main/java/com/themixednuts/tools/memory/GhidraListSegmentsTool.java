@@ -5,13 +5,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraMemoryBlockInfo;
-import com.themixednuts.utils.JsonSchemaBuilder;
-import com.themixednuts.utils.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.MemoryBlockInfo;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.mem.MemoryBlock;
@@ -24,8 +25,6 @@ import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(key = "List Segments", category = "Memory", description = "Lists memory segments (blocks) in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory segments (name, addresses, size, permissions) defined in the program.")
 public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
-	public GhidraListSegmentsTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -35,19 +34,21 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		String schema = parseSchema(schema()).orElse(null);
-		if (schema == null) {
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
+			return null;
 		}
+		String schemaJson = schemaStringOpt.get();
 
 		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schema),
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
 				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
-	public ObjectNode schema() {
+	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property("fileName",
 				JsonSchemaBuilder.string(mapper)
@@ -61,14 +62,12 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool).flatMap(program -> {
 			MemoryBlock[] blocks = program.getMemory().getBlocks();
 
-			List<GhidraMemoryBlockInfo> blockInfos = Arrays.stream(blocks)
-					.map(GhidraMemoryBlockInfo::new)
-					.sorted(Comparator.comparing(GhidraMemoryBlockInfo::getStartAddress))
+			List<MemoryBlockInfo> blockInfos = Arrays.stream(blocks)
+					.map(MemoryBlockInfo::new)
+					.sorted(Comparator.comparing(MemoryBlockInfo::getStartAddress))
 					.collect(Collectors.toList());
 
 			return createSuccessResult(blockInfos);
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }
