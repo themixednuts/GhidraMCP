@@ -3,26 +3,19 @@ package com.themixednuts.tools.datatypes;
 import java.util.Map;
 import java.util.Optional;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.utils.jsonschema.StringFormatType;
 
-import ghidra.framework.cmd.Command;
-import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Listing;
-import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
-import ghidra.program.model.util.CodeUnitInsertionException;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
