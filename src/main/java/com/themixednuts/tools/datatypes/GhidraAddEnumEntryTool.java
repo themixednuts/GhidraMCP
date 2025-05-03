@@ -31,8 +31,7 @@ public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 			return null;
 		}
 
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		Optional<String> schemaStringOpt = parseSchema(schema());
 		if (schemaStringOpt.isEmpty()) {
 			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
 			return null;
@@ -68,7 +67,7 @@ public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool).flatMap(program -> {
 			String enumPathString = getRequiredStringArgument(args, "enumPath");
 			String entryName = getRequiredStringArgument(args, "entryName");
-			Long entryValue = getRequiredLongArgument(args, "entryValue"); // Use Map helper
+			Long entryValue = getRequiredLongArgument(args, "entryValue");
 			String entryComment = getOptionalStringArgument(args, "entryComment").orElse(null);
 
 			DataTypeManager dtm = program.getDataTypeManager();
@@ -80,23 +79,13 @@ public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 			if (!(dt instanceof EnumDataType)) {
 				return createErrorResult("Data type at path is not an Enum: " + enumPathString);
 			}
-			final EnumDataType enumDt = (EnumDataType) dt; // Make final for lambda
 
-			// Now execute the modification within a transaction
+			final EnumDataType enumDt = (EnumDataType) dt;
+
 			return executeInTransaction(program, "MCP - Add Enum Entry", () -> {
-				// Inner Callable logic (now just the modification):
-
-				// Use add - it replaces entries with the same name OR value
 				enumDt.add(entryName, entryValue, entryComment);
-
-				// Use helper for success
 				return createSuccessResult("Enum entry '" + entryName + "' added successfully to " + enumPathString + ".");
-			}); // End of Callable for executeInTransaction
-
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram or unexpected setup errors
-			// The helper now handles logging.
-			return createErrorResult(e); // Use helper directly
-		});
+			});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

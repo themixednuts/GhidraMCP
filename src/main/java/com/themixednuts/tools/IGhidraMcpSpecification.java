@@ -35,8 +35,18 @@ import reactor.core.publisher.Mono;
  * along with helper methods for common Ghidra operations and argument parsing.
  */
 public interface IGhidraMcpSpecification {
+
+	// Helper method to create and configure the ObjectMapper instance.
+	private static ObjectMapper createAndConfigureMapper() {
+		ObjectMapper configuredMapper = new ObjectMapper();
+		configuredMapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
+		return configuredMapper;
+	}
+
 	/** Shared Jackson ObjectMapper instance for JSON processing. */
-	static final ObjectMapper mapper = new ObjectMapper();
+	// Initialize the static final mapper by calling the configuration method.
+	static final ObjectMapper mapper = createAndConfigureMapper();
+
 	/** Default page size for paginated results */
 	static final int DEFAULT_PAGE_LIMIT = 50;
 
@@ -92,7 +102,6 @@ public interface IGhidraMcpSpecification {
 	 * @return An {@link IObjectSchemaBuilder} to start building the schema.
 	 */
 	static IObjectSchemaBuilder createBaseSchemaNode() {
-		mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
 		return JsonSchemaBuilder.object(mapper);
 	}
 
@@ -845,44 +854,6 @@ public interface IGhidraMcpSpecification {
 		TextContent errorContent = new TextContent(finalMessage);
 		// Build the CallToolResult with isError=true
 		return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
-	}
-
-	// ===================================================================================
-	// Reactive Resource Management Helper
-	// ===================================================================================
-
-	/**
-	 * Helper method to manage the lifecycle of a resource within a reactive stream,
-	 * ensuring cleanup is performed.
-	 *
-	 * @param <T>              The type of the result produced by the resource
-	 *                         closure.
-	 * @param <R>              The type of the resource being managed (e.g.,
-	 *                         DecompInterface).
-	 * @param resourceSupplier A supplier function that provides a new instance of
-	 *                         the resource.
-	 * @param resourceClosure  A function that takes the acquired resource and
-	 *                         returns a Mono
-	 *                         representing the asynchronous operation using the
-	 *                         resource.
-	 *                         The Mono should emit the result needed for subsequent
-	 *                         steps.
-	 * @param resourceCleanup  A consumer function that performs cleanup actions on
-	 *                         the resource
-	 *                         (e.g., calling dispose() or close()).
-	 * @return A Mono that emits the result from the resourceClosure after managing
-	 *         the resource lifecycle.
-	 */
-	default <T, R> Mono<T> usingResource(
-			java.util.concurrent.Callable<R> resourceSupplier,
-			java.util.function.Function<R, Mono<T>> resourceClosure,
-			java.util.function.Consumer<R> resourceCleanup) {
-		// Ensure cleanup happens even if the closure Mono errors or is cancelled.
-		// Mono.using handles synchronous acquisition and asynchronous closure.
-		return Mono.using(
-				resourceSupplier,
-				resourceClosure,
-				resourceCleanup);
 	}
 
 	// ===================================================================================
