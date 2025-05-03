@@ -12,6 +12,7 @@ import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.Swing;
+import ghidra.framework.options.OptionsChangeListener;
 
 @PluginInfo(status = PluginStatus.RELEASED, packageName = ghidra.app.DeveloperPluginPackage.NAME, category = PluginCategoryNames.ANALYSIS, shortDescription = "MCP Server Plugin", description = "Starts an embedded HTTP MCP server to expose program data. Port configurable via Tool Options.", servicesRequired = {}, servicesProvided = {
         IGhidraMcpToolProvider.class })
@@ -27,29 +28,26 @@ public class GhidraMCPPlugin extends Plugin {
     private static final String PORT_OPTION_DESC = "Port number for the embedded HTTP MCP server.";
     private static final int DEFAULT_PORT = 8080;
     private int currentPort = DEFAULT_PORT;
+    private final OptionsChangeListener mcpOptionsListener;
 
     public GhidraMCPPlugin(PluginTool tool) {
         super(tool);
 
         Msg.info(this, "GhidraMCPPlugin loading for tool: " + tool.getToolName());
 
-        // Setup Options now only sets currentPort and registers listener
-        setupOptions();
+        this.mcpOptionsListener = setupOptions();
 
-        // Create the Service Implementation instance locally
         GhidraMcpTools localToolsProvider = new GhidraMcpTools(this.tool);
 
-        // Register the local instance as the Service Provider
         registerServiceProvided(IGhidraMcpToolProvider.class, localToolsProvider);
 
-        // Start the Server
         Swing.runLater(() -> GhidraMcpServer.start(currentPort, this.tool));
 
         Msg.info(this, "GhidraMCPPlugin loaded!");
 
     }
 
-    private void setupOptions() {
+    private OptionsChangeListener setupOptions() {
         // Use a local variable for options within this method
         ToolOptions options = tool.getOptions(MCP_TOOL_OPTIONS_CATEGORY);
 
@@ -57,14 +55,10 @@ public class GhidraMCPPlugin extends Plugin {
                 new HelpLocation("GhidraMCP", "ServerPortOption"),
                 PORT_OPTION_DESC);
 
-        // Pass local options to static method
-        GhidraMcpTools.registerOptions(options, "GhidraMCP");
-
         // Get port from local options
         currentPort = options.getInt(PORT_OPTION_NAME, DEFAULT_PORT);
 
-        // Add listener to local options
-        options.addOptionsChangeListener((toolOptions, optionName, oldValue, newValue) -> {
+        OptionsChangeListener listener = (toolOptions, optionName, oldValue, newValue) -> {
             if (optionName.equals(PORT_OPTION_NAME)) {
                 int newPort = (Integer) newValue;
                 if (newPort != currentPort) {
@@ -76,7 +70,12 @@ public class GhidraMCPPlugin extends Plugin {
                 Msg.info(this, "Tool option '" + optionName + "' changed. Restarting MCP server.");
                 GhidraMcpServer.restartMcpServer(currentPort);
             }
-        });
+        };
+
+        options.addOptionsChangeListener(listener);
+        GhidraMcpTools.registerOptions(options, "GhidraMCP");
+
+        return listener;
     }
 
     @Override
@@ -85,6 +84,13 @@ public class GhidraMCPPlugin extends Plugin {
 
         GhidraMcpServer.dispose(); // Dispose server
         // Service deregistration is automatic
+
+        // Remove listener if options object is still valid
+        ToolOptions options = tool.getOptions(MCP_TOOL_OPTIONS_CATEGORY);
+        if (options != null && this.mcpOptionsListener != null) {
+            options.removeOptionsChangeListener(this.mcpOptionsListener);
+            Msg.info(this, "OptionsChangeListener removed for category: " + MCP_TOOL_OPTIONS_CATEGORY);
+        }
 
         super.dispose();
         Msg.info(this, "GhidraMCPPlugin disposed.");

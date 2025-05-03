@@ -65,12 +65,10 @@ public class GhidraMcpServer {
 	public static void start(int port, PluginTool tool) {
 		synchronized (lock) {
 			Project currentProject = tool.getProject();
-
-			// Store tool reference for restarts and service access
 			currentTool = tool;
 
 			// Handle project changes: If the project context differs, force a full restart.
-			if (currentProject != null && !currentProject.equals(project)) {
+			if (project != null && currentProject != null && !currentProject.equals(project)) {
 				Msg.info(GhidraMcpServer.class,
 						"Project changed to " + currentProject.getName() + ". Forcing MCP server restart.");
 				project = currentProject;
@@ -131,7 +129,7 @@ public class GhidraMcpServer {
 				}
 			} else {
 				Msg.info(GhidraMcpServer.class,
-						"MCP Server already running or starting (refCount=" + refCount.get() + "). Incrementing reference count.");
+						"MCP Server already running (refCount=" + refCount.get() + ").");
 			}
 		}
 	}
@@ -182,10 +180,10 @@ public class GhidraMcpServer {
 		if (jettyServer != null) {
 			try {
 				jettyServer.stop();
-				Msg.info(GhidraMcpServer.class, "Previous Jetty server instance stopped.");
 			} catch (Exception e) {
 				Msg.error(GhidraMcpServer.class, "Failed to stop existing Jetty server during restart: " + e.getMessage(), e);
 				// Attempt to continue starting the new server anyway, but log the error.
+				cleanUpResources(); // Ensure resources are cleaned if stop failed badly
 			}
 		}
 		// Start new Jetty instance
@@ -214,7 +212,6 @@ public class GhidraMcpServer {
 			refCount.set(0);
 			// Start again with current tool reference (server will get service)
 			start(port, currentTool);
-			Msg.info(GhidraMcpServer.class, "MCP Server restart complete.");
 		}
 	}
 
@@ -226,14 +223,12 @@ public class GhidraMcpServer {
 	public static void dispose() {
 		synchronized (lock) {
 			int count = refCount.decrementAndGet();
-			Msg.debug(GhidraMcpServer.class, "Dispose called, new reference count: " + count);
 			if (count == 0) {
 				Msg.info(GhidraMcpServer.class, "Reference count reached zero. Stopping MCP Server...");
 				cleanUpResources();
 				// Also clear context fields when fully stopped
 				project = null;
 				currentTool = null;
-				Msg.info(GhidraMcpServer.class, "MCP Server stopped and context cleared.");
 			} else if (count < 0) {
 				Msg.warn(GhidraMcpServer.class,
 						"Dispose called but reference count was already zero or negative. Resetting count to zero.");
@@ -245,6 +240,7 @@ public class GhidraMcpServer {
 				project = null;
 				currentTool = null;
 			}
+
 		}
 	}
 
@@ -272,7 +268,6 @@ public class GhidraMcpServer {
 		if (mcpAsyncServer != null) {
 			try {
 				mcpAsyncServer.close();
-				Msg.info(GhidraMcpServer.class, "McpAsyncServer closed.");
 			} catch (Exception e) {
 				Msg.error(GhidraMcpServer.class, "Error closing McpAsyncServer: " + e.getMessage(), e);
 			} finally {
@@ -284,7 +279,6 @@ public class GhidraMcpServer {
 		if (jettyServer != null) {
 			try {
 				jettyServer.stop();
-				Msg.info(GhidraMcpServer.class, "Jetty server stopped.");
 			} catch (Exception e) {
 				Msg.error(GhidraMcpServer.class, "Error stopping Jetty server: " + e.getMessage(), e);
 			} finally {
@@ -294,6 +288,5 @@ public class GhidraMcpServer {
 
 		// Nullify transport provider
 		transportProvider = null;
-		Msg.debug(GhidraMcpServer.class, "Server resources cleaned up.");
 	}
 }
