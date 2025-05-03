@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -16,7 +16,7 @@ import ghidra.program.model.data.Pointer;
  * serialization.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraDataTypeInfo {
+public class DataTypeInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -57,7 +57,7 @@ public class GhidraDataTypeInfo {
 	@JsonProperty("is_pointer")
 	private final boolean isPointer;
 
-	public GhidraDataTypeInfo(DataType dataType) {
+	public DataTypeInfo(DataType dataType) {
 		this.name = dataType.getName();
 		this.displayName = dataType.getDisplayName();
 		this.pathName = dataType.getPathName();

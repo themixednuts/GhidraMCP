@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -6,7 +6,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraFunctionsToolInfo {
+public class FunctionInfo {
 	@JsonProperty("name")
 	private final String name;
 	@JsonProperty("address")
@@ -22,7 +22,7 @@ public class GhidraFunctionsToolInfo {
 	@JsonProperty("body_max_address")
 	private final String bodyMaxAddress;
 
-	public GhidraFunctionsToolInfo(Function function) {
+	public FunctionInfo(Function function) {
 		this.name = function.getName();
 
 		if (function.getEntryPoint() != null) {

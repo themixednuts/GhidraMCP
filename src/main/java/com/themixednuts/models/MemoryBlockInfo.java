@@ -1,13 +1,12 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import ghidra.program.model.address.Address;
 import ghidra.program.model.mem.MemoryBlock;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraMemoryBlockInfo {
+public class MemoryBlockInfo {
 
 	@JsonProperty("name")
 	private String name;
@@ -33,11 +32,7 @@ public class GhidraMemoryBlockInfo {
 	@JsonProperty("volatile")
 	private boolean isVolatile;
 
-	// Private constructor for Jackson
-	private GhidraMemoryBlockInfo() {
-	}
-
-	public GhidraMemoryBlockInfo(MemoryBlock block) {
+	public MemoryBlockInfo(MemoryBlock block) {
 		this.name = block.getName();
 		this.startAddress = block.getStart().toString();
 		this.endAddress = block.getEnd().toString();

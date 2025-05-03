@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -11,7 +11,7 @@ import ghidra.program.model.symbol.Namespace;
  * serialization.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraNamespaceInfo {
+public class NamespaceInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -31,7 +31,7 @@ public class GhidraNamespaceInfo {
 	@JsonProperty("is_global")
 	private final boolean isGlobal;
 
-	public GhidraNamespaceInfo(Namespace namespace) {
+	public NamespaceInfo(Namespace namespace) {
 		this.name = namespace.getName();
 		this.fullName = namespace.getName(true); // Get fully qualified name
 		this.id = namespace.getID();

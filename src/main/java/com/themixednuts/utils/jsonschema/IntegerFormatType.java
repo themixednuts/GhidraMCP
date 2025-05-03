@@ -1,9 +1,10 @@
-package com.themixednuts.utils;
+package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Defines standard format identifiers for INTEGER type JSON Schemas.
+ * Represents common integer formats used in JSON Schema (subset relevant to
+ * OpenAPI 3.0.3 / Google AI).
  */
 public enum IntegerFormatType {
 	@JsonProperty("int32")

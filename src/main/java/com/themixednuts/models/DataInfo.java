@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -11,7 +11,7 @@ import ghidra.program.model.address.Address;
  * serialization.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraDataInfo {
+public class DataInfo {
 
 	@JsonProperty("label")
 	private final String label;
@@ -28,7 +28,7 @@ public class GhidraDataInfo {
 	@JsonProperty("length")
 	private final int length;
 
-	public GhidraDataInfo(Data data) {
+	public DataInfo(Data data) {
 		this.label = data.getLabel(); // Can be null
 		Address dataAddr = data.getAddress();
 		this.address = (dataAddr != null) ? dataAddr.toString() : null;

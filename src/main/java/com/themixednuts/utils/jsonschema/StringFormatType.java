@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 

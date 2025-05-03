@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -10,7 +10,7 @@ import ghidra.program.model.pcode.HighSymbol;
  * decompiler.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraHighSymbolInfo {
+public class HighSymbolInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -23,7 +23,7 @@ public class GhidraHighSymbolInfo {
 	// @JsonProperty("size")
 	// private final int size;
 
-	public GhidraHighSymbolInfo(HighSymbol highSymbol) {
+	public HighSymbolInfo(HighSymbol highSymbol) {
 		this.name = highSymbol.getName();
 
 		DataType dt = highSymbol.getDataType();

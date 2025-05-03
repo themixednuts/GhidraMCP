@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,25 +47,16 @@ import java.util.Objects;
 public class JsonSchemaBuilder {
 
 	// Reusable ObjectMapper instance for value conversions. Used as default.
-	private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+	static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
 
 	private final ObjectNode schema;
 	private final JsonSchemaType type;
-	// Store the mapper to be used by this builder instance.
-	private final ObjectMapper instanceMapper;
 
 	// Private constructor enforces use of static factory methods to start the build
 	// process.
 	private JsonSchemaBuilder(JsonSchemaType type) {
-		// Calls the main constructor with the default mapper
-		this(type, DEFAULT_MAPPER);
-	}
-
-	// NEW Private constructor taking a custom mapper
-	private JsonSchemaBuilder(JsonSchemaType type, ObjectMapper mapper) {
-		this.schema = JsonNodeFactory.instance.objectNode();
+		this.schema = DEFAULT_MAPPER.createObjectNode();
 		this.type = Objects.requireNonNull(type, "Schema type cannot be null");
-		this.instanceMapper = Objects.requireNonNull(mapper, "ObjectMapper cannot be null");
 		this.schema.put("type", type.toString());
 	}
 
@@ -75,7 +66,7 @@ public class JsonSchemaBuilder {
 	 * schema.
 	 */
 	public interface IBuildableSchemaType {
-		ObjectNode build();
+		JsonSchema build();
 	}
 
 	// --- State Interfaces --- //
@@ -329,7 +320,7 @@ public class JsonSchemaBuilder {
 		private final ObjectMapper mapper;
 
 		BuilderStateImpl(JsonSchemaType type, ObjectMapper mapper) {
-			this.builder = new JsonSchemaBuilder(type, mapper);
+			this.builder = new JsonSchemaBuilder(type);
 			this.mapper = mapper;
 		}
 
@@ -488,7 +479,7 @@ public class JsonSchemaBuilder {
 		public IArraySchemaBuilder items(IBuildableSchemaType itemSchemaBuilder) {
 			Objects.requireNonNull(itemSchemaBuilder, "Item schema builder cannot be null");
 			// Build the schema and delegate to the original items method
-			return items(itemSchemaBuilder.build());
+			return items(itemSchemaBuilder.build().getNode());
 		}
 
 		@Override
@@ -515,7 +506,7 @@ public class JsonSchemaBuilder {
 		@Override
 		public IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder) {
 			Objects.requireNonNull(propertySchemaBuilder, "Property schema builder cannot be null");
-			return property(name, propertySchemaBuilder.build(), false);
+			return property(name, propertySchemaBuilder.build().getNode(), false);
 		}
 
 		@Override
@@ -543,7 +534,7 @@ public class JsonSchemaBuilder {
 		@Override
 		public IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder, boolean required) {
 			Objects.requireNonNull(propertySchemaBuilder, "Property schema builder cannot be null");
-			return property(name, propertySchemaBuilder.build(), required);
+			return property(name, propertySchemaBuilder.build().getNode(), required);
 		}
 
 		@Override
@@ -628,7 +619,7 @@ public class JsonSchemaBuilder {
 			for (Map.Entry<String, IBuildableSchemaType> entry : propertiesSchemaBuilders.entrySet()) {
 				Objects.requireNonNull(entry.getValue(),
 						"Property schema builder for key '" + entry.getKey() + "' cannot be null");
-				builtProperties.put(entry.getKey(), entry.getValue().build());
+				builtProperties.put(entry.getKey(), entry.getValue().build().getNode());
 			}
 			// Delegate to the original properties method
 			return properties(builtProperties);
@@ -642,7 +633,7 @@ public class JsonSchemaBuilder {
 			ObjectNode[] builtSchemas = Arrays.stream(schemas)
 					.map(s -> {
 						Objects.requireNonNull(s, "Schema in anyOf array cannot be null");
-						return s.build();
+						return s.build().getNode();
 					})
 					.toArray(ObjectNode[]::new);
 			return anyOf(builtSchemas);
@@ -666,10 +657,9 @@ public class JsonSchemaBuilder {
 		// --- Build Method --- //
 
 		@Override
-		public ObjectNode build() {
-			// Return a defensive copy to prevent modification of the internal state after
-			// build.
-			return builder.schema.deepCopy();
+		public JsonSchema build() {
+			// Return a new JsonSchema instance, which handles defensive copying internally.
+			return new JsonSchema(builder.schema);
 		}
 
 		// --- Helper Methods --- //

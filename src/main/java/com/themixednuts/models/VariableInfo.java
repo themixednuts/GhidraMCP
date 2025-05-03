@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -13,7 +13,7 @@ import ghidra.program.model.symbol.SourceType;
  * serialization.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraVariableInfo {
+public class VariableInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -57,7 +57,7 @@ public class GhidraVariableInfo {
 	@JsonProperty("function_address")
 	private final String functionAddress; // Optional: Address of the containing function
 
-	public GhidraVariableInfo(Variable variable) {
+	public VariableInfo(Variable variable) {
 		this.name = variable.getName();
 		this.comment = variable.getComment();
 

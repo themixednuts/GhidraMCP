@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -8,7 +8,7 @@ import ghidra.program.model.symbol.Reference;
  * POJO for serializing Ghidra Reference information.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraReferenceInfo {
+public class ReferenceInfo {
 
 	@JsonProperty("from_address")
 	private final String fromAddress;
@@ -40,7 +40,7 @@ public class GhidraReferenceInfo {
 	@JsonProperty("is_external_reference")
 	private final boolean externalReference;
 
-	public GhidraReferenceInfo(Reference reference) {
+	public ReferenceInfo(Reference reference) {
 		this.fromAddress = reference.getFromAddress().toString();
 		this.toAddress = reference.getToAddress().toString();
 		this.type = reference.getReferenceType().getName();

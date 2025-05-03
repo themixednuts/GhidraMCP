@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import ghidra.program.model.data.DataType;
@@ -7,7 +7,7 @@ import ghidra.program.model.data.DataType;
  * POJO representing basic information about a suggested DataType.
  * Used when a requested data type is not found.
  */
-public class GhidraDataTypeSuggestionInfo {
+public class DataTypeSuggestionInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -18,7 +18,7 @@ public class GhidraDataTypeSuggestionInfo {
 	@JsonProperty("length")
 	private final int length;
 
-	public GhidraDataTypeSuggestionInfo(DataType dataType) {
+	public DataTypeSuggestionInfo(DataType dataType) {
 		this.name = dataType.getName();
 		this.path = dataType.getPathName();
 		this.category = dataType.getCategoryPath().getPath();

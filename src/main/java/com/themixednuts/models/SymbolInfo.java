@@ -1,4 +1,4 @@
-package com.themixednuts.utils;
+package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -13,7 +13,7 @@ import ghidra.program.model.symbol.SourceType;
  * serialization.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class GhidraSymbolInfo {
+public class SymbolInfo {
 
 	@JsonProperty("name")
 	private final String name;
@@ -39,7 +39,7 @@ public class GhidraSymbolInfo {
 	@JsonProperty("is_external")
 	private final boolean isExternal;
 
-	public GhidraSymbolInfo(Symbol symbol) {
+	public SymbolInfo(Symbol symbol) {
 		this.name = symbol.getName();
 
 		Address symAddr = symbol.getAddress();
