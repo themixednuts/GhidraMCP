@@ -21,92 +21,94 @@ A Ghidra extension providing tools and integration points for the Model Context 
 
 This extension exposes various Ghidra functionalities to MCP clients, grouped by category:
 
-**Project Management** (`projectmanagement`)
+Additionally, 'grouped' tools are available (e.g., under the `grouped` category) that combine multiple related operations into a single request. This can be beneficial for MCP clients with limits on the total number of tools that can be enabled simultaneously.
 
-- [x] List open programs/files (`GhidraListFilesTool`).
-- [x] Get current program information (architecture, image base, etc.) (`GhidraGetCurrentProgramInfoTool`).
+**Project Management** ([`projectmanagement`](src/main/java/com/themixednuts/tools/projectmanagement/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java))
 
-**Functions** (`functions`)
+- [x] List open programs/files ([`GhidraListFilesTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListFilesTool.java)).
+- [x] Get current program information (architecture, image base, etc.) ([`GhidraGetCurrentProgramInfoTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraGetCurrentProgramInfoTool.java)).
 
-- [x] List functions within a program (`GhidraListFunctionNamesTool`).
-- [x] Retrieve function details by name or address (`GhidraGetFunctionByNameTool`, `GhidraGetFunctionByAddressTool`).
-- [x] Get the function containing a specific address/location (`GhidraGetFunctionContainingLocationTool`).
-- [x] Get the current function based on cursor location (`GhidraGetCurrentFunctionTool`).
-- [x] Rename functions by name or address (`GhidraRenameFunctionByNameTool`, `GhidraRenameFunctionByAddressTool`).
-- [x] List symbols (variables, parameters) within a function (`GhidraListSymbolsInFunctionTool`).
-- [x] Get symbol details by name within a function (`GhidraGetSymbolByNameInFunctionTool`).
-- [x] Rename symbols within a function (`GhidraRenameSymbolInFunctionTool`).
-- [x] Change symbol data type within a function (`GhidraChangeSymbolDataTypeInFunctionTool`).
-- [x] Get/Set function comments (Use `GhidraGetCommentAtAddressTool` / `GhidraSetCommentAtAddressTool` at function entry point).
-- [x] Add function (`GhidraAddFunctionTool`).
-- [x] Remove function (`GhidraRemoveFunctionTool`).
-- [x] Update function prototype/signature (`GhidraUpdateFunctionPrototypeTool`).
+**Functions** ([`functions`](src/main/java/com/themixednuts/tools/functions/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java))
 
-**Symbols & Labels** (`symbols`)
+- [x] List functions within a program ([`GhidraListFunctionNamesTool`](src/main/java/com/themixednuts/tools/functions/GhidraListFunctionNamesTool.java)).
+- [x] Retrieve function details by name or address ([`GhidraGetFunctionByNameTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionByNameTool.java), [`GhidraGetFunctionByAddressTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionByAddressTool.java)).
+- [x] Get the function containing a specific address/location ([`GhidraGetFunctionContainingLocationTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionContainingLocationTool.java)).
+- [x] Get the current function based on cursor location ([`GhidraGetCurrentFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetCurrentFunctionTool.java)).
+- [x] Rename functions by name or address ([`GhidraRenameFunctionByNameTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameFunctionByNameTool.java), [`GhidraRenameFunctionByAddressTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameFunctionByAddressTool.java)).
+- [x] List symbols (variables, parameters) within a function ([`GhidraListSymbolsInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraListSymbolsInFunctionTool.java)).
+- [x] Get symbol details by name within a function ([`GhidraGetSymbolByNameInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetSymbolByNameInFunctionTool.java)).
+- [x] Rename symbols within a function ([`GhidraRenameSymbolInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameSymbolInFunctionTool.java)).
+- [x] Change symbol data type within a function ([`GhidraChangeSymbolDataTypeInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraChangeSymbolDataTypeInFunctionTool.java)).
+- [x] Get/Set function comments (Use [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java) / [`GhidraSetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraSetCommentAtAddressTool.java) at function entry point).
+- [x] Add function ([`GhidraAddFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraAddFunctionTool.java)).
+- [x] Remove function ([`GhidraRemoveFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraRemoveFunctionTool.java)).
+- [x] Update function prototype/signature ([`GhidraUpdateFunctionPrototypeTool`](src/main/java/com/themixednuts/tools/functions/GhidraUpdateFunctionPrototypeTool.java)).
 
-- [x] List defined strings (`GhidraGetDefinedStringsTool`).
-- [x] List namespaces (`GhidraListNamespacesTool`).
-- [x] Set comment at a specific address (`GhidraSetCommentAtAddressTool`).
-- [x] Get comment at a specific address (`GhidraGetCommentAtAddressTool`).
-- [x] Rename data/label at a specific address (`GhidraRenameDataAtAddressTool`).
-- [x] Clear symbol/label at a specific address (`GhidraClearSymbolTool`).
-- [x] List all labels/symbols in the program (`GhidraListAllSymbolsTool`).
-- [x] Add label at address (`GhidraAddLabelTool`).
-- [x] Remove label at address (`GhidraRemoveLabelTool`).
+**Symbols & Labels** ([`symbols`](src/main/java/com/themixednuts/tools/symbols/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedSymbolOperationsTool.java))
 
-**Data Types** (`datatypes`)
+- [x] List defined strings ([`GhidraGetDefinedStringsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetDefinedStringsTool.java)).
+- [x] List namespaces ([`GhidraListNamespacesTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListNamespacesTool.java)).
+- [x] Set comment at a specific address ([`GhidraSetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraSetCommentAtAddressTool.java)).
+- [x] Get comment at a specific address ([`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java)).
+- [x] Rename data/label at a specific address ([`GhidraRenameDataAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraRenameDataAtAddressTool.java)).
+- [x] Clear symbol/label at a specific address ([`GhidraClearSymbolTool`](src/main/java/com/themixednuts/tools/symbols/GhidraClearSymbolTool.java)).
+- [x] List all labels/symbols in the program ([`GhidraListAllSymbolsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListAllSymbolsTool.java)).
+- [x] Add label at address ([`GhidraAddLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraAddLabelTool.java)).
+- [x] Remove label at address ([`GhidraRemoveLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraRemoveLabelTool.java)).
 
-- [x] List data types (`GhidraListDataTypesTool`).
-- [x] List data type categories (`GhidraListCategoriesTool`).
-- [x] Create a new data type category (`GhidraCreateCategoryTool`).
-- [x] Rename a data type category (`GhidraRenameCategoryTool`).
-- [x] Delete a data type category (`GhidraDeleteCategoryTool`).
-- [x] Move a data type category (`GhidraMoveCategoryTool`).
-- [x] List namespaces (`GhidraListNamespacesTool`).
-- [x] List class names (`GhidraListClassNamesTool`).
-- [x] List defined structures and enums (Covered by `GhidraListDataTypesTool`).
-- [x] Get details of specific structures (`GhidraGetStructDefinitionTool`).
-- [x] Get details of specific enums (`GhidraGetEnumDefinitionTool`).
-- [x] Get details of specific unions (`GhidraGetUnionDefinitionTool`).
-- [x] Get details of specific typedefs (`GhidraGetTypeDefDefinitionTool`).
-- [x] Get details of specific function definitions (`GhidraGetFunctionDefinitionTool`).
-- [x] Create/Define new structures (`GhidraCreateStructTool`).
-- [x] Create/Define new enums (`GhidraCreateEnumTool`).
-- [x] Create/Define new unions (`GhidraCreateUnionTool`).
-- [x] Create/Define new typedefs (`GhidraCreateTypeDefTool`).
-- [x] Create/Define new function definitions (`GhidraCreateFunctionDefinitionTool`).
-- [x] Modify existing structures (Add/Edit/Delete members) (`GhidraAddStructMemberTool`, `GhidraEditStructMemberTool`, `GhidraDeleteStructMemberTool`).
-- [x] Modify existing enums (Add/Edit/Delete entries) (`GhidraAddEnumEntryTool`, `GhidraEditEnumEntryTool`, `GhidraDeleteEnumEntryTool`).
-- [x] Modify existing unions (Add members) (`GhidraAddUnionMemberTool`).
-- [x] Modify existing function definitions (`GhidraUpdateFunctionDefinitionTool`).
-- [x] Modify existing typedefs (`GhidraUpdateTypeDefTool`).
-- [x] Rename data types (`GhidraRenameDataTypeTool`).
-- [x] Delete data types (`GhidraDeleteDataTypeTool`).
-- [x] Apply data type at a specific address (`GhidraApplyDataTypeTool`).
+**Data Types** ([`datatypes`](src/main/java/com/themixednuts/tools/datatypes/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDatatypeOperationsTool.java))
 
-**Memory & Addresses** (`memory`)
+- [x] List data types ([`GhidraListDataTypesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListDataTypesTool.java)).
+- [x] List data type categories ([`GhidraListCategoriesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java)).
+- [x] Create a new data type category ([`GhidraCreateCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateCategoryTool.java)).
+- [x] Rename a data type category ([`GhidraRenameCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraRenameCategoryTool.java)).
+- [x] Delete a data type category ([`GhidraDeleteCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteCategoryTool.java)).
+- [x] Move a data type category ([`GhidraMoveCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraMoveCategoryTool.java)).
+- [x] List namespaces ([`GhidraListNamespacesTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListNamespacesTool.java)).
+- [x] List class names ([`GhidraListClassNamesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListClassNamesTool.java)).
+- [x] List defined structures and enums (Covered by [`GhidraListDataTypesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListDataTypesTool.java)).
+- [x] Get details of specific structures ([`GhidraGetStructDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetStructDefinitionTool.java)).
+- [x] Get details of specific enums ([`GhidraGetEnumDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetEnumDefinitionTool.java)).
+- [x] Get details of specific unions ([`GhidraGetUnionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetUnionDefinitionTool.java)).
+- [x] Get details of specific typedefs ([`GhidraGetTypeDefDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetTypeDefDefinitionTool.java)).
+- [x] Get details of specific function definitions ([`GhidraGetFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetFunctionDefinitionTool.java)).
+- [x] Create/Define new structures ([`GhidraCreateStructTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateStructTool.java)).
+- [x] Create/Define new enums ([`GhidraCreateEnumTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateEnumTool.java)).
+- [x] Create/Define new unions ([`GhidraCreateUnionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateUnionTool.java)).
+- [x] Create/Define new typedefs ([`GhidraCreateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateTypeDefTool.java)).
+- [x] Create/Define new function definitions ([`GhidraCreateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateFunctionDefinitionTool.java)).
+- [x] Modify existing structures (Add/Edit/Delete members) ([`GhidraAddStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddStructMemberTool.java), [`GhidraEditStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraEditStructMemberTool.java), [`GhidraDeleteStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteStructMemberTool.java)).
+- [x] Modify existing enums (Add/Edit/Delete entries) ([`GhidraAddEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddEnumEntryTool.java), [`GhidraEditEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraEditEnumEntryTool.java), [`GhidraDeleteEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteEnumEntryTool.java)).
+- [x] Modify existing unions (Add members) ([`GhidraAddUnionMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddUnionMemberTool.java)).
+- [x] Modify existing function definitions ([`GhidraUpdateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateFunctionDefinitionTool.java)).
+- [x] Modify existing typedefs ([`GhidraUpdateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateTypeDefTool.java)).
+- [x] Rename data types ([`GhidraRenameDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraRenameDataTypeTool.java)).
+- [x] Delete data types ([`GhidraDeleteDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteDataTypeTool.java)).
+- [x] Apply data type at a specific address ([`GhidraApplyDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraApplyDataTypeTool.java)).
 
-- [x] List memory segments (`GhidraListSegmentsTool`).
-- [x] Get current address/location based on cursor (`GhidraGetCurrentAddressTool`).
-- [x] Read bytes from an address (`GhidraReadBytesTool`).
-- [x] Write bytes to an address (Patching) (`GhidraWriteBytesTool`).
-- [x] Search memory for bytes or strings (`GhidraSearchMemoryTool`).
-- [x] Get cross-references (XRefs) _to_ a specific address (`GhidraGetXRefsToTool`).
-- [x] Get cross-references (XRefs) _from_ a specific address (`GhidraGetXRefsFromTool`).
-- [x] List imported libraries/functions (`GhidraListImportsTool`).
+**Memory & Addresses** ([`memory`](src/main/java/com/themixednuts/tools/memory/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedMemoryOperationsTool.java))
 
-**Decompiler** (`decompiler`)
+- [x] List memory segments ([`GhidraListSegmentsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListSegmentsTool.java)).
+- [x] Get current address/location based on cursor ([`GhidraGetCurrentAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetCurrentAddressTool.java)).
+- [x] Read bytes from an address ([`GhidraReadBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraReadBytesTool.java)).
+- [x] Write bytes to an address (Patching) ([`GhidraWriteBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraWriteBytesTool.java)).
+- [x] Search memory for bytes or strings ([`GhidraSearchMemoryTool`](src/main/java/com/themixednuts/tools/memory/GhidraSearchMemoryTool.java)).
+- [x] Get cross-references (XRefs) _to_ a specific address ([`GhidraGetXRefsToTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsToTool.java)).
+- [x] Get cross-references (XRefs) _from_ a specific address ([`GhidraGetXRefsFromTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsFromTool.java)).
+- [x] List imported libraries/functions ([`GhidraListImportsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListImportsTool.java)).
 
-- [x] Provide decompiled code for functions by name (`GhidraDecompileFunctionByNameTool`).
+**Decompiler** ([`decompiler`](src/main/java/com/themixednuts/tools/decompiler/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDecompilerOperationsTool.java))
+
+- [x] Provide decompiled code for functions by name ([`GhidraDecompileFunctionByNameTool`](src/main/java/com/themixednuts/tools/decompiler/GhidraDecompileFunctionByNameTool.java)).
 
 **Bookmarks**
 
 - [ ] List bookmarks.
 - [ ] Add/Remove bookmarks.
 
-**Analysis & Scripting**
+**Analysis & Scripting** ([`analysis`](src/main/java/com/themixednuts/tools/analysis/)) - ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedAnalysisOperationsTool.java))
 
-- [x] Trigger auto-analysis (`GhidraTriggerAnalysisTool`).
+- [x] Trigger auto-analysis ([`GhidraTriggerAnalysisTool`](src/main/java/com/themixednuts/tools/analysis/GhidraTriggerAnalysisTool.java)).
 - [ ] Run existing Ghidra scripts.
 
 ## Installation
