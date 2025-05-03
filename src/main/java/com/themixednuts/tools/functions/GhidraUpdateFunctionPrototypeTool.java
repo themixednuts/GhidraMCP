@@ -9,6 +9,7 @@ import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
 import ghidra.app.services.DataTypeQueryService;
@@ -28,7 +29,7 @@ import io.modelcontextprotocol.spec.McpSchema.LoggingMessageNotification;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Update Function Prototype", category = "Functions", description = "Updates the prototype (signature) of a function.", mcpName = "update_function_prototype", mcpDescription = "Updates the function signature (return type, parameters, calling convention) based on a provided prototype string.")
+@GhidraMcpTool(key = "Update Function Prototype", category = ToolCategory.FUNCTIONS, description = "Updates the prototype (signature) of an existing function.", mcpName = "update_function_prototype", mcpDescription = "Modifies the return type, parameters, calling convention, or varargs status of an existing function.")
 public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecification {
 
 	@Override

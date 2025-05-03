@@ -23,11 +23,18 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Grouped Datatype Operations", category = "Datatypes", description = "Performs multiple related datatype operations.", mcpName = "grouped_datatype_operations", mcpDescription = "Accepts a list of datatype operations to perform as a group.")
+// Import the enum
+import com.themixednuts.tools.ToolCategory;
+
+// Category is omitted to use default (UNCATEGORIZED) for options registration
+@GhidraMcpTool(key = "Grouped Datatype Operations", description = "Performs multiple related datatype operations.", mcpName = "grouped_datatype_operations", mcpDescription = "Accepts a list of datatype operations to perform as a group.")
 public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
+	// Define the functional category this tool groups
+	private static final ToolCategory TARGET_CATEGORY = ToolCategory.DATATYPES;
+
 	// Store classes and a map for quick lookup
 	private List<Class<? extends IGhidraMcpSpecification>> granularToolClasses = IGroupedTool
-			.getGranularToolClasses(this.getClass());
+			.getGranularToolClasses(TARGET_CATEGORY.getCategoryName());
 
 	private Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = this.granularToolClasses.stream()
 			.filter(clazz -> clazz.getAnnotation(GhidraMcpTool.class) != null)
@@ -47,7 +54,8 @@ public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, I
 
 		// Ensure classes were loaded
 		if (this.granularToolClasses.isEmpty()) {
-			Msg.warn(this, "No granular tool classes found for category: " + annotation.category());
+			Msg.warn(this, "No granular tool classes found for category: " + TARGET_CATEGORY.getCategoryName());
+			// Optionally re-attempt loading here if needed
 		}
 
 		// Call the corrected schema() method which returns JsonSchema

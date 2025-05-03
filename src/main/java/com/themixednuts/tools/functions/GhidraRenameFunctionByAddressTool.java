@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -20,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Rename Function By Address", category = "Functions", description = "Renames a function identified by its address.", mcpName = "rename_function_by_address", mcpDescription = "Finds a function by its entry point address and renames it.")
+@GhidraMcpTool(key = "Rename Function by Address", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its entry point address.", mcpName = "rename_function_by_address", mcpDescription = "Sets a new name for a function at a specific address.")
 public class GhidraRenameFunctionByAddressTool implements IGhidraMcpSpecification {
 
 	@Override

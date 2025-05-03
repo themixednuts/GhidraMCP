@@ -12,6 +12,7 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.symbol.Symbol;
@@ -24,7 +25,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Class Names", category = "Data Types", description = "List the names of class structures defined in the program.", mcpName = "list_class_names", mcpDescription = "Returns a paginated list of names of all defined classes (symbols of type CLASS).")
+@GhidraMcpTool(key = "List Class Names", category = ToolCategory.DATATYPES, description = "Lists the names of defined classes (structures).", mcpName = "list_class_names", mcpDescription = "Lists all defined class names (structure names) in the program.")
 public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 
 	@Override

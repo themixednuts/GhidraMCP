@@ -23,11 +23,18 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Grouped Project Management Operations", category = "ProjectManagement", description = "Performs multiple related project management operations.", mcpName = "grouped_project_management_operations", mcpDescription = "Accepts a list of project management operations to perform as a group.")
+// Import the enum
+import com.themixednuts.tools.ToolCategory;
+
+// Category is omitted to use default (UNCATEGORIZED) for options registration
+@GhidraMcpTool(key = "Grouped Project Management Operations", description = "Performs multiple related project management operations.", mcpName = "grouped_project_management_operations", mcpDescription = "Accepts a list of project management operations to perform as a group.")
 public class GroupedProjectManagementOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
+	// Define the functional category this tool groups
+	private static final ToolCategory TARGET_CATEGORY = ToolCategory.PROJECT_MANAGEMENT;
+
 	// Store classes and a map for quick lookup
 	private List<Class<? extends IGhidraMcpSpecification>> granularToolClasses = IGroupedTool
-			.getGranularToolClasses(this.getClass());
+			.getGranularToolClasses(TARGET_CATEGORY.getCategoryName());
 
 	private Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = this.granularToolClasses.stream()
 			.filter(clazz -> clazz.getAnnotation(GhidraMcpTool.class) != null)
@@ -47,7 +54,9 @@ public class GroupedProjectManagementOperationsTool implements IGhidraMcpSpecifi
 
 		// Ensure classes were loaded
 		if (this.granularToolClasses.isEmpty()) {
+			// Use the category from the annotation for the warning
 			Msg.warn(this, "No granular tool classes found for category: " + annotation.category());
+			// Optionally re-attempt loading here if needed
 		}
 
 		// Call the corrected schema() method which returns JsonSchema

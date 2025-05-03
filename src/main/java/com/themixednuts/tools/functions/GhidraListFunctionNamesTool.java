@@ -14,6 +14,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -26,7 +27,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "List Function Names", category = "Functions", description = "List names of all functions in the program.", mcpName = "list_function_names", mcpDescription = "Returns a paginated list of all function names and their entry points.")
+@GhidraMcpTool(key = "List Function Names", category = ToolCategory.FUNCTIONS, description = "Lists the names of all functions in the program.", mcpName = "list_function_names", mcpDescription = "Returns a paginated list of all function names.")
 public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 
 	@Override

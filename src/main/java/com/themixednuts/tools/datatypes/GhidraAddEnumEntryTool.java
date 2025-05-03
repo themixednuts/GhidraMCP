@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
@@ -20,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Add Enum Entry", category = "Data Types", description = "Enable the MCP tool to add an entry to an existing enum.", mcpName = "add_enum_entry", mcpDescription = "Adds a new name/value pair entry to an existing enum.")
+@GhidraMcpTool(key = "Add Enum Entry", category = ToolCategory.DATATYPES, description = "Adds a new entry to an existing enum.", mcpName = "add_enum_entry", mcpDescription = "Adds a named entry with a specific value to an existing enum data type.")
 public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override

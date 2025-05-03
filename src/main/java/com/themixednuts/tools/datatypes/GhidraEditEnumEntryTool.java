@@ -8,6 +8,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -18,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Edit Enum Entry", category = "Data Types", description = "Enable the MCP tool to edit an existing enum entry.", mcpName = "edit_enum_entry", mcpDescription = "Edits the name, value, and/or comment of an existing entry within an enum.")
+@GhidraMcpTool(key = "Edit Enum Entry", category = ToolCategory.DATATYPES, description = "Edits an existing entry within an enum.", mcpName = "edit_enum_entry", mcpDescription = "Modifies the name or comment of an existing entry in an enum data type, identified by its value.")
 public class GhidraEditEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override

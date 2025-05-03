@@ -15,6 +15,7 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
@@ -27,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Categories", category = "Data Types", description = "List data type categories.", mcpName = "list_categories", mcpDescription = "Returns a paginated list of data type category paths within the specified program.")
+@GhidraMcpTool(key = "List Categories", category = ToolCategory.DATATYPES, description = "Lists all category paths in the Data Type Manager.", mcpName = "list_categories", mcpDescription = "Returns a list of all defined category paths (folders) in the Data Type Manager.")
 public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 
 	// Define a simple POJO for the result

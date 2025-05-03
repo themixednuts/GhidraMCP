@@ -8,6 +8,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -18,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Edit Struct Member", category = "Data Types", description = "Enable the MCP tool to edit an existing struct member.", mcpName = "edit_struct_member", mcpDescription = "Edits the name, type, size, and/or comment of an existing member within a struct, identified by its offset.")
+@GhidraMcpTool(key = "Edit Struct Member", category = ToolCategory.DATATYPES, description = "Edits an existing member within a structure.", mcpName = "edit_struct_member", mcpDescription = "Modifies the name, data type, or comment of an existing field (member) in a struct.")
 public class GhidraEditStructMemberTool implements IGhidraMcpSpecification {
 
 	@Override

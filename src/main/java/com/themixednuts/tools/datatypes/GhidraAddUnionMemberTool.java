@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -18,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Add Union Member", category = "Data Types", description = "Enable the MCP tool to add a member to an existing union.", mcpName = "add_union_member", mcpDescription = "Adds a new member to an existing union. Note: In unions, members typically overlap at offset 0.")
+@GhidraMcpTool(key = "Add Union Member", category = ToolCategory.DATATYPES, description = "Adds a member to an existing union.", mcpName = "add_union_member", mcpDescription = "Adds a new field (member) to an existing union data type.")
 public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -76,12 +77,10 @@ public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, find union, find member data type
-			// Argument parsing errors caught by onErrorResume
 			String unionPathString = getRequiredStringArgument(args, "unionPath");
-			final String memberName = getRequiredStringArgument(args, "memberName"); // Final for lambda
+			final String memberName = getRequiredStringArgument(args, "memberName");
 			String memberTypePath = getRequiredStringArgument(args, "memberTypePath");
-			final String comment = getOptionalStringArgument(args, "comment").orElse(null); // Final for lambda
+			final String comment = getOptionalStringArgument(args, "comment").orElse(null);
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(unionPathString);
@@ -92,35 +91,25 @@ public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 			if (!(dt instanceof Union)) {
 				return createErrorResult("Data type at path is not a Union: " + unionPathString);
 			}
-			final Union unionDt = (Union) dt; // Final for lambda
+			final Union unionDt = (Union) dt;
 
-			final DataType memberDataType = dtm.getDataType(memberTypePath); // Final for lambda
+			final DataType memberDataType = dtm.getDataType(memberTypePath);
 			if (memberDataType == null) {
 				return createErrorResult("Member data type not found: " + memberTypePath);
 			}
 
-			// --- Execute modification in transaction ---
-			final String finalUnionPathString = unionPathString; // Capture for message
+			final String finalUnionPathString = unionPathString;
 			return executeInTransaction(program, "MCP - Add Union Member", () -> {
-				// Inner Callable logic (just the modification):
 				DataTypeComponent addedComponent = unionDt.add(memberDataType, memberName, comment);
 
 				if (addedComponent != null) {
-					// Return success
 					return createSuccessResult(
 							"Member '" + memberName + "' added successfully to union " + finalUnionPathString + ".");
 				} else {
-					// Return specific error if add fails (e.g., name conflict)
 					return createErrorResult("Failed to add member '" + memberName + "' to union " + finalUnionPathString
 							+ ". Name/type conflict or other issue?");
 				}
-			}); // End of Callable for executeInTransaction
-
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+			});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

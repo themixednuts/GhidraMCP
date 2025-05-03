@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
@@ -19,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Category", category = "Data Types", description = "Rename an existing data type category.", mcpName = "rename_category", mcpDescription = "Renames an existing data type category.")
+@GhidraMcpTool(key = "Rename Category", category = ToolCategory.DATATYPES, description = "Renames an existing category path.", mcpName = "rename_category", mcpDescription = "Renames a category (folder) in the Data Type Manager.")
 public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

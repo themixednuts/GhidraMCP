@@ -11,6 +11,7 @@ import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
+import ghidra.util.Swing;
 
 @PluginInfo(status = PluginStatus.RELEASED, packageName = ghidra.app.DeveloperPluginPackage.NAME, category = PluginCategoryNames.ANALYSIS, shortDescription = "MCP Server Plugin", description = "Starts an embedded HTTP MCP server to expose program data. Port configurable via Tool Options.", servicesRequired = {}, servicesProvided = {
         IGhidraMcpToolProvider.class })
@@ -42,7 +43,7 @@ public class GhidraMCPPlugin extends Plugin {
         registerServiceProvided(IGhidraMcpToolProvider.class, localToolsProvider);
 
         // Start the Server
-        GhidraMcpServer.start(currentPort, tool);
+        Swing.runLater(() -> GhidraMcpServer.start(currentPort, this.tool));
 
         Msg.info(this, "GhidraMCPPlugin loaded!");
 

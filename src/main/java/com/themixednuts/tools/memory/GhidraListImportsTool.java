@@ -24,8 +24,9 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Imports", category = "Memory", description = "Enable the MCP tool to list imports in a file.", mcpName = "list_imports", mcpDescription = "List the names and details of all imported symbols (functions, data from external libraries) used by the specified program. Supports pagination.")
+@GhidraMcpTool(key = "List Imports", category = ToolCategory.MEMORY, description = "Enable the MCP tool to list imports in a file.", mcpName = "list_imports", mcpDescription = "List the names and details of all imported symbols (functions, data from external libraries) used by the specified program. Supports pagination.")
 public class GhidraListImportsTool implements IGhidraMcpSpecification {
 	public GhidraListImportsTool() {
 	}

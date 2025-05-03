@@ -10,6 +10,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
@@ -25,7 +26,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Update Function Definition", category = "Data Types", description = "Updates an existing function signature data type.", mcpName = "update_function_definition", mcpDescription = "Modify an existing function definition data type (signature) with new parameters or return type.")
+@GhidraMcpTool(key = "Update Function Definition", category = ToolCategory.DATATYPES, description = "Updates an existing function definition data type.", mcpName = "update_function_definition", mcpDescription = "Updates the return type, parameters, calling convention, or varargs status of an existing function definition.")
 public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

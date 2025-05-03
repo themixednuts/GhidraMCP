@@ -18,8 +18,9 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get TypeDef Definition", category = "Data Types", description = "Retrieve the definition of a specific typedef data type.", mcpName = "get_typedef_definition", mcpDescription = "Get detailed definition of a typedef type by its name.")
+@GhidraMcpTool(key = "Get TypeDef Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing typedef.", mcpName = "get_typedef_definition", mcpDescription = "Retrieves the definition (name, underlying type) of a typedef data type.")
 public class GhidraGetTypeDefDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

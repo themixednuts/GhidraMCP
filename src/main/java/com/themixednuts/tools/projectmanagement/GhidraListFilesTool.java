@@ -20,8 +20,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Files", category = "Project Management", description = "Lists the files currently open in the Ghidra project.", mcpName = "list_open_files", mcpDescription = "Returns a list of files currently open in the Ghidra project.")
+@GhidraMcpTool(key = "List Files", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists the files currently open in the Ghidra project.", mcpName = "list_open_files", mcpDescription = "Returns a list of files currently open in the Ghidra project.")
 public class GhidraListFilesTool implements IGhidraMcpSpecification {
 	public GhidraListFilesTool() {
 	}

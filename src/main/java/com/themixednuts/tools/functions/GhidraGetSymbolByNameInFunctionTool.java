@@ -10,6 +10,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.models.HighSymbolInfo;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -26,7 +27,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Symbol By Name In Function", category = "Functions", description = "Gets details of a specific symbol (variable/parameter) within a function by its name.", mcpName = "get_symbol_by_name_in_function", mcpDescription = "Retrieves details (type, storage, etc.) for a specific symbol identified by its name within a given function.")
+@GhidraMcpTool(key = "Get Symbol by Name in Function", category = ToolCategory.FUNCTIONS, description = "Gets details about a symbol (variable or parameter) within a specific function by its name.", mcpName = "get_symbol_by_name_in_function", mcpDescription = "Retrieves details of a local variable or parameter by its name within a specific function.")
 public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

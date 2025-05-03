@@ -9,6 +9,7 @@ import com.themixednuts.models.DataTypeInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
@@ -20,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Enum Definition", category = "Data Types", description = "Retrieve the definition of a specific enum data type.", mcpName = "get_enum_definition", mcpDescription = "Get detailed definition of an enum type by its name.")
+@GhidraMcpTool(key = "Get Enum Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing enum.", mcpName = "get_enum_definition", mcpDescription = "Retrieves the definition (name, entries, etc.) of an enum data type.")
 public class GhidraGetEnumDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

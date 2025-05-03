@@ -9,6 +9,7 @@ import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.data.Category;
 import ghidra.program.model.data.CategoryPath;
@@ -21,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Delete Category", category = "Data Types", description = "Enable the MCP tool to delete a data type category.", mcpName = "delete_category", mcpDescription = "Deletes an existing data type category and all data types and sub-categories within it.")
+@GhidraMcpTool(key = "Delete Category", category = ToolCategory.DATATYPES, description = "Deletes an existing category path, optionally recursively.", mcpName = "delete_category", mcpDescription = "Deletes a category (folder) and optionally its contents from the Data Type Manager.")
 public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -18,8 +18,9 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Union Definition", category = "Data Types", description = "Retrieve the definition of a specific union data type.", mcpName = "get_union_definition", mcpDescription = "Get detailed definition of a union type by its name.")
+@GhidraMcpTool(key = "Get Union Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing union.", mcpName = "get_union_definition", mcpDescription = "Retrieves the definition (name, members, etc.) of a union data type.")
 public class GhidraGetUnionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

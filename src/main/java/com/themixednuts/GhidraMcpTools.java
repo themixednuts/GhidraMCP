@@ -15,6 +15,7 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import com.themixednuts.tools.ToolCategory;
 
 /**
  * Service implementation responsible for discovering, filtering (based on
@@ -67,10 +68,10 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 						return false; // Skip tools without the required annotation
 					}
 					String baseKey = toolAnnotation.key();
-					String category = toolAnnotation.category();
+					ToolCategory categoryEnum = toolAnnotation.category();
 					String fullKey = baseKey;
-					if (category != null && !category.trim().isEmpty()) {
-						fullKey = category.trim() + "." + baseKey;
+					if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
+						fullKey = categoryEnum.getCategoryName() + "." + baseKey;
 					}
 					// Check the ToolOptions retrieved in the constructor
 					boolean isEnabled = this.options.getBoolean(fullKey, true);
@@ -131,11 +132,11 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 
 				String baseKey = toolAnnotation.key();
 				String desc = toolAnnotation.description();
-				String category = toolAnnotation.category();
+				ToolCategory categoryEnum = toolAnnotation.category();
 
 				String fullKey = baseKey;
-				if (category != null && !category.trim().isEmpty()) {
-					fullKey = category.trim() + "." + baseKey;
+				if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
+					fullKey = categoryEnum.getCategoryName() + "." + baseKey;
 				}
 
 				// Register the boolean option (defaulting to true/enabled)

@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.*;
@@ -18,7 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Create Typedef", category = "Data Types", description = "Enable the MCP tool to create a new typedef.", mcpName = "create_typedef", mcpDescription = "Creates a new typedef data type, aliasing an existing data type.")
+@GhidraMcpTool(key = "Create TypeDef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpName = "create_typedef", mcpDescription = "Defines a new typedef based on an existing data type.")
 public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 
 	public GhidraCreateTypeDefTool() {

@@ -18,8 +18,9 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Current Address", category = "Memory", description = "Enable the MCP tool to get the current address in the active Ghidra tool.", mcpName = "get_current_address", mcpDescription = "Retrieve the memory address currently indicated by the cursor in the active Ghidra Code Browser window associated with the specified program.")
+@GhidraMcpTool(key = "Get Current Address", category = ToolCategory.MEMORY, description = "Enable the MCP tool to get the current address in the active Ghidra tool.", mcpName = "get_current_address", mcpDescription = "Retrieve the memory address currently indicated by the cursor in the active Ghidra Code Browser window associated with the specified program.")
 public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
 	public GhidraGetCurrentAddressTool() {
 	}

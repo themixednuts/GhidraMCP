@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
@@ -20,11 +21,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Add Struct Member", category = "Data Types", description = "Enable the MCP tool to add a member to a struct data type.", mcpName = "add_struct_member", mcpDescription = "Adds a new member field to an existing structure (struct) data type.")
+@GhidraMcpTool(key = "Add Struct Member", category = ToolCategory.DATATYPES, description = "Adds a member to an existing structure.", mcpName = "add_struct_member", mcpDescription = "Adds a new field (member) to an existing struct data type at a specified offset.")
 public class GhidraAddStructMemberTool implements IGhidraMcpSpecification {
-
-	public GhidraAddStructMemberTool() {
-	}
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
@@ -82,10 +80,10 @@ public class GhidraAddStructMemberTool implements IGhidraMcpSpecification {
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			String structPathString = getRequiredStringArgument(args, "structPath");
-			final String memberName = getRequiredStringArgument(args, "memberName"); // Final for lambda
+			final String memberName = getRequiredStringArgument(args, "memberName");
 			String memberTypePath = getRequiredStringArgument(args, "memberTypePath");
-			final Optional<Integer> offsetOpt = getOptionalIntArgument(args, "offset"); // Final for lambda
-			final Optional<String> commentOpt = getOptionalStringArgument(args, "comment"); // Final for lambda
+			final Optional<Integer> offsetOpt = getOptionalIntArgument(args, "offset");
+			final Optional<String> commentOpt = getOptionalStringArgument(args, "comment");
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			DataType dt = dtm.getDataType(structPathString);
@@ -96,39 +94,30 @@ public class GhidraAddStructMemberTool implements IGhidraMcpSpecification {
 			if (!(dt instanceof Structure)) {
 				return createErrorResult("Data type at path is not a Structure: " + structPathString);
 			}
-			final Structure struct = (Structure) dt; // Final for lambda
+			final Structure struct = (Structure) dt;
 
-			final DataType memberDataType = dtm.getDataType(memberTypePath); // Final for lambda
+			final DataType memberDataType = dtm.getDataType(memberTypePath);
 			if (memberDataType == null) {
 				return createErrorResult("Data type not found for member: " + memberTypePath);
 			}
 
-			// Determine size (outside transaction)
-			final int memberSize = memberDataType.getLength(); // Final for lambda
+			final int memberSize = memberDataType.getLength();
 			if (memberSize <= 0) {
-				// Cannot add dynamically sized types without explicit size (which isn't an arg
-				// here)
 				return createErrorResult("Cannot add member with dynamically sized type: " + memberTypePath);
 			}
 
-			// --- Execute modification in transaction ---
-			final String finalStructPathString = structPathString; // Capture for message
+			final String finalStructPathString = structPathString;
 			return executeInTransaction(program, "MCP - Add Struct Member", () -> {
 				// Inner Callable logic (just the modification):
 				if (offsetOpt.isPresent()) {
-					int offset = offsetOpt.get(); // Explicit unboxing
-					// Pass memberSize to insert
+					int offset = offsetOpt.get();
 					struct.insert(offset, memberDataType, memberSize, memberName, commentOpt.orElse(null));
 				} else {
-					// Add method doesn't need explicit size
 					struct.add(memberDataType, memberName, commentOpt.orElse(null));
 				}
-				// Return success
 				return createSuccessResult(
 						"Member '" + memberName + "' added to structure '" + finalStructPathString + "'.");
 			});
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 }

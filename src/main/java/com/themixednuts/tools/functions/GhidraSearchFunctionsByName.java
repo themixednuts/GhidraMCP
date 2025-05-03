@@ -14,6 +14,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Function;
@@ -24,7 +25,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Search Functions By Name", category = "Functions", description = "Search for functions matching a name pattern.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names contain the specified substring.")
+@GhidraMcpTool(key = "Search Functions by Name", category = ToolCategory.FUNCTIONS, description = "Searches for functions whose names contain a given substring.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names match a search query.")
 public class GhidraSearchFunctionsByName implements IGhidraMcpSpecification {
 
 	@Override

@@ -18,8 +18,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Function Containing Location", category = "Functions", description = "Finds the function that contains a given memory address.", mcpName = "get_function_containing_location", mcpDescription = "Returns details about the function that includes the specified memory address within its body.")
+@GhidraMcpTool(key = "Get Function Containing Location", category = ToolCategory.FUNCTIONS, description = "Gets the function that contains a specific memory address.", mcpName = "get_function_containing_location", mcpDescription = "Finds and returns the function containing the given address.")
 public class GhidraGetFunctionContainingLocationTool implements IGhidraMcpSpecification {
 
 	@Override

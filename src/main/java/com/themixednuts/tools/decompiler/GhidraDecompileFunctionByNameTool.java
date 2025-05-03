@@ -21,7 +21,10 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Decompile Function By Name", category = "Decompiler", description = "Decompiles a function specified by name.", mcpName = "decompile_function_by_name", mcpDescription = "Returns the C-like decompiled source code for the function with the given name.")
+// Import the enum
+import com.themixednuts.tools.ToolCategory;
+
+@GhidraMcpTool(key = "Decompile Function by Name", category = ToolCategory.DECOMPILER, description = "Decompiles a function given its name and returns the C code representation.", mcpName = "decompile_function_by_name", mcpDescription = "Decompiles a function by its name.")
 public class GhidraDecompileFunctionByNameTool implements IGhidraMcpSpecification {
 	public GhidraDecompileFunctionByNameTool() {
 	}

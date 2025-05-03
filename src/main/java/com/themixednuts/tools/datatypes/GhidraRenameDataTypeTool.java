@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.*;
@@ -18,7 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Data Type", category = "Data Types", description = "Enable the MCP tool to rename an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames an existing data type (struct, union, enum, typedef, etc.).")
+@GhidraMcpTool(key = "Rename Data Type", category = ToolCategory.DATATYPES, description = "Renames an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames a user-defined data type (struct, enum, etc.).")
 public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -20,8 +20,9 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Current Function", category = "Functions", description = "Enable the MCP tool to get the function currently selected in the active Ghidra tool.", mcpName = "get_current_function", mcpDescription = "Retrieve details of the function containing the current cursor location in the active Ghidra Code Browser window for the specified program.")
+@GhidraMcpTool(key = "Get Current Function", category = ToolCategory.FUNCTIONS, description = "Gets details about the function containing the current cursor location.", mcpName = "get_current_function", mcpDescription = "Returns details of the function at the current cursor location in the active Ghidra listing.")
 public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

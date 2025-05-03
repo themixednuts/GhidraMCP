@@ -8,6 +8,7 @@ import java.util.stream.Stream;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 
 /**
  * Marker interface for grouped operation tools.
@@ -17,64 +18,53 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 public interface IGroupedTool {
 
 	/**
-	 * Finds the classes of granular tools belonging to the same category as the
-	 * given
-	 * grouped tool class.
+	 * Finds the classes of granular tools belonging to the specified target
+	 * category.
 	 *
-	 * @param groupedToolClass The class of the grouped tool.
+	 * @param targetCategory The category name string to filter granular tools by.
 	 * @return A list of classes for the granular tools.
 	 */
-	public static List<Class<? extends IGhidraMcpSpecification>> getGranularToolClasses(
-			Class<? extends IGroupedTool> groupedToolClass) {
-		return getFilteredProviders(groupedToolClass)
+	public static List<Class<? extends IGhidraMcpSpecification>> getGranularToolClasses(String targetCategory) {
+		return getFilteredProviders(targetCategory)
 				.map(Provider::type) // Get the class type
 				.collect(Collectors.toList());
 	}
 
 	// Helper method to perform common loading and filtering
-	private static Stream<ServiceLoader.Provider<IGhidraMcpSpecification>> getFilteredProviders(
-			Class<? extends IGroupedTool> groupedToolClass) {
+	private static Stream<ServiceLoader.Provider<IGhidraMcpSpecification>> getFilteredProviders(String targetCategory) {
 		ServiceLoader<IGhidraMcpSpecification> loader = ServiceLoader.load(IGhidraMcpSpecification.class);
-		GhidraMcpTool groupedAnnotation = groupedToolClass.getAnnotation(GhidraMcpTool.class);
-		if (groupedAnnotation == null) {
+
+		// Validate targetCategory
+		if (targetCategory == null || targetCategory.trim().isEmpty()) {
 			ghidra.util.Msg.error(IGroupedTool.class,
-					"Grouped tool class " + groupedToolClass.getName() + " is missing @GhidraMcpTool annotation.");
-			return Stream.empty(); // Return empty stream if the grouped tool itself is misconfigured
+					"Target category provided to getFilteredProviders cannot be null or empty.");
+			return Stream.empty();
 		}
 
 		return loader.stream()
-				// Filter out other grouped tools themselves
+				// Filter out grouped tools themselves
 				.filter(specProvider -> !IGroupedTool.class.isAssignableFrom(specProvider.type()))
-				// Filter based on matching category annotation
-				.filter(specProvider -> hasMatchingCategory(specProvider, groupedAnnotation));
+				// Filter based on matching the target category annotation
+				.filter(specProvider -> hasMatchingCategory(specProvider, targetCategory));
 	}
 
-	// Helper method to check for matching category annotation
 	private static boolean hasMatchingCategory(ServiceLoader.Provider<IGhidraMcpSpecification> specProvider,
-			GhidraMcpTool groupedAnnotation) {
+			String targetCategory) {
 		Class<?> specClass = specProvider.type();
 		GhidraMcpTool specAnnotation = specClass.getAnnotation(GhidraMcpTool.class);
 
 		if (specAnnotation == null) {
 			ghidra.util.Msg.warn(IGroupedTool.class, "Service " + specClass.getName()
 					+ " implements IGhidraMcpSpecification but lacks @GhidraMcpTool annotation. Skipping for grouping.");
-			return false; // Exclude spec if its annotation is missing
-		}
-		// Compare categories - ensure they are not null before comparing
-		String specCategory = specAnnotation.category();
-		String groupedCategory = groupedAnnotation.category();
-
-		// Grouped tools must have a category defined for this logic to work
-		if (groupedCategory == null || groupedCategory.trim().isEmpty()) {
-			ghidra.util.Msg.warn(IGroupedTool.class,
-					"Grouped tool " + groupedAnnotation.key() + " has no category defined. Cannot group tools.");
 			return false;
 		}
-		// Granular tools must also have a category defined
-		if (specCategory == null || specCategory.trim().isEmpty()) {
-			return false; // Granular tool is not categorized, cannot belong to a group
+
+		ToolCategory specCategoryEnum = specAnnotation.category();
+		if (specCategoryEnum == null || specCategoryEnum == ToolCategory.UNCATEGORIZED
+				|| specCategoryEnum == ToolCategory.GROUPED) {
+			return false;
 		}
-		return specCategory.equals(groupedCategory);
+		return specCategoryEnum.getCategoryName().equals(targetCategory.trim());
 	}
 
 }

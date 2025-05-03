@@ -9,6 +9,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -29,7 +30,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Symbol In Function", category = "Functions", description = "Renames a local variable or parameter within a specific function.", mcpName = "rename_symbol_in_function", mcpDescription = "Finds a symbol (local variable or parameter) by its current name within a function and renames it.")
+@GhidraMcpTool(key = "Rename Symbol in Function", category = ToolCategory.FUNCTIONS, description = "Renames a symbol (variable or parameter) within a specific function.", mcpName = "rename_symbol_in_function", mcpDescription = "Renames a local variable or parameter within a function.")
 public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

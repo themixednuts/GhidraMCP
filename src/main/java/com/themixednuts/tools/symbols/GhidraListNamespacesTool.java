@@ -24,8 +24,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
+import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Namespaces", category = "Symbols", description = "Enable the MCP tool to list namespaces in a file.", mcpName = "list_namespaces", mcpDescription = "List the names of all symbol namespaces (groupings for symbols like classes, functions, etc.) defined within the specified program. Supports pagination.")
+@GhidraMcpTool(key = "List Namespaces", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to list namespaces in a file.", mcpName = "list_namespaces", mcpDescription = "List the names of all symbol namespaces (groupings for symbols like classes, functions, etc.) defined within the specified program. Supports pagination.")
 public class GhidraListNamespacesTool implements IGhidraMcpSpecification {
 
 	@Override

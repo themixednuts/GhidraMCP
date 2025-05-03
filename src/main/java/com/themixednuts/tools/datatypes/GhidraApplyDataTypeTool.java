@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -22,7 +23,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Apply Data Type", category = "Data Types", description = "Apply a data type to a specific address.", mcpName = "apply_data_type", mcpDescription = "Applies a specified data type to a given memory address.")
+@GhidraMcpTool(key = "Apply Data Type", category = ToolCategory.DATATYPES, description = "Applies a specific data type to a memory address.", mcpName = "apply_data_type", mcpDescription = "Applies a named data type to a given memory address.")
 public class GhidraApplyDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override

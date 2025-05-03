@@ -15,6 +15,7 @@ import com.themixednuts.models.HighSymbolInfo;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -32,7 +33,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Symbols In Function", category = "Functions", description = "Lists local variables and parameters within a function using decompiler analysis.", mcpName = "list_symbols_in_function", mcpDescription = "Returns a list of symbols (local variables, parameters) defined within the specified function, based on decompiler analysis. Supports pagination.")
+@GhidraMcpTool(key = "List Symbols in Function", category = ToolCategory.FUNCTIONS, description = "Lists all symbols (variables and parameters) within a specific function.", mcpName = "list_symbols_in_function", mcpDescription = "Returns a list of local variables and parameters defined within a specified function.")
 public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

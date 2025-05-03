@@ -15,7 +15,7 @@ com.themixednuts.tools.memory.GhidraGetXRefsFromTool
 com.themixednuts.tools.memory.GhidraGetXRefsToTool
 com.themixednuts.tools.memory.GhidraListImportsTool
 com.themixednuts.tools.memory.GhidraListSegmentsTool
-com.themixednuts.tools.datatypes.GhidraAddStructMemeberTool
+com.themixednuts.tools.datatypes.GhidraAddStructMemberTool
 com.themixednuts.tools.datatypes.GhidraListDataTypesTool
 com.themixednuts.tools.decompiler.GhidraDecompileFunctionByNameTool
 com.themixednuts.tools.functions.GhidraGetFunctionContainingLocationTool

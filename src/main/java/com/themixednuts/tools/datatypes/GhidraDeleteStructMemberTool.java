@@ -8,6 +8,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -18,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Delete Struct Member", category = "Data Types", description = "Enable the MCP tool to delete a struct member.", mcpName = "delete_struct_member", mcpDescription = "Deletes a member from a struct, identified by its offset.")
+@GhidraMcpTool(key = "Delete Struct Member", category = ToolCategory.DATATYPES, description = "Deletes a member from an existing structure.", mcpName = "delete_struct_member", mcpDescription = "Removes a field (member) from an existing struct data type by its offset.")
 public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -56,7 +57,7 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 		schemaRoot.property("memberOffset",
 				JsonSchemaBuilder.integer(mapper)
 						.description("The offset (in bytes) of the member to delete.")
-						.minimum(0)); // Offset cannot be negative
+						.minimum(0));
 
 		schemaRoot.requiredProperty("fileName")
 				.requiredProperty("structPath")
@@ -69,7 +70,7 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
 			String structPathString = getRequiredStringArgument(args, "structPath");
-			final Integer memberOffset = getRequiredIntArgument(args, "memberOffset"); // Final for lambda
+			final Integer memberOffset = getRequiredIntArgument(args, "memberOffset");
 
 			if (memberOffset < 0) {
 				return createErrorResult("Invalid memberOffset: Cannot be negative.");
@@ -84,7 +85,7 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 			if (!(dt instanceof Structure)) {
 				return createErrorResult("Data type at path is not a Structure: " + structPathString);
 			}
-			final Structure structDt = (Structure) dt; // Final for lambda
+			final Structure structDt = (Structure) dt;
 
 			DataTypeComponent component = structDt.getComponentAt(memberOffset);
 			if (component == null) {
@@ -96,9 +97,7 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 				return createSuccessResult("Struct member at offset " + memberOffset + " deleted successfully.");
 			});
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+		}).onErrorResume(e -> createErrorResult(e));
 	}
 
 }

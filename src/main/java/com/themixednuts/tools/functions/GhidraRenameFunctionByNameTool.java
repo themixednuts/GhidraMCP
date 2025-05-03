@@ -9,6 +9,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
@@ -21,7 +22,7 @@ import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.symbol.FunctionSymbol;
 
-@GhidraMcpTool(key = "Rename Function By Name", category = "Functions", description = "Renames a function identified by its current name.", mcpName = "rename_function_by_name", mcpDescription = "Finds a function by its current name and renames it.")
+@GhidraMcpTool(key = "Rename Function by Name", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its current name.", mcpName = "rename_function_by_name", mcpDescription = "Finds a function by its current name and renames it.")
 public class GhidraRenameFunctionByNameTool implements IGhidraMcpSpecification {
 
 	@Override

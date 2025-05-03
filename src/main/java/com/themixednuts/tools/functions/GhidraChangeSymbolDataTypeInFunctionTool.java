@@ -13,6 +13,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.models.DataTypeSuggestionInfo;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -34,7 +35,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Change Symbol Data Type", category = "Functions", description = "Enable the MCP tool to change the data type of a symbol in a function.", mcpName = "change_symbol_data_type_in_function", mcpDescription = "Change the data type of a specific symbol (local variable or parameter) within a function. Specify the function name, symbol name, and the desired new data type name (e.g., 'int', 'char*', '/Category/TypeName').")
+@GhidraMcpTool(key = "Change Symbol Data Type in Function", category = ToolCategory.FUNCTIONS, description = "Changes the data type of a symbol (variable or parameter) within a specific function.", mcpName = "change_symbol_data_type_in_function", mcpDescription = "Changes the data type of a local variable or parameter within a function.")
 public class GhidraChangeSymbolDataTypeInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -23,11 +23,18 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Grouped Memory Operations", category = "Memory", description = "Performs multiple related memory operations.", mcpName = "grouped_memory_operations", mcpDescription = "Accepts a list of memory operations to perform as a group.")
+// Import the enum
+import com.themixednuts.tools.ToolCategory;
+
+// Category is omitted to use default (UNCATEGORIZED) for options registration
+@GhidraMcpTool(key = "Grouped Memory Operations", description = "Performs multiple related memory operations.", mcpName = "grouped_memory_operations", mcpDescription = "Accepts a list of memory operations to perform as a group.")
 public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
+	// Define the functional category this tool groups
+	private static final ToolCategory TARGET_CATEGORY = ToolCategory.MEMORY;
+
 	// Store classes and a map for quick lookup
 	private List<Class<? extends IGhidraMcpSpecification>> granularToolClasses = IGroupedTool
-			.getGranularToolClasses(this.getClass());
+			.getGranularToolClasses(TARGET_CATEGORY.getCategoryName());
 
 	private Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = this.granularToolClasses.stream()
 			.filter(clazz -> clazz.getAnnotation(GhidraMcpTool.class) != null)
@@ -47,7 +54,7 @@ public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGr
 
 		// Ensure classes were loaded
 		if (this.granularToolClasses.isEmpty()) {
-			Msg.warn(this, "No granular tool classes found for category: " + annotation.category());
+			Msg.warn(this, "No granular tool classes found for category: " + TARGET_CATEGORY.getCategoryName());
 		}
 
 		// Call the corrected schema() method which returns JsonSchema

@@ -16,6 +16,7 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
@@ -27,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Data Types", category = "Data Types", description = "List all available data types.", mcpName = "list_data_types", mcpDescription = "Returns a paginated list of all data types defined in or available to the specified program.")
+@GhidraMcpTool(key = "List Data Types", category = ToolCategory.DATATYPES, description = "Lists all data types, optionally filtered by category.", mcpName = "list_data_types", mcpDescription = "Returns a paginated list of all data types, optionally filtered by category path.")
 public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 
 	@Override

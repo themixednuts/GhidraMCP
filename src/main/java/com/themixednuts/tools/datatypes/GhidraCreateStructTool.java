@@ -7,6 +7,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.data.*;
 import ghidra.util.Msg;
@@ -23,7 +24,7 @@ import java.util.Optional;
 
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Create Struct", category = "Data Types", description = "Enable the MCP tool to create a new structure data type.", mcpName = "create_struct", mcpDescription = "Creates a new structure data type at the specified path, optionally adding initial members.")
+@GhidraMcpTool(key = "Create Struct", category = ToolCategory.DATATYPES, description = "Creates a new struct data type.", mcpName = "create_struct", mcpDescription = "Defines a new struct data type, optionally pre-populated with members.")
 public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 
 	// Simple record to hold resolved member details

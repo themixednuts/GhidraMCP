@@ -9,6 +9,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.data.*;
 import ghidra.util.Msg;
@@ -19,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Update Typedef", category = "Data Types", description = "Enable the MCP tool to update properties of a typedef.", mcpName = "update_typedef", mcpDescription = "Updates the underlying data type or description of an existing typedef by replacing it.")
+@GhidraMcpTool(key = "Update TypeDef", category = ToolCategory.DATATYPES, description = "Updates an existing typedef data type.", mcpName = "update_typedef", mcpDescription = "Changes the underlying data type that an existing typedef aliases.")
 public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 
 	@Override

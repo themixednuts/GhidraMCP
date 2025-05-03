@@ -8,6 +8,7 @@ import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
@@ -21,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Move Category", category = "Data Types", description = "Move an existing data type category to a different parent category.", mcpName = "move_category", mcpDescription = "Moves an existing data type category (folder) to a new parent category.")
+@GhidraMcpTool(key = "Move Category", category = ToolCategory.DATATYPES, description = "Moves an existing category to a new parent category.", mcpName = "move_category", mcpDescription = "Moves a category (folder) and its contents to a different location in the Data Type Manager.")
 public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

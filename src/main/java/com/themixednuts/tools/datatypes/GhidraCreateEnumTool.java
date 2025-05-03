@@ -13,6 +13,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IArraySchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
@@ -23,14 +24,10 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Create Enum", category = "Data Types", description = "Enable the MCP tool to create a new enum data type.", mcpName = "create_enum", mcpDescription = "Creates a new enum data type with specified entries at the given path.")
+@GhidraMcpTool(key = "Create Enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpName = "create_enum", mcpDescription = "Defines a new enum data type, optionally pre-populated with entries.")
 public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
-	// Simple record to hold resolved entry details
 	private record ResolvedEnumEntry(String name, long value, String comment) {
-	}
-
-	public GhidraCreateEnumTool() {
 	}
 
 	@Override

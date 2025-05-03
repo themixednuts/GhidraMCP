@@ -23,11 +23,18 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Grouped Decompiler Operations", category = "Decompiler", description = "Performs multiple related decompiler operations.", mcpName = "grouped_decompiler_operations", mcpDescription = "Accepts a list of decompiler operations to perform as a group.")
+// Import the enum
+import com.themixednuts.tools.ToolCategory;
+
+// Category is omitted to use default (UNCATEGORIZED) for options registration
+@GhidraMcpTool(key = "Grouped Decompiler Operations", description = "Performs multiple related decompiler operations.", mcpName = "grouped_decompiler_operations", mcpDescription = "Accepts a list of decompiler operations to perform as a group.")
 public class GroupedDecompilerOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
+	// Define the functional category this tool groups
+	private static final ToolCategory TARGET_CATEGORY = ToolCategory.DECOMPILER;
+
 	// Store classes and a map for quick lookup
 	private List<Class<? extends IGhidraMcpSpecification>> granularToolClasses = IGroupedTool
-			.getGranularToolClasses(this.getClass());
+			.getGranularToolClasses(TARGET_CATEGORY.getCategoryName());
 
 	private Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = this.granularToolClasses.stream()
 			.filter(clazz -> clazz.getAnnotation(GhidraMcpTool.class) != null)
@@ -47,7 +54,9 @@ public class GroupedDecompilerOperationsTool implements IGhidraMcpSpecification,
 
 		// Ensure classes were loaded
 		if (this.granularToolClasses.isEmpty()) {
-			Msg.warn(this, "No granular tool classes found for category: " + annotation.category());
+			// Use the *target* category for the warning
+			Msg.warn(this, "No granular tool classes found for category: " + TARGET_CATEGORY.getCategoryName());
+			// Optionally re-attempt loading here if needed
 		}
 
 		// Call the corrected schema() method which returns JsonSchema
