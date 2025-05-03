@@ -16,7 +16,7 @@
 
 > Ghidra integration for the Model Context Protocol (MCP)
 
-A Ghidra extension providing tools and integration points for the Model Context Protocol (MCP). This project allows interaction with MCP servers and resources directly within the Ghidra reverse engineering framework.
+A Ghidra extension that runs an embedded MCP server to expose Ghidra program data and functionalities via tools.
 
 ---
 
@@ -201,4 +201,4 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## Acknowledgements
 
-This project is heavily inspired by and based on the work of [LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this plugin directly embeds the server in the plugin.
+This project is heavily inspired by and based on the work of [LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this plugin directly embeds the server in the plugin. Developed by TheMixedNuts.

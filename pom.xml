@@ -5,9 +5,15 @@
   <groupId>com.themixednuts</groupId>
   <artifactId>GhidraMCP</artifactId>
   <packaging>jar</packaging>
-  <version>1.0-SNAPSHOT</version>
+  <version>1.0.0</version>
   <name>GhidraMCP</name>
-  <url>http://maven.apache.org</url>
+  <description>A Ghidra extension implementing the Model Context Protocol (MCP) by running an embedded MCP server.</description>
+  <url>https://github.com/themixednuts/GhidraMCP</url>
+
+  <organization>
+    <name>TheMixedNuts</name>
+    <url>https://github.com/themixednuts</url>
+  </organization>
 
   <dependencyManagement>
     <dependencies>
