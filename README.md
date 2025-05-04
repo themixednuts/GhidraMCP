@@ -32,11 +32,11 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 ### Project Management ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java))
 
-- [x] List open programs/files: [`GhidraListFilesTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListFilesTool.java)
+- [x] List open programs/files: [`GhidraListOpenFilesTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListOpenFilesTool.java)
 - [x] Get current program info: [`GhidraGetCurrentProgramInfoTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraGetCurrentProgramInfoTool.java)
 - [x] List bookmarks: [`GhidraListBookmarksTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListBookmarksTool.java)
-- [x] Add bookmark: [`GhidraAddBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraAddBookmarkTool.java)
-- [x] Remove bookmark: [`GhidraRemoveBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraRemoveBookmarkTool.java)
+- [x] Add bookmark: [`GhidraCreateBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraCreateBookmarkTool.java)
+- [x] Remove bookmark: [`GhidraDeleteBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraDeleteBookmarkTool.java)
 - [x] List Ghidra scripts: [`GhidraListScriptsTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListScriptsTool.java)
 - [x] Run Ghidra script: [`GhidraRunScriptTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraRunScriptTool.java)
 
@@ -50,10 +50,10 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 - [x] List symbols in function: [`GhidraListSymbolsInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraListSymbolsInFunctionTool.java)
 - [x] Get symbol by name in function: [`GhidraGetSymbolByNameInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetSymbolByNameInFunctionTool.java)
 - [x] Rename symbol in function: [`GhidraRenameSymbolInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameSymbolInFunctionTool.java)
-- [x] Change symbol data type in function: [`GhidraChangeSymbolDataTypeInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraChangeSymbolDataTypeInFunctionTool.java)
-- [x] Get/Set function comments (Use [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java) / [`GhidraSetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraSetCommentAtAddressTool.java) at entry point)
-- [x] Add function: [`GhidraAddFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraAddFunctionTool.java)
-- [x] Remove function: [`GhidraRemoveFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraRemoveFunctionTool.java)
+- [x] Change symbol data type in function: [`GhidraUpdateSymbolDataTypeInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraUpdateSymbolDataTypeInFunctionTool.java)
+- [x] Get/Set function comments (Use [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java) / [`GhidraUpdateCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraUpdateCommentAtAddressTool.java) at entry point)
+- [x] Add function: [`GhidraCreateFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraCreateFunctionTool.java)
+- [x] Remove function: [`GhidraDeleteFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraDeleteFunctionTool.java)
 - [x] Update function prototype/signature: [`GhidraUpdateFunctionPrototypeTool`](src/main/java/com/themixednuts/tools/functions/GhidraUpdateFunctionPrototypeTool.java)
 - [x] Decompile function by name: [`GhidraDecompileFunctionByNameTool`](src/main/java/com/themixednuts/tools/decompiler/GhidraDecompileFunctionByNameTool.java)
 
@@ -61,13 +61,13 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 - [x] List defined strings: [`GhidraGetDefinedStringsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetDefinedStringsTool.java)
 - [x] List namespaces: [`GhidraListNamespacesTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListNamespacesTool.java)
-- [x] Set comment at address: [`GhidraSetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraSetCommentAtAddressTool.java)
+- [x] Set comment at address: [`GhidraUpdateCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraUpdateCommentAtAddressTool.java)
 - [x] Get comment at address: [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java)
 - [x] Rename data at address: [`GhidraRenameDataAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraRenameDataAtAddressTool.java)
-- [x] Clear symbol at address: [`GhidraClearSymbolTool`](src/main/java/com/themixednuts/tools/symbols/GhidraClearSymbolTool.java)
+- [x] Clear symbol at address: [`GhidraDeleteSymbolAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraDeleteSymbolAtAddressTool.java)
 - [x] List all symbols: [`GhidraListAllSymbolsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListAllSymbolsTool.java)
-- [x] Add label at address: [`GhidraAddLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraAddLabelTool.java)
-- [x] Remove label at address: [`GhidraRemoveLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraRemoveLabelTool.java)
+- [x] Add label at address: [`GhidraCreateLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraCreateLabelTool.java)
+- [x] Remove label at address: [`GhidraDeleteLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraDeleteLabelTool.java)
 
 ### Data Types ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDatatypeOperationsTool.java))
 
@@ -90,24 +90,24 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 - [x] Create union: [`GhidraCreateUnionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateUnionTool.java)
 - [x] Create typedef: [`GhidraCreateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateTypeDefTool.java)
 - [x] Create function definition: [`GhidraCreateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateFunctionDefinitionTool.java)
-- [x] Modify structs (Add/Edit/Delete members): [`GhidraAddStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddStructMemberTool.java), [`GhidraEditStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraEditStructMemberTool.java), [`GhidraDeleteStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteStructMemberTool.java)
-- [x] Modify enums (Add/Edit/Delete entries): [`GhidraAddEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddEnumEntryTool.java), [`GhidraEditEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraEditEnumEntryTool.java), [`GhidraDeleteEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteEnumEntryTool.java)
-- [x] Modify unions (Add members): [`GhidraAddUnionMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraAddUnionMemberTool.java)
+- [x] Modify structs (Add/Edit/Delete members): [`GhidraCreateStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateStructMemberTool.java), [`GhidraUpdateStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateStructMemberTool.java), [`GhidraDeleteStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteStructMemberTool.java)
+- [x] Modify enums (Add/Edit/Delete entries): [`GhidraCreateEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateEnumEntryTool.java), [`GhidraUpdateEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateEnumEntryTool.java), [`GhidraDeleteEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteEnumEntryTool.java)
+- [x] Modify unions (Add members): [`GhidraCreateUnionMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateUnionMemberTool.java)
 - [x] Modify function definitions: [`GhidraUpdateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateFunctionDefinitionTool.java)
 - [x] Modify typedefs: [`GhidraUpdateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateTypeDefTool.java)
 - [x] Rename data types: [`GhidraRenameDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraRenameDataTypeTool.java)
 - [x] Delete data types: [`GhidraDeleteDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteDataTypeTool.java)
-- [x] Apply data type at address: [`GhidraApplyDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraApplyDataTypeTool.java)
+- [x] Apply data type at address: [`GhidraSetDataTypeAtAddressTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraSetDataTypeAtAddressTool.java)
 
 ### Memory & Addresses ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedMemoryOperationsTool.java))
 
 - [x] List segments: [`GhidraListSegmentsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListSegmentsTool.java)
 - [x] Get current address: [`GhidraGetCurrentAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetCurrentAddressTool.java)
-- [x] Read bytes from address: [`GhidraReadBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraReadBytesTool.java)
-- [x] Write bytes to address (Patching): [`GhidraWriteBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraWriteBytesTool.java)
+- [x] Read bytes from address: [`GhidraReadMemoryBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraReadMemoryBytesTool.java)
+- [x] Write bytes to address (Patching): [`GhidraWriteMemoryBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraWriteMemoryBytesTool.java)
 - [x] Search memory: [`GhidraSearchMemoryTool`](src/main/java/com/themixednuts/tools/memory/GhidraSearchMemoryTool.java)
-- [x] Get XRefs _to_ address: [`GhidraGetXRefsToTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsToTool.java)
-- [x] Get XRefs _from_ address: [`GhidraGetXRefsFromTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsFromTool.java)
+- [x] Get XRefs _to_ address: [`GhidraGetXRefsToAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsToAddressTool.java)
+- [x] Get XRefs _from_ address: [`GhidraGetXRefsFromAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsFromAddressTool.java)
 - [x] List imports: [`GhidraListImportsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListImportsTool.java)
 
 ### Decompiler ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDecompilerOperationsTool.java))
@@ -116,7 +116,7 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 ### Analysis & Scripting ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedAnalysisOperationsTool.java))
 
-- [x] Trigger auto-analysis: [`GhidraTriggerAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAnalysisTool.java)
+- [x] Trigger auto-analysis: [`GhidraTriggerAutoAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAutoAnalysisTool.java)
 
 </details>
 
