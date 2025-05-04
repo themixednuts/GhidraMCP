@@ -20,7 +20,7 @@ import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(name = "Edit Struct Member", category = ToolCategory.DATATYPES, description = "Edits an existing member within a structure.", mcpName = "edit_struct_member", mcpDescription = "Modifies the name, data type, or comment of an existing field (member) in a struct.")
-public class GhidraEditStructMemberTool implements IGhidraMcpSpecification {
+public class GhidraUpdateStructMemberTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

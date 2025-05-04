@@ -20,7 +20,7 @@ import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(name = "Edit Enum Entry", category = ToolCategory.DATATYPES, description = "Edits an existing entry within an enum.", mcpName = "edit_enum_entry", mcpDescription = "Modifies the name or comment of an existing entry in an enum data type, identified by its value.")
-public class GhidraEditEnumEntryTool implements IGhidraMcpSpecification {
+public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
