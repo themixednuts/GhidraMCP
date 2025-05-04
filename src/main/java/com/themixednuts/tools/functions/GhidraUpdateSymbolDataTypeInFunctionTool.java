@@ -35,8 +35,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Change Symbol Data Type in Function", category = ToolCategory.FUNCTIONS, description = "Changes the data type of a symbol (variable or parameter) within a specific function.", mcpName = "change_symbol_data_type_in_function", mcpDescription = "Changes the data type of a local variable or parameter within a function.")
-public class GhidraChangeSymbolDataTypeInFunctionTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Change Symbol Data Type In Function", category = ToolCategory.FUNCTIONS, description = "Changes the data type of a local variable or parameter within a specific function.", mcpName = "change_symbol_data_type_in_function", mcpDescription = "Changes the data type of a local variable or parameter within a function.")
+public class GhidraUpdateSymbolDataTypeInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

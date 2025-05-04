@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Struct Member", category = ToolCategory.DATATYPES, description = "Adds a member to an existing structure.", mcpName = "add_struct_member", mcpDescription = "Adds a new field (member) to an existing struct data type at a specified offset.")
+@GhidraMcpTool(name = "Add Struct Member", mcpName = "add_struct_member", category = ToolCategory.DATATYPES, description = "Adds a new field (member) to an existing struct data type at a specified offset.", mcpDescription = "Adds a new field (member) to an existing struct data type at a specified offset.")
 public class GhidraCreateStructMemberTool implements IGhidraMcpSpecification {
 
 	@Override

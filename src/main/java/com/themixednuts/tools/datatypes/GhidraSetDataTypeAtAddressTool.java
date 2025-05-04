@@ -23,7 +23,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Apply Data Type", category = ToolCategory.DATATYPES, description = "Applies a specific data type to a memory address.", mcpName = "apply_data_type", mcpDescription = "Applies a named data type to a given memory address.")
+@GhidraMcpTool(name = "Apply Data Type", category = ToolCategory.DATATYPES, description = "Applies a named data type to a given memory address.", mcpName = "apply_data_type", mcpDescription = "Applies a named data type to a given memory address.")
 public class GhidraSetDataTypeAtAddressTool implements IGhidraMcpSpecification {
 
 	@Override

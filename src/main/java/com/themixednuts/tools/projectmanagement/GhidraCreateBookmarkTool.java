@@ -20,8 +20,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Bookmark", mcpName = "add_bookmark", mcpDescription = "Adds a bookmark at the specified address.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark at the specified address in the program.")
-public class GhidraAddBookmarkTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Add Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark with a specified type, category, and comment at a given address.", mcpName = "add_bookmark", mcpDescription = "Adds a bookmark at the specified address.")
+public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 
 	// Define specific argument names for clarity
 	private static final String ARG_BOOKMARK_TYPE = "bookmarkType";

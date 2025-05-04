@@ -21,8 +21,8 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Enum Entry", category = ToolCategory.DATATYPES, description = "Adds a new entry to an existing enum.", mcpName = "add_enum_entry", mcpDescription = "Adds a named entry with a specific value to an existing enum data type.")
-public class GhidraAddEnumEntryTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Add Enum Entry", mcpName = "add_enum_entry", category = ToolCategory.DATATYPES, description = "Adds a named entry with a specific value to an existing enum data type.", mcpDescription = "Adds a named entry with a specific value to an existing enum data type.")
+public class GhidraCreateEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

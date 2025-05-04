@@ -24,7 +24,7 @@ import java.util.Optional;
 import com.themixednuts.tools.ToolCategory;
 
 @GhidraMcpTool(name = "Clear Symbol", category = ToolCategory.SYMBOLS, description = "Clears a symbol at a specific address.", mcpName = "clear_symbol_at_address", mcpDescription = "Removes the user-defined symbol at the specified address.")
-public class GhidraClearSymbolTool implements IGhidraMcpSpecification {
+public class GhidraDeleteSymbolAtAddressTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

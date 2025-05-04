@@ -22,8 +22,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Read Memory Bytes", category = ToolCategory.MEMORY, description = "Reads a sequence of bytes from a specified memory address.", mcpName = "read_memory_bytes", mcpDescription = "Reads a specified number of bytes from a given memory address.")
-public class GhidraReadBytesTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Read Memory Bytes", category = ToolCategory.MEMORY, description = "Reads a specified number of bytes from a given memory address.", mcpName = "read_memory_bytes", mcpDescription = "Reads a specified number of bytes from a given memory address.")
+public class GhidraReadMemoryBytesTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

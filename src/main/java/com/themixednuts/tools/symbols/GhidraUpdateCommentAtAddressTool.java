@@ -20,8 +20,8 @@ import ghidra.util.Msg;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(name = "Set Comment at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to set a comment at a specific address.", mcpName = "set_comment_at_address", mcpDescription = "Set or replace a comment of a specific type (e.g., EOL_COMMENT, PRE_COMMENT, PLATE_COMMENT) at the given memory address.")
-public class GhidraSetCommentAtAddressTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Set Comment at Address", category = ToolCategory.SYMBOLS, description = "Sets or replaces a comment of a specific type at a given memory address.", mcpName = "set_comment_at_address", mcpDescription = "Set or replace a comment of a specific type (e.g., EOL_COMMENT, PRE_COMMENT, PLATE_COMMENT) at the given memory address.")
+public class GhidraUpdateCommentAtAddressTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {

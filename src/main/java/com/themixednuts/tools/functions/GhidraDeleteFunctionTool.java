@@ -22,8 +22,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Remove Function", category = ToolCategory.FUNCTIONS, description = "Removes a function by name or address.", mcpName = "remove_function", mcpDescription = "Removes a function specified either by its name or entry point address.")
-public class GhidraRemoveFunctionTool implements IGhidraMcpSpecification {
+@GhidraMcpTool(name = "Remove Function", category = ToolCategory.FUNCTIONS, description = "Removes a function specified either by its name or entry point address.", mcpName = "remove_function", mcpDescription = "Removes a function specified either by its name or entry point address.")
+public class GhidraDeleteFunctionTool implements IGhidraMcpSpecification {
 
 	@Override
 	public AsyncToolSpecification specification(PluginTool tool) {
