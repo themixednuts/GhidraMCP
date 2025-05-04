@@ -51,7 +51,7 @@ jobs:
       - name: Assemble release directory
         run: |
           mkdir release
-          cp target/GhidraMCP-*-SNAPSHOT.zip release/
+          cp target/GhidraMCP-*.zip release/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
