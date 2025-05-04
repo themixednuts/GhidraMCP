@@ -18,6 +18,11 @@ This guide provides templates and key patterns for creating new Ghidra MCP tools
         *   `mcpName`: Name for the MCP tool specification (e.g., "list_functions").
         *   `mcpDescription`: Description for the MCP tool specification.
 2.  **Register Service:** Add the fully qualified class name to `src/main/resources/META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`.
+3.  **Naming Convention:** Follow standard CRUD naming conventions for both the Java class (`Ghidra<Action><Noun>Tool`) and the `mcpName` (`<action>_<noun>`) where possible:
+    *   **Create:** Use `Create` for adding new items (e.g., `GhidraCreateBookmarkTool`, `create_bookmark`). Avoid synonyms like `Add`.
+    *   **Read:** Use `Get` for single items (e.g., `GhidraGetFunctionByNameTool`), `List` for multiple items (e.g., `GhidraListFunctionsTool`), or `Search` for querying (e.g., `GhidraSearchMemoryTool`).
+    *   **Update:** Use `Update` for modifying existing items (e.g., `GhidraUpdateStructMemberTool`). Avoid synonyms like `Edit`, `Set`, or `Change`.
+    *   **Delete:** Use `Delete` for removing items (e.g., `GhidraDeleteFunctionTool`). Avoid synonyms like `Remove` or `Clear`.
 
 ---
 

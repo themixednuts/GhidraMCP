@@ -1,6 +1,6 @@
 Manifest-Version: 1.0
 Plugin-Class: com.themixednuts.GhidraMCP
-Plugin-Name: GhidraMCP
-Plugin-Version: 1.0.0
-Plugin-Author: TheMixedNuts
-Plugin-Description: A plugin that runs a MCP server to expose Ghidra program data.
+Plugin-Name: ${project.name}
+Plugin-Version: ${project.version}
+Plugin-Author: ${project.organization.name}
+Plugin-Description: ${project.description}
