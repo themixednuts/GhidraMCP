@@ -26,7 +26,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Update Function Definition", category = ToolCategory.DATATYPES, description = "Updates an existing function definition data type.", mcpName = "update_function_definition", mcpDescription = "Updates the return type, parameters, calling convention, or varargs status of an existing function definition.")
+@GhidraMcpTool(name = "Update Function Definition", category = ToolCategory.DATATYPES, description = "Updates an existing function definition data type.", mcpName = "update_function_definition", mcpDescription = "Updates the return type, parameters, calling convention, or varargs status of an existing function definition.")
 public class GhidraUpdateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

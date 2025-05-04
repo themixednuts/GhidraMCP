@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Rename Function by Address", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its entry point address.", mcpName = "rename_function_by_address", mcpDescription = "Sets a new name for a function at a specific address.")
+@GhidraMcpTool(name = "Rename Function by Address", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its entry point address.", mcpName = "rename_function_by_address", mcpDescription = "Sets a new name for a function at a specific address.")
 public class GhidraRenameFunctionByAddressTool implements IGhidraMcpSpecification {
 
 	@Override

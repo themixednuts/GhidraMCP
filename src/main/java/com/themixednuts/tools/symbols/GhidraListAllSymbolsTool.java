@@ -30,7 +30,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List All Symbols", category = ToolCategory.SYMBOLS, description = "Lists all symbols defined in the program's main symbol table, with optional filters.", mcpName = "list_all_symbols", mcpDescription = "Retrieves a paginated list of all symbols (labels, functions, globals, etc.) from the program, optionally filtering by name and/or type.")
+@GhidraMcpTool(name = "List All Symbols", category = ToolCategory.SYMBOLS, description = "Lists all symbols defined in the program's main symbol table, with optional filters.", mcpName = "list_all_symbols", mcpDescription = "Retrieves a paginated list of all symbols (labels, functions, globals, etc.) from the program, optionally filtering by name and/or type.")
 public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -73,7 +73,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 										" is missing @GhidraMcpTool annotation. Skipping inclusion.");
 						return false;
 					}
-					String baseKey = toolAnnotation.key();
+					String baseKey = toolAnnotation.name();
 					ToolCategory categoryEnum = toolAnnotation.category();
 					String fullKey = baseKey;
 					if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
@@ -188,7 +188,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 					return;
 				}
 
-				String baseKey = toolAnnotation.key();
+				String baseKey = toolAnnotation.name();
 				String desc = toolAnnotation.description();
 				ToolCategory categoryEnum = toolAnnotation.category();
 

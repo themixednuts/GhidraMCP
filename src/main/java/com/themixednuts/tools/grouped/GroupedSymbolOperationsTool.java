@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
 // Category is omitted to use default (UNCATEGORIZED) for options registration
-@GhidraMcpTool(key = "Grouped Symbol Operations", description = "Performs multiple related symbol operations.", mcpName = "grouped_symbol_operations", mcpDescription = "Accepts a list of symbol operations to perform as a group.")
+@GhidraMcpTool(name = "Grouped Symbol Operations", description = "Performs multiple related symbol operations.", mcpName = "grouped_symbol_operations", mcpDescription = "Accepts a list of symbol operations to perform as a group.")
 public class GroupedSymbolOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 	// Define the functional category this tool groups
 	private static final ToolCategory TARGET_CATEGORY = ToolCategory.SYMBOLS;

@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Remove Function", category = ToolCategory.FUNCTIONS, description = "Removes a function by name or address.", mcpName = "remove_function", mcpDescription = "Removes a function specified either by its name or entry point address.")
+@GhidraMcpTool(name = "Remove Function", category = ToolCategory.FUNCTIONS, description = "Removes a function by name or address.", mcpName = "remove_function", mcpDescription = "Removes a function specified either by its name or entry point address.")
 public class GhidraRemoveFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

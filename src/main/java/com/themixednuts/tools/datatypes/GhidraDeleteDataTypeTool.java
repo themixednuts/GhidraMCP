@@ -21,7 +21,7 @@ import ghidra.program.model.data.*;
 import ghidra.program.model.data.SourceArchive;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 
-@GhidraMcpTool(key = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Removes a user-defined data type (struct, enum, etc.).")
+@GhidraMcpTool(name = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Removes a user-defined data type (struct, enum, etc.).")
 public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override

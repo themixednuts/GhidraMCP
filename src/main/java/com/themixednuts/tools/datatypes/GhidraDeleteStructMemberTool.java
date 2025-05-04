@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Delete Struct Member", category = ToolCategory.DATATYPES, description = "Deletes a member from an existing structure.", mcpName = "delete_struct_member", mcpDescription = "Removes a field (member) from an existing struct data type by its offset.")
+@GhidraMcpTool(name = "Delete Struct Member", category = ToolCategory.DATATYPES, description = "Deletes a member from an existing structure.", mcpName = "delete_struct_member", mcpDescription = "Removes a field (member) from an existing struct data type by its offset.")
 public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 
 	@Override

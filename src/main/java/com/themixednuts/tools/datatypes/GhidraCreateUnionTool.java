@@ -24,7 +24,7 @@ import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Create Union", category = ToolCategory.DATATYPES, description = "Creates a new union data type.", mcpName = "create_union", mcpDescription = "Defines a new union data type, optionally pre-populated with members.")
+@GhidraMcpTool(name = "Create Union", category = ToolCategory.DATATYPES, description = "Creates a new union data type.", mcpName = "create_union", mcpDescription = "Defines a new union data type, optionally pre-populated with members.")
 public class GhidraCreateUnionTool implements IGhidraMcpSpecification {
 
 	private record ResolvedMember(String name, DataType dataType, String comment) {

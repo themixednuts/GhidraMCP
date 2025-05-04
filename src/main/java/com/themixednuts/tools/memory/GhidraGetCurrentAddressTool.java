@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Current Address", category = ToolCategory.MEMORY, description = "Gets the current cursor address in the specified program window.", mcpName = "get_current_address", mcpDescription = "Returns the memory address currently indicated by the cursor in the Ghidra listing view.")
+@GhidraMcpTool(name = "Get Current Address", category = ToolCategory.MEMORY, description = "Gets the current cursor address in the specified program window.", mcpName = "get_current_address", mcpDescription = "Returns the memory address currently indicated by the cursor in the Ghidra listing view.")
 public class GhidraGetCurrentAddressTool implements IGhidraMcpSpecification {
 
 	@Override

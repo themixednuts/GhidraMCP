@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Current Program Info", category = ToolCategory.PROJECT_MANAGEMENT, description = "Retrieves information about the currently open program.", mcpName = "get_current_program_info", mcpDescription = "Retrieves detailed information about the currently open program.")
+@GhidraMcpTool(name = "Get Current Program Info", category = ToolCategory.PROJECT_MANAGEMENT, description = "Retrieves information about the currently open program.", mcpName = "get_current_program_info", mcpDescription = "Retrieves detailed information about the currently open program.")
 public class GhidraGetCurrentProgramInfoTool implements IGhidraMcpSpecification {
 
 	@Override

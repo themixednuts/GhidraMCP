@@ -28,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Search Memory", category = ToolCategory.MEMORY, description = "Searches program memory for a pattern (hex bytes or string).", mcpName = "search_memory", mcpDescription = "Searches memory within an optional address range for a sequence of bytes (given as hex) or a string.")
+@GhidraMcpTool(name = "Search Memory", category = ToolCategory.MEMORY, description = "Searches program memory for a pattern (hex bytes or string).", mcpName = "search_memory", mcpDescription = "Searches memory within an optional address range for a sequence of bytes (given as hex) or a string.")
 public class GhidraSearchMemoryTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_PATTERN_HEX = "patternHex";

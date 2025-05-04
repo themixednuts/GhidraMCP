@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Struct Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing structure.", mcpName = "get_struct_definition", mcpDescription = "Retrieves the definition (name, members, etc.) of a struct data type.")
+@GhidraMcpTool(name = "Get Struct Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing structure.", mcpName = "get_struct_definition", mcpDescription = "Retrieves the definition (name, members, etc.) of a struct data type.")
 public class GhidraGetStructDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

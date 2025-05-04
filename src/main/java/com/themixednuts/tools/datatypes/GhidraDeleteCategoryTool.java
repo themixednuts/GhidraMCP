@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Delete Category", category = ToolCategory.DATATYPES, description = "Deletes an existing category path, optionally recursively.", mcpName = "delete_category", mcpDescription = "Deletes a category (folder) and optionally its contents from the Data Type Manager.")
+@GhidraMcpTool(name = "Delete Category", category = ToolCategory.DATATYPES, description = "Deletes an existing category path, optionally recursively.", mcpName = "delete_category", mcpDescription = "Deletes a category (folder) and optionally its contents from the Data Type Manager.")
 public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

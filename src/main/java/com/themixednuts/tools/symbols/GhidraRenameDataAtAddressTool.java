@@ -23,7 +23,7 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.symbol.SymbolTable;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Rename Data at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to rename data at a specific address.", mcpName = "rename_data_at_address", mcpDescription = "Assign or change the symbolic label (name) for the data item located at the specified memory address.")
+@GhidraMcpTool(name = "Rename Data at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to rename data at a specific address.", mcpName = "rename_data_at_address", mcpDescription = "Assign or change the symbolic label (name) for the data item located at the specified memory address.")
 public class GhidraRenameDataAtAddressTool implements IGhidraMcpSpecification {
 
 	public GhidraRenameDataAtAddressTool() {

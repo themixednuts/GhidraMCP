@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Remove Bookmark", mcpName = "remove_bookmark", mcpDescription = "Removes a bookmark at the specified address.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Removes a specific bookmark at the given address.")
+@GhidraMcpTool(name = "Remove Bookmark", mcpName = "remove_bookmark", mcpDescription = "Removes a bookmark at the specified address.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Removes a specific bookmark at the given address.")
 public class GhidraRemoveBookmarkTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_BOOKMARK_TYPE = "bookmarkType";

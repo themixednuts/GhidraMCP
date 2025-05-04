@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
 // Category is omitted to use default (UNCATEGORIZED) for options registration
-@GhidraMcpTool(key = "Grouped Decompiler Operations", description = "Performs multiple related decompiler operations.", mcpName = "grouped_decompiler_operations", mcpDescription = "Accepts a list of decompiler operations to perform as a group.")
+@GhidraMcpTool(name = "Grouped Decompiler Operations", description = "Performs multiple related decompiler operations.", mcpName = "grouped_decompiler_operations", mcpDescription = "Accepts a list of decompiler operations to perform as a group.")
 public class GroupedDecompilerOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 	// Define the functional category this tool groups
 	private static final ToolCategory TARGET_CATEGORY = ToolCategory.DECOMPILER;

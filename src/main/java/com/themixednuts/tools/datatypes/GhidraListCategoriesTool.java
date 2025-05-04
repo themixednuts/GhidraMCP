@@ -28,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Categories", category = ToolCategory.DATATYPES, description = "Lists all category paths in the Data Type Manager.", mcpName = "list_categories", mcpDescription = "Returns a list of all defined category paths (folders) in the Data Type Manager.")
+@GhidraMcpTool(name = "List Categories", category = ToolCategory.DATATYPES, description = "Lists all category paths in the Data Type Manager.", mcpName = "list_categories", mcpDescription = "Returns a list of all defined category paths (folders) in the Data Type Manager.")
 public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 
 	// Define a simple POJO for the result

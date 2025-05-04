@@ -53,3 +53,8 @@ node_modules
 dist
 bin
 
+# Ghidra libs (ignore content, keep structure)
+/lib/**
+!/lib/
+!/lib/**/
+

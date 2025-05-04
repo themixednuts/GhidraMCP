@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Remove Label", category = ToolCategory.SYMBOLS, description = "Removes a label at a specified address.", mcpName = "remove_label", mcpDescription = "Removes the symbol label at a specific address. Optionally checks the label name before removal.")
+@GhidraMcpTool(name = "Remove Label", category = ToolCategory.SYMBOLS, description = "Removes a label at a specified address.", mcpName = "remove_label", mcpDescription = "Removes the symbol label at a specific address. Optionally checks the label name before removal.")
 public class GhidraRemoveLabelTool implements IGhidraMcpSpecification {
 
 	@Override

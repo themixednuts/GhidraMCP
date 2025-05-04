@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Update TypeDef", category = ToolCategory.DATATYPES, description = "Updates an existing typedef data type.", mcpName = "update_typedef", mcpDescription = "Changes the underlying data type that an existing typedef aliases.")
+@GhidraMcpTool(name = "Update TypeDef", category = ToolCategory.DATATYPES, description = "Updates an existing typedef data type.", mcpName = "update_typedef", mcpDescription = "Changes the underlying data type that an existing typedef aliases.")
 public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 
 	@Override

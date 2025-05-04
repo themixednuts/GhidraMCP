@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Write Memory Bytes", category = ToolCategory.MEMORY, description = "Writes (patches) a sequence of bytes to a specified memory address.", mcpName = "write_memory_bytes", mcpDescription = "Writes a sequence of bytes (provided as a hex string) to a given memory address.")
+@GhidraMcpTool(name = "Write Memory Bytes", category = ToolCategory.MEMORY, description = "Writes (patches) a sequence of bytes to a specified memory address.", mcpName = "write_memory_bytes", mcpDescription = "Writes a sequence of bytes (provided as a hex string) to a given memory address.")
 public class GhidraWriteBytesTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_BYTES_HEX = "bytesHex";

@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Create Category", category = ToolCategory.DATATYPES, description = "Creates a new category path.", mcpName = "create_category", mcpDescription = "Creates a new category (folder) in the Data Type Manager.")
+@GhidraMcpTool(name = "Create Category", category = ToolCategory.DATATYPES, description = "Creates a new category path.", mcpName = "create_category", mcpDescription = "Creates a new category (folder) in the Data Type Manager.")
 public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

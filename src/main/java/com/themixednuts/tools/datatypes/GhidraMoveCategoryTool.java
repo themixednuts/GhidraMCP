@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Move Category", category = ToolCategory.DATATYPES, description = "Moves an existing category to a new parent category.", mcpName = "move_category", mcpDescription = "Moves a category (folder) and its contents to a different location in the Data Type Manager.")
+@GhidraMcpTool(name = "Move Category", category = ToolCategory.DATATYPES, description = "Moves an existing category to a new parent category.", mcpName = "move_category", mcpDescription = "Moves a category (folder) and its contents to a different location in the Data Type Manager.")
 public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -28,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Data Types", category = ToolCategory.DATATYPES, description = "Lists all data types, optionally filtered by category.", mcpName = "list_data_types", mcpDescription = "Returns a paginated list of all data types, optionally filtered by category path.")
+@GhidraMcpTool(name = "List Data Types", category = ToolCategory.DATATYPES, description = "Lists all data types, optionally filtered by category.", mcpName = "list_data_types", mcpDescription = "Returns a paginated list of all data types, optionally filtered by category path.")
 public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 
 	@Override

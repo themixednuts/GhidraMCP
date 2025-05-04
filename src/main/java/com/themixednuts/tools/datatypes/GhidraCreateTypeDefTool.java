@@ -19,7 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Create TypeDef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpName = "create_typedef", mcpDescription = "Defines a new typedef based on an existing data type.")
+@GhidraMcpTool(name = "Create TypeDef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpName = "create_typedef", mcpDescription = "Defines a new typedef based on an existing data type.")
 public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 
 	public GhidraCreateTypeDefTool() {

@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.listing.Function;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Get Function by Name", category = ToolCategory.FUNCTIONS, description = "Gets details about a function by its name.", mcpName = "get_function_by_name", mcpDescription = "Retrieves details of a function using its specific name.")
+@GhidraMcpTool(name = "Get Function by Name", category = ToolCategory.FUNCTIONS, description = "Gets details about a function by its name.", mcpName = "get_function_by_name", mcpDescription = "Retrieves details of a function using its specific name.")
 public class GhidraGetFunctionByNameTool implements IGhidraMcpSpecification {
 
 	@Override

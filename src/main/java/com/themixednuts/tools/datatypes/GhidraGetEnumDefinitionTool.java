@@ -21,7 +21,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Enum Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing enum.", mcpName = "get_enum_definition", mcpDescription = "Retrieves the definition (name, entries, etc.) of an enum data type.")
+@GhidraMcpTool(name = "Get Enum Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing enum.", mcpName = "get_enum_definition", mcpDescription = "Retrieves the definition (name, entries, etc.) of an enum data type.")
 public class GhidraGetEnumDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

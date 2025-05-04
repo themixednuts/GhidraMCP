@@ -15,12 +15,16 @@ import com.themixednuts.tools.ToolCategory;
 @Target(ElementType.TYPE) // Apply to class definitions
 public @interface GhidraMcpTool {
 	/**
-	 * The base key used for Ghidra options registration.
+	 * The name used for this tool within the Ghidra Tool Options menu.
+	 * Should be human-readable and descriptive (e.g., "List Functions", "Rename
+	 * Symbol").
 	 */
-	String key();
+	String name();
 
 	/**
-	 * The description used for Ghidra options registration.
+	 * The description displayed when hovering over the tool's option in the Ghidra
+	 * Tool Options menu.
+	 * Provides more detail about what the tool option enables/disables.
 	 */
 	String description();
 

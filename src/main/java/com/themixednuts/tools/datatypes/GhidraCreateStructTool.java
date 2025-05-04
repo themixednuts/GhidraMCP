@@ -24,7 +24,7 @@ import java.util.Optional;
 
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Create Struct", category = ToolCategory.DATATYPES, description = "Creates a new struct data type.", mcpName = "create_struct", mcpDescription = "Defines a new struct data type, optionally pre-populated with members.")
+@GhidraMcpTool(name = "Create Struct", category = ToolCategory.DATATYPES, description = "Creates a new struct data type.", mcpName = "create_struct", mcpDescription = "Defines a new struct data type, optionally pre-populated with members.")
 public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 
 	// Simple record to hold resolved member details

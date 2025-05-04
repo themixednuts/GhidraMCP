@@ -19,7 +19,7 @@ import java.util.Optional;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Function by Address", category = ToolCategory.FUNCTIONS, description = "Gets details about a function by its entry point address.", mcpName = "get_function_by_address", mcpDescription = "Retrieves details of a function using its specific entry point address.")
+@GhidraMcpTool(name = "Get Function by Address", category = ToolCategory.FUNCTIONS, description = "Gets details about a function by its entry point address.", mcpName = "get_function_by_address", mcpDescription = "Retrieves details of a function using its specific entry point address.")
 public class GhidraGetFunctionByAddressTool implements IGhidraMcpSpecification {
 
 	@Override

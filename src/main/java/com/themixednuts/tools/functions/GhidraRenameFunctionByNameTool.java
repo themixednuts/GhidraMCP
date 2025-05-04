@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.symbol.FunctionSymbol;
 
-@GhidraMcpTool(key = "Rename Function by Name", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its current name.", mcpName = "rename_function_by_name", mcpDescription = "Finds a function by its current name and renames it.")
+@GhidraMcpTool(name = "Rename Function by Name", category = ToolCategory.FUNCTIONS, description = "Renames a function identified by its current name.", mcpName = "rename_function_by_name", mcpDescription = "Finds a function by its current name and renames it.")
 public class GhidraRenameFunctionByNameTool implements IGhidraMcpSpecification {
 
 	@Override

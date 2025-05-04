@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
 // Category is omitted to use default (UNCATEGORIZED) for options registration
-@GhidraMcpTool(key = "Grouped Function Operations", description = "Performs multiple related function operations.", mcpName = "grouped_function_operations", mcpDescription = "Accepts a list of function operations (like rename, set prototype) to perform as a group.")
+@GhidraMcpTool(name = "Grouped Function Operations", description = "Performs multiple related function operations.", mcpName = "grouped_function_operations", mcpDescription = "Accepts a list of function operations (like rename, set prototype) to perform as a group.")
 public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 	// Define the functional category this tool groups
 	private static final ToolCategory TARGET_CATEGORY = ToolCategory.FUNCTIONS;

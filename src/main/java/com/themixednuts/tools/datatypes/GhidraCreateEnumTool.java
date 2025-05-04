@@ -24,7 +24,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Create Enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpName = "create_enum", mcpDescription = "Defines a new enum data type, optionally pre-populated with entries.")
+@GhidraMcpTool(name = "Create Enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpName = "create_enum", mcpDescription = "Defines a new enum data type, optionally pre-populated with entries.")
 public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
 	private record ResolvedEnumEntry(String name, long value, String comment) {

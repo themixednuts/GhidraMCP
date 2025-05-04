@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
 // Category is omitted to use default (UNCATEGORIZED) for options registration
-@GhidraMcpTool(key = "Grouped Memory Operations", description = "Performs multiple related memory operations.", mcpName = "grouped_memory_operations", mcpDescription = "Accepts a list of memory operations to perform as a group.")
+@GhidraMcpTool(name = "Grouped Memory Operations", description = "Performs multiple related memory operations.", mcpName = "grouped_memory_operations", mcpDescription = "Accepts a list of memory operations to perform as a group.")
 public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 	// Define the functional category this tool groups
 	private static final ToolCategory TARGET_CATEGORY = ToolCategory.MEMORY;

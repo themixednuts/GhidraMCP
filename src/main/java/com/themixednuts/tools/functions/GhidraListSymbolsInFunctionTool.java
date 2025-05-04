@@ -33,7 +33,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Symbols in Function", category = ToolCategory.FUNCTIONS, description = "Lists all symbols (variables and parameters) within a specific function.", mcpName = "list_symbols_in_function", mcpDescription = "Returns a list of local variables and parameters defined within a specified function.")
+@GhidraMcpTool(name = "List Symbols in Function", category = ToolCategory.FUNCTIONS, description = "Lists all symbols (variables and parameters) within a specific function.", mcpName = "list_symbols_in_function", mcpDescription = "Returns a list of local variables and parameters defined within a specified function.")
 public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

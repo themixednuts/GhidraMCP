@@ -24,7 +24,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Add Label", category = ToolCategory.SYMBOLS, description = "Adds a new label at a specified address.", mcpName = "add_label", mcpDescription = "Creates a new symbol label at a specific address.")
+@GhidraMcpTool(name = "Add Label", category = ToolCategory.SYMBOLS, description = "Adds a new label at a specified address.", mcpName = "add_label", mcpDescription = "Creates a new symbol label at a specific address.")
 public class GhidraAddLabelTool implements IGhidraMcpSpecification {
 
 	@Override

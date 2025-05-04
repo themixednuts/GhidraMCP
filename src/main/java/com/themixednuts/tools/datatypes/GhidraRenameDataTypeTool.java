@@ -19,7 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Data Type", category = ToolCategory.DATATYPES, description = "Renames an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames a user-defined data type (struct, enum, etc.).")
+@GhidraMcpTool(name = "Rename Data Type", category = ToolCategory.DATATYPES, description = "Renames an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames a user-defined data type (struct, enum, etc.).")
 public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override

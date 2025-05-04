@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Add Union Member", category = ToolCategory.DATATYPES, description = "Adds a member to an existing union.", mcpName = "add_union_member", mcpDescription = "Adds a new field (member) to an existing union data type.")
+@GhidraMcpTool(name = "Add Union Member", category = ToolCategory.DATATYPES, description = "Adds a member to an existing union.", mcpName = "add_union_member", mcpDescription = "Adds a new field (member) to an existing union data type.")
 public class GhidraAddUnionMemberTool implements IGhidraMcpSpecification {
 
 	@Override

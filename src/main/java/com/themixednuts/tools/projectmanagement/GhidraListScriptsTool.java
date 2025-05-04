@@ -31,7 +31,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import generic.jar.ResourceFile;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Ghidra Scripts", mcpName = "list_ghidra_scripts", mcpDescription = "Lists available Ghidra scripts, optionally filtering by category, and shows their arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists available Ghidra scripts and their arguments.")
+@GhidraMcpTool(name = "List Ghidra Scripts", mcpName = "list_ghidra_scripts", mcpDescription = "Lists available Ghidra scripts, optionally filtering by category, and shows their arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists available Ghidra scripts and their arguments.")
 public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_CATEGORY_FILTER = "categoryFilter";

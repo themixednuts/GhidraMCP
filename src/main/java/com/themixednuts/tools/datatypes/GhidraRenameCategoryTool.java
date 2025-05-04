@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Category", category = ToolCategory.DATATYPES, description = "Renames an existing category path.", mcpName = "rename_category", mcpDescription = "Renames a category (folder) in the Data Type Manager.")
+@GhidraMcpTool(name = "Rename Category", category = ToolCategory.DATATYPES, description = "Renames an existing category path.", mcpName = "rename_category", mcpDescription = "Renames a category (folder) in the Data Type Manager.")
 public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 
 	@Override

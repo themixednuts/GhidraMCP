@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Trigger Auto-Analysis", category = ToolCategory.PROJECT_MANAGEMENT, description = "Starts the standard Ghidra auto-analysis process for the specified program.", mcpName = "trigger_auto_analysis", mcpDescription = "Triggers the standard Ghidra auto-analysis process (respecting current analysis options). Analysis runs in the background.")
+@GhidraMcpTool(name = "Trigger Auto-Analysis", category = ToolCategory.PROJECT_MANAGEMENT, description = "Starts the standard Ghidra auto-analysis process for the specified program.", mcpName = "trigger_auto_analysis", mcpDescription = "Triggers the standard Ghidra auto-analysis process (respecting current analysis options). Analysis runs in the background.")
 public class GhidraTriggerAnalysisTool implements IGhidraMcpSpecification {
 
 	@Override

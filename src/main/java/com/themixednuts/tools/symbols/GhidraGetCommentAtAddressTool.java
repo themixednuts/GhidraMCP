@@ -22,7 +22,7 @@ import ghidra.util.Msg;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Comment at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get a comment at a specific address.", mcpName = "get_comment_at_address", mcpDescription = "Retrieve the comment text for a specific comment type (e.g., EOL_COMMENT, PRE_COMMENT) at the given memory address.")
+@GhidraMcpTool(name = "Get Comment at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get a comment at a specific address.", mcpName = "get_comment_at_address", mcpDescription = "Retrieve the comment text for a specific comment type (e.g., EOL_COMMENT, PRE_COMMENT) at the given memory address.")
 public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 	public GhidraGetCommentAtAddressTool() {
 	}

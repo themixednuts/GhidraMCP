@@ -23,7 +23,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Add Function", category = ToolCategory.FUNCTIONS, description = "Adds a new function at a specified address.", mcpName = "add_function", mcpDescription = "Adds a new function at a specified address.")
+@GhidraMcpTool(name = "Add Function", category = ToolCategory.FUNCTIONS, description = "Adds a new function at a specified address.", mcpName = "add_function", mcpDescription = "Adds a new function at a specified address.")
 public class GhidraAddFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

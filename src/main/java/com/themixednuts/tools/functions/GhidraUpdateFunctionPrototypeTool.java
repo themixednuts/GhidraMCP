@@ -29,7 +29,7 @@ import io.modelcontextprotocol.spec.McpSchema.LoggingMessageNotification;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Update Function Prototype", category = ToolCategory.FUNCTIONS, description = "Updates the prototype (signature) of an existing function.", mcpName = "update_function_prototype", mcpDescription = "Modifies the return type, parameters, calling convention, or varargs status of an existing function.")
+@GhidraMcpTool(name = "Update Function Prototype", category = ToolCategory.FUNCTIONS, description = "Updates the prototype (signature) of an existing function.", mcpName = "update_function_prototype", mcpDescription = "Modifies the return type, parameters, calling convention, or varargs status of an existing function.")
 public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecification {
 
 	@Override

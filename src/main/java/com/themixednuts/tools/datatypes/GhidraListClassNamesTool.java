@@ -25,7 +25,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Class Names", category = ToolCategory.DATATYPES, description = "Lists the names of defined classes (structures).", mcpName = "list_class_names", mcpDescription = "Lists all defined class names (structure names) in the program.")
+@GhidraMcpTool(name = "List Class Names", category = ToolCategory.DATATYPES, description = "Lists the names of defined classes (structures).", mcpName = "list_class_names", mcpDescription = "Lists all defined class names (structure names) in the program.")
 public class GhidraListClassNamesTool implements IGhidraMcpSpecification {
 
 	@Override

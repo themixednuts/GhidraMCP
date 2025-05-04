@@ -24,7 +24,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Segments", category = ToolCategory.MEMORY, description = "Lists memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory blocks (segments) in the program, including their names, start/end addresses, size, and permissions.")
+@GhidraMcpTool(name = "List Segments", category = ToolCategory.MEMORY, description = "Lists memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory blocks (segments) in the program, including their names, start/end addresses, size, and permissions.")
 public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 
 	@Override

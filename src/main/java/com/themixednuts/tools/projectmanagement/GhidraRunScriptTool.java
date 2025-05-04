@@ -41,7 +41,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Run Ghidra Script", mcpName = "run_ghidra_script", mcpDescription = "Runs a specified Ghidra script with given arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Runs a Ghidra script.")
+@GhidraMcpTool(name = "Run Ghidra Script", mcpName = "run_ghidra_script", mcpDescription = "Runs a specified Ghidra script with given arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Runs a Ghidra script.")
 public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_SCRIPT_NAME = "scriptName";

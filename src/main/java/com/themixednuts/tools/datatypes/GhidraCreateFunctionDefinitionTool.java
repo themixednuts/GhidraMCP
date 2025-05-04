@@ -26,7 +26,7 @@ import ghidra.program.model.lang.CompilerSpec;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Create Function Definition", category = ToolCategory.DATATYPES, description = "Creates a new function definition (signature) data type.", mcpName = "create_function_definition", mcpDescription = "Defines a new function signature data type, specifying return type, parameters, calling convention, etc.")
+@GhidraMcpTool(name = "Create Function Definition", category = ToolCategory.DATATYPES, description = "Creates a new function definition (signature) data type.", mcpName = "create_function_definition", mcpDescription = "Defines a new function signature data type, specifying return type, parameters, calling convention, etc.")
 public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

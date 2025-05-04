@@ -26,7 +26,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "List Imports", category = ToolCategory.MEMORY, description = "Lists imported symbols (typically functions from external libraries).", mcpName = "list_imports", mcpDescription = "Returns a paginated list of imported symbols and the libraries they belong to.")
+@GhidraMcpTool(name = "List Imports", category = ToolCategory.MEMORY, description = "Lists imported symbols (typically functions from external libraries).", mcpName = "list_imports", mcpDescription = "Returns a paginated list of imported symbols and the libraries they belong to.")
 public class GhidraListImportsTool implements IGhidraMcpSpecification {
 
 	@Override

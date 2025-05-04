@@ -27,7 +27,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get XRefs From", category = ToolCategory.MEMORY, description = "Find cross-references FROM a specific address.", mcpName = "get_xrefs_from_address", mcpDescription = "Returns a paginated list of addresses referenced by the instruction or data at the specified source address.")
+@GhidraMcpTool(name = "Get XRefs From", category = ToolCategory.MEMORY, description = "Find cross-references FROM a specific address.", mcpName = "get_xrefs_from_address", mcpDescription = "Returns a paginated list of addresses referenced by the instruction or data at the specified source address.")
 public class GhidraGetXRefsFromTool implements IGhidraMcpSpecification {
 
 	@Override

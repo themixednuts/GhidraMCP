@@ -28,7 +28,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "List Bookmarks", mcpName = "list_bookmarks", mcpDescription = "Lists bookmarks in the specified program", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists bookmarks in the specified program.")
+@GhidraMcpTool(name = "List Bookmarks", mcpName = "list_bookmarks", mcpDescription = "Lists bookmarks in the specified program", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists bookmarks in the specified program.")
 public class GhidraListBookmarksTool implements IGhidraMcpSpecification {
 
 	record BookmarkInfo(

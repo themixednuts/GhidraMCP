@@ -30,7 +30,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Rename Symbol in Function", category = ToolCategory.FUNCTIONS, description = "Renames a symbol (variable or parameter) within a specific function.", mcpName = "rename_symbol_in_function", mcpDescription = "Renames a local variable or parameter within a function.")
+@GhidraMcpTool(name = "Rename Symbol in Function", category = ToolCategory.FUNCTIONS, description = "Renames a symbol (variable or parameter) within a specific function.", mcpName = "rename_symbol_in_function", mcpDescription = "Renames a local variable or parameter within a function.")
 public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Function Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing function definition.", mcpName = "get_function_definition", mcpDescription = "Retrieves the definition (name, return type, parameters, etc.) of a function definition data type.")
+@GhidraMcpTool(name = "Get Function Definition", category = ToolCategory.DATATYPES, description = "Gets the definition of an existing function definition.", mcpName = "get_function_definition", mcpDescription = "Retrieves the definition (name, return type, parameters, etc.) of a function definition data type.")
 public class GhidraGetFunctionDefinitionTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -24,7 +24,7 @@ import reactor.core.publisher.Mono;
 // Import the enum
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Decompile Function by Name", category = ToolCategory.DECOMPILER, description = "Decompiles a function given its name and returns the C code representation.", mcpName = "decompile_function_by_name", mcpDescription = "Decompiles a function by its name.")
+@GhidraMcpTool(name = "Decompile Function by Name", category = ToolCategory.DECOMPILER, description = "Decompiles a function given its name and returns the C code representation.", mcpName = "decompile_function_by_name", mcpDescription = "Decompiles a function by its name.")
 public class GhidraDecompileFunctionByNameTool implements IGhidraMcpSpecification {
 	public GhidraDecompileFunctionByNameTool() {
 	}

@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
 // Category is omitted to use default (UNCATEGORIZED) for options registration
-@GhidraMcpTool(key = "Grouped Datatype Operations", description = "Performs multiple related datatype operations.", mcpName = "grouped_datatype_operations", mcpDescription = "Accepts a list of datatype operations to perform as a group.")
+@GhidraMcpTool(name = "Grouped Datatype Operations", description = "Performs multiple related datatype operations.", mcpName = "grouped_datatype_operations", mcpDescription = "Accepts a list of datatype operations to perform as a group.")
 public class GroupedDatatypeOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 	// Define the functional category this tool groups
 	private static final ToolCategory TARGET_CATEGORY = ToolCategory.DATATYPES;

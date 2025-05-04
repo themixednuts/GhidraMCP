@@ -27,7 +27,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(key = "Get Symbol by Name in Function", category = ToolCategory.FUNCTIONS, description = "Gets details about a symbol (variable or parameter) within a specific function by its name.", mcpName = "get_symbol_by_name_in_function", mcpDescription = "Retrieves details of a local variable or parameter by its name within a specific function.")
+@GhidraMcpTool(name = "Get Symbol by Name in Function", category = ToolCategory.FUNCTIONS, description = "Gets details about a symbol (variable or parameter) within a specific function by its name.", mcpName = "get_symbol_by_name_in_function", mcpDescription = "Retrieves details of a local variable or parameter by its name within a specific function.")
 public class GhidraGetSymbolByNameInFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

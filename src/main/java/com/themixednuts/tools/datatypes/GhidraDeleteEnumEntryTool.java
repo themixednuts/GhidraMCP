@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 import ghidra.program.model.data.*;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(key = "Delete Enum Entry", category = ToolCategory.DATATYPES, description = "Deletes an entry from an existing enum.", mcpName = "delete_enum_entry", mcpDescription = "Removes an entry (by name) from an existing enum data type.")
+@GhidraMcpTool(name = "Delete Enum Entry", category = ToolCategory.DATATYPES, description = "Deletes an entry from an existing enum.", mcpName = "delete_enum_entry", mcpDescription = "Removes an entry (by name) from an existing enum data type.")
 public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override

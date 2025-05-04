@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(key = "Get Current Function", category = ToolCategory.FUNCTIONS, description = "Gets details about the function containing the current cursor location.", mcpName = "get_current_function", mcpDescription = "Returns details of the function at the current cursor location in the active Ghidra listing.")
+@GhidraMcpTool(name = "Get Current Function", category = ToolCategory.FUNCTIONS, description = "Gets details about the function containing the current cursor location.", mcpName = "get_current_function", mcpDescription = "Returns details of the function at the current cursor location in the active Ghidra listing.")
 public class GhidraGetCurrentFunctionTool implements IGhidraMcpSpecification {
 
 	@Override

@@ -116,7 +116,7 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
 
 ### Analysis & Scripting ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedAnalysisOperationsTool.java))
 
-- [x] Trigger auto-analysis: [`GhidraTriggerAnalysisTool`](src/main/java/com/themixednuts/tools/analysis/GhidraTriggerAnalysisTool.java)
+- [x] Trigger auto-analysis: [`GhidraTriggerAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAnalysisTool.java)
 
 </details>
 
