@@ -2,10 +2,6 @@ package com.themixednuts.tools.controlflow;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.BasicBlockInfo;
