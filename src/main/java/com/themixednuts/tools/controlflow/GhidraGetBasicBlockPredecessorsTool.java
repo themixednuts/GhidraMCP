@@ -2,10 +2,6 @@ package com.themixednuts.tools.controlflow;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.BasicBlockInfo;
@@ -49,7 +45,6 @@ public class GhidraGetBasicBlockPredecessorsTool implements IGhidraMcpSpecificat
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
@@ -70,12 +65,15 @@ public class GhidraGetBasicBlockPredecessorsTool implements IGhidraMcpSpecificat
 				throw new RuntimeException("Operation cancelled while getting basic block predecessors: " + e.getMessage(), e);
 			}
 
-			List<BasicBlockInfo> predecessors = StreamSupport.stream(
-					Spliterators.spliteratorUnknownSize((java.util.Iterator<CodeBlockReference>) predIter,
-							Spliterator.ORDERED),
-					false)
-					.map(ref -> new BasicBlockInfo(ref.getSourceBlock()))
-					.collect(Collectors.toList());
+			List<BasicBlockInfo> predecessors = new java.util.ArrayList<>();
+			try {
+				while (predIter.hasNext()) {
+					CodeBlockReference ref = predIter.next();
+					predecessors.add(new BasicBlockInfo(ref.getSourceBlock()));
+				}
+			} catch (CancelledException e) {
+				throw new RuntimeException("Operation cancelled while getting basic block predecessors: " + e.getMessage(), e);
+			}
 			return predecessors;
 		});
 	}

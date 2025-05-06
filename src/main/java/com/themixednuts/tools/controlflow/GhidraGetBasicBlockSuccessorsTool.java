@@ -49,7 +49,6 @@ public class GhidraGetBasicBlockSuccessorsTool implements IGhidraMcpSpecificatio
 	}
 
 	@Override
-	@SuppressWarnings("unchecked") // For the cast of succIter
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
@@ -70,13 +69,15 @@ public class GhidraGetBasicBlockSuccessorsTool implements IGhidraMcpSpecificatio
 				throw new RuntimeException("Operation cancelled while getting basic block successors: " + e.getMessage(), e);
 			}
 
-			List<BasicBlockInfo> successors = StreamSupport.stream(
-					Spliterators.spliteratorUnknownSize((java.util.Iterator<CodeBlockReference>) succIter, // Cast needed for
-																																																	// Iterator
-							Spliterator.ORDERED),
-					false)
-					.map(ref -> new BasicBlockInfo(ref.getDestinationBlock()))
-					.collect(Collectors.toList());
+			List<BasicBlockInfo> successors = new java.util.ArrayList<>();
+			try {
+				while (succIter.hasNext()) {
+					CodeBlockReference ref = succIter.next();
+					successors.add(new BasicBlockInfo(ref.getDestinationBlock()));
+				}
+			} catch (CancelledException e) {
+				throw new RuntimeException("Operation cancelled during successor iteration: " + e.getMessage(), e);
+			}
 			return successors;
 		});
 	}
