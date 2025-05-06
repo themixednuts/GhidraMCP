@@ -4,8 +4,8 @@ This document tracks the manual testing status of individual Ghidra MCP tools.
 
 ## Test Environment
 
-- MCP Server: [Specify server version/setup if known]
-- Ghidra Version: [Specify Ghidra version if known]
+- MCP Server: Current Development Build
+- Ghidra Version: 11.3.2
 - Test Program: `NewWorld.exe`
 - Date Tested: 2025-05-06
 
@@ -46,6 +46,11 @@ The following read-only tools have been successfully tested against the live MCP
 - **`list_data_types`** (`GhidraListDataTypesTool`):
   - Successfully listed data types and handled pagination.
   - Successfully filtered by `typeFilter: "enum"` and found `/WORK_STATE`.
+  - Successfully filtered by `typeFilter: "structure"`.
+  - Successfully filtered by `typeFilter: "pointer"`.
+  - Successfully filtered by `typeFilter: "typedef"`.
+  - Successfully filtered by `typeFilter: "function_definition"`.
+  - Successfully filtered by `typeFilter: "basic"`.
 - **`get_function_definition`** (`GhidraGetFunctionDefinitionTool`):
   - Successfully retrieved function definition for `/ClassDataTypes/AK/IAkPlugin/Bytes`.
 - **`list_class_names`** (`GhidraListClassNamesTool`):
@@ -94,20 +99,11 @@ The following read-only tools have been successfully tested against the live MCP
   - Successfully retrieved enum definition for `/WORK_STATE`.
 - **`get_union_definition`** (`GhidraGetUnionDefinitionTool`):
   - Successfully retrieved union definition for `/ERR_CODES`.
+- **`get_basic_block_predecessors`** (`GhidraGetBasicBlockPredecessorsTool`):
+  - Successfully retrieved predecessor blocks for `140001243`.
+- **`get_basic_block_successors`** (`GhidraGetBasicBlockSuccessorsTool`):
+  - Successfully retrieved successor blocks for `140001240`.
 
 ## Untested Read-Only Tools (Skipped or No Suitable Test Data)
 
 ## Tools with Issues
-
-- **`get_basic_block_predecessors`** (`GhidraGetBasicBlockPredecessorsTool`):
-  - FAILED: `ClassCastException: class ghidra.program.model.block.SimpleSourceReferenceIterator cannot be cast to class java.util.Iterator`. Likely a classloader issue.
-- **`get_basic_block_successors`** (`GhidraGetBasicBlockSuccessorsTool`):
-  - FAILED: `ClassCastException: class ghidra.program.model.block.SimpleDestReferenceIterator cannot be cast to class java.util.Iterator`. Likely a classloader issue.
-
-## Untested Tools
-
-[List categories or specific tools yet to be tested]
-
-## Tools Requiring Mutation Testing
-
-[List tools that modify the database and need careful testing]
