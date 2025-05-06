@@ -17,7 +17,6 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.ScriptArgumentInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -36,9 +35,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "Run Ghidra Script", mcpName = "run_ghidra_script", mcpDescription = "Runs a specified Ghidra script with given arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Runs a Ghidra script.")
@@ -48,10 +44,6 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 	private static final String ARG_SCRIPT_ARGS = "scriptArguments"; // JSON object/map
 
 	private static final Pattern ARG_PATTERN = Pattern.compile("@arg\\s+([^\\s]+)\\s+([^\\s]+)(?:\\s+\"(.*?)\")?");
-
-	// --- Data Structures ---
-
-	// --- Schema Definition ---
 
 	@Override
 	public JsonSchema schema() {
@@ -88,19 +80,19 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 	// --- Tool Execution ---
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool)
 				.flatMap(program -> {
 					try {
 						GhidraState ghidraState = createState(tool, program);
 						if (ghidraState == null) {
-							return createErrorResult("Could not create valid GhidraState.");
+							return Mono.error(new IllegalStateException("Could not create valid GhidraState."));
 						}
 
 						final String scriptName = getRequiredStringArgument(args, ARG_SCRIPT_NAME);
 						ResourceFile scriptFile = GhidraScriptUtil.findScriptByName(scriptName);
 						if (scriptFile == null) {
-							return createErrorResult("Script not found: " + scriptName);
+							return Mono.error(new IllegalArgumentException("Script not found: " + scriptName));
 						}
 
 						// Argument Processing
@@ -110,8 +102,9 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 								ARG_SCRIPT_ARGS)
 								.orElse(new ArrayList<>());
 						if (providedArgs.size() != expectedArgCount) {
-							return createErrorResult("Argument count mismatch for script '" + scriptName + ". Expected " +
-									expectedArgCount + ", but received " + providedArgs.size() + ".");
+							return Mono.error(
+									new IllegalArgumentException("Argument count mismatch for script '" + scriptName + ". Expected " +
+											expectedArgCount + ", but received " + providedArgs.size() + "."));
 						}
 						String[] scriptArgsArray = buildStringArrayFromProvidedArgs(providedArgs);
 
@@ -124,11 +117,11 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 						Msg.info(this, "Attempting to run script via instance: " + scriptName + "...");
 						GhidraScriptProvider provider = GhidraScriptUtil.getProvider(scriptFile);
 						if (provider == null) {
-							return createErrorResult("Could not find script provider for: " + scriptName);
+							return Mono.error(new RuntimeException("Could not find script provider for: " + scriptName));
 						}
 						GhidraScript scriptInstance = provider.getScriptInstance(scriptFile, printWriter);
 						if (scriptInstance == null) {
-							return createErrorResult("Could not get script instance for: " + scriptName);
+							return Mono.error(new RuntimeException("Could not get script instance for: " + scriptName));
 						}
 
 						// --- Execute Script Instance ---
@@ -137,25 +130,21 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 
 						// Post-Execution Checks
 						if (monitor.isCancelled()) {
-							return createErrorResult("Script execution cancelled: " + scriptName);
+							return Mono.error(new RuntimeException("Script execution cancelled: " + scriptName));
 						}
 
 						Msg.info(this, "Script execution completed: " + scriptName);
 						String capturedOutput = stringWriter.toString();
-						return createSuccessResult(Map.of(
+						return Mono.just(Map.of(
 								"message", "Script '%s' executed successfully.".formatted(scriptName),
 								"output", capturedOutput));
 
 					} catch (Throwable setupError) {
-						return createErrorResult(setupError);
+						return Mono.error(setupError);
 					}
-				})
-				.onErrorResume(e -> createErrorResult(e));
+				});
 	}
 
-	// --- Helper Logic ---
-
-	// Update Helper to get and convert the list argument to List<ScriptArgument>
 	private Optional<List<ScriptArgumentInfo.ScriptArgument>> getOptionalListOfScriptArgs(Map<String, Object> args,
 			String argumentName) {
 		Object value = args.get(argumentName);
@@ -237,7 +226,7 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 			return value.toString();
 		} else if (value instanceof List || value instanceof Map) {
 			try {
-				return new ObjectMapper().writeValueAsString(value);
+				return IGhidraMcpSpecification.mapper.writeValueAsString(value);
 			} catch (JsonProcessingException e) {
 				Msg.warn(this, "Failed to serialize complex argument to JSON: " + e.getMessage());
 				return value.toString(); // Fallback
@@ -246,24 +235,4 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 		return value.toString();
 	}
 
-	// --- Specification Method ---
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 }

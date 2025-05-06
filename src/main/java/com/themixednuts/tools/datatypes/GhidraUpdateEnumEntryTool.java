@@ -10,37 +10,23 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.EnumDataType;
+import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(name = "Edit Enum Entry", mcpName = "edit_enum_entry", category = ToolCategory.DATATYPES, description = "Modifies the name, value, or comment of an existing entry in an enum data type.", mcpDescription = "Modifies the name or comment of an existing entry in an enum data type, identified by its value.")
+@GhidraMcpTool(name = "Update Enum Entry", mcpName = "update_enum_entry", category = ToolCategory.DATATYPES, description = "Modifies the name, value, or comment of an existing entry in an enum data type.", mcpDescription = "Modifies the name, value or comment of an existing entry in an enum data type, identified by its current name.")
 public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record EnumUpdateContext(
+			Program program,
+			EnumDataType enumDt,
+			String oldName,
+			String newName,
+			long newValue,
+			String newComment) {
 	}
 
 	@Override
@@ -74,56 +60,65 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty(ARG_ENUM_PATH)
 				.requiredProperty(ARG_NAME);
+		// Require at least one update argument? No, let execute handle that.
 
 		return schemaRoot.build();
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
-			String entryName = getRequiredStringArgument(args, ARG_NAME);
-			Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
-			Optional<Long> newValueOpt = getOptionalLongArgument(args, ARG_VALUE);
-			Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup
+					String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+					String entryName = getRequiredStringArgument(args, ARG_NAME);
+					Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+					Optional<Long> newValueOpt = getOptionalLongArgument(args, ARG_VALUE);
+					Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
-			if (newNameOpt.isEmpty() && newValueOpt.isEmpty() && newCommentOpt.isEmpty()) {
-				return createErrorResult(
-						"No changes specified. Provide at least one of newEntryName, newEntryValue, or newEntryComment.");
-			}
+					if (newNameOpt.isEmpty() && newValueOpt.isEmpty() && newCommentOpt.isEmpty()) {
+						throw new IllegalArgumentException(
+								"No changes specified. Provide at least one of newName, value, or comment.");
+					}
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(enumPathString);
+					DataType dt = program.getDataTypeManager().getDataType(enumPathString);
 
-			if (dt == null) {
-				return createErrorResult("Enum not found at path: " + enumPathString);
-			}
-			if (!(dt instanceof EnumDataType)) {
-				return createErrorResult("Data type at path is not an Enum: " + enumPathString);
-			}
-			final EnumDataType enumDt = (EnumDataType) dt; // Make final for lambda
+					if (dt == null) {
+						throw new IllegalArgumentException("Enum not found at path: " + enumPathString);
+					}
+					if (!(dt instanceof EnumDataType)) {
+						throw new IllegalArgumentException("Data type at path is not an Enum: " + enumPathString);
+					}
+					EnumDataType enumDt = (EnumDataType) dt;
 
-			if (!enumDt.contains(entryName)) {
-				return createErrorResult("Entry '" + entryName + "' not found in enum " + enumPathString);
-			}
+					if (!enumDt.contains(entryName)) {
+						throw new IllegalArgumentException("Entry '" + entryName + "' not found in enum " + enumPathString);
+					}
 
-			// Get current value/comment (safe now)
-			final long currentValue = enumDt.getValue(entryName);
-			final String currentComment = enumDt.getComment(entryName);
+					// Get current value/comment before potential modification
+					long currentValue = enumDt.getValue(entryName);
+					String currentComment = enumDt.getComment(entryName);
 
-			// Determine final values (make final for lambda)
-			final String finalName = newNameOpt.orElse(entryName);
-			final long finalValue = newValueOpt.orElse(currentValue);
-			final String finalComment = newCommentOpt.orElse(currentComment);
+					// Determine final values
+					String finalNewName = newNameOpt.orElse(entryName); // If new name not provided, use old name
+					long finalNewValue = newValueOpt.orElse(currentValue);
+					// Handle empty string for comment clearing
+					String finalNewComment = newCommentOpt.orElse(currentComment);
 
-			// Now execute the modification within a transaction
-			return executeInTransaction(program, "MCP - Edit Enum Entry", () -> {
-				enumDt.add(finalName, finalValue, finalComment);
-				return createSuccessResult("Enum entry '" + entryName + "' updated successfully.");
-			});
+					return new EnumUpdateContext(program, enumDt, entryName, finalNewName, finalNewValue, finalNewComment);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(), "Update Enum Entry " + context.oldName(), () -> {
+						// Remove the old entry first, if the name or value is changing
+						if (!context.oldName().equals(context.newName())
+								|| context.enumDt().getValue(context.oldName()) != context.newValue()) {
+							context.enumDt().remove(context.oldName());
+						}
+						// Add the new/updated entry
+						context.enumDt().add(context.newName(), context.newValue(), context.newComment());
 
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+						return "Enum entry '" + context.oldName() + "' updated successfully to (Name: " + context.newName()
+								+ ", Value: " + context.newValue() + ").";
+					});
+				});
 	}
 }

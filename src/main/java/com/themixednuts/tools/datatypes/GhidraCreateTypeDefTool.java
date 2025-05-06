@@ -11,38 +11,27 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.data.*;
-import ghidra.util.Msg;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.TypeDef;
+import ghidra.program.model.data.TypedefDataType;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "Create TypeDef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpName = "create_typedef", mcpDescription = "Defines a new typedef based on an existing data type.")
 public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 
-	public GhidraCreateTypeDefTool() {
-	}
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record TypedefContext(
+			Program program,
+			CategoryPath categoryPath,
+			String typedefName,
+			DataType underlyingDataType,
+			Optional<String> descriptionOpt,
+			String originalPath) {
 	}
 
 	@Override
@@ -73,77 +62,73 @@ public class GhidraCreateTypeDefTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, resolve path, check existence, resolve underlying type,
-			// ensure category
-			// Argument parsing errors caught by onErrorResume
-			String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH);
-			String underlyingTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
-			final Optional<String> descriptionOpt = getOptionalStringArgument(args, ARG_COMMENT); // Final for lambda
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup and validation
+					String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH);
+					String underlyingTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					Optional<String> descriptionOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
-			CategoryPath categoryPath; // Not final here
-			final String typedefName; // Final for lambda
-			try {
-				CategoryPath fullPath = new CategoryPath(typedefPathString);
-				typedefName = fullPath.getName();
-				categoryPath = fullPath.getParent();
-				if (categoryPath == null) {
-					categoryPath = CategoryPath.ROOT;
-				}
-				if (typedefName.isBlank()) {
-					return createErrorResult("Invalid typedef path: Name cannot be blank.");
-				}
-			} catch (IllegalArgumentException e) { // Includes InvalidNameException potential from CategoryPath
-				return createErrorResult("Invalid typedef path format: " + typedefPathString);
-			}
+					// Parse path
+					CategoryPath fullPath = new CategoryPath(typedefPathString);
+					CategoryPath categoryPath = fullPath.getParent();
+					String typedefName = fullPath.getName();
 
-			final DataTypeManager dtm = program.getDataTypeManager(); // Final for lambda
+					if (typedefName.isBlank()) {
+						throw new IllegalArgumentException("Invalid typedef path: Name cannot be blank.");
+					}
+					if (categoryPath == null) { // Ensure ROOT if parent is null
+						categoryPath = CategoryPath.ROOT;
+					}
 
-			// Check if typedef path already exists
-			if (dtm.getDataType(typedefPathString) != null) {
-				return createErrorResult("Data type already exists at path: " + typedefPathString);
-			}
+					DataType underlyingDt = program.getDataTypeManager().getDataType(underlyingTypePath);
+					if (underlyingDt == null) {
+						throw new IllegalArgumentException("Underlying data type not found: " + underlyingTypePath);
+					}
 
-			// Resolve Underlying Type
-			final DataType underlyingDt = dtm.getDataType(underlyingTypePath); // Final for lambda
-			if (underlyingDt == null) {
-				return createErrorResult("Underlying data type not found: " + underlyingTypePath);
-			}
-			// Typedef constructor handles cloning if necessary
+					// Return context for transaction
+					return new TypedefContext(program, categoryPath, typedefName, underlyingDt, descriptionOpt,
+							typedefPathString);
 
-			// Ensure category exists (can be done outside tx)
-			dtm.createCategory(categoryPath);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(), "Create Typedef " + context.typedefName(), () -> {
+						DataTypeManager dtm = context.program().getDataTypeManager();
 
-			// --- Execute modification in transaction ---
-			final String finalTypedefPathString = typedefPathString; // Capture for message
-			final CategoryPath finalCategoryPath = categoryPath; // Capture for lambda
-			return executeInTransaction(program, "MCP - Create Typedef", () -> {
-				// Inner Callable logic:
-				// Create the new Typedef
-				TypeDef newTypeDef = new TypedefDataType(finalCategoryPath, typedefName, underlyingDt, dtm);
+						// Check existence *inside* transaction
+						if (dtm.getDataType(context.categoryPath(), context.typedefName()) != null) {
+							throw new IllegalArgumentException(
+									"Typedef already exists (checked in transaction): " + context.originalPath());
+						}
 
-				// Set optional description
-				descriptionOpt.ifPresent(newTypeDef::setDescription);
+						// Ensure category exists *inside* transaction
+						Category category = dtm.createCategory(context.categoryPath());
+						if (category == null) {
+							category = dtm.getCategory(context.categoryPath()); // Try getting if create failed
+							if (category == null) {
+								throw new RuntimeException(
+										"Failed to create or find category in transaction: " + context.categoryPath());
+							}
+						}
 
-				// Add the new typedef to the manager
-				DataType addedType = dtm.addDataType(newTypeDef, DataTypeConflictHandler.DEFAULT_HANDLER);
+						// Create the new Typedef using the category fetched/created inside the
+						// transaction
+						TypeDef newTypeDef = new TypedefDataType(category.getCategoryPath(), context.typedefName(),
+								context.underlyingDataType(), dtm);
 
-				if (addedType != null) {
-					// Return success
-					return createSuccessResult("Typedef '" + finalTypedefPathString + "' created successfully.");
-				} else {
-					// This might indicate an unexpected conflict despite pre-check
-					return createErrorResult(
-							"Failed to add typedef '" + finalTypedefPathString + "' after creation (unexpected conflict?).");
-				}
-			}); // End of Callable for executeInTransaction
+						// Set optional description
+						context.descriptionOpt().ifPresent(newTypeDef::setDescription);
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+						// Add the new typedef to the manager
+						DataType addedType = dtm.addDataType(newTypeDef, DataTypeConflictHandler.DEFAULT_HANDLER);
+
+						if (addedType instanceof TypeDef) {
+							return "Typedef '" + context.originalPath() + "' created successfully.";
+						} else {
+							throw new RuntimeException(
+									"Failed to add typedef '" + context.originalPath() + "' after creation (unexpected conflict?).");
+						}
+					}); // End executeInTransaction
+				}); // End flatMap
 	}
 }

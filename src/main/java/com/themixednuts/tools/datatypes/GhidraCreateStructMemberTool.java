@@ -12,38 +12,13 @@ import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.Structure;
-import ghidra.util.Msg;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Struct Member", mcpName = "add_struct_member", category = ToolCategory.DATATYPES, description = "Adds a new field (member) to an existing struct data type at a specified offset.", mcpDescription = "Adds a new field (member) to an existing struct data type at a specified offset.")
+@GhidraMcpTool(name = "Create Struct Member", mcpName = "create_struct_member", category = ToolCategory.DATATYPES, description = "Adds a new field (member) to an existing struct data type at a specified offset.", mcpDescription = "Adds a new field (member) to an existing struct data type at a specified offset.")
 public class GhidraCreateStructMemberTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -76,48 +51,60 @@ public class GhidraCreateStructMemberTool implements IGhidraMcpSpecification {
 		return schemaRoot.build();
 	}
 
+	private static record StructMemberContext(
+			Program program,
+			Structure struct,
+			String memberName,
+			DataType memberDataType,
+			Optional<Integer> offsetOpt,
+			Optional<String> commentOpt) {
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
-			final String memberName = getRequiredStringArgument(args, ARG_NAME);
-			String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
-			final Optional<Integer> offsetOpt = getOptionalIntArgument(args, ARG_OFFSET);
-			final Optional<String> commentOpt = getOptionalStringArgument(args, ARG_COMMENT);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup
+					String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+					String memberName = getRequiredStringArgument(args, ARG_NAME);
+					String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					Optional<Integer> offsetOpt = getOptionalIntArgument(args, ARG_OFFSET);
+					Optional<String> commentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(structPathString);
+					DataType dt = program.getDataTypeManager().getDataType(structPathString);
 
-			if (dt == null) {
-				return createErrorResult("Structure not found at path: " + structPathString);
-			}
-			if (!(dt instanceof Structure)) {
-				return createErrorResult("Data type at path is not a Structure: " + structPathString);
-			}
-			final Structure struct = (Structure) dt;
+					if (dt == null) {
+						throw new IllegalArgumentException("Structure not found at path: " + structPathString);
+					}
+					if (!(dt instanceof Structure)) {
+						throw new IllegalArgumentException("Data type at path is not a Structure: " + structPathString);
+					}
+					Structure struct = (Structure) dt;
 
-			final DataType memberDataType = dtm.getDataType(memberTypePath);
-			if (memberDataType == null) {
-				return createErrorResult("Data type not found for member: " + memberTypePath);
-			}
+					DataType memberDataType = program.getDataTypeManager().getDataType(memberTypePath);
+					if (memberDataType == null) {
+						throw new IllegalArgumentException("Data type not found for member: " + memberTypePath);
+					}
 
-			final int memberSize = memberDataType.getLength();
-			if (memberSize <= 0) {
-				return createErrorResult("Cannot add member with dynamically sized type: " + memberTypePath);
-			}
+					return new StructMemberContext(program, struct, memberName, memberDataType, offsetOpt, commentOpt);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					String transactionName = "Add Struct Member " + context.memberName();
+					String structPathName = context.struct().getPathName(); // Get path name before transaction
 
-			final String finalStructPathString = structPathString;
-			return executeInTransaction(program, "MCP - Add Struct Member", () -> {
-				// Inner Callable logic (just the modification):
-				if (offsetOpt.isPresent()) {
-					int offset = offsetOpt.get();
-					struct.insert(offset, memberDataType, memberSize, memberName, commentOpt.orElse(null));
-				} else {
-					struct.add(memberDataType, memberName, commentOpt.orElse(null));
-				}
-				return createSuccessResult(
-						"Member '" + memberName + "' added to structure '" + finalStructPathString + "'.");
-			});
-		}).onErrorResume(e -> createErrorResult(e));
+					return executeInTransaction(context.program(), transactionName, () -> {
+						if (context.offsetOpt().isPresent()) {
+							int offset = context.offsetOpt().get();
+							int length = context.memberDataType().getLength();
+							if (length <= 0) { // Handle dynamically sized types like strings
+								length = 1; // Default size, might need refinement
+							}
+							context.struct().insert(offset, context.memberDataType(), length, context.memberName(),
+									context.commentOpt().orElse(null));
+						} else {
+							context.struct().add(context.memberDataType(), context.memberName(), context.commentOpt().orElse(null));
+						}
+						return "Member '" + context.memberName() + "' added to structure '" + structPathName + "'.";
+					});
+				});
 	}
 }

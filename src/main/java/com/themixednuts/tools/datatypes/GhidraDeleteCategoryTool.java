@@ -1,7 +1,6 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -14,36 +13,13 @@ import com.themixednuts.tools.ToolCategory;
 import ghidra.program.model.data.Category;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataTypeManager;
-import ghidra.util.Msg;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(name = "Delete Category", category = ToolCategory.DATATYPES, description = "Deletes an existing category path, optionally recursively.", mcpName = "delete_category", mcpDescription = "Deletes a category (folder) and optionally its contents from the Data Type Manager.")
 public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -65,43 +41,72 @@ public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 		return schemaRoot.build();
 	}
 
+	// Nested record for type-safe context passing
+	private static record DeleteCategoryContext(
+			Program program, // For transaction
+			Category parentCategory,
+			String categoryName,
+			GhidraMcpTaskMonitor monitor,
+			String originalPath // For messages
+	) {
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) { // Ensure
+																																																								// signature
+		return getProgram(args, tool).map(program -> { // .map for sync setup
 			String categoryPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
 
 			CategoryPath categoryPath;
-			categoryPath = new CategoryPath(categoryPathString);
+			try {
+				categoryPath = new CategoryPath(categoryPathString);
+			} catch (IllegalArgumentException e) {
+				throw new IllegalArgumentException("Invalid category path format: " + categoryPathString, e);
+			}
+
 			if (categoryPath.isRoot()) {
-				return createErrorResult("Cannot delete the root category.");
+				throw new IllegalArgumentException("Cannot delete the root category.");
 			}
 
 			CategoryPath parentCategoryPath = categoryPath.getParent();
-			if (parentCategoryPath == null) {
-				return createErrorResult("Could not determine parent category for: " + categoryPathString);
+			if (parentCategoryPath == null) { // Should be handled by isRoot check, but defensive
+				throw new IllegalArgumentException("Could not determine parent category for: " + categoryPathString);
 			}
 
 			DataTypeManager dtm = program.getDataTypeManager();
-			final Category parentCategory = dtm.getCategory(parentCategoryPath);
+			Category parentCategory = dtm.getCategory(parentCategoryPath);
 			if (parentCategory == null) {
-				return createSuccessResult("Category not found (parent missing): " + categoryPathString);
+				throw new IllegalArgumentException("Category not found: " + categoryPathString + " (parent '"
+						+ parentCategoryPath.getPath() + "' does not exist)");
 			}
 
-			final String categoryName = categoryPath.getName();
-			final String finalCategoryPathString = categoryPathString;
-			return executeInTransaction(program, "MCP - Delete Category", () -> {
+			String categoryName = categoryPath.getName();
 
-				GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex,
-						this.getClass().getAnnotation(GhidraMcpTool.class).mcpName());
+			if (parentCategory.getCategory(categoryName) == null) {
+				throw new IllegalArgumentException("Category not found: " + categoryPathString + " (Category '"
+						+ categoryName + "' does not exist within parent '"
+						+ parentCategoryPath.getPath() + "')");
+			}
 
-				if (parentCategory.removeCategory(categoryName, monitor)) {
-					return createSuccessResult("Category '" + finalCategoryPathString + "' deleted successfully.");
+			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex,
+					this.getClass().getAnnotation(GhidraMcpTool.class).mcpName());
+
+			// Return type-safe context
+			return new DeleteCategoryContext(program, parentCategory, categoryName, monitor, categoryPathString);
+
+		}).flatMap(context -> { // .flatMap for transaction
+			return executeInTransaction(context.program(), "MCP - Delete Category: " + context.originalPath(), () -> {
+				// Use context fields
+				if (context.parentCategory().removeCategory(context.categoryName(), context.monitor())) {
+					return "Category '" + context.originalPath() + "' deleted successfully.";
 				} else {
-					return createSuccessResult("Category not found (or already deleted): " + finalCategoryPathString);
+					// removeCategory returning false usually means it was cancelled or already
+					// deleted
+					throw new RuntimeException("Failed to delete category '" + context.originalPath()
+							+ "'. Check if it was already deleted or if the operation was cancelled.");
 				}
 			});
-
-		}).onErrorResume(e -> createErrorResult(e));
+		});
 	}
 
 }

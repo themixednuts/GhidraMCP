@@ -10,36 +10,23 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.Union;
+import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(name = "Add Union Member", mcpName = "add_union_member", category = ToolCategory.DATATYPES, description = "Adds a new member to an existing union data type.", mcpDescription = "Adds a new field (member) to an existing union data type.")
+@GhidraMcpTool(name = "Create Union Member", mcpName = "create_union_member", category = ToolCategory.DATATYPES, description = "Adds a new member to an existing union data type.", mcpDescription = "Adds a new field (member) to an existing union data type.")
 public class GhidraCreateUnionMemberTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record UnionMemberContext(
+			Program program,
+			Union union,
+			String memberName,
+			DataType memberDataType,
+			Optional<String> commentOpt) {
 	}
 
 	@Override
@@ -75,41 +62,44 @@ public class GhidraCreateUnionMemberTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String unionPathString = getRequiredStringArgument(args, ARG_UNION_PATH);
-			final String memberName = getRequiredStringArgument(args, ARG_NAME);
-			String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
-			final String comment = getOptionalStringArgument(args, ARG_COMMENT).orElse(null);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup
+					String unionPathString = getRequiredStringArgument(args, ARG_UNION_PATH);
+					String memberName = getRequiredStringArgument(args, ARG_NAME);
+					String memberTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					Optional<String> commentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(unionPathString);
+					DataType dt = program.getDataTypeManager().getDataType(unionPathString);
 
-			if (dt == null) {
-				return createErrorResult("Union not found at path: " + unionPathString);
-			}
-			if (!(dt instanceof Union)) {
-				return createErrorResult("Data type at path is not a Union: " + unionPathString);
-			}
-			final Union unionDt = (Union) dt;
+					if (dt == null) {
+						throw new IllegalArgumentException("Union not found at path: " + unionPathString);
+					}
+					if (!(dt instanceof Union)) {
+						throw new IllegalArgumentException("Data type at path is not a Union: " + unionPathString);
+					}
+					Union unionDt = (Union) dt;
 
-			final DataType memberDataType = dtm.getDataType(memberTypePath);
-			if (memberDataType == null) {
-				return createErrorResult("Member data type not found: " + memberTypePath);
-			}
+					DataType memberDataType = program.getDataTypeManager().getDataType(memberTypePath);
+					if (memberDataType == null) {
+						throw new IllegalArgumentException("Member data type not found: " + memberTypePath);
+					}
 
-			final String finalUnionPathString = unionPathString;
-			return executeInTransaction(program, "MCP - Add Union Member", () -> {
-				DataTypeComponent addedComponent = unionDt.add(memberDataType, memberName, comment);
+					return new UnionMemberContext(program, unionDt, memberName, memberDataType, commentOpt);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					String unionPath = context.union().getPathName(); // Get before transaction
+					return executeInTransaction(context.program(), "Add Union Member " + context.memberName(), () -> {
+						DataTypeComponent addedComponent = context.union().add(context.memberDataType(), context.memberName(),
+								context.commentOpt().orElse(null));
 
-				if (addedComponent != null) {
-					return createSuccessResult(
-							"Member '" + memberName + "' added successfully to union " + finalUnionPathString + ".");
-				} else {
-					return createErrorResult("Failed to add member '" + memberName + "' to union " + finalUnionPathString
-							+ ". Name/type conflict or other issue?");
-				}
-			});
-		}).onErrorResume(e -> createErrorResult(e));
+						if (addedComponent != null) {
+							return "Member '" + context.memberName() + "' added successfully to union " + unionPath + ".";
+						} else {
+							throw new RuntimeException("Failed to add member '" + context.memberName() + "' to union " + unionPath
+									+ ". Name/type conflict or other issue?");
+						}
+					});
+				});
 	}
 }

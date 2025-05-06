@@ -10,6 +10,7 @@ public enum ToolCategory {
 	SYMBOLS("Symbols"),
 	MEMORY("Memory"),
 	DECOMPILER("Decompiler"),
+	CONTROL_FLOW("Control Flow"),
 	GROUPED("Grouped"), // Category for grouped tools themselves (e.g., for options)
 	UNCATEGORIZED("Uncategorized"); // Default or for tools without a specific group
 

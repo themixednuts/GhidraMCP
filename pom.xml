@@ -46,6 +46,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <ghidra.version>11.3.2</ghidra.version>
+    <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
     <!-- Add any necessary properties here -->
   </properties>
 
@@ -119,13 +120,6 @@
       <systemPath>${project.basedir}/lib/Gui.jar</systemPath>
     </dependency>
 
-    <!-- JUnit (test only) -->
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>3.8.1</version>
-      <scope>test</scope>
-    </dependency>
 
     <!-- Add the jakarta.servlet-api dependency -->
     <dependency>
@@ -138,12 +132,13 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-server</artifactId>
-      <version>11.0.25</version>
+      <version>12.0.20</version>
     </dependency>
+
     <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-servlet</artifactId>
-      <version>11.0.25</version>
+      <groupId>org.eclipse.jetty.ee10</groupId>
+      <artifactId>jetty-ee10-servlet</artifactId>
+      <version>12.0.20</version>
     </dependency>
 
     <!-- Other dependencies -->

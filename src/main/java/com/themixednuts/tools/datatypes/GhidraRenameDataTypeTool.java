@@ -1,7 +1,6 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -11,36 +10,18 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.data.*;
-import ghidra.util.Msg;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "Rename Data Type", category = ToolCategory.DATATYPES, description = "Renames an existing data type.", mcpName = "rename_data_type", mcpDescription = "Renames a user-defined data type (struct, enum, etc.).")
 public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record RenameContext(
+			Program program,
+			DataType dataType,
+			String newName) {
 	}
 
 	@Override
@@ -49,7 +30,8 @@ public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property(ARG_PATH,
+		// Use ARG_DATA_TYPE_PATH for clarity
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The current full path of the data type to rename (e.g., /MyCategory/MyType)."));
 		schemaRoot.property(ARG_NEW_NAME,
@@ -57,31 +39,40 @@ public class GhidraRenameDataTypeTool implements IGhidraMcpSpecification {
 						.description("The desired new name for the data type (just the name, not the full path)."));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_PATH)
+				.requiredProperty(ARG_DATA_TYPE_PATH)
 				.requiredProperty(ARG_NEW_NAME);
 
 		return schemaRoot.build();
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String oldPathString = getRequiredStringArgument(args, ARG_PATH);
-			final String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for sync setup
+					String oldPathString = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			final DataType dataType = dtm.getDataType(oldPathString);
+					DataType dataType = program.getDataTypeManager().getDataType(oldPathString);
 
-			if (dataType == null) {
-				return createErrorResult("Data type not found at path: " + oldPathString);
-			}
+					if (dataType == null) {
+						throw new IllegalArgumentException("Data type not found at path: " + oldPathString);
+					}
 
-			return executeInTransaction(program, "MCP - Rename Data Type", () -> {
-				dataType.setName(newName);
-				String newPath = dataType.getPathName();
-				return createSuccessResult("Data type renamed successfully to: " + newPath);
-			});
+					// Basic validation for new name (e.g., not blank)
+					if (newName.isBlank()) {
+						throw new IllegalArgumentException("New data type name cannot be blank.");
+					}
+					// Ghidra's setName will handle more complex validation (invalid chars, etc.)
 
-		}).onErrorResume(e -> createErrorResult(e));
+					return new RenameContext(program, dataType, newName);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					String oldPath = context.dataType().getPathName(); // Get old path before rename
+					return executeInTransaction(context.program(), "Rename Data Type: " + oldPath, () -> {
+						context.dataType().setName(context.newName());
+						String finalPath = context.dataType().getPathName();
+						return "Data type '" + oldPath + "' renamed successfully to: " + finalPath;
+					});
+				});
 	}
 }

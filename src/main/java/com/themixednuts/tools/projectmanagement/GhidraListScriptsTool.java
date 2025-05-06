@@ -25,9 +25,6 @@ import ghidra.app.script.ScriptInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import generic.jar.ResourceFile;
 import reactor.core.publisher.Mono;
 
@@ -47,21 +44,14 @@ public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return Mono.fromCallable(() -> {
 			Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
 			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-			PaginatedResult<ScriptArgumentInfo.ScriptInfo> paginatedResult = findAndParseScripts(categoryFilterOpt,
-					cursorOpt);
-
-			return createSuccessResult(paginatedResult);
-		}).flatMap(mono -> mono)
-				.onErrorResume(e -> createErrorResult(e));
+			return findAndParseScripts(categoryFilterOpt, cursorOpt);
+		});
 	}
-
-	// Define a record (or simple class) to hold paginated results
-	// Removed PaginatedScriptsResult record
 
 	private PaginatedResult<ScriptArgumentInfo.ScriptInfo> findAndParseScripts(Optional<String> categoryFilterOpt,
 			Optional<String> cursorOpt) {
@@ -139,26 +129,5 @@ public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 		}
 
 		return new PaginatedResult<>(pageResults, nextCursor);
-	}
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
 	}
 }

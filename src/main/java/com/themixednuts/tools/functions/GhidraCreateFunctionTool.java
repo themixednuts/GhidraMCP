@@ -9,38 +9,23 @@ import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 
+import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Function", category = ToolCategory.FUNCTIONS, description = "Adds a new function at a specified address, optionally naming it.", mcpName = "add_function", mcpDescription = "Adds a new function at a specified address.")
+@GhidraMcpTool(name = "Create Function", category = ToolCategory.FUNCTIONS, description = "Adds a new function at a specified address, optionally naming it.", mcpName = "create_function", mcpDescription = "Adds a new function at a specified address.")
 public class GhidraCreateFunctionTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		Optional<String> schemaStringOpt = parseSchema(schema());
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaStringOpt.get()),
-				(ex, args) -> execute(ex, args, tool));
+	private static record CreateFunctionContext(Program program, Address functionAddress, Optional<String> functionName) {
 	}
 
 	@Override
@@ -56,7 +41,6 @@ public class GhidraCreateFunctionTool implements IGhidraMcpSpecification {
 		schemaRoot.property(ARG_FUNCTION_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("Optional name for the new function. Ghidra assigns a default if omitted."));
-		// Add other options like isThunk later if needed
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME);
 		schemaRoot.requiredProperty(ARG_ADDRESS);
@@ -65,48 +49,44 @@ public class GhidraCreateFunctionTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool)
-				.flatMap(program -> {
-					// --- Setup Phase (Inside flatMap, before transaction) ---
-					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-					Optional<String> functionNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
-					Address entryPointAddress;
-					entryPointAddress = program.getAddressFactory().getAddress(addressStr);
-					if (entryPointAddress == null) {
-						return createErrorResult("Invalid address string (resolved to null): " + addressStr);
-					}
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> {
+			String addressString = getRequiredStringArgument(args, ARG_ADDRESS);
+			Optional<String> nameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
 
-					// Check if function already exists (specific validation before transaction)
-					Function existingFunc = program.getFunctionManager().getFunctionAt(entryPointAddress);
-					if (existingFunc != null) {
-						return createErrorResult(
-								"Function already exists at address " + addressStr + " named '" + existingFunc.getName() + "'");
-					}
+			Address functionAddress = program.getAddressFactory().getAddress(addressString);
 
-					// Final address needed for the transaction lambda
-					final Address finalEntryPointAddress = entryPointAddress;
+			if (program.getFunctionManager().getFunctionAt(functionAddress) != null) {
+				throw new IllegalArgumentException("Function already exists at address: " + addressString);
+			}
 
-					// --- Modification Phase (Inside transaction) ---
-					return executeInTransaction(program, "Add Function at " + addressStr, () -> {
-						// This lambda MUST return Mono<CallToolResult>
-						FunctionManager functionManager = program.getFunctionManager();
-						String name = functionNameOpt.orElse(null);
-						AddressSet body = new AddressSet(finalEntryPointAddress);
+			return new CreateFunctionContext(program, functionAddress, nameOpt);
 
-						Function newFunction = functionManager.createFunction(name, finalEntryPointAddress, body,
-								SourceType.USER_DEFINED);
+		}).flatMap(context -> {
+			Program program = context.program();
+			Address funcAddr = context.functionAddress();
+			Optional<String> funcNameOpt = context.functionName();
+			String transactionName = "MCP - Create Function at " + funcAddr;
 
-						if (newFunction == null) {
-							// Wrap error result in Mono
-							return createErrorResult(
-									"Failed to create function at " + addressStr + ", createFunction returned null.");
-						}
-						// Wrap success result in Mono
-						return createSuccessResult(
-								"Successfully added function '" + newFunction.getName() + "' at address " + addressStr);
-					});
-				})
-				.onErrorResume(e -> createErrorResult(e));
+			return executeInTransaction(program, transactionName, () -> {
+				CreateFunctionCmd cmd = new CreateFunctionCmd(
+						funcNameOpt.orElse(null),
+						funcAddr,
+						new AddressSet(funcAddr),
+						SourceType.USER_DEFINED);
+
+				GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
+				if (!cmd.applyTo(program, monitor)) {
+					throw new RuntimeException("Failed to create function at " + funcAddr + ": " + cmd.getStatusMsg());
+				}
+
+				Function createdFunction = cmd.getFunction();
+				if (createdFunction == null) {
+					throw new RuntimeException("CreateFunctionCmd succeeded but returned null function at " + funcAddr);
+				}
+
+				return new FunctionInfo(createdFunction);
+			});
+		});
 	}
 }

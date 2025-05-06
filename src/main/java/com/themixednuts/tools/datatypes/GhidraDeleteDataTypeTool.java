@@ -1,47 +1,32 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.util.Msg;
-import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-import reactor.core.publisher.Mono;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.SourceArchive;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
+import ghidra.program.model.listing.Program;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
+import reactor.core.publisher.Mono;
+import ghidra.program.model.data.ArchiveType;
 
 @GhidraMcpTool(name = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Removes a user-defined data type (struct, enum, etc.).")
 public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record DeleteContext(
+			Program program,
+			DataType dataTypeToDelete,
+			GhidraMcpTaskMonitor monitor,
+			String originalPath) {
 	}
 
 	@Override
@@ -52,47 +37,68 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 				JsonSchemaBuilder.string(mapper)
 						.description("The file name of the Ghidra tool window to target"));
 
-		schemaRoot.property(ARG_PATH,
+		// Use ARG_DATA_TYPE_PATH for consistency
+		schemaRoot.property(ARG_DATA_TYPE_PATH,
 				JsonSchemaBuilder.string(mapper)
 						.description("The full path of the data type to delete (e.g., /MyCategory/MyType)"));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_PATH);
+				.requiredProperty(ARG_DATA_TYPE_PATH);
 
 		return schemaRoot.build();
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String pathString = getRequiredStringArgument(args, ARG_PATH);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup and validation
+					// Use ARG_DATA_TYPE_PATH
+					String pathString = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					DataType dt = program.getDataTypeManager().getDataType(pathString);
 
-			final DataTypeManager dtm = program.getDataTypeManager();
-			final DataType dt = dtm.getDataType(pathString);
+					if (dt == null) {
+						// Throw if not found - tool is for deletion
+						throw new IllegalArgumentException("Data type not found at path: " + pathString);
+					}
 
-			if (dt == null) {
-				return createSuccessResult("Data type not found (or already deleted) at path: " + pathString);
-			}
+					// Check source archive
+					SourceArchive sourceArchive = dt.getSourceArchive();
+					SourceArchive programArchive = program.getDataTypeManager().getLocalSourceArchive(); // Get from correct DTM
+					// Check if not local or project archive
+					if (sourceArchive != null && !sourceArchive.equals(programArchive)
+							&& sourceArchive.getArchiveType() != ArchiveType.PROJECT) {
+						throw new IllegalArgumentException(
+								"Cannot delete built-in or external archive data type: " + pathString + " from archive "
+										+ sourceArchive.getName());
+					}
 
-			SourceArchive sourceArchive = dt.getSourceArchive();
-			SourceArchive builtInArchive = IntegerDataType.dataType.getSourceArchive();
+					GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex,
+							this.getClass().getAnnotation(GhidraMcpTool.class).mcpName());
 
-			if (builtInArchive != null && builtInArchive.equals(sourceArchive)) {
-				return createErrorResult("Cannot delete built-in data type: " + pathString);
-			}
+					return new DeleteContext(program, dt, monitor, pathString);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(), "Delete Data Type: " + context.originalPath(), () -> {
+						DataTypeManager dtmInTx = context.program().getDataTypeManager();
+						// Re-fetch inside transaction to ensure it still exists and we have the TX
+						// version
+						DataType dtInTx = dtmInTx.getDataType(context.originalPath());
+						if (dtInTx == null) {
+							// It was deleted between the map phase and now
+							throw new IllegalStateException(
+									"Data type '" + context.originalPath() + "' was deleted concurrently.");
+						}
 
-			final String finalPathString = pathString;
-			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-			return executeInTransaction(program, "Delete Data Type " + finalPathString, () -> {
-				boolean removed = dtm.remove(dt, monitor);
+						boolean removed = dtmInTx.remove(dtInTx, context.monitor());
 
-				if (removed) {
-					return createSuccessResult("Data type '" + finalPathString + "' deleted successfully.");
-				} else {
-					return createErrorResult("Failed to delete data type '" + finalPathString + "'. It might be in use.");
-				}
-			});
-
-		}).onErrorResume(e -> createErrorResult(e));
+						if (removed) {
+							return "Data type '" + context.originalPath() + "' deleted successfully.";
+						} else {
+							// remove() returns false if the type is not removable (e.g., in use)
+							throw new RuntimeException(
+									"Failed to delete data type '" + context.originalPath() + "'. It might be in use.");
+						}
+					});
+				});
 	}
 }

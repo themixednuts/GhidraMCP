@@ -1,7 +1,7 @@
 package com.themixednuts.tools.projectmanagement;
 
+import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -13,14 +13,11 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.BookmarkManager;
-import ghidra.util.Msg;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark with a specified type, category, and comment at a given address.", mcpName = "add_bookmark", mcpDescription = "Adds a bookmark at the specified address.")
+@GhidraMcpTool(name = "Create Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark with a specified type, category, and comment at a given address.", mcpName = "create_bookmark", mcpDescription = "Adds a bookmark at the specified address.")
 public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 
 	// Define specific argument names for clarity
@@ -53,47 +50,45 @@ public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool) // Handles fileName validation
-				.flatMap(program -> {
-					return executeInTransaction(program, "Add Bookmark", () -> {
-						final String finalAddressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-						final String finalBookmarkType = getRequiredStringArgument(args, ARG_BOOKMARK_TYPE);
-						final String finalBookmarkCategory = getRequiredStringArgument(args, ARG_BOOKMARK_CATEGORY);
-						final String finalComment = getRequiredStringArgument(args, ARG_COMMENT);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> {
+					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+					String bookmarkType = getRequiredStringArgument(args, ARG_BOOKMARK_TYPE);
+					String bookmarkCategory = getRequiredStringArgument(args, ARG_BOOKMARK_CATEGORY);
+					String comment = getRequiredStringArgument(args, ARG_COMMENT);
+					Address addr;
 
-						Address address = program.getAddressFactory().getAddress(finalAddressStr);
-						if (address == null) {
-							return createErrorResult("Invalid address format: " + finalAddressStr);
+					try {
+						addr = program.getAddressFactory().getAddress(addressStr);
+						if (addr == null) {
+							throw new IllegalArgumentException("Invalid address format: " + addressStr);
 						}
+					} catch (Exception e) {
+						throw new IllegalArgumentException("Invalid address format: " + addressStr, e);
+					}
 
+					Map<String, Object> contextMap = new HashMap<>();
+					contextMap.put("address", addr);
+					contextMap.put("type", bookmarkType);
+					contextMap.put("category", bookmarkCategory);
+					contextMap.put("comment", comment);
+					return Map.entry(program, contextMap);
+
+				})
+				.flatMap(contextEntry -> {
+					Program program = contextEntry.getKey();
+					Map<String, Object> context = contextEntry.getValue();
+					Address addr = (Address) context.get("address");
+					String type = (String) context.get("type");
+					String category = (String) context.get("category");
+					String comment = (String) context.get("comment");
+
+					return executeInTransaction(program, "MCP - Add Bookmark at " + addr.toString(), () -> {
 						BookmarkManager bookmarkManager = program.getBookmarkManager();
-						bookmarkManager.setBookmark(address, finalBookmarkType, finalBookmarkCategory, finalComment);
-
-						return createSuccessResult("Bookmark added successfully at " + finalAddressStr);
+						bookmarkManager.setBookmark(addr, type, category, comment);
+						return "Bookmark added successfully at " + addr.toString();
 					});
-				}).onErrorResume(e -> createErrorResult(e));
+				});
 	}
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
-
 }

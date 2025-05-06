@@ -3,6 +3,7 @@ package com.themixednuts.tools.functions;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
+import java.util.Arrays;
 
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
@@ -11,48 +12,18 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.database.symbol.FunctionSymbol;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.HighFunctionDBUtil;
-import ghidra.program.model.pcode.HighSymbol;
-import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 import reactor.core.publisher.Mono;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.listing.Variable;
+import ghidra.program.model.listing.Parameter;
 
-@GhidraMcpTool(name = "Rename Symbol in Function", category = ToolCategory.FUNCTIONS, description = "Renames a symbol (variable or parameter) within a specific function.", mcpName = "rename_symbol_in_function", mcpDescription = "Renames a local variable or parameter within a function.")
+@GhidraMcpTool(name = "Update Symbol in Function", category = ToolCategory.FUNCTIONS, description = "Renames a symbol (variable or parameter) within a specific function.", mcpName = "update_symbol_in_function", mcpDescription = "Renames a local variable or parameter within a function.")
 public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -79,60 +50,51 @@ public class GhidraRenameSymbolInFunctionTool implements IGhidraMcpSpecification
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		DecompInterface decomp = new DecompInterface();
-
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
-			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
-			String currentSymbolName = getRequiredStringArgument(args, ARG_NAME);
-			String newSymbolName = getRequiredStringArgument(args, ARG_NEW_NAME);
+			return Mono.fromCallable(() -> {
+				String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
+				String currentName = getRequiredStringArgument(args, ARG_NAME);
+				String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
-			Optional<Function> targetFunctionOpt = StreamSupport
-					.stream(program.getSymbolTable().getSymbolIterator(functionName, true).spliterator(), false)
-					.filter(symbol -> symbol instanceof FunctionSymbol)
-					.map(symbol -> (Function) symbol.getObject())
-					.findFirst();
+				Function function = StreamSupport.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
+						.filter(f -> f.getName().equals(functionName))
+						.findFirst()
+						.orElse(null);
 
-			if (targetFunctionOpt.isEmpty()) {
-				return createErrorResult("Error: Function '" + functionName + "' not found.");
-			}
-			Function targetFunction = targetFunctionOpt.get();
+				if (function == null) {
+					throw new IllegalArgumentException("Function not found: " + functionName);
+				}
 
-			decomp.openProgram(program);
-			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
+				Symbol symbolToRename = null;
+				Optional<Parameter> paramOpt = Arrays.stream(function.getParameters())
+						.filter(p -> p.getName().equals(currentName))
+						.findFirst();
 
-			if (result == null || !result.decompileCompleted()) {
-				String errorMsg = result != null ? result.getErrorMessage() : "Unknown decompiler error";
-				return createErrorResult("Error: Decompilation failed: " + errorMsg);
-			}
-			HighFunction highFunction = result.getHighFunction();
-			if (highFunction == null) {
-				return createErrorResult("Error: Decompilation failed (no high function)");
-			}
-			LocalSymbolMap localSymbolMap = highFunction.getLocalSymbolMap();
-			Map<String, HighSymbol> nameToSymbolMap = localSymbolMap.getNameToSymbolMap();
+				if (paramOpt.isPresent()) {
+					symbolToRename = paramOpt.get().getSymbol();
+				} else {
+					Optional<Variable> varOpt = Arrays.stream(function.getLocalVariables())
+							.filter(v -> v.getName().equals(currentName))
+							.findFirst();
+					if (varOpt.isPresent()) {
+						symbolToRename = varOpt.get().getSymbol();
+					} else {
+						throw new IllegalArgumentException("Symbol not found: " + currentName);
+					}
+				}
 
-			HighSymbol highSymbol = nameToSymbolMap.get(currentSymbolName);
-			if (highSymbol == null) {
-				return createErrorResult(
-						"Error: Symbol '" + currentSymbolName + "' not found in function '" + functionName + "'");
-			}
-
-			if (nameToSymbolMap.containsKey(newSymbolName)) {
-				return createErrorResult(
-						"Error: Symbol '" + newSymbolName + "' already exists in function '" + functionName + "'");
-			}
-
-			return executeInTransaction(program, "Rename Symbol: " + newSymbolName, () -> {
-				HighFunctionDBUtil.updateDBVariable(highSymbol, newSymbolName, null, SourceType.USER_DEFINED);
-				return createSuccessResult("Symbol renamed successfully to " + newSymbolName);
-			});
-
-		}).onErrorResume(e -> createErrorResult(e)).doFinally(signalType -> {
-			if (decomp != null) {
-				decomp.dispose();
-			}
+				return Map.entry(symbolToRename, newName);
+			})
+					.flatMap(entry -> {
+						Symbol symbol = entry.getKey();
+						String nameToSet = entry.getValue();
+						String originalName = symbol.getName();
+						return executeInTransaction(program, "MCP - Rename Symbol " + originalName, () -> {
+							symbol.setName(nameToSet, SourceType.USER_DEFINED);
+							return "Successfully renamed symbol '" + originalName + "' to '" + nameToSet + "'";
+						});
+					});
 		});
 	}
 }

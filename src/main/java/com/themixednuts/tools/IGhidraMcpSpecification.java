@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -27,6 +28,7 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 /**
@@ -74,6 +76,7 @@ public interface IGhidraMcpSpecification {
 	public static final String ARG_UNION_PATH = "unionPath";
 	public static final String ARG_TYPEDEF_PATH = "typedefPath";
 	public static final String ARG_FUNC_DEF_PATH = "functionDefinitionPath";
+	public static final String ARG_FILTER = "filter";
 
 	// ===================================================================================
 	// Core Interface Methods
@@ -92,20 +95,40 @@ public interface IGhidraMcpSpecification {
 	 *         created
 	 *         (e.g., missing annotation or schema error).
 	 */
-	AsyncToolSpecification specification(PluginTool tool);
+	default AsyncToolSpecification specification(PluginTool tool) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+		if (annotation == null) {
+			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
+			return null;
+		}
+		JsonSchema schemaObject = schema();
+		Optional<String> schemaStringOpt = parseSchema(schemaObject);
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+			return null;
+		}
+		String schemaJson = schemaStringOpt.get();
+
+		return new AsyncToolSpecification(
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
+				(ex, args) -> execute(ex, args, tool).flatMap(this::createSuccessResult)
+						.onErrorResume(this::createErrorResult));
+	}
 
 	/**
 	 * Executes the core logic of the tool asynchronously.
+	 * This method should return the raw result object (e.g., List, Map, POJO,
+	 * String).
+	 * Errors should be signalled via Mono.error().
 	 *
-	 * @param ex   The MCP Async Server Exchange context, providing interaction
-	 *             capabilities.
-	 * @param args A map containing the arguments passed to the tool by the client,
-	 *             parsed according to the tool's schema.
-	 * @param tool The current Ghidra {@link PluginTool} context.
-	 * @return A {@link Mono} emitting the {@link CallToolResult} which represents
-	 *         the outcome of the execution (success or error, with content).
+	 * @param ex   The MCP Async Server Exchange context.
+	 * @param args A map containing the arguments passed to the tool.
+	 * @param tool The current Ghidra PluginTool context.
+	 * @return A {@link Mono} emitting the raw result object upon successful
+	 *         execution,
+	 *         or signalling an error via {@code Mono.error()}.
 	 */
-	Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool);
+	Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool);
 
 	/**
 	 * Defines the JSON input schema for this tool.
@@ -140,75 +163,68 @@ public interface IGhidraMcpSpecification {
 	 * <p>
 	 * This method handles starting and ending the transaction correctly.
 	 * The transaction is committed only if the {@code work} Callable executes
-	 * successfully *and* returns a non-error {@link CallToolResult}.
+	 * successfully and its returned {@code Mono} completes successfully.
 	 * Otherwise, the transaction is aborted.
 	 * <p>
-	 * Exceptions thrown by the {@code work} Callable are caught, logged, and
-	 * wrapped in an error {@code CallToolResult}.
+	 * Exceptions thrown by the {@code work} Callable or signalled by its
+	 * {@code Mono} are propagated.
 	 *
 	 * @param program         The Ghidra {@link Program} instance to operate on.
 	 *                        Must not be null.
 	 * @param transactionName A descriptive name for the Ghidra transaction (e.g.,
 	 *                        "Rename Function").
 	 * @param work            A {@link Callable} that performs the Ghidra operations
-	 *                        and returns a {@code CallToolResult}.
-	 *                        The success/error status of this result determines
-	 *                        if the transaction is committed.
-	 * @return The {@code CallToolResult} returned by the {@code work} Callable, or
-	 *         an error {@code CallToolResult} if the work throws an exception.
+	 *                        and returns a {@code Mono<Object>}. The success or
+	 *                        error
+	 *                        signal of this Mono determines if the transaction is
+	 *                        committed.
+	 * @return A {@code Mono<Object>} that emits the result of the successful work
+	 *         or signals an error if the work failed or the transaction could not
+	 *         be
+	 *         committed.
 	 */
-	default Mono<CallToolResult> executeInTransaction(Program program, String transactionName,
-			Callable<Mono<CallToolResult>> work) {
-		// Wrap the synchronous Swing execution in Mono.fromCallable
+	default Mono<Object> executeInTransaction(Program program, String transactionName,
+			Callable<Object> work) {
 		return Mono.fromCallable(() -> {
-			// Use Swing.runNow to ensure execution on the EDT
-			// The lambda now returns the actual CallToolResult after blocking
-			return Swing.runNow(() -> {
+
+			Object rawResultOrErrorSignal = Swing.runNow(() -> {
 				int txId = -1;
-				boolean success = false;
-				CallToolResult result = null;
+				boolean success = false; // Assume failure initially
+				Object rawResult = null;
+
 				try {
 					txId = program.startTransaction(transactionName);
+					rawResult = work.call();
+					success = true;
 
-					try {
-						// Execute the work, get the Mono, and block to get the result synchronously
-						Mono<CallToolResult> resultMono = work.call();
-						result = resultMono.block(); // Block here on the EDT
-
-					} catch (Exception e) {
-						// Log the exception from work.call() or block()
-						Msg.error(this, "Exception during Ghidra transaction work '" + transactionName + "': " + e.getMessage(), e);
-						// Create and return an *unwrapped* error result directly from the lambda
-						// Assuming createErrorResult now returns Mono, we need to block here too,
-						// or preferably, have a synchronous version or handle manually.
-						// Let's handle manually for clarity within sync context:
-						String errorMessage = e.getClass().getSimpleName() + (e.getMessage() != null ? ": " + e.getMessage() : "");
-						TextContent errorContent = new TextContent(errorMessage);
-						return new CallToolResult(Collections.singletonList(errorContent), true);
-					}
-
-					// Determine success based on the *resolved* result
-					if (result != null && !result.isError()) {
-						success = true;
-					}
-
-					// Return the *resolved* result from the lambda
-					return result;
-
+				} catch (Exception e) {
+					// Log the exception from work.call() or block()
+					Msg.error(this, "Exception during Ghidra transaction work '" + transactionName + "': " + e.getMessage(), e);
+					// Throw the exception to be caught by onErrorResume outside Swing.runNow
+					throw new RuntimeException("Transaction work failed: " + e.getMessage(), e);
 				} finally {
-					// End the transaction, committing only if success is true
+					// Ensure transaction is ended
 					if (txId != -1) {
-						program.endTransaction(txId, success);
+						try {
+							program.endTransaction(txId, success);
+						} catch (Exception e) {
+							Msg.error(this, "Failed to end transaction '" + transactionName + "' (success=" + success + ")", e);
+							// If ending fails, we still need to propagate the original error if one
+							// occurred,
+							// or signal a new error if the work succeeded but ending failed.
+							if (success) { // Only throw if work succeeded but end failed
+								throw new RuntimeException("Failed to end successful transaction: " + e.getMessage(), e);
+							}
+						}
 					}
 				}
+				return rawResult;
 			});
-		}).onErrorResume(e -> {
-			// Catch exceptions from Swing.runNow itself or RuntimeExceptions from block()
-			String errorMsg = "Unexpected error during Swing EDT execution for transaction '" + transactionName + "'";
-			Msg.error(this, errorMsg + ": " + e.getMessage(), e);
-			// Use the Mono-returning error helper here as we are back in reactive context
-			return createErrorResult(new RuntimeException(errorMsg, e));
+
+			// Wrap the result of Swing.runNow into a Mono
+			return rawResultOrErrorSignal;
 		});
+
 	}
 
 	// ===================================================================================
@@ -785,6 +801,7 @@ public interface IGhidraMcpSpecification {
 	/**
 	 * Helper method to serialize a result object to JSON and wrap it in a
 	 * successful {@link CallToolResult} with {@link TextContent}.
+	 * The resultData is serialized directly to a JSON string.
 	 *
 	 * @param resultData The object containing the successful result data. Can be
 	 *                   a POJO, List, Map, String, Boolean, Number, etc.
@@ -793,9 +810,9 @@ public interface IGhidraMcpSpecification {
 	 */
 	default Mono<CallToolResult> createSuccessResult(Object resultData) {
 		try {
-			// Serialize the result data to a JSON string
+			// Serialize the raw result data directly to a JSON string
 			String jsonResult = IGhidraMcpSpecification.mapper.writeValueAsString(resultData);
-			// Create TextContent containing the JSON string
+			// Create TextContent containing the raw JSON string
 			TextContent textContent = new TextContent(jsonResult);
 			// Build the CallToolResult with the TextContent
 			return Mono.just(new CallToolResult(Collections.singletonList(textContent), false));
@@ -803,7 +820,8 @@ public interface IGhidraMcpSpecification {
 			// Log the serialization error
 			Msg.error(this, "Error serializing result data to JSON: " + e.getMessage(), e);
 			// Return an error CallToolResult using the error helper
-			return createErrorResult(e);
+			return createErrorResult(new RuntimeException("Error serializing result data: " + e.getMessage(), e)); // Wrap
+																																																							// exception
 		}
 	}
 

@@ -1,63 +1,31 @@
 package com.themixednuts.tools.functions;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.StreamSupport;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.models.DataTypeSuggestionInfo;
-import com.themixednuts.tools.ToolCategory;
 
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.cmd.function.SetVariableDataTypeCmd;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.database.symbol.FunctionSymbol;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.HighFunctionDBUtil;
-import ghidra.program.model.pcode.HighSymbol;
-import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.listing.Variable;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
+import ghidra.util.data.DataTypeParser;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuples;
 
-@GhidraMcpTool(name = "Change Symbol Data Type In Function", category = ToolCategory.FUNCTIONS, description = "Changes the data type of a local variable or parameter within a specific function.", mcpName = "change_symbol_data_type_in_function", mcpDescription = "Changes the data type of a local variable or parameter within a function.")
+@GhidraMcpTool(name = "Update Symbol Data Type In Function", category = ToolCategory.FUNCTIONS, description = "Changes the data type of a local variable or parameter within a specific function.", mcpName = "update_symbol_data_type_in_function", mcpDescription = "Changes the data type of a local variable or parameter within a function.")
 public class GhidraUpdateSymbolDataTypeInFunctionTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -84,79 +52,64 @@ public class GhidraUpdateSymbolDataTypeInFunctionTool implements IGhidraMcpSpeci
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		DecompInterface decomp = new DecompInterface();
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> {
+					String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
+					String symbolName = getRequiredStringArgument(args, ARG_NAME);
+					String newDataTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
 
-		return getProgram(args, tool).flatMap(program -> { // Program is available
+					Function function = StreamSupport.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
+							.filter(f -> f.getName().equals(functionName))
+							.findFirst()
+							.orElseThrow(() -> new IllegalArgumentException("Function not found: " + functionName));
 
-			String functionName = getRequiredStringArgument(args, ARG_FUNCTION_NAME);
-			String symbolName = getRequiredStringArgument(args, ARG_NAME);
-			String newDataTypeName = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
+					Variable variableToUpdate = findVariableInFunction(function, symbolName);
+					DataType newDataType = parseDataType(program, newDataTypePath);
 
-			Optional<Function> targetFunctionOpt = StreamSupport
-					.stream(program.getSymbolTable().getSymbolIterator(functionName, true).spliterator(), false)
-					.filter(symbol -> symbol instanceof FunctionSymbol)
-					.map(symbol -> (Function) symbol.getObject())
-					.findFirst();
+					return Tuples.of(program, variableToUpdate, newDataType);
+				})
+				.flatMap(tuple -> {
+					Program program = tuple.getT1();
+					Variable variable = tuple.getT2();
+					DataType dataType = tuple.getT3();
+					String varName = variable.getName();
+					String dtName = dataType.getName();
 
-			if (targetFunctionOpt.isEmpty()) {
-				String errorMsg = "Error: Function '" + functionName + "' not found.";
-				return createErrorResult(errorMsg);
-			}
-			Function targetFunction = targetFunctionOpt.get();
-
-			decomp.openProgram(program);
-			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
-
-			if (result == null || !result.decompileCompleted()) {
-				String errorMsg = "Decompilation failed: "
-						+ (result != null ? result.getErrorMessage() : "Unknown decompiler error");
-				return createErrorResult(errorMsg);
-			}
-			HighFunction highFunction = result.getHighFunction();
-			if (highFunction == null) {
-				String errorMsg = "Decompilation failed (no high function)";
-				return createErrorResult(errorMsg);
-			}
-			LocalSymbolMap localSymbolMap = highFunction.getLocalSymbolMap();
-			Map<String, HighSymbol> nameToSymbolMap = localSymbolMap.getNameToSymbolMap();
-			HighSymbol highSymbol = nameToSymbolMap.get(symbolName);
-
-			if (highSymbol == null) {
-				String errorMsg = "Symbol '" + symbolName + "' not found in function '" + functionName + "'";
-				return createErrorResult(errorMsg);
-			}
-
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dataType = dtm.getDataType(newDataTypeName);
-
-			if (dataType == null) {
-				Iterator<DataType> iterator = dtm.getAllDataTypes();
-				List<DataTypeSuggestionInfo> suggestions = new ArrayList<>();
-				iterator.forEachRemaining(t -> {
-					if (t.getName().toLowerCase().contains(newDataTypeName.toLowerCase())) {
-						suggestions.add(new DataTypeSuggestionInfo(t));
-					}
+					return executeInTransaction(program, "MCP - Update Symbol Data Type: " + varName,
+							() -> {
+								SetVariableDataTypeCmd cmd = new SetVariableDataTypeCmd(variable, dataType, SourceType.USER_DEFINED);
+								if (!cmd.applyTo(program)) {
+									throw new RuntimeException("Failed to apply data type change: " + cmd.getStatusMsg());
+								}
+								return "Successfully updated data type for symbol '" + varName + "' to '" + dtName + "'";
+							});
 				});
-
-				String baseMsg = "Data type '" + newDataTypeName + "' not found. Possible types";
-				return createErrorResult(baseMsg, suggestions);
-			}
-
-			final DataType finalDataType = dataType;
-			return executeInTransaction(program, "Change Symbol DataType: " + symbolName, () -> {
-				DataType resolvedDataType = finalDataType.clone(dtm);
-				HighFunctionDBUtil.updateDBVariable(highSymbol, null, resolvedDataType, SourceType.USER_DEFINED);
-				return createSuccessResult(
-						"Symbol '" + symbolName + "' data type changed successfully to '" + newDataTypeName + "'");
-			});
-
-		}).onErrorResume(e -> createErrorResult(e)).doFinally(signalType -> {
-			if (decomp != null) {
-				decomp.dispose();
-			}
-		});
 	}
 
+	private Variable findVariableInFunction(Function function, String symbolName) {
+		return Arrays.stream(function.getParameters())
+				.filter(p -> p.getName().equals(symbolName))
+				.findFirst()
+				.map(p -> (Variable) p)
+				.orElseGet(() -> Arrays.stream(function.getLocalVariables())
+						.filter(v -> v.getName().equals(symbolName))
+						.findFirst()
+						.orElseThrow(() -> new IllegalArgumentException(
+								"Symbol '" + symbolName + "' not found in function '" + function.getName() + "'")));
+	}
+
+	private DataType parseDataType(Program program, String newDataTypePath) {
+		DataTypeManager dtm = program.getDataTypeManager();
+		try {
+			DataTypeParser parser = new DataTypeParser(dtm, dtm, null, DataTypeParser.AllowedDataTypes.ALL);
+			DataType newDataType = parser.parse(newDataTypePath);
+			if (newDataType == null) {
+				throw new IllegalArgumentException("Data type not found or invalid: " + newDataTypePath);
+			}
+			return newDataType;
+		} catch (Exception e) {
+			throw new IllegalArgumentException("Failed to parse data type '" + newDataTypePath + "': " + e.getMessage(), e);
+		}
+	}
 }

@@ -1,47 +1,32 @@
 package com.themixednuts.tools.symbols;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-import reactor.core.publisher.Mono;
+import ghidra.app.cmd.comments.SetCommentCmd;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
-import ghidra.util.Msg;
-import ghidra.framework.plugintool.PluginTool;
-import com.themixednuts.tools.ToolCategory;
+import ghidra.program.model.listing.Program;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
+import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Set Comment at Address", category = ToolCategory.SYMBOLS, description = "Sets or replaces a comment of a specific type at a given memory address.", mcpName = "set_comment_at_address", mcpDescription = "Set or replace a comment of a specific type (e.g., EOL_COMMENT, PRE_COMMENT, PLATE_COMMENT) at the given memory address.")
+@GhidraMcpTool(name = "Update Comment at Address", category = ToolCategory.SYMBOLS, description = "Sets or replaces a comment of a specific type at a given memory address.", mcpName = "update_comment_at_address", mcpDescription = "Set or replace a comment of a specific type (e.g., EOL_COMMENT, PRE_COMMENT, PLATE_COMMENT) at the given memory address.")
 public class GhidraUpdateCommentAtAddressTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
+	public static final String ARG_COMMENT_TYPE = "commentType";
 
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null; // Signal failure
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record UpdateCommentContext(
+			Program program,
+			Address address,
+			int commentType,
+			String commentToSet) {
 	}
 
 	@Override
@@ -49,80 +34,76 @@ public class GhidraUpdateCommentAtAddressTool implements IGhidraMcpSpecification
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file to target within the project."));
+						.description("The name of the program file."));
 		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
 						.description("The address where the comment should be set (e.g., '0x1004010').")
 						.pattern("^(0x)?[0-9a-fA-F]+$"));
-		schemaRoot.property("commentType",
-				JsonSchemaBuilder.string(mapper) // This returns IStringSchemaBuilder
+		schemaRoot.property(ARG_COMMENT_TYPE,
+				JsonSchemaBuilder.string(mapper)
 						.description(
 								"The type of comment to set (e.g., 'EOL_COMMENT', 'PRE_COMMENT', 'POST_COMMENT', 'PLATE_COMMENT', 'REPEATABLE_COMMENT').")
 						.enumValues("EOL_COMMENT", "PRE_COMMENT", "POST_COMMENT", "PLATE_COMMENT", "REPEATABLE_COMMENT"));
 
 		schemaRoot.property(ARG_COMMENT,
 				JsonSchemaBuilder.string(mapper)
-						.description("The text content of the comment to set."));
-		// Add optional properties
-		schemaRoot.property(ARG_FUNCTION_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional name of the function containing the address. If provided, the address is relative to the function's entry point."));
+						.description("The text content of the comment to set. Use null or empty string to clear."));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty(ARG_ADDRESS)
-				.requiredProperty("commentType")
+				.requiredProperty(ARG_COMMENT_TYPE)
 				.requiredProperty(ARG_COMMENT);
 
 		return schemaRoot.build();
 	}
 
+	private int getCommentTypeInt(String commentTypeStr) {
+		switch (commentTypeStr) {
+			case "EOL_COMMENT":
+				return CodeUnit.EOL_COMMENT;
+			case "PRE_COMMENT":
+				return CodeUnit.PRE_COMMENT;
+			case "POST_COMMENT":
+				return CodeUnit.POST_COMMENT;
+			case "PLATE_COMMENT":
+				return CodeUnit.PLATE_COMMENT;
+			case "REPEATABLE_COMMENT":
+				return CodeUnit.REPEATABLE_COMMENT;
+			default:
+				throw new IllegalArgumentException("Invalid comment type: " + commentTypeStr);
+		}
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// --- Setup Phase --- (Argument parsing, address validation, comment type
-			// validation)
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 			Address addr = program.getAddressFactory().getAddress(addressStr);
 			if (addr == null) {
-				return createErrorResult("Invalid address format: " + addressStr);
+				throw new IllegalArgumentException("Invalid address format: " + addressStr);
 			}
 
 			String comment = getRequiredStringArgument(args, ARG_COMMENT);
-			String commentTypeStr = getRequiredStringArgument(args, "commentType");
-
+			String commentTypeStr = getRequiredStringArgument(args, ARG_COMMENT_TYPE);
 			int commentTypeInt;
-			switch (commentTypeStr) {
-				case "EOL_COMMENT":
-					commentTypeInt = CodeUnit.EOL_COMMENT;
-					break;
-				case "PRE_COMMENT":
-					commentTypeInt = CodeUnit.PRE_COMMENT;
-					break;
-				case "POST_COMMENT":
-					commentTypeInt = CodeUnit.POST_COMMENT;
-					break;
-				case "PLATE_COMMENT":
-					commentTypeInt = CodeUnit.PLATE_COMMENT;
-					break;
-				case "REPEATABLE_COMMENT":
-					commentTypeInt = CodeUnit.REPEATABLE_COMMENT;
-					break;
-				default:
-					return createErrorResult("Invalid comment type: " + commentTypeStr);
+			try {
+				commentTypeInt = getCommentTypeInt(commentTypeStr);
+			} catch (IllegalArgumentException e) {
+				throw e;
 			}
+			String commentToSet = (comment == null || comment.isEmpty()) ? null : comment;
 
-			// --- Modification Phase --- (Execute within transaction)
-			return executeInTransaction(program, "MCP - Set Comment at " + addressStr, () -> {
-				// Modification
-				program.getListing().setComment(addr, commentTypeInt, comment);
-				// Return success
-				return createSuccessResult("Comment set successfully at " + addressStr + ".");
+			return new UpdateCommentContext(program, addr, commentTypeInt, commentToSet);
+
+		}).flatMap(context -> {
+			return executeInTransaction(context.program(), "MCP - Set Comment at " + context.address().toString(), () -> {
+				SetCommentCmd cmd = new SetCommentCmd(context.address(), context.commentType(), context.commentToSet());
+				if (cmd.applyTo(context.program())) {
+					return "Comment set successfully at " + context.address().toString();
+				} else {
+					throw new RuntimeException("Failed to set comment: " + cmd.getStatusMsg());
+				}
 			});
-
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup, or unexpected transaction errors
-			return createErrorResult(e);
 		});
 	}
 

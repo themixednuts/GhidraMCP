@@ -1,232 +1,163 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import ghidra.program.model.data.*;
-import ghidra.util.Msg;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.ParameterDefinition;
+import ghidra.program.model.data.ParameterDefinitionImpl;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import ghidra.program.model.listing.Program;
 
-import ghidra.program.model.lang.CompilerSpec;
 import ghidra.framework.plugintool.PluginTool;
-import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(name = "Create Function Definition", category = ToolCategory.DATATYPES, description = "Creates a new function definition (signature) data type.", mcpName = "create_function_definition", mcpDescription = "Defines a new function signature data type, specifying return type, parameters, calling convention, etc.")
+@GhidraMcpTool(name = "Create Function Definition", category = ToolCategory.DATATYPES, description = "Creates a new function definition data type.", mcpName = "create_function_definition", mcpDescription = "Define a new function signature data type.")
 public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
+	public static final String ARG_RETURN_TYPE = "returnType";
+	public static final String ARG_PARAMETERS = "parameters";
+	public static final String ARG_DATA_TYPE_PATH = "dataType";
+	public static final String ARG_VAR_ARGS = "varArgs";
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		schemaRoot.property(ARG_FILE_NAME, JsonSchemaBuilder.string(mapper).description("The name of the program file."));
+		schemaRoot.property(ARG_FUNC_DEF_PATH, JsonSchemaBuilder.string(mapper)
+				.description("Full path for the new function definition (e.g., '/MyFuncDefs/MyFunc')."));
+		schemaRoot.property(ARG_RETURN_TYPE, JsonSchemaBuilder.string(mapper)
+				.description("Data type path for the return type (e.g., 'int', '/MyStructs/Result')."));
+		schemaRoot.property(ARG_VAR_ARGS, JsonSchemaBuilder.bool(mapper)
+				.description("Whether the function accepts variable arguments.").defaultValue(false));
 
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
-		schemaRoot.property(ARG_FUNC_DEF_PATH,
-				JsonSchemaBuilder.string(mapper)
-						.description("The full path for the new function definition (e.g., /MyTypes/MyFunctionSig)"));
-
-		schemaRoot.property(ARG_DATA_TYPE_PATH,
-				JsonSchemaBuilder.string(mapper)
-						.description("Full path or name of the return data type (e.g., 'int', '/MyStruct*', 'void')."));
-
-		List<String> standardCallingConventions = Arrays.asList(
-				CompilerSpec.CALLING_CONVENTION_cdecl,
-				CompilerSpec.CALLING_CONVENTION_stdcall,
-				CompilerSpec.CALLING_CONVENTION_fastcall,
-				CompilerSpec.CALLING_CONVENTION_thiscall,
-				CompilerSpec.CALLING_CONVENTION_pascal,
-				CompilerSpec.CALLING_CONVENTION_vectorcall,
-				CompilerSpec.CALLING_CONVENTION_rustcall);
-
-		schemaRoot.property("callingConventionName",
-				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional calling convention name. Must be one of the standard known conventions. Defaults to program's default if omitted. Allowed values: "
-										+ String.join(", ", standardCallingConventions))
-						.enumValues(standardCallingConventions.toArray(new String[0])));
-
-		schemaRoot.property("hasVarArgs",
-				JsonSchemaBuilder.bool(mapper)
-						.description(
-								"Optional flag indicating if the function takes variable arguments (like printf). Defaults to false.")
-						.defaultValue(false));
-
-		// Schema for a single parameter
-		IObjectSchemaBuilder parameterSchema = JsonSchemaBuilder.object(mapper)
-				.description("Definition for a single function parameter.")
-				.property(ARG_NAME,
-						JsonSchemaBuilder.string(mapper)
-								.description("Optional name for the parameter. Can be omitted."))
-				.property(ARG_DATA_TYPE_PATH,
-						JsonSchemaBuilder.string(mapper)
-								.description("Full path or name of the parameter's data type (e.g., 'dword', '/MyStruct')."))
-				.property(ARG_COMMENT,
-						JsonSchemaBuilder.string(mapper)
-								.description("Optional comment for the parameter."))
+		// Define parameter schema
+		IObjectSchemaBuilder paramSchema = JsonSchemaBuilder.object(mapper)
+				.property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Parameter name."))
+				.property(ARG_DATA_TYPE_PATH, JsonSchemaBuilder.string(mapper)
+						.description("Data type path for the parameter (e.g., 'float *', '/MyEnums/Status')."))
+				.requiredProperty(ARG_NAME)
 				.requiredProperty(ARG_DATA_TYPE_PATH);
 
-		// Optional parameters array
-		schemaRoot.property("parameters",
-				JsonSchemaBuilder.array(mapper)
-						.items(parameterSchema)
-						.description("Optional list of parameters for the function definition."));
+		schemaRoot.property(ARG_PARAMETERS, JsonSchemaBuilder.array(mapper)
+				.description("Optional ordered list of parameters.")
+				.items(paramSchema));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty(ARG_FUNC_DEF_PATH)
-				.requiredProperty(ARG_DATA_TYPE_PATH);
+				.requiredProperty(ARG_RETURN_TYPE);
 
 		return schemaRoot.build();
 	}
 
-	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, resolve types, check existence, ensure category
-			// Argument parsing errors caught by onErrorResume
-			String functionDefinitionPathString = getRequiredStringArgument(args, ARG_FUNC_DEF_PATH);
-			String returnTypePath = getRequiredStringArgument(args, ARG_DATA_TYPE_PATH);
-			final Optional<String> callingConventionNameOpt = getOptionalStringArgument(args, "callingConventionName"); // Final
-			Optional<ArrayNode> parametersOpt = getOptionalArrayNodeArgument(args, "parameters");
-			final boolean hasVarArgs = getOptionalBooleanArgument(args, "hasVarArgs").orElse(false); // Final
-
-			CategoryPath categoryPath; // Not final here
-			final String functionName; // Final
-			try {
-				CategoryPath fullPath = new CategoryPath(functionDefinitionPathString);
-				functionName = fullPath.getName();
-				categoryPath = fullPath.getParent();
-				if (categoryPath == null) {
-					categoryPath = CategoryPath.ROOT;
-				}
-				if (functionName.isBlank()) {
-					return createErrorResult("Invalid function definition path: Name cannot be blank.");
-				}
-			} catch (IllegalArgumentException e) {
-				return createErrorResult("Invalid function definition path format: " + functionDefinitionPathString);
-			}
-
-			final DataTypeManager dtm = program.getDataTypeManager(); // Final
-
-			// Check if data type already exists
-			if (dtm.getDataType(functionDefinitionPathString) != null) {
-				return createErrorResult("Data type already exists at path: " + functionDefinitionPathString);
-			}
-
-			// Resolve Return Type
-			DataType resolvedReturnDt;
-			if ("void".equalsIgnoreCase(returnTypePath)) {
-				resolvedReturnDt = VoidDataType.dataType;
-			} else {
-				resolvedReturnDt = dtm.getDataType(returnTypePath);
-				if (resolvedReturnDt == null) {
-					return createErrorResult("Return type not found: " + returnTypePath);
-				}
-				resolvedReturnDt = resolvedReturnDt.clone(dtm); // Clone non-void
-			}
-			final DataType returnDt = resolvedReturnDt; // Final
-
-			// Resolve Parameters
-			final List<ParameterDefinition> paramDefs = new ArrayList<>(); // Final
-			if (parametersOpt.isPresent()) {
-				ArrayNode paramsArray = parametersOpt.get();
-				for (JsonNode paramNode : paramsArray) {
-					if (!paramNode.isObject()) {
-						return createErrorResult("Invalid parameter definition: Expected an object.");
-					}
-					String paramTypePath = getRequiredStringArgument(paramNode, ARG_DATA_TYPE_PATH);
-					Optional<String> paramNameOpt = getOptionalStringArgument(paramNode, ARG_NAME);
-					Optional<String> paramCommentOpt = getOptionalStringArgument(paramNode, ARG_COMMENT);
-
-					DataType paramDt = dtm.getDataType(paramTypePath);
-					if (paramDt == null) {
-						return createErrorResult("Parameter type not found: " + paramTypePath);
-					}
-					paramDt = paramDt.clone(dtm);
-
-					String paramName = paramNameOpt.orElse(null);
-					try {
-						paramDefs.add(new ParameterDefinitionImpl(paramName, paramDt, paramCommentOpt.orElse(null)));
-					} catch (IllegalArgumentException e) {
-						return createErrorResult("Invalid parameter name '" + paramName + "': " + e.getMessage());
-					}
-				}
-			}
-
-			dtm.createCategory(categoryPath);
-
-			final String finalFuncDefPath = functionDefinitionPathString; // Capture for message
-			final CategoryPath finalCategoryPath = categoryPath; // Capture for lambda
-
-			return executeInTransaction(program, "MCP - Create Function Definition", () -> {
-				// Inner Callable logic:
-				// Create the Function Definition Data Type
-				FunctionDefinitionDataType newFuncDef = new FunctionDefinitionDataType(finalCategoryPath, functionName, dtm);
-
-				// Set properties
-				newFuncDef.setReturnType(returnDt);
-				newFuncDef.setArguments(paramDefs.toArray(new ParameterDefinition[0]));
-				newFuncDef.setVarArgs(hasVarArgs);
-
-				// Set calling convention if provided (let tx catch exception if invalid)
-				if (callingConventionNameOpt.isPresent()) {
-					String ccName = callingConventionNameOpt.get().trim();
-					if (!ccName.isBlank()) {
-						newFuncDef.setCallingConvention(ccName);
-					}
-				}
-
-				// Add to manager
-				DataType addedType = dtm.addDataType(newFuncDef, DataTypeConflictHandler.DEFAULT_HANDLER);
-
-				if (addedType != null) {
-					return createSuccessResult(
-							"Function Definition '" + finalFuncDefPath + "' created successfully.");
-				} else {
-					// This case might indicate an unexpected conflict despite pre-check
-					return createErrorResult(
-							"Failed to add Function Definition '" + finalFuncDefPath + "' after creation (unexpected conflict?).");
-				}
-			}); // End of Callable for executeInTransaction
-
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		});
+	// Context record for passing data between reactive stages
+	private static record FuncDefContext(
+			Program program,
+			CategoryPath categoryPath,
+			String funcName,
+			DataType returnType,
+			List<ParameterDefinition> parameters,
+			boolean varArgs,
+			String originalPathStr) {
 	}
 
+	@Override
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup and validation
+					// Parse args
+					String funcDefPathStr = getRequiredStringArgument(args, ARG_FUNC_DEF_PATH);
+					String returnTypeStr = getRequiredStringArgument(args, ARG_RETURN_TYPE);
+					boolean varArgs = getOptionalBooleanArgument(args, ARG_VAR_ARGS).orElse(false);
+					Optional<List<Map<String, Object>>> paramsOpt = getOptionalListArgument(args, ARG_PARAMETERS);
+
+					CategoryPath fullPath = new CategoryPath(funcDefPathStr); // Create once
+					CategoryPath catPath = fullPath.getParent();
+					String funcName = fullPath.getName();
+
+					if (funcName.isBlank()) {
+						throw new IllegalArgumentException("Function definition name cannot be blank in path: " + funcDefPathStr);
+					}
+
+					if (catPath == null) { // Ensure ROOT category if needed
+						catPath = CategoryPath.ROOT;
+					}
+
+					DataType returnType = program.getDataTypeManager().getDataType(returnTypeStr);
+					if (returnType == null) {
+						throw new IllegalArgumentException("Return type not found: " + returnTypeStr);
+					}
+
+					// Resolve parameters
+					List<ParameterDefinition> parameters = new ArrayList<>();
+					if (paramsOpt.isPresent()) {
+						for (Map<String, Object> paramMap : paramsOpt.get()) {
+							String paramName = getRequiredStringArgument(paramMap, ARG_NAME);
+							String paramTypeStr = getRequiredStringArgument(paramMap, ARG_DATA_TYPE_PATH);
+							DataType paramType = program.getDataTypeManager().getDataType(paramTypeStr);
+							if (paramType == null) {
+								throw new IllegalArgumentException("Parameter type not found: " + paramTypeStr);
+							}
+							parameters.add(new ParameterDefinitionImpl(paramName, paramType, null));
+						}
+					}
+
+					// Don't check existence here, do it in the transaction
+					return new FuncDefContext(program, catPath, funcName, returnType, parameters, varArgs, funcDefPathStr);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(), "Create Function Definition " + context.funcName(), () -> {
+						DataTypeManager dtm = context.program().getDataTypeManager();
+
+						// Check existence *inside* transaction
+						if (dtm.getDataType(context.categoryPath(), context.funcName()) != null) {
+							throw new IllegalArgumentException(
+									"Function definition already exists (checked in transaction): " + context.originalPathStr());
+						}
+
+						// Ensure category exists *inside* transaction
+						Category category = dtm.createCategory(context.categoryPath());
+						if (category == null) {
+							category = dtm.getCategory(context.categoryPath()); // Try getting if create failed concurrently
+							if (category == null) {
+								throw new RuntimeException(
+										"Failed to create or find category in transaction: " + context.categoryPath());
+							}
+						}
+
+						// Creation inside transaction, using correct category path
+						FunctionDefinitionDataType newFuncDef = new FunctionDefinitionDataType(category.getCategoryPath(),
+								context.funcName(), dtm);
+						newFuncDef.setReturnType(context.returnType());
+						newFuncDef.setArguments(context.parameters().toArray(new ParameterDefinition[0]));
+						newFuncDef.setVarArgs(context.varArgs());
+
+						// Add to DTM using default conflict handler
+						DataType resolvedDataType = dtm.addDataType(newFuncDef, DataTypeConflictHandler.DEFAULT_HANDLER);
+						if (!(resolvedDataType instanceof FunctionDefinitionDataType)) {
+							// addDataType might return the existing type on conflict if handler allows,
+							// or null/throw exception depending on handler/error
+							throw new RuntimeException(
+									"Failed to add function definition to data type manager, or unexpected type returned: "
+											+ context.originalPathStr());
+						}
+
+						return "Function definition created successfully: " + resolvedDataType.getPathName();
+					}); // End executeInTransaction lambda
+				}); // End flatMap
+	}
 }

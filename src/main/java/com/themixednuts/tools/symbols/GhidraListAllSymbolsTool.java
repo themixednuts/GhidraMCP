@@ -23,32 +23,13 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "List All Symbols", category = ToolCategory.SYMBOLS, description = "Lists all symbols defined in the program's main symbol table, with optional filters.", mcpName = "list_all_symbols", mcpDescription = "Retrieves a paginated list of all symbols (labels, functions, globals, etc.) from the program, optionally filtering by name and/or type.")
 public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		Optional<String> schemaStringOpt = parseSchema(schema());
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Missing schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaStringOpt.get()),
-				(ex, args) -> execute(ex, args, tool));
-	}
+	private static final String ARG_NAME_FILTER = "nameFilter";
+	private static final String ARG_TYPE_FILTER = "typeFilter";
 
 	@Override
 	public JsonSchema schema() {
@@ -56,11 +37,11 @@ public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property("nameFilter",
+		schemaRoot.property(ARG_NAME_FILTER,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"Optional case-insensitive filter string. Only symbols whose names contain this string will be returned."));
-		schemaRoot.property("typeFilter",
+		schemaRoot.property(ARG_TYPE_FILTER,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"Optional case-insensitive filter for symbol type (e.g., 'Function', 'Label', 'Parameter', 'Local_Variable', 'Class', 'Namespace', 'Import')."));
@@ -69,17 +50,17 @@ public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> {
 			String cursorStr = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
-			Optional<String> nameFilterOpt = getOptionalStringArgument(args, "nameFilter");
-			Optional<String> typeFilterOpt = getOptionalStringArgument(args, "typeFilter");
+			Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
+			Optional<String> typeFilterOpt = getOptionalStringArgument(args, ARG_TYPE_FILTER);
 
 			Address cursorAddr = null;
 			if (cursorStr != null) {
 				cursorAddr = program.getAddressFactory().getAddress(cursorStr);
 				if (cursorAddr == null) {
-					return createErrorResult("Invalid cursor format (could not parse address): " + cursorStr);
+					throw new IllegalArgumentException("Invalid cursor format (could not parse address): " + cursorStr);
 				}
 			}
 			final Address finalCursorAddr = cursorAddr;
@@ -120,8 +101,8 @@ public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 			}
 
 			PaginatedResult<SymbolInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
-			return createSuccessResult(paginatedResult);
+			return paginatedResult;
 
-		}).onErrorResume(e -> createErrorResult(e));
+		});
 	}
 }

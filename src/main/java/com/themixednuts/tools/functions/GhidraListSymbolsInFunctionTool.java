@@ -7,55 +7,26 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.Arrays;
 
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.models.HighSymbolInfo;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.HighSymbol;
-import ghidra.program.model.pcode.LocalSymbolMap;
-import ghidra.util.Msg;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import com.themixednuts.models.SymbolInfo;
+import ghidra.program.model.listing.FunctionManager;
 
 @GhidraMcpTool(name = "List Symbols in Function", category = ToolCategory.FUNCTIONS, description = "Lists all symbols (variables and parameters) within a specific function.", mcpName = "list_symbols_in_function", mcpDescription = "Returns a list of local variables and parameters defined within a specified function.")
 public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -78,84 +49,92 @@ public class GhidraListSymbolsInFunctionTool implements IGhidraMcpSpecification 
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		DecompInterface decomp = new DecompInterface();
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> {
+			Optional<String> funcAddressOpt = getOptionalStringArgument(args, ARG_FUNCTION_ADDRESS);
+			Optional<String> funcNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-		return getProgram(args, tool).flatMap(program -> {
-			Optional<String> functionNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
-			Optional<String> functionAddressOpt = getOptionalStringArgument(args, ARG_FUNCTION_ADDRESS);
-			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
-
-			if (functionNameOpt.isEmpty() && functionAddressOpt.isEmpty()) {
-				return createErrorResult("Error: Either functionName or functionAddress must be provided.");
+			if (funcAddressOpt.isEmpty() && funcNameOpt.isEmpty()) {
+				throw new IllegalArgumentException("Either function address ('" + ARG_FUNCTION_ADDRESS
+						+ "') or function name ('" + ARG_FUNCTION_NAME + "') must be provided.");
 			}
 
-			Function targetFunction = null;
-			if (functionAddressOpt.isPresent()) {
-				Address addr = program.getAddressFactory().getAddress(functionAddressOpt.get());
-				if (addr == null) {
-					return createErrorResult("Invalid function address format: " + functionAddressOpt.get());
-				}
-				targetFunction = program.getFunctionManager().getFunctionAt(addr);
-				if (targetFunction == null) {
-					return createErrorResult("Error: Function not found at address '" + functionAddressOpt.get() + "'.");
-				}
-			} else {
-				targetFunction = StreamSupport.stream(program.getFunctionManager().getFunctions(true).spliterator(), false)
-						.filter(f -> f.getName().equals(functionNameOpt.get()))
-						.findFirst().orElse(null);
-				if (targetFunction == null) {
-					return createErrorResult("Error: Function '" + functionNameOpt.get() + "' not found.");
+			Function function = null;
+			FunctionManager functionManager = program.getFunctionManager();
+
+			if (funcAddressOpt.isPresent()) {
+				String addressString = funcAddressOpt.get();
+				Address entryPointAddress = program.getAddressFactory().getAddress(addressString);
+				if (entryPointAddress != null) {
+					function = functionManager.getFunctionAt(entryPointAddress);
+					if (function == null && funcNameOpt.isEmpty()) {
+						throw new IllegalArgumentException("Function not found at address: " + addressString);
+					}
+				} else {
+					if (funcNameOpt.isEmpty()) {
+						throw new IllegalArgumentException("Invalid address format: " + addressString);
+					}
 				}
 			}
 
-			decomp.openProgram(program);
-			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-			DecompileResults result = decomp.decompileFunction(targetFunction, 30, monitor);
-
-			if (result == null || !result.decompileCompleted()) {
-				String errorMsg = result != null ? result.getErrorMessage() : "Unknown decompiler error";
-				return createErrorResult("Error: Decompilation failed: " + errorMsg);
-			}
-			HighFunction highFunction = result.getHighFunction();
-			if (highFunction == null) {
-				return createErrorResult("Error: Decompilation failed (no high function)");
+			if (function == null && funcNameOpt.isPresent()) {
+				String functionName = funcNameOpt.get();
+				function = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+						.filter(f -> f.getName(true).equals(functionName))
+						.findFirst()
+						.orElse(null);
+				if (function == null) {
+					throw new IllegalArgumentException("Function not found with name: " + functionName);
+				}
 			}
 
-			LocalSymbolMap localSymbolMap = highFunction.getLocalSymbolMap();
-			final String finalCursor = cursor;
+			if (function == null) {
+				throw new IllegalStateException("Could not identify function from the provided arguments.");
+			}
 
-			List<HighSymbol> allSymbols = new ArrayList<>();
-			localSymbolMap.getSymbols().forEachRemaining(allSymbols::add);
+			List<SymbolInfo> allSymbolsInFunction = new ArrayList<>();
+			allSymbolsInFunction.addAll(Arrays.stream(function.getParameters())
+					.map(param -> new SymbolInfo(param.getSymbol()))
+					.collect(Collectors.toList()));
 
-			List<HighSymbol> limitedSymbols = allSymbols.stream()
-					.sorted(Comparator.comparing(HighSymbol::getName))
-					.dropWhile(symbol -> finalCursor != null && symbol.getName().compareTo(finalCursor) <= 0)
+			allSymbolsInFunction.addAll(Arrays.stream(function.getLocalVariables())
+					.map(var -> new SymbolInfo(var.getSymbol()))
+					.collect(Collectors.toList()));
+
+			allSymbolsInFunction.sort(Comparator.comparing(SymbolInfo::getAddress).thenComparing(SymbolInfo::getName));
+
+			final String finalCursorStr = cursorOpt.orElse(null);
+
+			List<SymbolInfo> paginatedSymbols = allSymbolsInFunction.stream()
+					.dropWhile(item -> {
+						if (finalCursorStr == null)
+							return false;
+						String[] parts = finalCursorStr.split(":", 2);
+						Address cursorItemAddr = program.getAddressFactory().getAddress(parts[0]);
+						String cursorItemName = parts.length > 1 ? parts[1] : "";
+						Address itemAddr = program.getAddressFactory().getAddress(item.getAddress());
+
+						int addrCompare = itemAddr.compareTo(cursorItemAddr);
+						if (addrCompare < 0)
+							return true;
+						if (addrCompare == 0)
+							return item.getName().compareTo(cursorItemName) <= 0;
+						return false;
+					})
 					.limit(DEFAULT_PAGE_LIMIT + 1)
 					.collect(Collectors.toList());
 
-			boolean hasMore = limitedSymbols.size() > DEFAULT_PAGE_LIMIT;
-
-			List<HighSymbol> pageSymbols = limitedSymbols.subList(0, Math.min(limitedSymbols.size(), DEFAULT_PAGE_LIMIT));
-
-			List<HighSymbolInfo> pageResults = pageSymbols.stream()
-					.map(HighSymbolInfo::new)
-					.collect(Collectors.toList());
-
+			boolean hasMore = paginatedSymbols.size() > DEFAULT_PAGE_LIMIT;
+			List<SymbolInfo> resultsForPage = paginatedSymbols.subList(0,
+					Math.min(paginatedSymbols.size(), DEFAULT_PAGE_LIMIT));
 			String nextCursor = null;
-			if (hasMore && !pageResults.isEmpty()) {
-				nextCursor = pageResults.get(pageResults.size() - 1).getName();
+			if (hasMore && !resultsForPage.isEmpty()) {
+				SymbolInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
+				nextCursor = lastItem.getAddress() + ":" + lastItem.getName();
 			}
 
-			PaginatedResult<HighSymbolInfo> paginatedResult = new PaginatedResult<>(pageResults, nextCursor);
-			return createSuccessResult(paginatedResult);
-
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
-		}).doFinally(signalType -> {
-			if (decomp != null) {
-				decomp.dispose();
-			}
+			return new PaginatedResult<>(resultsForPage, nextCursor);
 		});
 	}
 }

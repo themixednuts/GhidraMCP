@@ -1,6 +1,5 @@
 package com.themixednuts.tools.datatypes;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -12,35 +11,22 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
 import ghidra.program.model.data.*;
-import ghidra.util.Msg;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(name = "Update TypeDef", category = ToolCategory.DATATYPES, description = "Updates an existing typedef data type.", mcpName = "update_typedef", mcpDescription = "Changes the underlying data type that an existing typedef aliases.")
 public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	// Context Record
+	private static record TypeDefUpdateContext(
+			Program program,
+			TypeDef oldTypeDef,
+			DataType resolvedUnderlyingType,
+			String resolvedDescription,
+			String originalPath,
+			List<String> updatedFields) {
 	}
 
 	@Override
@@ -75,43 +61,43 @@ public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			final String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH); // Final for lambda
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> { // .map for synchronous setup
+			final String typedefPathString = getRequiredStringArgument(args, ARG_TYPEDEF_PATH);
 			Optional<String> newUnderlyingTypePathOpt = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH);
 			Optional<String> newDescriptionOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
 			if (newUnderlyingTypePathOpt.isEmpty() && newDescriptionOpt.isEmpty()) {
-				return createErrorResult("No changes specified. Provide at least newUnderlyingTypePath or newDescription.");
+				throw new IllegalArgumentException(
+						"No changes specified. Provide at least newUnderlyingTypePath or newDescription.");
 			}
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(typedefPathString);
+			DataType dt = program.getDataTypeManager().getDataType(typedefPathString);
 
 			if (dt == null) {
-				return createErrorResult("Typedef not found at path: " + typedefPathString);
+				throw new IllegalArgumentException("Typedef not found at path: " + typedefPathString);
 			}
 			if (!(dt instanceof TypeDef)) { // Use interface for safety
-				return createErrorResult("Data type at path is not a Typedef: " + typedefPathString);
+				throw new IllegalArgumentException("Data type at path is not a Typedef: " + typedefPathString);
 			}
-			final TypeDef oldTypeDef = (TypeDef) dt; // Final for lambda
+			final TypeDef oldTypeDef = (TypeDef) dt;
 
-			final List<String> updatedFields = new ArrayList<>(); // Final for lambda
+			final List<String> updatedFields = new java.util.ArrayList<>();
 			DataType underlyingType = oldTypeDef.getDataType();
 			String description = oldTypeDef.getDescription();
 
 			// Resolve new Underlying Type if provided
 			if (newUnderlyingTypePathOpt.isPresent()) {
 				String newUnderlyingTypePath = newUnderlyingTypePathOpt.get();
-				DataType newUnderlyingDt = dtm.getDataType(newUnderlyingTypePath);
+				DataType newUnderlyingDt = program.getDataTypeManager().getDataType(newUnderlyingTypePath);
 				if (newUnderlyingDt == null) {
-					return createErrorResult("New underlying data type not found: " + newUnderlyingTypePath);
+					throw new IllegalArgumentException("New underlying data type not found: " + newUnderlyingTypePath);
 				}
 				// Check for cyclic dependency
 				if (newUnderlyingDt instanceof TypeDef) {
 					DataType base = ((TypeDef) newUnderlyingDt).getBaseDataType();
 					if (base.isEquivalent(oldTypeDef)) {
-						return createErrorResult(
+						throw new IllegalArgumentException(
 								"Update creates cyclic dependency: " + typedefPathString + " -> " + newUnderlyingTypePath);
 					}
 				}
@@ -125,32 +111,33 @@ public class GhidraUpdateTypeDefTool implements IGhidraMcpSpecification {
 				updatedFields.add("description");
 			}
 
-			final DataType resolvedUnderlyingType = underlyingType; // Final for lambda
-			final String resolvedDescription = description; // Final for lambda
+			final DataType resolvedUnderlyingType = underlyingType;
+			final String resolvedDescription = description;
 
+			return new TypeDefUpdateContext(program, oldTypeDef, resolvedUnderlyingType, resolvedDescription,
+					typedefPathString, updatedFields);
+
+		}).flatMap(context -> { // .flatMap for transaction
 			// --- Execute modification in transaction ---
-			return executeInTransaction(program, "MCP - Update Typedef", () -> {
-				// Inner Callable logic (just the modification):
+			return executeInTransaction(context.program(), "MCP - Update Typedef", () -> {
+				DataTypeManager dtmInTx = context.program().getDataTypeManager();
 				// Create the replacement Typedef
-				TypeDef newTypeDef = new TypedefDataType(oldTypeDef.getCategoryPath(), oldTypeDef.getName(),
-						resolvedUnderlyingType.clone(dtm), dtm);
-				if (resolvedDescription != null) {
-					newTypeDef.setDescription(resolvedDescription);
+				TypeDef newTypeDef = new TypedefDataType(context.oldTypeDef().getCategoryPath(), context.oldTypeDef().getName(),
+						context.resolvedUnderlyingType().clone(dtmInTx), dtmInTx);
+				if (context.resolvedDescription() != null) {
+					newTypeDef.setDescription(context.resolvedDescription());
 				}
 				// Replace the old data type - returns the resolved DataType
-				DataType replacedDt = dtm.replaceDataType(oldTypeDef, newTypeDef, true);
+				DataType replacedDt = dtmInTx.replaceDataType(context.oldTypeDef(), newTypeDef, true);
 
 				if (replacedDt != null) {
-					return createSuccessResult("Typedef '" + typedefPathString + "' updated successfully. Modified fields: "
-							+ String.join(", ", updatedFields));
+					return "Typedef '" + context.originalPath() + "' updated successfully. Modified fields: "
+							+ String.join(", ", context.updatedFields());
 				} else {
-					return createErrorResult(
-							"Failed to replace typedef '" + typedefPathString + "' after creating replacement.");
+					throw new RuntimeException(
+							"Failed to replace typedef '" + context.originalPath() + "' after creating replacement.");
 				}
 			}); // End of Callable for executeInTransaction
-
-		}).onErrorResume(e -> {
-			return createErrorResult(e);
 		});
 	}
 }

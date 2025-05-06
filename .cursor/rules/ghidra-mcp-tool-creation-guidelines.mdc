@@ -14,81 +14,113 @@ This guide provides templates and key patterns for creating new Ghidra MCP tools
     *   Add [`@GhidraMcpTool`](mdc:src/main/java/com/themixednuts/annotation/GhidraMcpTool.java) annotation:
         *   `name`: User-facing name in Ghidra Tool Options (e.g., "List Functions").
         *   `description`: Hover description in Ghidra Tool Options.
-        *   `category`: Category in Ghidra Tool Options (e.g., [`ToolCategory.FUNCTIONS`](mdc:src/main/java/com/themixednuts/tools/ToolCategory.java)).
+        *   `category`: Category in Ghidra Tool Options (e.g., [`ToolCategory.FUNCTIONS`](mdc:src/main/java/com/themixednuts/tools/ToolCategory.java)). **Use an existing category or `ToolCategory.UNCATEGORIZED`. Do NOT add new categories to the `ToolCategory` enum.**
         *   `mcpName`: Name for the MCP tool specification (e.g., "list_functions").
         *   `mcpDescription`: Description for the MCP tool specification.
-2.  **Register Service:** Add the fully qualified class name to `src/main/resources/META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`.
+2.  **Register Service:** Add the fully qualified class name to `src/main/resources/META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`. **This step is mandatory for the tool to be loaded and must be performed automatically when creating a new tool class.**
 3.  **Naming Convention:** Follow standard CRUD naming conventions for both the Java class (`Ghidra<Action><Noun>Tool`) and the `mcpName` (`<action>_<noun>`) where possible:
     *   **Create:** Use `Create` for adding new items (e.g., `GhidraCreateBookmarkTool`, `create_bookmark`). Avoid synonyms like `Add`.
     *   **Read:** Use `Get` for single items (e.g., `GhidraGetFunctionByNameTool`), `List` for multiple items (e.g., `GhidraListFunctionsTool`), or `Search` for querying (e.g., `GhidraSearchMemoryTool`).
     *   **Update:** Use `Update` for modifying existing items (e.g., `GhidraUpdateStructMemberTool`). Avoid synonyms like `Edit`, `Set`, or `Change`.
     *   **Delete:** Use `Delete` for removing items (e.g., `GhidraDeleteFunctionTool`). Avoid synonyms like `Remove` or `Clear`.
+4.  **Data Models (POJOs):** When a tool needs to return complex data structures (e.g., a list of functions with their details), prefer using or creating Plain Old Java Objects (POJOs) within the [`src/main/java/com/themixednuts/models`](mdc:src/main/java/com/themixednuts/models) directory.
+    *   **Reuse:** Check if an existing model (like [`FunctionInfo`](mdc:src/main/java/com/themixednuts/models/FunctionInfo.java), [`SymbolInfo`](mdc:src/main/java/com/themixednuts/models/SymbolInfo.java), `DataInfo`, etc.) already suits the needs.
+    *   **Create:** If no suitable model exists, create a new, clearly named POJO in the `models` directory to represent the data being returned. This ensures consistent and well-defined output structures for the client.
+    *   Keep POJOs simple, primarily containing fields and a constructor or mapping method to populate them from Ghidra objects.
+    *   **Exception:** For grouped operations, use the nested POJOs `IGroupedTool.OperationResult` and `IGroupedTool.GroupedOperationResult` instead of creating separate files.
+5.  **`specification` Method:**
+    *   **DO NOT override the `specification` method in individual tool classes.**
+    *   The default implementation in `IGhidraMcpSpecification` handles retrieving the `@GhidraMcpTool` annotation, generating the schema string from `schema()`, and constructing the final `AsyncToolSpecification`.
+    *   This default implementation correctly wraps the `Mono<Object>` from `execute` using `.flatMap(this::createSuccessResult).onErrorResume(this::createErrorResult)` to produce the required `Mono<CallToolResult>`.
+5.  **Test Verification:** After implementing one or more tools, run `mvn test` from the project root directory. This verifies that the new tool(s) compile correctly and are properly registered in the service file (via `ServiceRegistrationTest.java`). It's often efficient to create a batch of related tools before running the tests.
+6.  **Code Cleanup:** Ensure code is well-formatted and remove any unused imports before finalizing the tool.
 
 ---
 
-## `specification(PluginTool tool)` Method Template
+## Commenting
 
-This method defines the tool's metadata and links the schema/execution logic using [`AsyncToolSpecification`](mdc:https:/github.com/model-context-protocol/mcp-java/blob/main/sdk/mcp/src/main/java/io/modelcontextprotocol/server/AsyncToolSpecification.java).
+*   Avoid comments that merely restate the code or describe the immediate code block (e.g., `// Setup phase`, `// Validation`).
+*   Remove commented-out code blocks.
+*   Add comments only for non-trivial logic, complex algorithms, or to explain the "why" behind a specific implementation choice if it's not immediately obvious.
 
-```java
-@Override
-public AsyncToolSpecification specification(PluginTool tool) {
-    GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-    if (annotation == null) {
-        Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-        return null; // Tool registration fails
-    }
+---
 
-    JsonSchema schemaObject = schema(); // Call your schema() method
-    Optional<String> schemaStringOpt = parseSchema(schemaObject); // Use helper from IGhidraMcpSpecification
-    if (schemaStringOpt.isEmpty()) {
-        Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-        return null; // Tool registration fails
-    }
-    String schemaJson = schemaStringOpt.get();
+## `@GhidraMcpTool` Annotation Details
 
-    // Link the MCP name, description, schema, and execute method
-    return new AsyncToolSpecification(
-            new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson), // MCP SDK [`Tool`](mdc:https:/github.com/model-context-protocol/mcp-java/blob/main/sdk/mcp/src/main/java/io/modelcontextprotocol/context/Tool.java) object
-            (ex, args) -> execute(ex, args, tool) // Lambda points to your execute method
-    );
-}
-```
+*   `name`: User-facing name in Ghidra Tool Options (e.g., "List Functions").
+*   `description`: Hover description in Ghidra Tool Options.
+*   `category`: Category in Ghidra Tool Options (e.g., [`ToolCategory.FUNCTIONS`](mdc:src/main/java/com/themixednuts/tools/ToolCategory.java)). Use existing or `UNCATEGORIZED`.
+*   `mcpName`: Name for the MCP tool specification (e.g., "list_functions").
+*   `mcpDescription`: Description for the MCP tool specification.
+
+---
+
+## Naming Convention Details
+
+Follow standard CRUD naming conventions for both the Java class (`Ghidra<Action><Noun>Tool`) and the `mcpName` (`<action>_<noun>`) where possible:
+*   **Create:** `Create` (e.g., `GhidraCreateBookmarkTool`, `create_bookmark`).
+*   **Read:** `Get` (single), `List` (multiple), `Search` (query).
+*   **Update:** `Update` (e.g., `GhidraUpdateStructMemberTool`).
+*   **Delete:** `Delete` (e.g., `GhidraDeleteFunctionTool`).
+
+---
+
+## Data Models (POJOs) Details
+
+*   Use POJOs in [`src/main/java/com/themixednuts/models`](mdc:src/main/java/com/themixednuts/models) for complex results.
+*   Reuse existing models ([`FunctionInfo`](mdc:src/main/java/com/themixednuts/models/FunctionInfo.java), [`SymbolInfo`](mdc:src/main/java/com/themixednuts/models/SymbolInfo.java), etc.) if possible.
+*   Create new simple POJOs if needed.
+*   **Grouped Tools Exception:** Use nested POJOs `IGroupedTool.OperationResult` and `IGroupedTool.GroupedOperationResult`.
+
+---
+
+## Test Verification Details
+
+Run `mvn test` from the project root to verify compilation and service registration (`ServiceRegistrationTest.java`).
+
+---
+
+## Core Interface Methods
+
+The `IGhidraMcpSpecification` interface provides a `default` implementation for generating the `AsyncToolSpecification` needed by the MCP server. This default implementation automatically handles reading the `@GhidraMcpTool` annotation, calling your `schema()` method, serializing the schema, and wrapping the `Mono<Object>` returned by your `execute()` method into the final `CallToolResult`.
+
+**Therefore, your main responsibilities when implementing `IGhidraMcpSpecification` are:**
+*   Add the `@GhidraMcpTool` annotation.
+*   Implement `JsonSchema schema()` (unless implementing `IGroupedTool`, which provides a default).
+*   Implement `Mono<? extends Object> execute(...)`.
+*   Register the tool in the META-INF services file.
 
 ---
 
 ## `schema()` Method Template
 
-Defines the expected input arguments for the tool using a JSON schema builder.
+Implement this method to define the expected input arguments for your tool (unless implementing `IGroupedTool`, which provides a default).
+
+Use the [`JsonSchemaBuilder`](mdc:src/main/java/com/themixednuts/utils/jsonschema/JsonSchemaBuilder.java) helper to create an immutable [`JsonSchema`](mdc:src/main/java/com/themixednuts/utils/jsonschema/JsonSchema.java) object.
 
 ```java
-@Override
+@Override // Omit if implementing IGroupedTool
 public JsonSchema schema() {
     // Start with the base schema helper from IGhidraMcpSpecification
     IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
     // --- Define Properties ---
 
-    // *Only* include ARG_FILE_NAME if the tool requires access to a specific Program (Templates 1 & 2).
-    // Omit this property for Project-based tools (Template 3).
-    schemaRoot.property(ARG_FILE_NAME,
+    // *Only* include ARG_FILE_NAME if the tool requires access to a specific Program.
+    schemaRoot.property(ARG_FILE_NAME, // Constant from IGhidraMcpSpecification
             JsonSchemaBuilder.string(mapper)
                     .description("The name of the program file (required for program access)."));
 
-    // If a specific argument name constant isn't in IGhidraMcpSpecification,
-    // define it as a public static final String within your tool's class:
+    // Define tool-specific arguments (use constants defined in this class or IGhidraMcpSpecification)
     // public static final String ARG_MY_NEW_ARG = "myNewArg";
-    schemaRoot.property(ARG_MY_NEW_ARG, // Use the constant defined in this class
+    schemaRoot.property(ARG_MY_NEW_ARG,
             JsonSchemaBuilder.bool(mapper).description("A required boolean specific to this tool."));
-
-    // NOTE: ARG_CURSOR is handled implicitly by MCP for pagination and should NOT be defined here.
 
     // --- Define Required Properties ---
 
-    // Only include arguments that MUST be provided by the client.
-    // *Only* require ARG_FILE_NAME if the tool requires access to a specific Program.
-    schemaRoot.requiredProperty(ARG_FILE_NAME); // If program access is needed (Templates 1 & 2)
-    schemaRoot.requiredProperty(ARG_MY_NEW_ARG); // Mark tool-specific args as required if necessary
+    // Only include arguments that MUST be provided.
+    schemaRoot.requiredProperty(ARG_FILE_NAME); // If program access is needed
+    schemaRoot.requiredProperty(ARG_MY_NEW_ARG); // If tool-specific arg is required
 
     return schemaRoot.build();
 }
@@ -98,273 +130,234 @@ public JsonSchema schema() {
 
 ## `execute(...)` Method Templates
 
-This is the core logic, interacting with Ghidra via the [`McpAsyncServerExchange`](mdc:https:/github.com/model-context-protocol/mcp-java/blob/main/sdk/mcp/src/main/java/io/modelcontextprotocol/server/McpAsyncServerExchange.java) and returning a [`CallToolResult`](mdc:https:/github.com/model-context-protocol/mcp-java/blob/main/sdk/mcp/src/main/java/io/modelcontextprotocol/tools/CallToolResult.java). **Strictly avoid `try-catch` blocks unless mandated by Java (e.g., checked exceptions).** Rely on the final `.onErrorResume` and specific error returns.
+Implement this method containing the core logic. Return a `Mono<? extends Object>` emitting the **raw result object** (POJO, List, String, `GroupedOperationResult`, etc.) or signaling an error (`Mono.error(throwable)` or throwing from sync blocks like `.map`). **Do NOT call `createSuccessResult` or `createErrorResult` here.** The `IGhidraMcpSpecification` default `specification()` method correctly wraps this `Mono<? extends Object>`.
 
-**1. Program-Based Tool (Read-Only / Pagination)**
+**Note on `.cast(Object.class)`:** Due to the `execute` method now returning `Mono<? extends Object>`, you generally **no longer need** to add `.cast(Object.class)` at the end of your reactive chain if it naturally produces a `Mono<SpecificType>` (e.g., `Mono<Map<String, String>>`, `Mono<List<Pojo>>`). The `Mono<SpecificType>` will be compatible with `Mono<? extends Object>`.
 
-*   Needs access to a specific `Program`.
-*   Uses `getProgram(...)`.
-*   Often involves reading data and potentially pagination.
-*   Reference: [`GhidraListFunctionNamesTool`](mdc:src/main/java/com/themixednuts/tools/functions/GhidraListFunctionNamesTool.java)
+**Note:** Comments within the template code blocks below are for explanation only and should generally *not* be copied into actual tool implementations, per the commenting guidelines.
+
+Use helpers from [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) (`getProgram`, `executeInTransaction`, argument parsers). Avoid `try-catch` unless required by Java (e.g., handling checked exceptions from Ghidra APIs by wrapping them in unchecked exceptions).
+
+**Use the appropriate reactive pattern:**
+*   For synchronous logic *after* obtaining the `Program` (e.g., parsing arguments, calling a synchronous Ghidra service that doesn't modify the database), use `.map()`: `getProgram(...).map(program -> { /* sync logic */ })`.
+*   **Do NOT use `.flatMap(program -> Mono.fromCallable(...))`** if the logic inside the `Callable` is purely synchronous; prefer `.map()`.
+*   For synchronous logic that modifies the database, use `.map()` for setup followed by `.flatMap(executeInTransaction(...))`: `getProgram(...).map(program -> { /* setup */ return context; }).flatMap(context -> executeInTransaction(...))`.
+*   For purely synchronous, project-level logic (no `Program` needed initially), use `Mono.fromCallable(() -> { /* sync logic */ })`.
+
+**Type-Safe Context Passing:** When passing multiple values from a setup step (e.g., inside `.map`) to a subsequent step (e.g., inside `.flatMap`), **avoid using `Map<String, Object>`**. Instead, use a type-safe approach:
+*   **Nested `private static record**:** Preferred for clarity when passing more than 2-3 items. Define the record within the tool class.
+*   **Reactor Tuples:** Use `reactor.util.function.Tuples.of(...)` for 2-8 items if a dedicated record feels excessive.
+
+**1. Program-Based Tool (Read-Only / Pagination / Synchronous Logic)**
+
+*   Needs `Program` access.
+*   Uses `getProgram(...).map(...)`.
+*   Returns `Mono<Object>` containing a [`PaginatedResult<Pojo>`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java) (or similar POJO/Map structure with `results` and `nextCursor`).
+*   Reference: [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java)
 
 ```java
-@Override
-public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-    // Start by getting the Program context asynchronously
-    return getProgram(args, tool) // Handles fileName validation and program retrieval
-        .flatMap(program -> {
-            // --- Setup Phase (Inside flatMap) ---
-            // Get optional cursor (provided implicitly by MCP client if paginating)
-            Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR); // Still need helper to *read* it
-            // Perform Ghidra lookups (e.g., get managers, addresses)
-            Address cursorAddr = null;
-            if (cursorOpt.isPresent()) {
-                cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
-                if (cursorAddr == null) {
-                    // Return specific error early if cursor format is invalid for lookup
-                    return createErrorResult("Invalid cursor format: " + cursorOpt.get());
-                }
-            }
-            final Address finalCursorAddr = cursorAddr; // Final for lambda
+import com.themixednuts.utils.PaginatedResult; // Add import
 
-            // --- Data Retrieval & Processing ---
-            // Use streams for efficient processing and pagination
-            List<YourPojoClass> collectedItems = StreamSupport.stream(
-                    program.getFunctionManager().getFunctions(true).spliterator(), false) // Example source
-                .sorted(Comparator.comparing(Function::getEntryPoint)) // Define sorting
-                // Pagination logic: drop items before cursor
-                .dropWhile(item -> finalCursorAddr != null && item.getEntryPoint().compareTo(finalCursorAddr) <= 0)
-                // Limit to slightly more than page size to detect 'hasMore'
-                .limit(DEFAULT_PAGE_LIMIT + 1)
-                // Map Ghidra objects to POJOs
-                .map(YourPojoClass::new) // Replace with your POJO constructor/mapper
+@Override
+public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+    return getProgram(args, tool) // Returns Mono<Program>
+        .map(program -> { // Use .map for synchronous logic
+            // --- Setup Phase (Inside .map) ---
+            String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
+            final String finalCursor = cursor; // For use in lambda
+            final int limit = DEFAULT_PAGE_LIMIT;
+
+            List<Item> allItems = program.getListing().getAllItems()
+                .stream()
+                .sorted(Comparator.comparing(Item::getKey))
                 .collect(Collectors.toList());
 
-            // --- Pagination Result Construction ---
-            boolean hasMore = collectedItems.size() > DEFAULT_PAGE_LIMIT;
-            List<YourPojoClass> resultsForPage = collectedItems.subList(0, Math.min(collectedItems.size(), DEFAULT_PAGE_LIMIT));
+            // --- Data Retrieval & Processing (Apply Pagination) ---
+            List<ResultPojo> pageItems = allItems.stream()
+                .dropWhile(item -> finalCursor != null && item.getKey().compareTo(finalCursor) <= 0)
+                .limit((long) limit + 1)
+                .map(item -> new ResultPojo(item))
+                .collect(Collectors.toList());
+
+            boolean hasMore = pageItems.size() > limit;
+            List<ResultPojo> pageResults = pageItems.subList(0, Math.min(pageItems.size(), limit));
 
             String nextCursor = null;
-            if (hasMore && !resultsForPage.isEmpty()) {
-                // Use the sort key of the *last* item on the *current* page
-                nextCursor = resultsForPage.get(resultsForPage.size() - 1).getSortKey(); // Replace getSortKey
+            if (hasMore && !pageResults.isEmpty()) {
+                nextCursor = pageResults.get(pageResults.size() - 1).getCursorKey();
             }
 
-            // --- Return Success ---
-            // Wrap the results in PaginatedResult and use createSuccessResult helper
-            // If nextCursor is non-null, MCP client can provide it as ARG_CURSOR on next call
-            PaginatedResult<YourPojoClass> paginatedResult = new PaginatedResult<>(resultsForPage, nextCursor);
-            return createSuccessResult(paginatedResult); // Handles JSON serialization
-
-        })
-        // --- Final Error Handling ---
-        // Catches errors from getProgram, argument parsing, Ghidra lookups, stream processing, etc.
-        .onErrorResume(e -> createErrorResult(e)); // Logs error and returns error result
-}
-```
-
-**2. Program-Based Tool (Modification / Resource Management / Task Monitor)**
-
-*   Needs access to a specific `Program` and modifies it.
-*   Uses `getProgram(...)` followed by `executeInTransaction(...)`.
-*   Setup (parsing, lookups) happens in `flatMap`, modifications happen inside the transaction lambda.
-*   **No `try-catch` within the transaction lambda.** Let exceptions propagate.
-*   Shows initialization/cleanup for resources like `DecompInterface`. Resource init is done *before* the chain, cleanup in `doFinally` to ensure execution regardless of chain success/error.
-*   Shows usage of `GhidraMcpTaskMonitor`.
-*   Reference: [`GhidraDecompileFunctionByNameTool`](mdc:src/main/java/com/themixednuts/tools/decompiler/GhidraDecompileFunctionByNameTool.java), [`GhidraMcpTaskMonitor`](mdc:src/main/java/com/themixednuts/utils/GhidraMcpTaskMonitor.java)
-
-```java
-@Override
-public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-    // Initialize resources needing explicit cleanup *before* the main chain
-    DecompInterface decomp = new DecompInterface(); // Example resource
-
-    return getProgram(args, tool)
-        .flatMap(program -> {
-            // --- Setup Phase (Inside flatMap) ---
-            // Example: Initialize decompiler for this program.
-            // Let potential exceptions propagate to onErrorResume.
-            decomp.openProgram(program);
-
-            // Parse *all* required/optional arguments first
-            String name = getRequiredStringArgument(args, ARG_NAME);
-            String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
-            // Perform synchronous Ghidra lookups/validations
-            Function function = program.getFunctionManager().getFunction(name);
-            if (function == null) {
-                // Return specific error early if essential object not found
-                return createErrorResult("Function not found: " + name);
-            }
-            // NO try-catch needed for argument parsing or simple lookups here.
-
-            // --- Transaction Execution ---
-            // Pass program, transaction name, and the modification lambda
-            return executeInTransaction(program, "Rename Function " + name, () -> {
-                // --- Modification Phase (Inside Transaction Lambda) ---
-                // ONLY Ghidra modification calls here.
-                // Let exceptions (like DuplicateNameException) propagate naturally.
-                // executeInTransaction and the final onErrorResume will handle them.
-
-                // Example: Using a Task Monitor if required by an API call
-                GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-                // someGhidraApiCallThatNeedsMonitor(function, monitor); // Hypothetical call
-
-                function.setName(newName, SourceType.USER_DEFINED);
-
-                // Return success result (simple message or relevant data)
-                return createSuccessResult("Function renamed successfully to " + newName);
-                // DO NOT add try-catch here.
-            });
-        })
-        // --- Final Error Handling ---
-        .onErrorResume(e -> createErrorResult(e)) // Catches setup errors & transaction errors
-        // --- Resource Cleanup ---
-        .doFinally(signalType -> {
-            // Clean up resources initialized before the chain (like DecompInterface)
-             if (decomp != null) {
-                 decomp.dispose(); // Ensure resource is released
-             }
+            // --- Return Raw Result Object (PaginatedResult) ---
+            return new PaginatedResult<>(pageResults, nextCursor);
         });
 }
 ```
 
-**3. Project-Based Tool (Read-Only)**
+**2. Program-Based Tool (Modification / Task Monitor / Resource Management)**
 
-*   Needs access to the Ghidra `Project` but not a specific `Program`.
-*   Does not require `fileName` argument in the schema.
-*   Uses `tool.getProject()` directly.
-*   Uses `Mono.fromCallable` to wrap synchronous calls, where throwing exceptions is acceptable.
+*   Needs `Program` access and modifies it.
+*   Uses `getProgram(...).map(...).flatMap(executeInTransaction(...))`.
+*   `.map` performs synchronous setup and **returns a type-safe context object** (e.g., a nested record or `Tuple`) containing necessary data (including the `Program` instance) for the transaction.
+*   `executeInTransaction` takes a `Callable<Object>` for the synchronous modification work.
+*   Shows resource management (`DecompInterface`) and `GhidraMcpTaskMonitor`.
+*   Returns `Mono<Object>` (e.g., success `String`, relevant data `Object`).
+*   Reference: [`GhidraRenameFunctionByNameTool`](mdc:src/main/java/com/themixednuts/tools/functions/GhidraRenameFunctionByNameTool.java), [`GhidraDeleteBookmarkTool`](mdc:src/main/java/com/themixednuts/tools/projectmanagement/GhidraDeleteBookmarkTool.java)
+
+```java
+// Define nested context record (example)
+private static record RenameContext(
+    Program program,
+    Function function,
+    String newName
+) {}
+
+@Override
+public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+    DecompInterface decomp = new DecompInterface(); // Resource needing cleanup
+
+    return getProgram(args, tool) // Returns Mono<Program>
+        .map(program -> { // .map for synchronous setup
+            // --- Setup Phase (Synchronous inside map) ---
+            decomp.openProgram(program);
+            String name = getRequiredStringArgument(args, ARG_NAME);
+            Function function = program.getFunctionManager().getFunction(name);
+            if (function == null) {
+                throw new IllegalArgumentException("Function not found: " + name);
+            }
+            String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
+            // Return type-safe context object
+            return new RenameContext(program, function, newName);
+        })
+        .flatMap(context -> { // Transaction Phase - context is RenameContext
+            // Program program = context.program();
+            // Function function = context.function();
+            // String newName = context.newName();
+
+            return executeInTransaction(context.program(), "Rename Func " + context.function().getName(), () -> {
+                // --- Modification Work (Inside Transaction Callable - Synchronous) ---
+                // GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, ...);
+                context.function().setName(context.newName(), SourceType.USER_DEFINED);
+                // Return raw success result
+                return "Function renamed successfully to " + context.newName();
+            });
+        })
+        .doFinally(signalType -> {
+            if (decomp != null) {
+                decomp.dispose();
+            }
+        });
+}
+```
+
+**3. Project-Based Tool (Read-Only / Synchronous Logic)**
+
+*   Needs `Project` access, not specific `Program`.
+*   Schema does NOT need `fileName`.
+*   Uses `Mono.fromCallable(() -> { ... })` to wrap synchronous logic.
+*   Returns `Mono<Object>` (e.g., `List<String>`).
 *   Reference: [`GhidraListFilesTool`](mdc:src/main/java/com/themixednuts/tools/projectmanagement/GhidraListFilesTool.java)
 
 ```java
-@Override
+@Override // No ARG_FILE_NAME needed
 public JsonSchema schema() {
-    // Schema does NOT need ARG_FILE_NAME for Project-based tools
     IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-    // Add other arguments if needed...
-    // Do NOT add/require ARG_FILE_NAME here
+    // Add other args if needed...
     return schemaRoot.build();
 }
 
 @Override
-public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-    // Use Mono.fromCallable for synchronous project access
+public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
     return Mono.fromCallable(() -> {
         ghidra.framework.model.Project project = tool.getProject();
         if (project == null) {
-            // Throw standard exception from synchronous block; Reactor converts to onError
             throw new IllegalStateException("Ghidra Project is not available.");
         }
-
-        // Perform project-level operations (e.g., list open files)
-        return project.getOpenData()
-                .stream()
-                .map(DomainFile::getName)
-                .sorted()
-                .collect(Collectors.toList()); // Return the data directly
-
-    })
-    // --- Return Success ---
-    .flatMap(fileList -> createSuccessResult(fileList)) // Wrap result
-    // --- Final Error Handling ---
-    .onErrorResume(e -> createErrorResult(e)); // Catches project access errors (including the thrown IllegalStateException)
+        // Perform project-level operations and return raw result
+        return project.getOpenData().stream().map(DomainFile::getName).sorted().collect(Collectors.toList());
+    });
 }
-
 ```
+
+---
+
+## Pagination Pattern (Cursor-Based)
+
+For tools implementing cursor-based pagination via `tools/call`:
+
+1.  **Schema:** The `ARG_CURSOR` constant (defined in `IGhidraMcpSpecification`) should **NOT** be included as a property in the `schema()` definition. The MCP client is expected to handle passing the cursor implicitly if `nextCursor` was returned in the previous response.
+2.  **Execution:** Inside the `execute()` method, still attempt to read the cursor using `getOptionalStringArgument(args, ARG_CURSOR)`. This allows the tool logic to handle the presence of a cursor passed by the client.
+3.  **Result:** The `Mono<Object>` returned by `execute()` should emit a [`PaginatedResult<Pojo>`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java) object containing the list of results and the next cursor value (if any). Example:
+    ```java
+    // Inside execute(...).map(...) or similar
+    List<MyPojo> pageResults = ... ;
+    String nextCursor = (hasMore) ? calculateNextCursor(...) : null;
+    // Return the PaginatedResult object directly
+    return new PaginatedResult<>(pageResults, nextCursor);
+    ```
+4.  **Reference:** See [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java) for an example implementation (note: this example was refactored to return a `Map` but the principle remains; using `PaginatedResult` is preferred according to this rule).
 
 ---
 
 ## Grouped Operations Pattern
 
-*   Combine multiple related granular tools into one endpoint.
-*   Define an "operations" array in the schema, where each item specifies the granular tool (`operation`) and its `arguments`.
-*   Iterate through the operations list using `Flux`.
-*   Instantiate and call the `execute` method of the corresponding granular tool for each operation.
-*   Collect results and summarize success/failure.
-*   **Requires `try-catch` for Java Reflection checked exceptions during instantiation.**
+*   Implement [`IGroupedTool`](mdc:src/main/java/com/themixednuts/tools/grouped/IGroupedTool.java) alongside `IGhidraMcpSpecification`.
+*   Implement `getToolClassMap()` to return discovered granular tool classes.
+*   **Omit** `schema()` override (default provided by `IGroupedTool`).
+*   Implement `execute()` to call the default `executeGroupedOperations()`.
 *   Reference: [`GroupedFunctionOperationsTool`](mdc:src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java)
 
 ```java
-// Inside Grouped Tool execute(...) method:
+@GhidraMcpTool(name = "Grouped Function Ops", ... category = ToolCategory.GROUPED, ...)
+public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
 
-List<Map<String, Object>> operations = getOptionalListArgument(args, ARG_OPERATIONS).orElse(null);
-// ... null/empty check ...
+    private static final Map<String, Class<? extends IGhidraMcpSpecification>> TOOL_CLASS_MAP;
+    static {
+        TOOL_CLASS_MAP = IGroupedTool.getGranularToolClasses(ToolCategory.FUNCTIONS.getCategoryName())
+            .stream()
+            .collect(Collectors.toConcurrentMap( // Use ConcurrentMap
+                toolClass -> toolClass.getAnnotation(GhidraMcpTool.class).mcpName(),
+                toolClass -> toolClass
+            ));
+    }
 
-return Flux.fromIterable(operations)
-    .index() // Get index for tracking
-    .flatMap(indexedOperation -> {
-        long index = indexedOperation.getT1();
-        Map<String, Object> opArgs = indexedOperation.getT2();
-        String operationName = /* ... get operation name ... */;
-        Map<String, Object> granularArgs = /* ... get specific arguments ... */;
-        final String opId = operationName + "_" + index; // Unique ID for result summary
+    @Override
+    public Map<String, Class<? extends IGhidraMcpSpecification>> getToolClassMap() {
+        return TOOL_CLASS_MAP;
+    }
 
-        // ... validate operationName and granularArgs ...
+    // schema() method is provided by IGroupedTool default
 
-        Class<? extends IGhidraMcpSpecification> targetToolClass = toolClassMap.get(operationName);
-        // ... handle unknown operationName ...
-
-        // Ensure fileName propagates if provided at the group level
-        if (fileName != null && !granularArgs.containsKey(ARG_FILE_NAME)) {
-            granularArgs.put(ARG_FILE_NAME, fileName);
-        }
-
-        // ** This try-catch is NECESSARY for Reflection checked exceptions **
-        try {
-            // Instantiate the specific tool
-            IGhidraMcpSpecification targetToolInstance = targetToolClass.getDeclaredConstructor().newInstance();
-            // Execute the granular tool's logic
-            return targetToolInstance.execute(ex, granularArgs, tool)
-                // Map result to an entry for aggregation
-                .map(result -> Map.entry(opId, result))
-                // Handle execution errors for *this specific operation*
-                .onErrorResume(execError ->
-                    createErrorResult("Execution error in '" + operationName + "': " + execError.getMessage())
-                        .map(errorResult -> Map.entry(opId, errorResult)) // Map error too
-                );
-        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException | SecurityException e) {
-            // Handle errors during tool instantiation (checked exceptions)
-            return createErrorResult("Instantiation error for '" + operationName + "': " + e.getMessage())
-                .map(errorResult -> Map.entry(opId, errorResult));
-        }
-    })
-    .collectList() // Gather all Map.Entry results
-    .flatMap(resultsList -> {
-        // --- Build Final Summary ---
-        // Iterate through resultsList, check isError() on CallToolResult,
-        // build success/error details lists.
-        ObjectNode finalSummary = mapper.createObjectNode();
-        // ... populate summary node ...
-        return createSuccessResult(finalSummary); // Return the summary object
-    })
-    .onErrorResume(e -> createErrorResult("Unexpected error processing grouped operations: " + e.getMessage())); // Catch-all for Flux processing issues
+    @Override
+    public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+        // Delegate execution to the default grouped operations handler
+        return executeGroupedOperations(ex, args, tool);
+    }
+}
 ```
 
 ---
 
-## Key Patterns & Avoidances (Summary)
+## Ghidra API Documentation Links
 
-*   **Error Handling:**
-    *   **Strictly avoid `try-catch` blocks** in `flatMap` or transaction lambdas, unless mandated by Java for checked exceptions (like Reflection in grouped tools).
-    *   Use `.onErrorResume(e -> createErrorResult(e))` at the **end** of the reactive chain to handle errors from setup, lookups, or transactions. Let exceptions propagate to this handler.
-    *   Return `createErrorResult(...)` directly for *specific* validation failures (e.g., object not found) within `flatMap` *only* if context is crucial for the error message.
-    *   **Do not throw exceptions** directly from reactive operators like `flatMap`. *Exception*: Throwing standard exceptions (e.g., `IllegalStateException`) is acceptable *inside* a `Mono.fromCallable` block (Template 3) to signal errors from synchronous code, as Reactor will convert it to an `onError` signal.
-*   **Argument Constants:**
-    *   Use static `ARG_` constants from [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) for common argument names (e.g., `ARG_FILE_NAME`, `ARG_ADDRESS`).
-    *   If a tool requires a new, specific argument name not present in the interface, define it as `public static final String ARG_MY_NEW_ARG = "myNewArg";` within the tool's class itself.
-*   **Helpers:** Use [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) helpers:
-    *   `createSuccessResult(...)`, `createErrorResult(...)`
-    *   `getProgram(...)` (requires `ARG_FILE_NAME` in args), `getDomainFile(...)`
-    *   `getOptional...()`, `getRequired...()` argument parsers (including `getOptionalStringArgument(args, ARG_CURSOR)` to *read* the implicit cursor)
-    *   `executeInTransaction(...)` for modifications
-*   **Reactive & Functional:**
-    *   Embrace the reactive chain (`getProgram(...).flatMap(...).onErrorResume(...)`). Avoid `.block()`.
-    *   Use Java Streams API for collection processing (filtering, mapping, pagination).
-*   **Resource Management:** Initialize resources needing cleanup (like `DecompInterface`) *before* the reactive chain. Use `.doFinally(signalType -> { /* cleanup */ })` at the end of the chain for disposal. See Template 2.
-*   **Task Monitors:** Use `new [`GhidraMcpTaskMonitor`](mdc:src/main/java/com/themixednuts/utils/GhidraMcpTaskMonitor.java)(ex, this.getClass().getSimpleName())` when Ghidra APIs require a [`TaskMonitor`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/util/task/TaskMonitor.html). Pass the `McpAsyncServerExchange` (`ex`) and the tool's class name for logging context. See [`GhidraMcpTaskMonitor`](mdc:src/main/java/com/themixednuts/utils/GhidraMcpTaskMonitor.java) and Template 2.
-*   **Comments:** Keep comments minimal. Explain the *why* for non-obvious code, not the *what*.
-*   **Pagination:**
-    *   Use the standard stream pattern (`sorted`, `dropWhile`, `limit`, [`PaginatedResult`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java)) shown above.
-    *   Do **not** define `ARG_CURSOR` in the tool's input `schema()`.
-    *   Use `getOptionalStringArgument(args, ARG_CURSOR)` within `execute()` to read the cursor if provided by the client.
-    *   Return `nextCursor` in the `PaginatedResult` if more items exist.
+*   **Ghidra Commands (`Cmd`) are found within the following `ghidra.app.cmd.*` these are the only packages, refer directly to the docs. packages:**
+    *   [`ghidra.app.cmd.analysis`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/analysis/package-summary.html)
+    *   [`ghidra.app.cmd.comments`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/comments/package-summary.html)
+    *   [`ghidra.app.cmd.data`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/data/package-summary.html)
+    *   [`ghidra.app.cmd.disassemble`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/disassemble/package-summary.html)
+    *   [`ghidra.app.cmd.equate`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/equate/package-summary.html)
+    *   [`ghidra.app.cmd.formats`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/formats/package-summary.html)
+    *   [`ghidra.app.cmd.function`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/function/package-summary.html)
+    *   [`ghidra.app.cmd.label`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/label/package-summary.html)
+    *   [`ghidra.app.cmd.memory`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/memory/package-summary.html)
+    *   [`ghidra.app.cmd.module`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/module/package-summary.html)
+    *   [`ghidra.app.cmd.refs`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/refs/package-summary.html)
+    *   [`ghidra.app.cmd.register`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/register/package-summary.html)
+*   **Core Models (`Program`, `Listing`, `DataType`, `Function`, `Address`, `Symbol`, etc.) live under `ghidra.program.model.*`:**
+    *   Listing API: [`ghidra.program.model.listing`](mdc:ghidra.program.model.listing)
+    *   Address API: [`ghidra.program.model.address`](mdc:ghidra.program.model.address)
+    *   Symbol API: [`ghidra.program.model.symbol`](mdc:ghidra.program.model.symbol)
+    *   Data API: [`ghidra.program.model.data`](mdc:ghidra.program.model.data)
+    *   PCode API: [`ghidra.program.model.pcode`](mdc:ghidra.program.model.pcode)
+    *   Etc.
+*   **Decompiler:** [`ghidra.app.decompiler.DecompInterface`](mdc:ghidra.app.decompiler.DecompInterface)
+*   **Task Monitor:** [`ghidra.util.task.TaskMonitor`](mdc:ghidra.util.task.TaskMonitor)

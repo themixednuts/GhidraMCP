@@ -1,92 +1,75 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.util.Msg;
-import ghidra.program.model.data.*;
-
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.Enum;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Add Enum Entry", mcpName = "add_enum_entry", category = ToolCategory.DATATYPES, description = "Adds a named entry with a specific value to an existing enum data type.", mcpDescription = "Adds a named entry with a specific value to an existing enum data type.")
+@GhidraMcpTool(name = "Create Enum Entry", category = ToolCategory.DATATYPES, description = "Adds a new entry to an existing enumeration.", mcpName = "create_enum_entry", mcpDescription = "Add a new name-value pair to an existing enum data type.")
 public class GhidraCreateEnumEntryTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		Optional<String> schemaStringOpt = parseSchema(schema());
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper).description("The file name of the Ghidra tool window to target"));
+		schemaRoot.property(ARG_FILE_NAME, JsonSchemaBuilder.string(mapper).description("The name of the program file."));
 		schemaRoot.property(ARG_ENUM_PATH, JsonSchemaBuilder.string(mapper)
-				.description("The full path of the enum to add the entry to (e.g., /MyCategory/MyEnum)"));
-		schemaRoot.property(ARG_NAME,
-				JsonSchemaBuilder.string(mapper).description("The name for the new enum entry"));
+				.description("Full path of the target enum (e.g., '/MyEnums/StatusCodes')."));
+		schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Name for the new enum entry."));
 		schemaRoot.property(ARG_VALUE,
-				JsonSchemaBuilder.integer(mapper).description("The integer value for the new enum entry"));
-		schemaRoot.property(ARG_COMMENT,
-				JsonSchemaBuilder.string(mapper).description("Optional comment for the new enum entry"));
-		schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ENUM_PATH).requiredProperty(ARG_NAME)
+				JsonSchemaBuilder.integer(mapper).description("Value for the new enum entry (long)."));
+
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_ENUM_PATH)
+				.requiredProperty(ARG_NAME)
 				.requiredProperty(ARG_VALUE);
 
 		return schemaRoot.build();
 	}
 
+	private static record CreateEnumEntryContext(
+			Program program, Enum targetEnum,
+			String entryName,
+			long entryValue) {
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
-			String entryName = getRequiredStringArgument(args, ARG_NAME);
-			Long entryValue = getRequiredLongArgument(args, ARG_VALUE);
-			String entryComment = getOptionalStringArgument(args, ARG_COMMENT).orElse(null);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) { // Ensure
+																																																								// signature
+		return getProgram(args, tool)
+				.map(program -> { // .map for sync setup
+					String enumPathStr = getRequiredStringArgument(args, ARG_ENUM_PATH);
+					String entryName = getRequiredStringArgument(args, ARG_NAME);
+					long entryValue = getRequiredLongArgument(args, ARG_VALUE);
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(enumPathString);
+					DataType dt = program.getDataTypeManager().getDataType(enumPathStr);
 
-			if (dt == null) {
-				return createErrorResult("Enum not found at path: " + enumPathString);
-			}
-			if (!(dt instanceof EnumDataType)) {
-				return createErrorResult("Data type at path is not an Enum: " + enumPathString);
-			}
+					if (dt == null) {
+						throw new IllegalArgumentException("Enum not found: " + enumPathStr);
+					}
+					if (!(dt instanceof Enum)) {
+						throw new IllegalArgumentException("Data type is not an enum: " + enumPathStr);
+					}
+					Enum targetEnum = (Enum) dt;
 
-			final EnumDataType enumDt = (EnumDataType) dt;
-
-			return executeInTransaction(program, "MCP - Add Enum Entry", () -> {
-				enumDt.add(entryName, entryValue, entryComment);
-				return createSuccessResult("Enum entry '" + entryName + "' added successfully to " + enumPathString + ".");
-			});
-		}).onErrorResume(e -> createErrorResult(e));
+					return new CreateEnumEntryContext(program, targetEnum, entryName, entryValue);
+				})
+				.flatMap(context -> {
+					String finalEnumPathString = context.targetEnum().getPathName();
+					return executeInTransaction(context.program(), "Create Enum Entry: " + context.entryName(), () -> {
+						context.targetEnum().add(context.entryName(), context.entryValue());
+						return "Enum entry '" + context.entryName() + "' added successfully to " + finalEnumPathString;
+					});
+				});
 	}
 }

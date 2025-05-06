@@ -13,40 +13,17 @@ import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.mem.MemoryBlock;
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
+import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Segments", category = ToolCategory.MEMORY, description = "Lists memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Returns a list of memory blocks (segments) in the program, including their names, start/end addresses, size, and permissions.")
+@GhidraMcpTool(name = "List Memory Segments", category = ToolCategory.MEMORY, description = "Lists all memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Retrieve a list of all memory segments/blocks.")
 public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -59,16 +36,43 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			MemoryBlock[] blocks = program.getMemory().getBlocks();
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool).map(program -> {
+			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-			List<MemoryBlockInfo> blockInfos = Arrays.stream(blocks)
+			MemoryBlock[] blocks = program.getMemory().getBlocks();
+			List<MemoryBlockInfo> allSegments = Arrays.stream(blocks)
 					.map(MemoryBlockInfo::new)
 					.sorted(Comparator.comparing(MemoryBlockInfo::getStartAddress))
 					.collect(Collectors.toList());
 
-			return createSuccessResult(blockInfos);
-		}).onErrorResume(e -> createErrorResult(e));
+			// Pagination logic
+			Address cursorAddr = null;
+			if (cursorOpt.isPresent()) {
+				try {
+					cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
+				} catch (Exception e) {
+					throw new IllegalArgumentException("Invalid cursor address format: " + cursorOpt.get(), e);
+				}
+			}
+			final Address finalCursorAddr = cursorAddr;
+
+			List<MemoryBlockInfo> paginatedSegments = allSegments.stream()
+					.dropWhile(segment -> finalCursorAddr != null &&
+							program.getAddressFactory().getAddress(segment.getStartAddress()).compareTo(finalCursorAddr) <= 0)
+					.limit(DEFAULT_PAGE_LIMIT + 1)
+					.collect(Collectors.toList());
+
+			boolean hasMore = paginatedSegments.size() > DEFAULT_PAGE_LIMIT;
+			List<MemoryBlockInfo> resultsForPage = paginatedSegments.subList(0,
+					Math.min(paginatedSegments.size(), DEFAULT_PAGE_LIMIT));
+			String nextCursor = null;
+			if (hasMore && !resultsForPage.isEmpty()) {
+				nextCursor = resultsForPage.get(resultsForPage.size() - 1).getStartAddress();
+			}
+
+			return new PaginatedResult<>(resultsForPage, nextCursor);
+
+		});
 	}
 }

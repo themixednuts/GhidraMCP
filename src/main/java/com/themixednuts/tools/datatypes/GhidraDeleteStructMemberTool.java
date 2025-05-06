@@ -1,7 +1,6 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
@@ -10,38 +9,16 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
 
 @GhidraMcpTool(name = "Delete Struct Member", category = ToolCategory.DATATYPES, description = "Deletes a member from an existing structure.", mcpName = "delete_struct_member", mcpDescription = "Removes a field (member) from an existing struct data type by its offset.")
 public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
-
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -66,38 +43,54 @@ public class GhidraDeleteStructMemberTool implements IGhidraMcpSpecification {
 		return schemaRoot.build();
 	}
 
+	// Nested record for type-safe context passing
+	private static record DeleteStructMemberContext(
+			Program program,
+			Structure structDt,
+			Integer memberOffset) {
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) { // Ensure
+																																																								// signature
+		return getProgram(args, tool).map(program -> { // .map for sync setup
 			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
-			final Integer memberOffset = getRequiredIntArgument(args, ARG_OFFSET);
+			Integer memberOffset = getRequiredIntArgument(args, ARG_OFFSET);
 
 			if (memberOffset < 0) {
-				return createErrorResult("Invalid memberOffset: Cannot be negative.");
+				throw new IllegalArgumentException("Invalid memberOffset: Cannot be negative.");
 			}
 
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(structPathString);
+			DataType dt = program.getDataTypeManager().getDataType(structPathString);
 
 			if (dt == null) {
-				return createErrorResult("Struct not found at path: " + structPathString);
+				throw new IllegalArgumentException("Struct not found at path: " + structPathString);
 			}
 			if (!(dt instanceof Structure)) {
-				return createErrorResult("Data type at path is not a Structure: " + structPathString);
+				throw new IllegalArgumentException("Data type at path is not a Structure: " + structPathString);
 			}
-			final Structure structDt = (Structure) dt;
+			Structure structDt = (Structure) dt;
 
+			// Check if component exists at offset BEFORE transaction
 			DataTypeComponent component = structDt.getComponentAt(memberOffset);
 			if (component == null) {
-				return createErrorResult("No struct member found starting exactly at offset: " + memberOffset);
+				throw new IllegalArgumentException("No struct member found starting exactly at offset: " + memberOffset);
 			}
 
-			return executeInTransaction(program, "MCP - Delete Struct Member", () -> {
-				structDt.deleteAtOffset(memberOffset);
-				return createSuccessResult("Struct member at offset " + memberOffset + " deleted successfully.");
-			});
+			// Return type-safe context
+			return new DeleteStructMemberContext(program, structDt, memberOffset);
 
-		}).onErrorResume(e -> createErrorResult(e));
+		}).flatMap(context -> { // .flatMap for transaction
+			String structPathName = context.structDt().getPathName(); // Get path before transaction for message
+
+			return executeInTransaction(context.program(), "MCP - Delete Struct Member at offset " + context.memberOffset(),
+					() -> {
+						// Use context fields
+						context.structDt().deleteAtOffset(context.memberOffset());
+						return "Struct member at offset " + context.memberOffset() + " deleted successfully from " + structPathName
+								+ ".";
+					});
+		});
 	}
 
 }

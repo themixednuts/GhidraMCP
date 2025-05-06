@@ -1,7 +1,6 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -12,36 +11,18 @@ import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
-import ghidra.program.model.data.DataTypeManager;
-import ghidra.util.Msg;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "Rename Category", category = ToolCategory.DATATYPES, description = "Renames an existing category path.", mcpName = "rename_category", mcpDescription = "Renames a category (folder) in the Data Type Manager.")
 public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record RenameContext(
+			Program program,
+			Category category,
+			String newName) {
 	}
 
 	@Override
@@ -65,23 +46,33 @@ public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			String originalPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
-			String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
-			DataTypeManager dtm = program.getDataTypeManager();
-			Category category = dtm.getCategory(new ghidra.program.model.data.CategoryPath(originalPathString));
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> {
+					String originalPathString = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
+					String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
+					Category category = program.getDataTypeManager().getCategory(new CategoryPath(originalPathString));
 
-			if (category == null) {
-				return createErrorResult("Category not found at path: " + originalPathString);
-			}
+					if (category == null) {
+						throw new IllegalArgumentException("Category not found at path: " + originalPathString);
+					}
+					if (category.isRoot()) {
+						throw new IllegalArgumentException("Cannot rename the root category.");
+					}
 
-			return executeInTransaction(program, "MCP - Rename Category", () -> {
-				category.setName(newName);
-				String newPath = category.getCategoryPath().getPath();
-				return createSuccessResult("Category renamed successfully to: " + newPath);
-			});
+					if (newName.isBlank()) {
+						throw new IllegalArgumentException("New category name cannot be blank.");
+					}
 
-		}).onErrorResume(e -> createErrorResult(e));
+					return new RenameContext(program, category, newName);
+				})
+				.flatMap(context -> {
+					String oldPath = context.category().getCategoryPath().getPath();
+					return executeInTransaction(context.program(), "Rename Category: " + oldPath, () -> {
+						context.category().setName(context.newName());
+						String finalPath = context.category().getCategoryPath().getPath();
+						return "Category '" + oldPath + "' renamed successfully to: " + finalPath;
+					});
+				});
 	}
 }

@@ -10,36 +10,25 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
 
-@GhidraMcpTool(name = "Edit Struct Member", mcpName = "edit_struct_member", category = ToolCategory.DATATYPES, description = "Modifies the name, data type, size, or comment of an existing field (member) in a struct.", mcpDescription = "Modifies the name, data type, or comment of an existing field (member) in a struct.")
+@GhidraMcpTool(name = "Update Struct Member", mcpName = "update_struct_member", category = ToolCategory.DATATYPES, description = "Modifies the name, data type, size, or comment of an existing field (member) in a struct.", mcpDescription = "Modifies the name, data type, size, or comment of an existing field (member) in a struct.")
 public class GhidraUpdateStructMemberTool implements IGhidraMcpSpecification {
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = parseSchema(schemaObject);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private static record StructUpdateContext(
+			Program program,
+			Structure structDt,
+			int memberOffset,
+			String finalName,
+			DataType finalDataType,
+			int finalSize,
+			String finalComment) {
 	}
 
 	@Override
@@ -81,103 +70,88 @@ public class GhidraUpdateStructMemberTool implements IGhidraMcpSpecification {
 				.requiredProperty(ARG_STRUCT_PATH)
 				.requiredProperty(ARG_OFFSET);
 
-		// Note: The logic for requiring at least one 'new*' property is handled
-		// in the execute method.
-
 		return schemaRoot.build();
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, validate, find struct/component, resolve new type/size
-			// Argument parsing errors caught by onErrorResume
-			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
-			final Integer memberOffset = getRequiredIntArgument(args, ARG_OFFSET); // Final for lambda
-			Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
-			Optional<String> newTypePathOpt = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH);
-			Optional<Integer> newSizeOpt = getOptionalIntArgument(args, ARG_SIZE);
-			Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup and validation
+					String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+					int memberOffset = getRequiredIntArgument(args, ARG_OFFSET);
+					Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+					Optional<String> newTypePathOpt = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH);
+					Optional<Integer> newSizeOpt = getOptionalIntArgument(args, ARG_SIZE);
+					Optional<String> newCommentOpt = getOptionalStringArgument(args, ARG_COMMENT);
 
-			// Validate: At least one change requested
-			if (newNameOpt.isEmpty() && newTypePathOpt.isEmpty() && newSizeOpt.isEmpty() && newCommentOpt.isEmpty()) {
-				return createErrorResult("No changes specified. Provide at least one 'new*' argument.");
-			}
-			// Validate offset
-			if (memberOffset < 0) {
-				return createErrorResult("Invalid memberOffset: Cannot be negative.");
-			}
-			// Validate size if provided
-			if (newSizeOpt.isPresent() && newSizeOpt.get() <= 0) {
-				return createErrorResult("Invalid newMemberSize: Must be positive.");
-			}
-
-			DataTypeManager dtm = program.getDataTypeManager();
-			DataType dt = dtm.getDataType(structPathString);
-
-			if (dt == null) {
-				return createErrorResult("Struct not found at path: " + structPathString);
-			}
-			if (!(dt instanceof Structure)) {
-				return createErrorResult("Data type at path is not a Structure: " + structPathString);
-			}
-			final Structure structDt = (Structure) dt; // Make final for lambda
-
-			// Get component at offset
-			final DataTypeComponent component = structDt.getComponentAt(memberOffset); // Make final for lambda
-			if (component == null) {
-				return createErrorResult("No struct member found starting exactly at offset: " + memberOffset);
-			}
-
-			// --- Determine final values (outside transaction) ---
-			final String finalName = newNameOpt.orElse(component.getFieldName());
-			final String finalComment = newCommentOpt.orElse(component.getComment());
-			final DataType finalDataType;
-			final int finalSize;
-			final boolean typeOrSizeChanged = newTypePathOpt.isPresent() || newSizeOpt.isPresent(); // Final for lambda
-
-			if (newTypePathOpt.isPresent()) {
-				DataType newDt = dtm.getDataType(newTypePathOpt.get());
-				if (newDt == null) {
-					return createErrorResult("New data type not found: " + newTypePathOpt.get());
-				}
-				finalDataType = newDt;
-			} else {
-				finalDataType = component.getDataType();
-			}
-
-			if (newSizeOpt.isPresent()) {
-				finalSize = newSizeOpt.get(); // Already validated > 0
-			} else {
-				finalSize = typeOrSizeChanged ? finalDataType.getLength() : component.getLength();
-				if (finalSize <= 0) { // Handle dynamic types where size MUST be specified
-					return createErrorResult("Cannot determine valid size for type '" + finalDataType.getPathName()
-							+ "'. Provide explicit newMemberSize.");
-				}
-			}
-
-			// --- Execute modification in transaction ---
-			return executeInTransaction(program, "MCP - Edit Struct Member", () -> {
-				// Inner Callable logic (just the modification):
-				// If only name/comment changed, use setters
-				if (!typeOrSizeChanged) {
-					DataTypeComponent compToUpdate = structDt.getComponentAt(memberOffset); // Re-get component inside tx?
-					if (compToUpdate != null) {
-						compToUpdate.setFieldName(finalName);
-						compToUpdate.setComment(finalComment);
+					// Validate: At least one change requested
+					if (newNameOpt.isEmpty() && newTypePathOpt.isEmpty() && newSizeOpt.isEmpty() && newCommentOpt.isEmpty()) {
+						throw new IllegalArgumentException("No changes specified. Provide at least one 'new*' argument.");
 					}
-				} else {
-					// If type or size changed, replace the component
-					structDt.replaceAtOffset(memberOffset, finalDataType, finalSize, finalName, finalComment);
-				}
-				// Return success
-				return createSuccessResult("Struct member at offset " + memberOffset + " updated successfully.");
-			}); // End of Callable for executeInTransaction
+					// Validate offset
+					if (memberOffset < 0) {
+						throw new IllegalArgumentException("Invalid memberOffset: Cannot be negative.");
+					}
+					// Validate size if provided
+					if (newSizeOpt.isPresent() && newSizeOpt.get() <= 0) {
+						throw new IllegalArgumentException("Invalid newMemberSize: Must be positive.");
+					}
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram or unexpected setup errors (incl. arg parsing)
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+					DataType dt = program.getDataTypeManager().getDataType(structPathString);
+
+					if (dt == null) {
+						throw new IllegalArgumentException("Struct not found at path: " + structPathString);
+					}
+					if (!(dt instanceof Structure)) {
+						throw new IllegalArgumentException("Data type at path is not a Structure: " + structPathString);
+					}
+					Structure structDt = (Structure) dt;
+
+					// Get component at offset
+					DataTypeComponent component = structDt.getComponentAt(memberOffset);
+					if (component == null) {
+						throw new IllegalArgumentException("No struct member found starting exactly at offset: " + memberOffset);
+					}
+
+					// --- Determine final values ---
+					String finalName = newNameOpt.orElse(component.getFieldName());
+					String finalComment = newCommentOpt.orElse(component.getComment());
+					DataType finalDataType;
+					int finalSize;
+
+					if (newTypePathOpt.isPresent()) {
+						DataType newDt = program.getDataTypeManager().getDataType(newTypePathOpt.get());
+						if (newDt == null) {
+							throw new IllegalArgumentException("New data type not found: " + newTypePathOpt.get());
+						}
+						finalDataType = newDt;
+					} else {
+						finalDataType = component.getDataType();
+					}
+
+					if (newSizeOpt.isPresent()) {
+						finalSize = newSizeOpt.get(); // Already validated > 0
+					} else {
+						// Use the length of the *final* data type if size wasn't specified
+						finalSize = finalDataType.getLength();
+						if (finalSize <= 0) { // Handle dynamic types where size MUST be specified
+							throw new IllegalArgumentException("Cannot determine valid size for type '" + finalDataType.getPathName()
+									+ "'. Provide explicit size.");
+						}
+					}
+
+					return new StructUpdateContext(program, structDt, memberOffset, finalName, finalDataType, finalSize,
+							finalComment);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(),
+							"Update Struct Member at offset " + context.memberOffset(), () -> {
+								// Always use replaceAtOffset for simplicity
+								context.structDt().replaceAtOffset(context.memberOffset(), context.finalDataType(),
+										context.finalSize(), context.finalName(), context.finalComment());
+
+								return "Struct member at offset " + context.memberOffset() + " updated successfully.";
+							});
+				});
 	}
 }

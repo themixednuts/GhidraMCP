@@ -2,206 +2,189 @@ package com.themixednuts.tools.memory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
-import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressFactory;
+import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.mem.Memory;
-import ghidra.util.Msg;
+import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Search Memory", category = ToolCategory.MEMORY, description = "Searches program memory for a pattern (hex bytes or string).", mcpName = "search_memory", mcpDescription = "Searches memory within an optional address range for a sequence of bytes (given as hex) or a string.")
+@GhidraMcpTool(name = "Search Memory", category = ToolCategory.MEMORY, description = "Searches program memory for byte sequences or strings.", mcpName = "search_memory", mcpDescription = "Search memory for a byte sequence or string.")
 public class GhidraSearchMemoryTool implements IGhidraMcpSpecification {
 
-	private static final String ARG_PATTERN_HEX = "patternHex";
-	private static final String ARG_PATTERN_STRING = "patternString";
-	private static final String ARG_START_ADDRESS = "startAddress";
-	private static final String ARG_END_ADDRESS = "endAddress";
+	public static final String ARG_SEARCH_VALUE = "searchValue";
+	public static final String ARG_SEARCH_TYPE = "searchType";
+	public static final String ARG_START_ADDRESS = "startAddress";
+	public static final String ARG_END_ADDRESS = "endAddress";
+	private static final int PREVIEW_BYTES = 16;
 
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
+	private static class SearchResult {
+		public String address;
+		@SuppressWarnings("unused")
+		public String preview;
+
+		public SearchResult(String address, String preview) {
+			this.address = address;
+			this.preview = preview;
 		}
-		Optional<String> schemaStringOpt = parseSchema(schema());
-		if (schemaStringOpt.isEmpty()) {
-			return null;
-		}
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaStringOpt.get()),
-				(ex, args) -> execute(ex, args, tool));
 	}
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.property(ARG_PATTERN_HEX,
-				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Hex string representation of bytes to search for (e.g., 'C390'). Either this or patternString must be provided.")
-						.pattern("^[0-9a-fA-F]*$")); // Allow empty for validation check
-		schemaRoot.property(ARG_PATTERN_STRING,
-				JsonSchemaBuilder.string(mapper)
-						.description("String to search for (UTF-8 encoded). Either this or patternHex must be provided."));
-		schemaRoot.property(ARG_START_ADDRESS,
-				JsonSchemaBuilder.string(mapper)
-						.description("Optional starting address for the search range.")
-						.pattern("^(0x)?[0-9a-fA-F]+$"));
-		schemaRoot.property(ARG_END_ADDRESS,
-				JsonSchemaBuilder.string(mapper)
-						.description("Optional ending address for the search range.")
-						.pattern("^(0x)?[0-9a-fA-F]+$"));
-		// Removed alignment as findBytes doesn't directly support it easily
+		schemaRoot.property(ARG_FILE_NAME, JsonSchemaBuilder.string(mapper).description("The name of the program file."));
+		schemaRoot.property(ARG_SEARCH_VALUE, JsonSchemaBuilder.string(mapper)
+				.description("The value to search for (hex for bytes, text for string)."));
+		schemaRoot.property(ARG_SEARCH_TYPE, JsonSchemaBuilder.string(mapper)
+				.description("Type of search: 'bytes' or 'string'.")
+				.enumValues("bytes", "string"));
+		schemaRoot.property(ARG_START_ADDRESS, JsonSchemaBuilder.string(mapper)
+				.description("Optional start address for search range (e.g., '0x1004000'). Defaults to program start.")
+				.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_END_ADDRESS, JsonSchemaBuilder.string(mapper)
+				.description("Optional end address for search range (e.g., '0x1005000'). Defaults to program end.")
+				.pattern("^(0x)?[0-9a-fA-F]+$"));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
-		// Validation for patternHex XOR patternString done in execute
+		schemaRoot.requiredProperty(ARG_FILE_NAME)
+				.requiredProperty(ARG_SEARCH_VALUE)
+				.requiredProperty(ARG_SEARCH_TYPE);
 
 		return schemaRoot.build();
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			Optional<String> patternHexOpt = getOptionalStringArgument(args, ARG_PATTERN_HEX);
-			Optional<String> patternStringOpt = getOptionalStringArgument(args, ARG_PATTERN_STRING);
-			Optional<String> startAddressOpt = getOptionalStringArgument(args, ARG_START_ADDRESS);
-			Optional<String> endAddressOpt = getOptionalStringArgument(args, ARG_END_ADDRESS);
-			String cursorStr = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.flatMap(program -> Mono.fromCallable(() -> {
+					String searchValue = getRequiredStringArgument(args, ARG_SEARCH_VALUE);
+					String searchType = getRequiredStringArgument(args, ARG_SEARCH_TYPE);
+					String cursorStr = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
 
-			// Validate exactly one pattern type is provided
-			if (patternHexOpt.isEmpty() && patternStringOpt.isEmpty()) {
-				return createErrorResult("Either patternHex or patternString must be provided.");
-			}
-			if (patternHexOpt.isPresent() && patternStringOpt.isPresent()) {
-				return createErrorResult("Provide either patternHex or patternString, not both.");
-			}
+					AddressFactory addrFactory = program.getAddressFactory();
+					Address startAddr = getOptionalStringArgument(args, ARG_START_ADDRESS)
+							.map(addrFactory::getAddress).orElse(program.getMinAddress());
+					Address endAddr = getOptionalStringArgument(args, ARG_END_ADDRESS)
+							.map(addrFactory::getAddress).orElse(program.getMaxAddress());
 
-			byte[] searchBytes;
-			try {
-				if (patternHexOpt.isPresent()) {
-					String hex = patternHexOpt.get();
-					if (hex.isEmpty() || hex.length() % 2 != 0) {
-						return createErrorResult("Invalid patternHex: Must be non-empty and have an even number of characters.");
-					}
-					searchBytes = HexFormat.of().parseHex(hex);
-				} else { // patternStringOpt must be present
-					searchBytes = patternStringOpt.get().getBytes(StandardCharsets.UTF_8);
-				}
-			} catch (IllegalArgumentException e) {
-				return createErrorResult("Invalid patternHex format: " + e.getMessage());
-			}
-
-			if (searchBytes.length == 0) {
-				return createErrorResult("Search pattern cannot be empty.");
-			}
-
-			Memory memory = program.getMemory();
-			Address start = startAddressOpt.map(program.getAddressFactory()::getAddress).orElse(memory.getMinAddress());
-			Address end = endAddressOpt.map(program.getAddressFactory()::getAddress).orElse(memory.getMaxAddress());
-
-			if (start == null || end == null || start.compareTo(end) > 0) {
-				return createErrorResult("Invalid start/end address range.");
-			}
-
-			Address cursorAddr = null;
-			if (cursorStr != null) {
-				cursorAddr = program.getAddressFactory().getAddress(cursorStr);
-				if (cursorAddr == null) {
-					return createErrorResult("Invalid cursor address format: " + cursorStr);
-				}
-				// Adjust start address based on cursor for next page
-				if (cursorAddr.compareTo(start) >= 0 && cursorAddr.compareTo(end) <= 0) {
-					start = cursorAddr.add(1); // Start search *after* the cursor address
-				}
-			}
-			final Address searchStartAddr = start; // Final for lambda
-
-			// Use a task monitor
-			GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-
-			// Run search in background via Mono.fromCallable
-			return Mono.fromCallable(() -> {
-				List<Address> matches = new ArrayList<>();
-				Address currentSearchStart = searchStartAddr;
-				// Memory object is available from the outer scope (program.getMemory())
-				// Memory memory = program.getMemory(); // REMOVED REDECLARATION
-
-				while (currentSearchStart != null && !monitor.isCancelled()) {
-					// Use memory.findBytes(Address startAddress, byte[] bytes, byte[] mask, boolean
-					// forward, TaskMonitor monitor)
-					// Pass null for the mask if we don't need one.
-					Address foundAddr = memory.findBytes(currentSearchStart, searchBytes, null, true, monitor);
-
-					if (foundAddr != null) {
-						// Ensure the found address is within the requested range (if specified)
-						if (foundAddr.compareTo(end) > 0) {
-							foundAddr = null; // Treat as not found if outside the end boundary
-						}
+					if (startAddr == null || endAddr == null || startAddr.compareTo(endAddr) > 0) {
+						throw new IllegalArgumentException("Invalid start/end address range.");
 					}
 
-					if (foundAddr != null) {
-						matches.add(foundAddr);
-						// Advance start address for next search iteration
-						try {
-							currentSearchStart = foundAddr.addNoWrap(1); // Prevent wrapping
-						} catch (ghidra.program.model.address.AddressOverflowException e) {
-							currentSearchStart = null; // Stop if overflow
-						}
-						// Redundant check as findBytes should handle bounds, but keep for safety?
-						// if (currentSearchStart != null && currentSearchStart.compareTo(end) > 0) {
-						// currentSearchStart = null; // Stop if past end address
-						// }
-					} else {
-						currentSearchStart = null; // No more matches found
+					Address initialSearchAddr;
+					try {
+						initialSearchAddr = calculateInitialSearchAddr(program, startAddr, cursorStr);
+					} catch (AddressOverflowException e) {
+						return new PaginatedResult<>(new ArrayList<>(), null);
 					}
+
+					List<SearchResult> foundItems;
+					try {
+						foundItems = performSearchLogic(program, initialSearchAddr, endAddr, searchValue, searchType, ex);
+					} catch (MemoryAccessException e) {
+						throw new RuntimeException("Memory access error during search: " + e.getMessage(), e);
+					}
+
+					boolean hasMore = foundItems.size() > DEFAULT_PAGE_LIMIT;
+					List<SearchResult> pageResults = foundItems.subList(0, Math.min(foundItems.size(), DEFAULT_PAGE_LIMIT));
+					String nextCursor = null;
+					if (hasMore && !pageResults.isEmpty()) {
+						nextCursor = pageResults.get(pageResults.size() - 1).address;
+					}
+
+					return new PaginatedResult<>(pageResults, nextCursor);
+				}));
+	}
+
+	private Address calculateInitialSearchAddr(ghidra.program.model.listing.Program program, Address startAddr,
+			String cursorStr)
+			throws AddressOverflowException, IllegalArgumentException {
+		if (cursorStr == null) {
+			return startAddr;
+		}
+		AddressFactory addrFactory = program.getAddressFactory();
+		Address cursorAddr = addrFactory.getAddress(cursorStr);
+		if (cursorAddr == null) {
+			throw new IllegalArgumentException("Invalid cursor format: " + cursorStr);
+		}
+		Address searchStartAddr = cursorAddr.addNoWrap(1);
+
+		if (searchStartAddr.compareTo(startAddr) < 0) {
+			searchStartAddr = startAddr;
+		}
+		return searchStartAddr;
+	}
+
+	private List<SearchResult> performSearchLogic(ghidra.program.model.listing.Program program, Address initialSearchAddr,
+			Address finalEndAddr, String searchValue, String searchType, McpAsyncServerExchange ex)
+			throws MemoryAccessException, IllegalArgumentException {
+
+		TaskMonitor monitor = new GhidraMcpTaskMonitor(ex, "Search Memory");
+		List<SearchResult> foundItems = new ArrayList<>();
+		Memory memory = program.getMemory();
+		Address currentAddr = initialSearchAddr;
+
+		if ("bytes".equals(searchType)) {
+			byte[] searchBytes = java.util.HexFormat.of().parseHex(searchValue);
+			while (currentAddr != null && currentAddr.compareTo(finalEndAddr) <= 0) {
+				Address foundAddr = memory.findBytes(currentAddr, searchBytes, null, true, monitor);
+				if (foundAddr == null || foundAddr.compareTo(finalEndAddr) > 0)
+					break;
+				foundItems.add(createSearchResult(memory, foundAddr));
+				if (foundItems.size() > DEFAULT_PAGE_LIMIT)
+					break;
+				try {
+					currentAddr = foundAddr.addNoWrap(1);
+				} catch (AddressOverflowException e) {
+					currentAddr = null;
 				}
-
-				// Limit results for pagination (do this *after* finding all matches within
-				// range for simplicity here)
-				List<String> limitedMatchStrings = matches.stream()
-						.sorted(Comparator.naturalOrder()) // Addresses are naturally comparable
-						// No need for dropWhile here as search started after cursor
-						.limit(DEFAULT_PAGE_LIMIT + 1)
-						.map(Address::toString)
-						.collect(Collectors.toList());
-
-				boolean hasMore = limitedMatchStrings.size() > DEFAULT_PAGE_LIMIT;
-				List<String> pageResults = limitedMatchStrings.subList(0,
-						Math.min(limitedMatchStrings.size(), DEFAULT_PAGE_LIMIT));
-
-				String nextCursor = null;
-				if (hasMore && !pageResults.isEmpty()) {
-					nextCursor = pageResults.get(pageResults.size() - 1);
+			}
+		} else if ("string".equals(searchType)) {
+			byte[] searchBytes = searchValue.getBytes(StandardCharsets.US_ASCII);
+			while (currentAddr != null && currentAddr.compareTo(finalEndAddr) <= 0) {
+				Address foundAddr = memory.findBytes(currentAddr, searchBytes, null, true, monitor);
+				if (foundAddr == null || foundAddr.compareTo(finalEndAddr) > 0)
+					break;
+				foundItems.add(createSearchResult(memory, foundAddr));
+				if (foundItems.size() > DEFAULT_PAGE_LIMIT)
+					break;
+				try {
+					currentAddr = foundAddr.addNoWrap(1);
+				} catch (AddressOverflowException e) {
+					currentAddr = null;
 				}
+			}
+		} else {
+			throw new IllegalArgumentException("Invalid searchType: " + searchType);
+		}
 
-				return new PaginatedResult<>(pageResults, nextCursor);
+		return foundItems;
+	}
 
-			}).flatMap(this::createSuccessResult) // Convert PaginatedResult to CallToolResult
-					.onErrorResume(e -> createErrorResult("Error during memory search: " + e.getMessage()));
-
-		}).onErrorResume(e -> createErrorResult(e)); // Handle program loading errors, etc.
+	private SearchResult createSearchResult(Memory memory, Address address) {
+		String addressStr = address.toString();
+		String previewStr = "<error reading preview>";
+		try {
+			byte[] previewBytes = new byte[PREVIEW_BYTES];
+			int bytesRead = memory.getBytes(address, previewBytes);
+			previewStr = java.util.HexFormat.of().formatHex(previewBytes, 0, bytesRead);
+		} catch (Exception e) {
+			// Ignore preview errors
+		}
+		return new SearchResult(addressStr, previewStr);
 	}
 }

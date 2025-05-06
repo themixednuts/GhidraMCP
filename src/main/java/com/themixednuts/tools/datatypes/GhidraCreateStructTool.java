@@ -1,7 +1,5 @@
 package com.themixednuts.tools.datatypes;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -9,12 +7,15 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
 
-import ghidra.program.model.data.*;
-import ghidra.util.Msg;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
@@ -27,33 +28,22 @@ import ghidra.framework.plugintool.PluginTool;
 @GhidraMcpTool(name = "Create Struct", category = ToolCategory.DATATYPES, description = "Creates a new struct data type.", mcpName = "create_struct", mcpDescription = "Defines a new struct data type, optionally pre-populated with members.")
 public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 
-	// Simple record to hold resolved member details
-	private record ResolvedStructMember(String name, DataType dataType, int size, Optional<Integer> offset,
-			String comment) {
+	public static final String ARG_MEMBERS = "members";
+
+	private record MemberDefinition(
+			String name,
+			DataType dataType,
+			Optional<Integer> sizeOpt, // Keep optional size if provided
+			Optional<Integer> offsetOpt,
+			Optional<String> commentOpt) {
 	}
 
-	public GhidraCreateStructTool() {
-	}
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
+	private record StructContext(
+			Program program,
+			CategoryPath categoryPath,
+			String structName,
+			String originalPath,
+			List<MemberDefinition> resolvedMembers) {
 	}
 
 	@Override
@@ -81,7 +71,7 @@ public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 				.property(ARG_SIZE,
 						JsonSchemaBuilder.integer(mapper)
 								.description(
-										"Optional explicit size for the member. If omitted, the default size of the member type is used.")
+										"Optional explicit size for the member in bytes. If omitted, the default size of the member type is used.")
 								.minimum(1))
 				.property(ARG_OFFSET,
 						JsonSchemaBuilder.integer(mapper)
@@ -94,8 +84,8 @@ public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 				.requiredProperty(ARG_NAME)
 				.requiredProperty(ARG_DATA_TYPE_PATH);
 
-		// Optional members array property
-		schemaRoot.property("members",
+		// Optional members array property using ARG_MEMBERS
+		schemaRoot.property(ARG_MEMBERS,
 				JsonSchemaBuilder.array(mapper)
 						.items(memberSchema)
 						.description("Optional list of members to add to the new struct."));
@@ -107,112 +97,111 @@ public class GhidraCreateStructTool implements IGhidraMcpSpecification {
 	}
 
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, resolve path, check existence, ensure category, resolve
-			// members
-			// Argument parsing errors caught by onErrorResume
-			String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
-			Optional<ArrayNode> membersOpt = getOptionalArrayNodeArgument(args, "members");
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // Synchronous setup and resolution
+					String structPathString = getRequiredStringArgument(args, ARG_STRUCT_PATH);
+					Optional<List<Map<String, Object>>> membersListOpt = getOptionalListArgument(args, ARG_MEMBERS);
 
-			CategoryPath categoryPath; // Not final here
-			final String structName; // Final for lambda
-			try {
-				CategoryPath fullPath = new CategoryPath(structPathString);
-				structName = fullPath.getName();
-				categoryPath = fullPath.getParent();
-				if (categoryPath == null) {
-					categoryPath = CategoryPath.ROOT; // Default to root if only name is given
-				}
-				if (structName.isBlank()) {
-					return createErrorResult("Invalid struct path: Name cannot be blank.");
-				}
-			} catch (IllegalArgumentException e) {
-				return createErrorResult("Invalid struct path format: " + structPathString);
-			}
-
-			final DataTypeManager dtm = program.getDataTypeManager(); // Final for lambda
-
-			// Check if data type already exists
-			if (dtm.getDataType(structPathString) != null) {
-				return createErrorResult("Data type already exists at path: " + structPathString);
-			}
-
-			// Resolve members (outside transaction)
-			final List<ResolvedStructMember> resolvedMembers = new ArrayList<>(); // Final for lambda
-			if (membersOpt.isPresent()) {
-				ArrayNode membersArray = membersOpt.get();
-				for (JsonNode memberNode : membersArray) {
-					if (!memberNode.isObject()) {
-						return createErrorResult("Invalid member definition: Expected an object.");
+					// Parse path
+					CategoryPath fullPath = new CategoryPath(structPathString);
+					CategoryPath categoryPath = fullPath.getParent(); // Can be null if root
+					String structName = fullPath.getName();
+					if (structName.isBlank()) {
+						throw new IllegalArgumentException("Invalid struct path: Name cannot be blank.");
 					}
-					String memberName = getRequiredStringArgument(memberNode, ARG_NAME);
-					String memberTypePath = getRequiredStringArgument(memberNode, ARG_DATA_TYPE_PATH);
-					Optional<Integer> memberSizeOpt = getOptionalIntArgument(memberNode, ARG_SIZE);
-					Optional<Integer> offsetOpt = getOptionalIntArgument(memberNode, ARG_OFFSET);
-					String comment = getOptionalStringArgument(memberNode, ARG_COMMENT).orElse(null);
-
-					DataType memberDataType = dtm.getDataType(memberTypePath);
-					if (memberDataType == null) {
-						return createErrorResult(
-								"Data type not found for member '" + memberName + "': " + memberTypePath);
+					// Ensure categoryPath is ROOT if parent was null
+					if (categoryPath == null) {
+						categoryPath = CategoryPath.ROOT;
 					}
 
-					int size = memberSizeOpt.orElse(memberDataType.getLength());
-					if (size <= 0) {
-						size = memberDataType.getLength(); // Try default again if explicit size was invalid
-						if (size <= 0) {
-							return createErrorResult("Cannot determine valid size for member '" + memberName
-									+ "' with type " + memberTypePath + ". Provide explicit size.");
+					DataTypeManager dtm = program.getDataTypeManager();
+
+					// Resolve members BEFORE transaction
+					List<MemberDefinition> resolvedMembers = new ArrayList<>();
+					if (membersListOpt.isPresent()) {
+						for (Map<String, Object> memberMap : membersListOpt.get()) {
+							String memberName = getRequiredStringArgument(memberMap, ARG_NAME);
+							String memberTypePath = getRequiredStringArgument(memberMap, ARG_DATA_TYPE_PATH);
+							Optional<Integer> memberSizeOpt = getOptionalIntArgument(memberMap, ARG_SIZE);
+							Optional<Integer> offsetOpt = getOptionalIntArgument(memberMap, ARG_OFFSET);
+							Optional<String> commentOpt = getOptionalStringArgument(memberMap, ARG_COMMENT);
+
+							// Use getDataType (non-deprecated)
+							DataType memberDataType = dtm.getDataType(memberTypePath);
+							if (memberDataType == null) {
+								throw new IllegalArgumentException(
+										"Data type not found for member '" + memberName + "': " + memberTypePath);
+							}
+
+							resolvedMembers
+									.add(new MemberDefinition(memberName, memberDataType, memberSizeOpt, offsetOpt, commentOpt));
 						}
 					}
-					resolvedMembers
-							.add(new ResolvedStructMember(memberName, memberDataType.clone(dtm), size, offsetOpt, comment));
-				}
-			}
 
-			// Ensure category exists (can be done outside tx)
-			dtm.createCategory(categoryPath);
+					// Return context for the transaction
+					return new StructContext(program, categoryPath, structName, structPathString, resolvedMembers);
 
-			// --- Execute modification in transaction ---
-			final String finalStructPathString = structPathString; // Capture for message
-			final CategoryPath finalCategoryPath = categoryPath; // Capture for lambda
-			return executeInTransaction(program, "MCP - Create Struct", () -> {
-				// Inner Callable logic:
-				// Create the new empty structure
-				StructureDataType newStruct = new StructureDataType(finalCategoryPath, structName, 0, dtm);
+				})
+				.flatMap(context -> { // Transactional part
+					return executeInTransaction(context.program(), "Create Struct " + context.structName(), () -> {
+						DataTypeManager dtm = context.program().getDataTypeManager();
 
-				// Add resolved members
-				for (ResolvedStructMember member : resolvedMembers) {
-					try {
-						if (member.offset().isPresent()) {
-							newStruct.insertAtOffset(member.offset().get(), member.dataType(), member.size(), member.name(),
-									member.comment());
+						// Check existence *inside* transaction
+						if (dtm.getDataType(context.categoryPath(), context.structName()) != null) {
+							throw new IllegalArgumentException(
+									"Struct already exists (checked in transaction): " + context.originalPath());
+						}
+
+						// Ensure category exists *inside* transaction
+						Category category = dtm.createCategory(context.categoryPath());
+						if (category == null) {
+							// This should ideally not happen if path was valid, but handle defensively
+							category = dtm.getCategory(context.categoryPath());
+							if (category == null) {
+								throw new RuntimeException(
+										"Failed to create or find category in transaction: " + context.categoryPath());
+							}
+						}
+
+						// Create the new empty structure in the correct category
+						StructureDataType newStruct = new StructureDataType(category.getCategoryPath(), context.structName(), 0,
+								dtm);
+
+						// Add resolved members
+						for (MemberDefinition member : context.resolvedMembers()) {
+							try {
+								// Determine size: Use explicit if valid, else default, else error
+								int size = member.sizeOpt().orElse(member.dataType().getLength());
+								if (size <= 0) {
+									// Default size didn't work, throw error
+									throw new IllegalArgumentException("Cannot determine valid size for member '" + member.name()
+											+ "' with type " + member.dataType().getPathName() + ". Provide explicit size.");
+								}
+
+								if (member.offsetOpt().isPresent()) {
+									newStruct.insertAtOffset(member.offsetOpt().get(), member.dataType(), size, member.name(),
+											member.commentOpt().orElse(null));
+								} else {
+									newStruct.add(member.dataType(), size, member.name(), member.commentOpt().orElse(null));
+								}
+							} catch (IllegalArgumentException e) {
+								// Re-throw with more context
+								throw new IllegalArgumentException(
+										"Failed to add member '" + member.name() + "' to struct: " + e.getMessage(), e);
+							}
+						}
+
+						// Add the new structure to the manager
+						DataType addedType = dtm.addDataType(newStruct, DataTypeConflictHandler.DEFAULT_HANDLER);
+
+						if (addedType instanceof Structure) {
+							return "Struct '" + context.originalPath() + "' created successfully.";
 						} else {
-							newStruct.add(member.dataType(), member.size(), member.name(), member.comment());
+							throw new RuntimeException(
+									"Failed to add struct '" + context.originalPath() + "' after creation (unexpected conflict?).");
 						}
-					} catch (IllegalArgumentException e) {
-						// Handle specific error from add/insert
-						return createErrorResult("Failed to add member '" + member.name() + "' to struct: " + e.getMessage());
-					}
-				}
-
-				// Add the new structure to the manager
-				DataType addedType = dtm.addDataType(newStruct, DataTypeConflictHandler.DEFAULT_HANDLER);
-
-				if (addedType != null) {
-					return createSuccessResult("Struct '" + finalStructPathString + "' created successfully.");
-				} else {
-					return createErrorResult(
-							"Failed to add struct '" + finalStructPathString + "' after creation (unexpected conflict?).");
-				}
-			}); // End of Callable for executeInTransaction
-
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+					}); // End executeInTransaction
+				}); // End flatMap
 	}
 }

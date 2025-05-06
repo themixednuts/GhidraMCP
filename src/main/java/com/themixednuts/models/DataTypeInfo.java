@@ -10,6 +10,9 @@ import ghidra.program.model.data.Union;
 import ghidra.program.model.data.Enum;
 import ghidra.program.model.data.TypeDef;
 import ghidra.program.model.data.Pointer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Utility class to hold relevant information about a Ghidra DataType for JSON
@@ -57,6 +60,10 @@ public class DataTypeInfo {
 	@JsonProperty("is_pointer")
 	private final boolean isPointer;
 
+	// New field for members (will be null if not applicable)
+	@JsonProperty("members")
+	private final List<?> members; // Use wildcard, specific type handled in constructor
+
 	public DataTypeInfo(DataType dataType) {
 		this.name = dataType.getName();
 		this.displayName = dataType.getDisplayName();
@@ -77,6 +84,22 @@ public class DataTypeInfo {
 		this.isEnum = dataType instanceof Enum;
 		this.isTypeDef = dataType instanceof TypeDef;
 		this.isPointer = dataType instanceof Pointer;
+
+		// Populate members if applicable
+		if (this.isStructure) {
+			// TODO: Populate with StructMemberInfo when created
+			this.members = null; // Placeholder
+		} else if (this.isUnion) {
+			Union unionDt = (Union) dataType;
+			this.members = Arrays.stream(unionDt.getDefinedComponents()) // Use getDefinedComponents
+					.map(UnionMemberInfo::new)
+					.collect(Collectors.toList());
+		} else if (this.isEnum) {
+			// TODO: Populate with EnumEntryInfo when created
+			this.members = null; // Placeholder
+		} else {
+			this.members = null;
+		}
 	}
 
 	// Getters
@@ -135,5 +158,10 @@ public class DataTypeInfo {
 
 	public boolean isPointer() {
 		return isPointer;
+	}
+
+	// Getter for members
+	public List<?> getMembers() {
+		return members;
 	}
 }

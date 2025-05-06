@@ -1,190 +1,134 @@
 package com.themixednuts.tools.datatypes;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IArraySchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.EnumDataType;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import ghidra.util.Msg;
-import ghidra.program.model.data.*;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpName = "create_enum", mcpDescription = "Defines a new enum data type, optionally pre-populated with entries.")
+@GhidraMcpTool(name = "Create Enum", category = ToolCategory.DATATYPES, description = "Creates a new enumeration data type.", mcpName = "create_enum", mcpDescription = "Create a new enum data type, optionally defining initial entries.")
 public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
-	private record ResolvedEnumEntry(String name, long value, String comment) {
-	}
-
-	@Override
-	public AsyncToolSpecification specification(PluginTool tool) {
-		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-		if (annotation == null) {
-			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
-			return null;
-		}
-
-		JsonSchema schemaObject = schema();
-		Optional<String> schemaStringOpt = schemaObject.toJsonString(mapper);
-		if (schemaStringOpt.isEmpty()) {
-			Msg.error(this, "Failed to serialize schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
-			return null;
-		}
-		String schemaJson = schemaStringOpt.get();
-
-		return new AsyncToolSpecification(
-				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
-				(ex, args) -> execute(ex, args, tool));
-	}
+	public static final String ARG_ENTRIES = "entries";
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target"));
-
-		schemaRoot.property(ARG_ENUM_PATH,
-				JsonSchemaBuilder.string(mapper)
-						.description("The full path for the new enum (e.g., /MyCategory/MyEnum)"));
-
-		schemaRoot.property(ARG_SIZE,
-				JsonSchemaBuilder.integer(mapper)
-						.description("The size of the enum in bytes (1, 2, 4, or 8)."));
+		schemaRoot.property(ARG_FILE_NAME, JsonSchemaBuilder.string(mapper).description("The name of the program file."));
+		schemaRoot.property(ARG_ENUM_PATH, JsonSchemaBuilder.string(mapper)
+				.description("Full category path and name for the new enum (e.g., '/MyEnums/StatusCodes')."));
+		schemaRoot.property(ARG_SIZE, JsonSchemaBuilder.integer(mapper)
+				.description("Size of the enum in bytes. Must be 1, 2, 4, or 8."));
 
 		IObjectSchemaBuilder entrySchema = JsonSchemaBuilder.object(mapper)
-				.description("Definition for a single enum entry.")
-				.property(ARG_NAME,
-						JsonSchemaBuilder.string(mapper)
-								.description("Name for the enum entry."))
-				.property(ARG_VALUE,
-						JsonSchemaBuilder.integer(mapper)
-								.description("Integer value for the enum entry."))
-				.property(ARG_COMMENT,
-						JsonSchemaBuilder.string(mapper)
-								.description("Optional comment for the enum entry."))
+				.property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Name of the enum entry."))
+				.property(ARG_VALUE, JsonSchemaBuilder.integer(mapper)
+						.description("Value of the enum entry (long)."))
 				.requiredProperty(ARG_NAME)
 				.requiredProperty(ARG_VALUE);
 
-		IArraySchemaBuilder entriesArraySchema = JsonSchemaBuilder.array(mapper)
-				.items(entrySchema)
-				.minItems(1)
-				.description("Optional list of entries (name/value pairs) for the enum.");
-
-		schemaRoot.property("entries", entriesArraySchema);
+		schemaRoot.property(ARG_ENTRIES, JsonSchemaBuilder.array(mapper)
+				.description("Optional array of initial enum entries.")
+				.items(entrySchema));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty(ARG_ENUM_PATH)
-				.requiredProperty(ARG_SIZE); // entries is optional
+				.requiredProperty(ARG_SIZE);
 
 		return schemaRoot.build();
 	}
 
+	private static record EnumCreationContext(Program program, CategoryPath categoryPath, String enumName, int enumSize,
+			Optional<List<Map<String, Object>>> entries) {
+	}
+
 	@Override
-	public Mono<CallToolResult> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).flatMap(program -> {
-			// Setup: Parse args, validate, resolve path, check existence, ensure category,
-			// resolve entries
-			// Argument parsing errors caught by onErrorResume
-			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
-			final Integer enumSizeInt = getRequiredIntArgument(args, ARG_SIZE); // Final for lambda
-			Optional<ArrayNode> entriesOpt = getOptionalArrayNodeArgument(args, "entries");
+	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return getProgram(args, tool)
+				.map(program -> { // .map for synchronous setup
+					String enumPathStr = getRequiredStringArgument(args, ARG_ENUM_PATH);
+					int enumSize = getRequiredIntArgument(args, ARG_SIZE);
+					Optional<List<Map<String, Object>>> entriesOpt = getOptionalListArgument(args, ARG_ENTRIES);
 
-			// Validate size
-			final int enumSize = enumSizeInt.intValue(); // Final for lambda
-			if (enumSize != 1 && enumSize != 2 && enumSize != 4 && enumSize != 8) {
-				return createErrorResult("Invalid enumSize: Must be 1, 2, 4, or 8.");
-			}
-
-			CategoryPath categoryPath; // Not final here
-			final String enumName; // Final for lambda
-			try {
-				CategoryPath fullPath = new CategoryPath(enumPathString);
-				enumName = fullPath.getName();
-				categoryPath = fullPath.getParent();
-				if (categoryPath == null) {
-					categoryPath = CategoryPath.ROOT;
-				}
-				if (enumName.isBlank()) {
-					return createErrorResult("Invalid enum path: Name cannot be blank.");
-				}
-			} catch (IllegalArgumentException e) {
-				return createErrorResult("Invalid enum path format: " + enumPathString);
-			}
-
-			final DataTypeManager dtm = program.getDataTypeManager(); // Final for lambda
-
-			// Check if data type already exists
-			if (dtm.getDataType(enumPathString) != null) {
-				return createErrorResult("Data type already exists at path: " + enumPathString);
-			}
-
-			// Resolve entries (outside transaction)
-			final List<ResolvedEnumEntry> resolvedEntries = new ArrayList<>(); // Final for lambda
-			if (entriesOpt.isPresent()) {
-				ArrayNode entriesArray = entriesOpt.get();
-				for (JsonNode entryNode : entriesArray) {
-					if (!entryNode.isObject()) {
-						return createErrorResult("Invalid entry definition: Expected an object.");
+					if (enumSize != 1 && enumSize != 2 && enumSize != 4 && enumSize != 8) {
+						throw new IllegalArgumentException("Invalid enumSize: Must be 1, 2, 4, or 8.");
 					}
-					String entryName = getRequiredStringArgument(entryNode, ARG_NAME);
-					Long entryValue = getRequiredLongArgument(entryNode, ARG_VALUE);
-					String entryComment = getOptionalStringArgument(entryNode, ARG_COMMENT).orElse(null);
-					resolvedEntries.add(new ResolvedEnumEntry(entryName, entryValue, entryComment));
-				}
-			}
 
-			// Ensure category exists (can be done outside tx)
-			dtm.createCategory(categoryPath);
+					CategoryPath fullPath = new CategoryPath(enumPathStr); // Create once
+					CategoryPath catPath = fullPath.getParent();
+					String enumName = fullPath.getName();
 
-			// --- Execute modification in transaction ---
-			final String finalEnumPathString = enumPathString; // Capture for message
-			final CategoryPath finalCategoryPath = categoryPath; // Capture for lambda
-			return executeInTransaction(program, "MCP - Create Enum", () -> {
-				// Inner Callable logic:
-				// Create the new enum
-				EnumDataType newEnum = new EnumDataType(finalCategoryPath, enumName, enumSize, dtm);
+					if (enumName.isBlank()) {
+						throw new IllegalArgumentException("Enum name cannot be blank in path: " + enumPathStr);
+					}
 
-				// Add resolved entries
-				for (ResolvedEnumEntry entry : resolvedEntries) {
-					// EnumDataType.add handles replacing entries with same name OR value
-					// No specific exception needs to be caught here usually
-					newEnum.add(entry.name(), entry.value(), entry.comment());
-				}
+					if (catPath == null) { // Handle root category
+						catPath = CategoryPath.ROOT;
+					}
 
-				// Add the populated enum to the manager
-				DataType addedType = dtm.addDataType(newEnum, DataTypeConflictHandler.DEFAULT_HANDLER);
+					// Don't check existence here
+					return new EnumCreationContext(program, catPath, enumName, enumSize, entriesOpt);
+				})
+				.flatMap(context -> { // .flatMap for transaction
+					return executeInTransaction(context.program(), "Create Enum " + context.enumName(), () -> {
+						DataTypeManager dtm = context.program().getDataTypeManager();
 
-				if (addedType != null) {
-					// Return success
-					return createSuccessResult("Enum '" + finalEnumPathString + "' created successfully.");
-				} else {
-					// This might indicate an unexpected conflict despite pre-check
-					return createErrorResult(
-							"Failed to add enum '" + finalEnumPathString + "' after creation (unexpected conflict?).");
-				}
-			}); // End of Callable for executeInTransaction
+						// Check existence *inside* transaction
+						if (dtm.getDataType(context.categoryPath(), context.enumName()) != null) {
+							throw new IllegalArgumentException(
+									"Enum already exists (checked in transaction): " + context.categoryPath().getPath() + "/"
+											+ context.enumName());
+						}
 
-		}).onErrorResume(e -> {
-			// Catch errors from getProgram, setup (incl. arg parsing), or transaction
-			// execution
-			// Logging handled by createErrorResult
-			return createErrorResult(e);
-		});
+						// Ensure category exists *inside* transaction
+						Category category = dtm.createCategory(context.categoryPath());
+						if (category == null) {
+							category = dtm.getCategory(context.categoryPath()); // Retry get if create failed
+							if (category == null) {
+								throw new RuntimeException(
+										"Failed to create or find category in transaction: " + context.categoryPath());
+							}
+						}
+
+						// Create the enum using the correct category path
+						EnumDataType newEnum = new EnumDataType(category.getCategoryPath(), context.enumName(), context.enumSize(),
+								dtm);
+
+						// Add initial entries if present
+						if (context.entries().isPresent()) {
+							for (Map<String, Object> entryMap : context.entries().get()) {
+								String entryName = getRequiredStringArgument(entryMap, ARG_NAME);
+								long entryValue = getRequiredLongArgument(entryMap, ARG_VALUE);
+								newEnum.add(entryName, entryValue);
+							}
+						}
+
+						// Add the new enum to the manager using default conflict handler
+						EnumDataType resolvedEnum = (EnumDataType) dtm.addDataType(newEnum,
+								DataTypeConflictHandler.DEFAULT_HANDLER);
+						if (resolvedEnum == null) {
+							// This case might indicate a name collision that wasn't caught or other DTM
+							// issue
+							throw new RuntimeException("Failed to add enum to data type manager: " + newEnum.getPathName());
+						}
+
+						return "Enum created successfully: " + resolvedEnum.getPathName();
+					});
+				});
 	}
 }
