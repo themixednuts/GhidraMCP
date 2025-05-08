@@ -1,86 +1,91 @@
 package com.themixednuts.tools.datatypes;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.CategoryInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Categories", category = ToolCategory.DATATYPES, description = "Lists all category paths in the Data Type Manager.", mcpName = "list_categories", mcpDescription = "Returns a list of all defined category paths (folders) in the Data Type Manager.")
+@GhidraMcpTool(name = "List Categories", category = ToolCategory.DATATYPES, description = "Lists data type categories within a program, with optional filtering.", mcpName = "list_categories", mcpDescription = "Lists data type categories, optionally filtering by path and name fragment.")
 public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
+
+	protected static final String ARG_RECURSIVE = "recursive";
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.property(ARG_CATEGORY_PATH,
-				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional: The root category path to start listing from (e.g., '/windows'). Defaults to the root '/'."));
-
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
+						.description("The file name of the Ghidra tool window to target."))
+				.property(ARG_PATH,
+						JsonSchemaBuilder.string(mapper)
+								.description(
+										"Optional category path to start listing from (e.g., '/MyCategory'). Defaults to the root ('/').")
+								.pattern("^/.*")
+								.defaultValue("/"),
+						true)
+				.property(ARG_FILTER,
+						JsonSchemaBuilder.string(mapper)
+								.description("Optional case-insensitive substring filter to apply to category names."))
+				.description(
+						"Lists data type categories under an optional path, optionally filtered by name.");
 
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).map(program -> {
-			DataTypeManager dtm = program.getDataTypeManager();
-			String rootPathString = getOptionalStringArgument(args, ARG_CATEGORY_PATH).orElse("/");
-			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
-			final int limit = IGhidraMcpSpecification.DEFAULT_PAGE_LIMIT;
-			final String finalCursor = cursor;
+		return getProgram(args, tool)
+				.flatMap(program -> {
+					Optional<String> pathOpt = getOptionalStringArgument(args, ARG_PATH);
+					Optional<String> filterOpt = getOptionalStringArgument(args, ARG_FILTER);
 
-			Category rootCategory = dtm.getCategory(new CategoryPath(rootPathString));
-			if (rootCategory == null) {
-				throw new IllegalArgumentException("Root category not found: " + rootPathString);
-			}
-
-			List<Category> allCategories = new ArrayList<>();
-			collectCategoriesRecursive(rootCategory, allCategories);
-
-			List<CategoryInfo> limitedCategories = allCategories.stream()
-					.map(cat -> new CategoryInfo(cat.getCategoryPath().getPath()))
-					.sorted(Comparator.comparing(info -> info.path))
-					.dropWhile(info -> finalCursor != null && info.path.compareTo(finalCursor) <= 0)
-					.limit((long) limit + 1)
-					.collect(Collectors.toList());
-
-			boolean hasMore = limitedCategories.size() > limit;
-			List<CategoryInfo> pageResults = limitedCategories.subList(0, Math.min(limitedCategories.size(), limit));
-
-			String nextCursor = null;
-			if (hasMore && !pageResults.isEmpty()) {
-				nextCursor = pageResults.get(pageResults.size() - 1).path;
-			}
-
-			return new PaginatedResult<>(pageResults, nextCursor);
-		});
+					return Mono.fromCallable(() -> listCategoriesInternal(program, pathOpt, filterOpt));
+				});
 	}
 
-	private static void collectCategoriesRecursive(Category category, List<Category> collected) {
-		collected.add(category); // Add the category itself
-		for (Category subCategory : category.getCategories()) {
-			collectCategoriesRecursive(subCategory, collected);
+	private List<CategoryInfo> listCategoriesInternal(Program program, Optional<String> pathOpt,
+			Optional<String> filterOpt) {
+		DataTypeManager dtm = program.getDataTypeManager();
+		CategoryPath categoryPath = pathOpt.map(CategoryPath::new).orElse(CategoryPath.ROOT);
+		Category startCategory = dtm.getCategory(categoryPath);
+
+		if (startCategory == null) {
+			throw new IllegalArgumentException("Specified category path not found: " + pathOpt.orElse("/"));
+		}
+
+		List<CategoryInfo> categories = new ArrayList<>();
+		String filterLower = filterOpt.map(String::toLowerCase).orElse(null);
+
+		collectCategories(startCategory, filterLower, categories);
+
+		return categories.stream()
+				.sorted((c1, c2) -> c1.path.compareToIgnoreCase(c2.path))
+				.collect(Collectors.toList());
+	}
+
+	private void collectCategories(Category currentCategory, String filterLower, List<CategoryInfo> collectedCategories) {
+		for (Category child : currentCategory.getCategories()) {
+			if (filterLower == null || child.getName().toLowerCase().contains(filterLower)) {
+				collectedCategories.add(new CategoryInfo(child.getCategoryPath().getPath()));
+			}
 		}
 	}
 }

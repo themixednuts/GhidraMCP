@@ -106,7 +106,7 @@ public class GhidraMcpServer {
 
 					// Create MCP Server Logic
 					mcpAsyncServer = McpServer.async(transportProvider)
-							.serverInfo("ghidra-mcp", "1.0.0")
+							.serverInfo("ghidra-mcp", "0.1.0")
 							.capabilities(ServerCapabilities.builder()
 									.tools(true)
 									.logging()
@@ -149,6 +149,7 @@ public class GhidraMcpServer {
 			ServerConnector connector = new ServerConnector(jettyServer);
 			connector.setPort(port);
 			connector.setHost("127.0.0.1"); // Bind to localhost only for security
+			connector.setIdleTimeout(3600000); // Set idle timeout to 1 hour (3600000 ms)
 			jettyServer.addConnector(connector);
 
 			// Configure Servlet Handler
@@ -157,7 +158,7 @@ public class GhidraMcpServer {
 			// Use the transportProvider created in the start() method
 			// Ensure transportProvider is not null before using it
 			if (transportProvider == null) {
-				throw new IllegalStateException("MCP Transport Provider is null during Jetty startup.");
+				throw new IllegalStateException("MCP Transport Provider is null during MCP Server startup.");
 			}
 			// HttpServletSseServerTransportProvider likely acts as a servlet
 			context.addServlet(new ServletHolder(transportProvider), MCP_PATH_SPEC);
@@ -165,10 +166,10 @@ public class GhidraMcpServer {
 
 			// Start Jetty
 			jettyServer.start();
-			Msg.info(GhidraMcpServer.class, "Jetty server started successfully at http://127.0.0.1:" + port + "/");
+			Msg.info(GhidraMcpServer.class, "MCP Server started successfully at http://127.0.0.1:" + port + "/");
 
 		} catch (Exception e) {
-			Msg.error(GhidraMcpServer.class, "Failed to start Jetty server on port " + port + ": " + e.getMessage(), e);
+			Msg.error(GhidraMcpServer.class, "Failed to start MCP Server on port " + port + ": " + e.getMessage(), e);
 			// Ensure resources are cleaned up if Jetty fails to start
 			cleanUpResources();
 		}
@@ -182,12 +183,12 @@ public class GhidraMcpServer {
 	 * @param port The new port number for the Jetty server.
 	 */
 	public static void restartJettyServer(int port) {
-		Msg.info(GhidraMcpServer.class, "Restarting Jetty server on port " + port + "...");
+		Msg.info(GhidraMcpServer.class, "Restarting MCP Server on port " + port + "...");
 		if (jettyServer != null) {
 			try {
 				jettyServer.stop();
 			} catch (Exception e) {
-				Msg.error(GhidraMcpServer.class, "Failed to stop existing Jetty server during restart: " + e.getMessage(), e);
+				Msg.error(GhidraMcpServer.class, "Failed to stop existing MCP Server during restart: " + e.getMessage(), e);
 				// Attempt to continue starting the new server anyway, but log the error.
 				cleanUpResources(); // Ensure resources are cleaned if stop failed badly
 			}

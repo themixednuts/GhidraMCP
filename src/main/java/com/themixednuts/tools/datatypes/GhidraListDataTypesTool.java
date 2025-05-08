@@ -1,154 +1,150 @@
 package com.themixednuts.tools.datatypes;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.Stream;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.models.DataTypeInfo;
+import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.tools.ToolCategory;
 
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
-import ghidra.program.model.data.CategoryPath;
-import ghidra.program.model.data.FunctionDefinition;
-import ghidra.program.model.data.Pointer;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.data.Structure;
-import ghidra.program.model.data.TypeDef;
 import ghidra.program.model.data.Union;
+import ghidra.program.model.data.TypeDef;
+import ghidra.program.model.data.FunctionDefinition;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Data Types", category = ToolCategory.DATATYPES, description = "Lists all data types, optionally filtered by category and/or type.", mcpName = "list_data_types", mcpDescription = "Returns a paginated list of all data types, optionally filtered by category path and/or data type kind.")
+@GhidraMcpTool(name = "List DataTypes", category = ToolCategory.DATATYPES, description = "Lists data types within a program, with optional filtering by category path, name fragment, and specific data type kind.", mcpName = "list_data_types", mcpDescription = "Lists data types, optionally filtering by category path, name fragment, and specific data type kind.")
 public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 
-	public static final String ARG_TYPE_FILTER = "typeFilter";
+	protected static final String ARG_RECURSIVE = "recursive";
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.property(ARG_CATEGORY_PATH,
-				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional category path to filter data types (e.g., '/ClassDataTypes/Aws'). Must start with '/'.")
-						.pattern("^/.*"));
-		schemaRoot.property(ARG_TYPE_FILTER,
-				JsonSchemaBuilder.string(mapper)
-						.description("Optional type to filter data types by.")
-						.enumValues("structure", "union", "enum", "typedef", "pointer", "function_definition",
-								"basic"));
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
+						.description("The file name of the Ghidra tool window to target."))
+				.property(ARG_PATH,
+						JsonSchemaBuilder.string(mapper)
+								.description(
+										"Optional category path to search within data types (e.g., '/MyCategory'). Defaults to the root data type manager tree ('/').")
+								.pattern("^/.*")
+								.defaultValue("/"),
+						true)
+				.property(ARG_FILTER,
+						JsonSchemaBuilder.string(mapper)
+								.description("Optional case-insensitive substring filter to apply to data type names."))
+				.property(ARG_DATA_TYPE,
+						JsonSchemaBuilder.string(mapper)
+								.description(
+										"Optional specific kind of data type to filter by (e.g., STRUCT, ENUM). If omitted, all data types matching other criteria are listed.")
+								.enumValues(Arrays.stream(DataTypeKind.values())
+										.filter(dk -> dk != DataTypeKind.CATEGORY) // Exclude CATEGORY from this tool's options
+										.map(Enum::name)
+										.collect(Collectors.toList())))
+				.description(
+						"Lists data types under an optional category path, optionally filtered by name and type.");
+
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).map(program -> {
-			DataTypeManager dtm = program.getDataTypeManager();
-			String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
-			final String finalCursor = cursor;
-			Optional<String> categoryPathOpt = getOptionalStringArgument(args, ARG_CATEGORY_PATH);
-			Optional<String> typeFilterOpt = getOptionalStringArgument(args, ARG_TYPE_FILTER);
+		return getProgram(args, tool)
+				.flatMap(program -> {
+					Optional<CategoryPath> pathOpt = getOptionalStringArgument(args, ARG_PATH).map(CategoryPath::new);
+					Optional<String> filterOpt = getOptionalStringArgument(args, ARG_FILTER).map(String::toLowerCase);
+					Optional<DataTypeKind> dataTypeKind = getOptionalStringArgument(args, ARG_DATA_TYPE)
+							.map(DataTypeKind::valueOf);
+					Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-			Stream<DataType> dataTypeStream = StreamSupport
-					.stream(Spliterators.spliteratorUnknownSize(dtm.getAllDataTypes(), Spliterator.ORDERED), false);
-
-			// Apply category filter if provided
-			if (categoryPathOpt.isPresent() && !categoryPathOpt.get().isBlank()) {
-				String categoryPathStr = categoryPathOpt.get().trim();
-				// Ensure the path is absolute and normalized (e.g., starts with / and ends
-				// without / unless it's the root)
-				CategoryPath filterPath = new CategoryPath(categoryPathStr);
-				// Manually check if the path starts with '/'
-				if (!filterPath.getPath().startsWith("/")) {
-					throw new IllegalArgumentException("Category path must be absolute (start with '/'): " + categoryPathStr);
-				}
-				// Check if the category actually exists (optional, but good practice)
-				if (dtm.getCategory(filterPath) == null) {
-					throw new IllegalArgumentException("Category not found: " + filterPath.getPath());
-				}
-				final String normalizedFilterPath = filterPath.getPath(); // Use normalized path for comparison
-
-				dataTypeStream = dataTypeStream.filter(dt -> {
-					CategoryPath dtPath = dt.getCategoryPath();
-					// Check if the data type's category path starts with the filter path
-					// (allowing for subcategories)
-					return dtPath != null && dtPath.getPath().startsWith(normalizedFilterPath);
+					return Mono.fromCallable(
+							() -> listDataTypesInternal(program, pathOpt, filterOpt, dataTypeKind, cursorOpt));
 				});
-			}
-
-			// Apply type filter if provided
-			if (typeFilterOpt.isPresent() && !typeFilterOpt.get().isBlank()) {
-				String typeFilter = typeFilterOpt.get().trim().toLowerCase();
-				dataTypeStream = dataTypeStream.filter(dt -> {
-					switch (typeFilter) {
-						case "structure":
-							return dt instanceof Structure;
-						case "union":
-							return dt instanceof Union;
-						case "enum":
-							// ghidra.program.model.data.Enum is the class for enums
-							return dt instanceof ghidra.program.model.data.Enum;
-						case "typedef":
-							return dt instanceof TypeDef;
-						case "pointer":
-							return dt instanceof Pointer;
-						case "function_definition":
-							return dt instanceof FunctionDefinition;
-						case "basic":
-							// Basic types are not instances of the complex types above
-							// and not undefined.
-							return !(dt instanceof Structure || dt instanceof Union ||
-									dt instanceof ghidra.program.model.data.Enum || dt instanceof TypeDef ||
-									dt instanceof Pointer || dt instanceof FunctionDefinition)
-									&& !dt.isNotYetDefined(); // Exclude 'undefined' types
-						default:
-							// If an unknown filter value is provided, it's an error,
-							// but schema validation should catch this.
-							// For safety, returning false will effectively show no results for an
-							// invalid filter.
-							// Consider throwing an IllegalArgumentException here if strictness is
-							// desired,
-							// though schema validation should ideally prevent this.
-							return false;
-					}
-				});
-			}
-
-			List<DataTypeInfo> limitedDataTypes = dataTypeStream
-					.sorted(Comparator.comparing(DataType::getPathName))
-					.dropWhile(dt -> finalCursor != null && dt.getPathName().compareTo(finalCursor) <= 0)
-					.limit(DEFAULT_PAGE_LIMIT + 1)
-					.map(DataTypeInfo::new)
-					.collect(Collectors.toList());
-
-			boolean hasMore = limitedDataTypes.size() > DEFAULT_PAGE_LIMIT;
-			List<DataTypeInfo> pageResults = limitedDataTypes.subList(0,
-					Math.min(limitedDataTypes.size(), DEFAULT_PAGE_LIMIT));
-
-			String nextCursor = null;
-			if (hasMore && !pageResults.isEmpty()) {
-				nextCursor = pageResults.get(pageResults.size() - 1).getPathName();
-			}
-
-			return new PaginatedResult<>(pageResults, nextCursor);
-
-		});
 	}
 
+	private PaginatedResult<DataTypeInfo> listDataTypesInternal(Program program, Optional<CategoryPath> pathOpt,
+			Optional<String> filterOpt, Optional<DataTypeKind> dataTypeKind, Optional<String> cursorOpt) {
+
+		DataTypeManager dtm = program.getDataTypeManager();
+		List<DataType> candidateDataTypes = new ArrayList<>();
+
+		if (filterOpt.isPresent()) {
+			dtm.findDataTypes(filterOpt.get(), candidateDataTypes);
+		} else if (pathOpt.isPresent() && dtm.containsCategory(pathOpt.get())) {
+			Arrays.stream(dtm.getCategory(pathOpt.get()).getDataTypes()).forEach(candidateDataTypes::add);
+		} else {
+			dtm.getAllDataTypes(candidateDataTypes);
+		}
+
+		// Apply data type kind filter (if any)
+		if (dataTypeKind.isPresent()) {
+			DataTypeKind typeFilter = dataTypeKind.get();
+			candidateDataTypes.removeIf(dt -> {
+				boolean matches;
+				switch (typeFilter) {
+					case STRUCT:
+						matches = dt instanceof Structure;
+						break;
+					case UNION:
+						matches = dt instanceof Union;
+						break;
+					case ENUM:
+						matches = dt instanceof ghidra.program.model.data.Enum;
+						break;
+					case TYPEDEF:
+						matches = dt instanceof TypeDef;
+						break;
+					case FUNCTION_DEFINITION:
+						matches = dt instanceof FunctionDefinition;
+						break;
+					case OTHER:
+						matches = !(dt instanceof Structure || dt instanceof Union ||
+								dt instanceof ghidra.program.model.data.Enum || dt instanceof TypeDef ||
+								dt instanceof FunctionDefinition || dt.isNotYetDefined());
+						break;
+					default:
+						matches = false; // Should not be reached
+				}
+				return !matches; // removeIf removes if true (i.e., if it !matches)
+			});
+		}
+
+		List<DataTypeInfo> dataTypes = candidateDataTypes.stream()
+				.sorted((d1, d2) -> d1.getPathName().compareToIgnoreCase(d2.getPathName()))
+				.dropWhile(dt -> !cursorOpt.map(c -> c.equals(dt.getPathName())).orElse(false))
+				.limit(DEFAULT_PAGE_LIMIT + 1)
+				.map(DataTypeInfo::new)
+				.collect(Collectors.toList());
+
+		boolean hasMore = dataTypes.size() > DEFAULT_PAGE_LIMIT;
+		if (hasMore) {
+			dataTypes = dataTypes.subList(0, Math.min(dataTypes.size(), DEFAULT_PAGE_LIMIT));
+		}
+
+		String nextCursor = null;
+		if (hasMore && !dataTypes.isEmpty()) {
+			nextCursor = dataTypes.get(dataTypes.size() - 1).getPathName();
+		}
+
+		return new PaginatedResult<>(dataTypes, nextCursor);
+
+	}
 }

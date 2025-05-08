@@ -1,45 +1,16 @@
 package com.themixednuts.tools.grouped;
 
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.utils.jsonschema.JsonSchema;
-
-import ghidra.framework.plugintool.PluginTool;
-import io.modelcontextprotocol.server.McpAsyncServerExchange;
-import reactor.core.publisher.Mono;
-
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(name = "Grouped Memory Operations", category = ToolCategory.GROUPED, description = "Performs multiple related memory operations.", mcpName = "grouped_memory_operations", mcpDescription = "Accepts a list of memory operations to perform as a group.")
-public class GroupedMemoryOperationsTool implements IGhidraMcpSpecification, IGroupedTool {
-	private static final ToolCategory TARGET_CATEGORY = ToolCategory.MEMORY;
+@GhidraMcpTool(name = "Grouped Memory", description = "Performs multiple related memory operations using enabled granular tools.", mcpName = "grouped_memory", mcpDescription = "Accepts a list of enabled memory operations to perform as a group.", category = ToolCategory.GROUPED)
+public class GroupedMemoryOperationsTool implements IGroupedTool {
 
-	private final List<Class<? extends IGhidraMcpSpecification>> granularToolClasses = IGroupedTool
-			.getGranularToolClasses(TARGET_CATEGORY.getCategoryName());
-
-	private final Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = this.granularToolClasses.stream()
-			.filter(clazz -> clazz.getAnnotation(GhidraMcpTool.class) != null)
-			.collect(Collectors.toMap(
-					clazz -> clazz.getAnnotation(GhidraMcpTool.class).mcpName(),
-					clazz -> clazz,
-					(existing, replacement) -> existing));
+	protected static final ToolCategory TARGET_CATEGORY = ToolCategory.MEMORY;
 
 	@Override
-	public JsonSchema schema() {
-		return getGroupedSchema(TARGET_CATEGORY);
+	public ToolCategory getTargetCategory() {
+		return TARGET_CATEGORY;
 	}
 
-	@Override
-	public Map<String, Class<? extends IGhidraMcpSpecification>> getToolClassMap() {
-		return this.toolClassMap;
-	}
-
-	@Override
-	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return this.executeGroupedOperations(ex, args, tool);
-	}
 }

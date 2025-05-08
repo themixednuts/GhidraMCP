@@ -77,6 +77,7 @@ public interface IGhidraMcpSpecification {
 	public static final String ARG_TYPEDEF_PATH = "typedefPath";
 	public static final String ARG_FUNC_DEF_PATH = "functionDefinitionPath";
 	public static final String ARG_FILTER = "filter";
+	public static final String ARG_DATA_TYPE = "dataType";
 
 	// ===================================================================================
 	// Core Interface Methods
@@ -183,8 +184,8 @@ public interface IGhidraMcpSpecification {
 	 *         be
 	 *         committed.
 	 */
-	default Mono<Object> executeInTransaction(Program program, String transactionName,
-			Callable<Object> work) {
+	default Mono<? extends Object> executeInTransaction(Program program, String transactionName,
+			Callable<? extends Object> work) {
 		return Mono.fromCallable(() -> {
 
 			Object rawResultOrErrorSignal = Swing.runNow(() -> {

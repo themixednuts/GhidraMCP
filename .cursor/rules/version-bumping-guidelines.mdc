@@ -1,0 +1,96 @@
+---
+description: Version Bump
+globs: 
+alwaysApply: false
+---
+# Version Bumping Guidelines
+
+This document outlines the process for versioning and releasing new versions of GhidraMCP.
+
+## 1. Changelog Management
+
+*   **File:** Maintain a `CHANGELOG.md` file in the root of the project. If it doesn't exist, create one.
+*   **Format:** Follow the "Keep a Changelog" format (see [keepachangelog.com](mdc:https:/keepachangelog.com/en/1.0.0)).
+*   **Process:**
+    *   Before any release, update the `[Unreleased]` section of `CHANGELOG.md`.
+    *   When releasing, rename the `[Unreleased]` section to the new version (e.g., `[1.2.3] - YYYY-MM-DD`).
+    *   Add a new `[Unreleased]` section at the top for future changes.
+    *   Categorize changes under: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
+
+## 2. Version Numbering (GhidraMCP Custom Scheme)
+
+We use a `MAJOR.MINOR.PATCH` versioning scheme (e.g., `0.1.0`). This scheme is adapted for the project's needs and differs from strict Semantic Versioning (SemVer).
+
+*   **MAJOR (`X`.y.z): Project Evolution**
+    *   Increment for fundamental evolutionary changes to the project. This includes:
+        *   Significant shifts in the project's architecture or core philosophy.
+        *   Holistic changes that redefine major parts of GhidraMCP.
+    *   *This is NOT for every breaking API change. A breaking change alone usually falls under a MINOR version bump in our scheme.*
+
+*   **MINOR (x.`Y`.z): Significant Changes & Breaking API Updates**
+    *   Increment for:
+        *   **Breaking API changes.** This is our equivalent to a SemVer MAJOR bump. Any change to the HTTP API (tool names, input/output schemas, core server behavior) that is not backward-compatible.
+        *   **New significant features or capabilities** added in a backward-compatible manner.
+        *   Substantial improvements to existing features.
+    *   *All breaking changes MUST be clearly documented in the changelog.*
+
+*   **PATCH (x.y.`Z`): Fixes & Minor Enhancements**
+    *   Increment for:
+        *   **Backward-compatible bug fixes.**
+        *   **Smaller backward-compatible new features or enhancements** that don't warrant a MINOR version bump (e.g., adding a new non-critical, optional parameter to a tool, minor UI polishes if applicable).
+        *   Minor performance improvements or refactorings that are backward-compatible.
+        *   Documentation updates or other non-code changes bundled with a release.
+
+## 3. Updating Version References
+
+The primary location for the project version is the `pom.xml` file.
+
+*   **`pom.xml`:**
+    *   Update the `<version>` tag within the main `<project>` section.
+    *   Example: `<version>0.1.0</version>` -> `<version>0.2.0</version>`
+*   **`src/main/java/com/themixednuts/GhidraMcpServer.java`:**
+    *   Update the version string in the `.serverInfo()` call.
+    *   Example: `.serverInfo("ghidra-mcp", "0.1.0")` -> `.serverInfo("ghidra-mcp", "0.2.0")`
+*   **Other locations (if any):**
+    *   Search the codebase for any other hardcoded version strings, especially in:
+        *   Constants files (e.g., `GlobalConstants.java`)
+        *   About dialogs or help information.
+        *   Documentation (`README.md`, etc., if version is mentioned).
+        *   CI/CD configuration files (e.g., `.github/workflows/`).
+    *   Ensure these are updated consistently. A global search for the old version string is recommended.
+
+## 4. Release Process
+
+1.  **Ensure Code Stability:**
+    *   All tests must be passing run `mvn test`.
+    *   The main branch should be stable and reflect the code to be released.
+2.  **Update Changelog:**
+    *   Finalize `CHANGELOG.md` for the new version as described in Section 1.
+3.  **Determine New Version:**
+    *   Based on the changes and the guidelines in Section 2, decide on the new `MAJOR.MINOR.PATCH` version.
+4.  **Update Version in `pom.xml`:**
+    *   Modify the `<version>` in `pom.xml`.
+5.  **Update Other Version References:**
+    *   Search for and update any other occurrences of the version number.
+6.  **Commit Changes:**
+    *   Commit the `CHANGELOG.md`, `pom.xml`, and any other modified files.
+    *   Commit message example: `chore: Bump version to vX.Y.Z`
+7.  **Tag the Release:**
+    *   Create an annotated Git tag: `git tag -a vX.Y.Z -m "Version X.Y.Z"`
+    *   (Example: `git tag -a v0.2.0 -m "Version 0.2.0"`)
+8.  **Push Changes:**
+    *   Push commits: `git push`
+    *   Push tags: `git push --tags`
+9.  **Create Release (e.g., on GitHub):**
+    *   Draft a new release on the project's repository platform (e.g., GitHub Releases).
+    *   Use the tag you just created.
+    *   Copy the relevant section from `CHANGELOG.md` into the release notes.
+10. **Post-Release (if applicable):**
+    *   Build and publish artifacts (e.g., to Maven Central if it were a library, or update any deployment scripts).
+    *   Announce the new release to users/stakeholders.
+
+
+
+
+
+

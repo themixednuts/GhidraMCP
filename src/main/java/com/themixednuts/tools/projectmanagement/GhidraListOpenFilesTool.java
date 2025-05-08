@@ -23,6 +23,7 @@ public class GhidraListOpenFilesTool implements IGhidraMcpSpecification {
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+
 		return Mono.fromCallable(() -> {
 			ghidra.framework.model.Project project = tool.getProject();
 			if (project == null) {

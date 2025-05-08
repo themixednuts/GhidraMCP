@@ -103,6 +103,14 @@ The following read-only tools have been successfully tested against the live MCP
   - Successfully retrieved predecessor blocks for `140001243`.
 - **`get_basic_block_successors`** (`GhidraGetBasicBlockSuccessorsTool`):
   - Successfully retrieved successor blocks for `140001240`.
+- **`go_to_address`** (`GhidraGoToAddressTool`):
+  - Successfully navigated to address `0x140001240` in `NewWorld.exe`.
+
+## Tested Action Tools (Success)
+
+- **`trigger_auto_analysis`** (`GhidraTriggerAutoAnalysisTool`):
+  - Successfully triggered auto-analysis for `NewWorld.exe`.
+  - Confirmed completion via server logs.
 
 ## Untested Read-Only Tools (Skipped or No Suitable Test Data)
 

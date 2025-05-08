@@ -7,10 +7,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -18,6 +18,7 @@ import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IBuildableSchemaType;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ghidra.util.Msg;
@@ -25,13 +26,17 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.spec.McpSchema.LoggingLevel;
+import ghidra.framework.options.ToolOptions;
+import com.themixednuts.GhidraMCPPlugin;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 /**
  * Marker interface for grouped operation tools.
  * Tools implementing this interface bundle multiple related granular operations
  * and will only be registered when grouping mode is enabled.
  */
-public interface IGroupedTool {
+public interface IGroupedTool extends IGhidraMcpSpecification {
 
 	// Constants for common grouped arguments
 	public static final String ARG_OPERATION = "operation";
@@ -89,64 +94,47 @@ public interface IGroupedTool {
 	}
 
 	/**
-	 * Static helper method to create the specific JSON schema ObjectNode for a
-	 * single
-	 * operation variant used within the 'anyOf' array.
-	 *
+	 * Static helper method to create the specific JSON schema Builder for a
+	 * single operation variant used within the 'anyOf' array.
+	 * 
 	 * @param toolClass        The class of the granular tool.
 	 * @param mapper           ObjectMapper instance for JSON node creation.
 	 * @param argOperationName The constant name for the 'operation' argument (e.g.,
 	 *                         "operation").
 	 * @param argArgumentsName The constant name for the 'arguments' argument (e.g.,
 	 *                         "arguments").
-	 * @return The ObjectNode representing the schema for this operation variant, or
-	 *         null if an error occurs.
+	 * @return The IObjectSchemaBuilder representing the schema for this operation
+	 *         variant,
+	 *         or null if an error occurs.
 	 */
-	static ObjectNode createSchemaVariantForTool(Class<? extends IGhidraMcpSpecification> toolClass,
-			ObjectMapper mapper, String argOperationName, String argArgumentsName) {
+	static IObjectSchemaBuilder createSchemaVariantForTool( // Return IObjectSchemaBuilder
+			Class<? extends IGhidraMcpSpecification> toolClass) {
 		try {
-			// Instantiate the granular tool to get its details
 			IGhidraMcpSpecification toolInstance = toolClass.getDeclaredConstructor().newInstance();
 			GhidraMcpTool toolAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
-			JsonSchema granularSchema = toolInstance.schema(); // Get the tool's own schema
-
+			JsonSchema granularSchema = toolInstance.schema();
 			if (toolAnnotation == null || toolAnnotation.mcpName().isBlank() || granularSchema == null) {
-				Msg.warn(IGroupedTool.class,
-						"Skipping tool in grouped schema generation due to missing info: " + toolClass.getName());
-				return null; // Skip this tool if info is missing
+				Msg.warn(IGroupedTool.class, "Skip schema gen: " + toolClass.getName());
+				return null;
 			}
 			String operationName = toolAnnotation.mcpName();
-			ObjectNode argumentsSchemaNode = granularSchema.getNode(); // Get the raw node
+			ObjectNode argumentsSchemaNode = granularSchema.getNode(); // Still need the node for arguments
 
-			// Build the schema for this specific operation item using 'anyOf' structure
 			IObjectSchemaBuilder operationItemSchema = JsonSchemaBuilder.object(mapper)
-					.property(argOperationName,
-							JsonSchemaBuilder.string(mapper)
-									.description("Must be '" + operationName + "'.")
-									.enumValues(operationName)) // Restrict enum to only this operation
-					.property(argArgumentsName, argumentsSchemaNode) // Use the ORIGINAL arguments schema node
-					.requiredProperty(argOperationName)
-					.requiredProperty(argArgumentsName);
+					.property(ARG_OPERATION, JsonSchemaBuilder.string(mapper)
+							.description("Must be '" + operationName + "'.")
+							.enumValues(operationName), true)
+					.property(ARG_ARGUMENTS, argumentsSchemaNode, true);
 
-			return operationItemSchema.build().getNode(); // Return the ObjectNode for this variant
+			return operationItemSchema; // Return the builder itself
 
 		} catch (Exception e) {
-			// Handle reflection errors during instantiation
-			Msg.error(IGroupedTool.class, "Failed to instantiate or get schema for tool: " + toolClass.getName(),
-					e);
-			return null; // Skip this tool on error
+			Msg.error(IGroupedTool.class, "Fail schema gen: " + toolClass.getName(), e);
+			return null;
 		}
 	}
 
-	/**
-	 * Abstract method that implementing grouped tools must provide.
-	 * Returns the map used to look up granular tool classes based on their MCP
-	 * name.
-	 *
-	 * @return A map where keys are MCP tool names (e.g., "get_function_by_name")
-	 *         and values are the corresponding tool implementation classes.
-	 */
-	Map<String, Class<? extends IGhidraMcpSpecification>> getToolClassMap();
+	ToolCategory getTargetCategory();
 
 	// ===================================================================================
 	// Nested POJOs for Grouped Results
@@ -246,43 +234,142 @@ public interface IGroupedTool {
 	// ===================================================================================
 
 	/**
-	 * Default implementation for generating the JSON schema for a grouped tool.
-	 * This dynamically builds the schema based on the granular tools discovered
-	 * via {@link #getToolClassMap()}.
+	 * Default implementation for generating the JSON schema for a grouped tool,
+	 * considering enabled status of granular tools.
+	 * This dynamically builds the schema based on the granular tools discovered.
 	 *
+	 * @param targetCategory The category this grouped tool manages.
+	 * @param tool           The Ghidra PluginTool, used to access ToolOptions for
+	 *                       filtering.
 	 * @return The {@link JsonSchema} for the grouped tool.
 	 */
-	default JsonSchema getGroupedSchema(ToolCategory targetCategory) {
-		// Start with the base schema node (assuming implementer also implements
-		// IGhidraMcpSpecification for mapper)
+	default JsonSchema getGroupedSchema(ToolCategory targetCategory, PluginTool tool) {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+		ToolOptions options = tool.getOptions(GhidraMCPPlugin.MCP_TOOL_OPTIONS_CATEGORY);
+		String categoryName = targetCategory.getCategoryName();
 
-		// Generate the schema variants for each valid granular tool
-		List<ObjectNode> specificOperationSchemas = getGranularToolClasses(targetCategory.getCategoryName()).stream()
-				.map(toolClass -> IGroupedTool.createSchemaVariantForTool(toolClass, IGhidraMcpSpecification.mapper,
-						ARG_OPERATION,
-						ARG_ARGUMENTS))
-				.filter(Objects::nonNull) // Filter out any nulls from errors/skips
-				.collect(Collectors.toList());
+		// 1. Get builders for enabled granular tools
+		List<IObjectSchemaBuilder> specificOperationSchemaBuilders = // Changed type
+				getGranularToolClasses(categoryName).stream()
+						.filter(toolClass -> { // Filter by enabled
+							GhidraMcpTool specAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
+							if (specAnnotation == null) {
+								Msg.warn(this, "Granular tool " + toolClass.getSimpleName() + " missing @GhidraMcpTool. Exclude.");
+								return false;
+							}
+							String baseKey = specAnnotation.name();
+							ToolCategory granularCat = specAnnotation.category();
+							String fullKey = baseKey;
+							if (granularCat != null && granularCat != ToolCategory.UNCATEGORIZED
+									&& granularCat != ToolCategory.GROUPED) {
+								fullKey = granularCat.getCategoryName() + "." + baseKey;
+							}
+							boolean isEnabled = options.getBoolean(fullKey, true);
+							if (!isEnabled) {
+								Msg.info(this, "Granular tool '" + fullKey + "' disabled. Exclude from grouped schema "
+										+ this.getClass().getSimpleName());
+							}
+							return isEnabled;
+						})
+						.map(IGroupedTool::createSchemaVariantForTool)
+						.filter(Objects::nonNull)
+						.collect(Collectors.toList());
 
-		if (specificOperationSchemas.isEmpty()) {
-			Msg.warn(this, "No valid granular tool schemas found for grouped tool: " + this.getClass().getSimpleName());
-			// Return a minimal schema indicating failure or an empty array
+		if (specificOperationSchemaBuilders.isEmpty()) {
+			Msg.warn(this,
+					"No *enabled* granular tools for grouped tool: " + this.getClass().getSimpleName() + " cat: " + categoryName);
 			return JsonSchemaBuilder.object(IGhidraMcpSpecification.mapper)
-					.description("Warning: No operations defined or discovered for this group.").build();
+					.description("Warn: No enabled operations for group '" + categoryName + "'. Check options: '"
+							+ GhidraMCPPlugin.MCP_TOOL_OPTIONS_CATEGORY + "'.")
+					.build();
 		}
 
-		// Define the main 'operations' array property using the generated anyOf list
-		schemaRoot.property(ARG_OPERATIONS,
-				JsonSchemaBuilder.array(IGhidraMcpSpecification.mapper)
-						.description("An ordered list of operations to execute.")
-						.items(JsonSchemaBuilder.object(IGhidraMcpSpecification.mapper)
-								.anyOf(specificOperationSchemas.toArray(ObjectNode[]::new))) // Use anyOf here
-						.minItems(1)); // Require at least one operation
+		// Create a schema for the items of the array.
+		// This item schema will be an object schema that itself uses 'anyOf'.
+		// Each schema in specificOperationSchemaBuilders is already an
+		// IObjectSchemaBuilder.
+		// JsonSchemaBuilder.object().anyOf(...) creates a schema like:
+		// { "type": "object", "anyOf": [ ... ] }
+		// This is what we want for the "items" definition.
+		IBuildableSchemaType itemSchema = JsonSchemaBuilder.object(IGhidraMcpSpecification.mapper)
+				.anyOf(specificOperationSchemaBuilders);
 
-		schemaRoot.requiredProperty(ARG_OPERATIONS);
+		// IObjectSchemaBuilder operationSchema = JsonSchemaBuilder.object(mapper)
+		// .description("A single datatype operation.")
+		// .property(ARG_OPERATION,
+		// JsonSchemaBuilder.string(mapper)
+		// .description("The specific granular tool mcpName to execute.")
+		// .enumValues(availableOps))
+		// .property(ARG_ARGUMENTS,
+		// JsonSchemaBuilder.object(mapper)
+		// .description("The arguments specific to the chosen operation (tool)."))
+		// .requiredProperty(ARG_OPERATION)
+		// .requiredProperty(ARG_ARGUMENTS);
+
+		schemaRoot.property(ARG_OPERATIONS, JsonSchemaBuilder.array(IGhidraMcpSpecification.mapper)
+				.description(
+						"An ordered list of operations to execute. Each operation must conform to one of the enabled operation schemas.")
+				.items(itemSchema) // Apply the itemSchema (which contains anyOf) here
+				.minItems(1), true); // Mark ARG_OPERATIONS as required
 
 		return schemaRoot.build();
+	}
+
+	// ===================================================================================
+	// Default Specification Generation for Grouped Tools
+	// ===================================================================================
+
+	/**
+	 * Default implementation for generating the full {@link AsyncToolSpecification}
+	 * for a grouped tool.
+	 * This method uses the dynamic, filtered schema and sets up the execution path.
+	 * Concrete grouped tools should call this from their overridden
+	 * {@code specification(PluginTool tool)} method.
+	 *
+	 * @param targetCategory          The {@link ToolCategory} this grouped tool is
+	 *                                responsible for.
+	 * @param tool                    The current Ghidra {@link PluginTool} context.
+	 * @param thisGroupedToolInstance The instance of the concrete grouped tool
+	 *                                (passed as 'this').
+	 *                                It must implement
+	 *                                {@link IGhidraMcpSpecification}.
+	 * @return The fully constructed {@link AsyncToolSpecification} for the grouped
+	 *         tool, or {@code null} if an error occurs.
+	 */
+	default AsyncToolSpecification getGroupedSpecification(
+			ToolCategory targetCategory,
+			PluginTool tool,
+			IGhidraMcpSpecification thisGroupedToolInstance) {
+
+		GhidraMcpTool annotation = thisGroupedToolInstance.getClass().getAnnotation(GhidraMcpTool.class);
+		if (annotation == null) {
+			Msg.error(thisGroupedToolInstance,
+					"Missing @GhidraMcpTool annotation on " + thisGroupedToolInstance.getClass().getSimpleName());
+			return null;
+		}
+
+		// Get the dynamic schema (already filters by enabled tools)
+		JsonSchema schemaObject = getGroupedSchema(targetCategory, tool);
+
+		// Use parseSchema from the IGhidraMcpSpecification context of the concrete tool
+		// instance
+		Optional<String> schemaStringOpt = thisGroupedToolInstance.parseSchema(schemaObject);
+
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(thisGroupedToolInstance,
+					"Failed to generate dynamic schema for grouped tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+			return null;
+		}
+		String schemaJson = schemaStringOpt.get();
+
+		// The execute method called here will be the one implemented in the concrete
+		// grouped tool,
+		// which should delegate to IGroupedTool.executeGroupedOperations.
+		return new AsyncToolSpecification(
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
+				(ex, args) -> thisGroupedToolInstance.execute(ex, args, tool)
+						.flatMap(thisGroupedToolInstance::createSuccessResult)
+						.onErrorResume(thisGroupedToolInstance::createErrorResult));
 	}
 
 	// ===================================================================================
@@ -303,7 +390,7 @@ public interface IGroupedTool {
 	 * @return A Mono containing the CallToolResult with a summary of all operation
 	 *         outcomes.
 	 */
-	default Mono<Object> executeGroupedOperations(McpAsyncServerExchange ex, Map<String, Object> args,
+	default Mono<? extends Object> executeGroupedOperations(McpAsyncServerExchange ex, Map<String, Object> args,
 			PluginTool tool) {
 		// Get the list of operations using helper from IGhidraMcpSpecification
 		IGhidraMcpSpecification specHelpers = (IGhidraMcpSpecification) this; // Cast once
@@ -315,7 +402,7 @@ public interface IGroupedTool {
 			return Mono.error(new IllegalArgumentException("'operations' list cannot be null or empty."));
 		}
 
-		Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = getToolClassMap();
+		Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = getToolClassMap(tool);
 
 		// Process each operation, resulting in a stream of OperationResult objects
 		return Flux.fromIterable(operations)
@@ -376,7 +463,106 @@ public interface IGroupedTool {
 						ghidra.util.Msg.error(this, errorMsg, error);
 						return Mono.just(OperationResult.error(opKey, granularArgs, error));
 					});
-				}).collectList().map(GroupedOperationResult::new).cast(Object.class);
+				}).collectList().map(GroupedOperationResult::new);
 	}
 
+	// Default implementation for IGhidraMcpSpecification.specification
+	@Override
+	default AsyncToolSpecification specification(PluginTool tool) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+		if (annotation == null) {
+			Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
+			return null;
+		}
+		// Get the dynamic schema using the filtered getGroupedSchema
+		JsonSchema schemaObject = getGroupedSchema(getTargetCategory(), tool); // `this` is implicit for default method call
+		Optional<String> schemaStringOpt = parseSchema(schemaObject); // `this.parseSchema` from IGhidraMcpSpecification
+
+		if (schemaStringOpt.isEmpty()) {
+			Msg.error(this,
+					"Failed to generate dynamic schema for grouped tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+			return null;
+		}
+		String schemaJson = schemaStringOpt.get();
+		Msg.info(this, schemaJson);
+
+		return new AsyncToolSpecification(
+				new Tool(annotation.mcpName(), annotation.mcpDescription(), schemaJson),
+				(ex, args) -> this.execute(ex, args, tool)
+						.flatMap(this::createSuccessResult) // from IGhidraMcpSpecification
+						.onErrorResume(this::createErrorResult) // from IGhidraMcpSpecification
+		);
+	}
+
+	// Default implementation for IGhidraMcpSpecification.execute
+	@Override
+	default Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		return executeGroupedOperations(ex, args, tool);
+	}
+
+	// NEW Default implementation for IGhidraMcpSpecification.schema
+	@Override
+	default JsonSchema schema() {
+		throw new UnsupportedOperationException("Schema is not implemented for grouped tools.");
+	}
+
+	// Default implementation for getToolClassMap (cleaned up)
+	default Map<String, Class<? extends IGhidraMcpSpecification>> getToolClassMap(PluginTool tool) {
+		ToolCategory currentTargetCategory = getTargetCategory();
+		ToolOptions options = tool.getOptions(GhidraMCPPlugin.MCP_TOOL_OPTIONS_CATEGORY);
+		String categoryName = currentTargetCategory.getCategoryName(); // Cache for logging
+
+		return IGroupedTool.getGranularToolClasses(categoryName).stream()
+				// 1. Filter by enabled status in options
+				.filter(toolClass -> {
+					GhidraMcpTool specAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
+					if (specAnnotation == null) {
+						Msg.warn(this, "Tool class " + toolClass.getSimpleName() + " (cat: " + categoryName
+								+ ") missing @GhidraMcpTool. Exclude from map.");
+						return false;
+					}
+					String baseKey = specAnnotation.name();
+					ToolCategory granularCat = specAnnotation.category();
+					String fullOptionKey = baseKey;
+					if (granularCat != null && granularCat != ToolCategory.UNCATEGORIZED && granularCat != ToolCategory.GROUPED) {
+						fullOptionKey = granularCat.getCategoryName() + "." + baseKey;
+					}
+					boolean isEnabled = options.getBoolean(fullOptionKey, true);
+					if (!isEnabled) {
+						Msg.info(this, "Granular tool '" + fullOptionKey + "' disabled, not adding to toolClassMap for "
+								+ this.getClass().getSimpleName());
+					}
+					return isEnabled;
+				})
+				// 2. Filter by presence of required annotation/mcpName for mapping
+				.filter(toolClass -> {
+					GhidraMcpTool annotation = toolClass.getAnnotation(GhidraMcpTool.class);
+					// Check annotation and mcpName presence. Annotation presence is already checked
+					// above,
+					// but checking mcpName specifically before toMap is good practice.
+					if (annotation == null || annotation.mcpName().isBlank()) {
+						Msg.warn(this, "Tool " + toolClass.getSimpleName() + " (cat: " + categoryName
+								+ ") enabled but missing MCP name in annotation. Cannot map.");
+						return false;
+					}
+					return true;
+				})
+				// 3. Collect into Map
+				.collect(Collectors.toMap(
+						// Key extractor: mcpName (safe due to filter above)
+						toolClass -> toolClass.getAnnotation(GhidraMcpTool.class).mcpName(),
+						// Value extractor: the Class itself
+						toolClass -> toolClass,
+						// Merge function for duplicates
+						(existingValue, newValue) -> {
+							String mcpName = "<unknown_mcp_name>";
+							GhidraMcpTool ann = existingValue.getAnnotation(GhidraMcpTool.class);
+							if (ann != null && !ann.mcpName().isBlank()) {
+								mcpName = ann.mcpName();
+							}
+							Msg.warn(this, "Duplicate MCP name '" + mcpName + "' for category " + categoryName + ". Keeping: "
+									+ existingValue.getSimpleName());
+							return existingValue;
+						}));
+	}
 }
