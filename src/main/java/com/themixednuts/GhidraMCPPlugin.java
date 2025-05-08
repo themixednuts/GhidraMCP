@@ -13,6 +13,7 @@ import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.Swing;
 import ghidra.framework.options.OptionsChangeListener;
+import javax.swing.Timer;
 
 @PluginInfo(status = PluginStatus.RELEASED, packageName = ghidra.app.DeveloperPluginPackage.NAME, category = PluginCategoryNames.ANALYSIS, shortDescription = "MCP Server Plugin", description = "Starts an embedded HTTP MCP server to expose program data. Port configurable via Tool Options.", servicesRequired = {}, servicesProvided = {
         IGhidraMcpToolProvider.class })
@@ -29,6 +30,7 @@ public class GhidraMCPPlugin extends Plugin {
     private static final int DEFAULT_PORT = 8080;
     private int currentPort = DEFAULT_PORT;
     private final OptionsChangeListener mcpOptionsListener;
+    private Timer restartDebounceTimer;
 
     public GhidraMCPPlugin(PluginTool tool) {
         super(tool);
@@ -58,18 +60,28 @@ public class GhidraMCPPlugin extends Plugin {
         // Get port from local options
         currentPort = options.getInt(PORT_OPTION_NAME, DEFAULT_PORT);
 
+        if (mcpOptionsListener != null) {
+            options.removeOptionsChangeListener(mcpOptionsListener);
+        }
+        if (restartDebounceTimer != null) {
+            restartDebounceTimer.stop();
+        }
+
+        restartDebounceTimer = new Timer(200, e -> {
+            Msg.info(this, "MCP tool options changed. Restarting MCP server.");
+            GhidraMcpServer.restartMcpServer(this.currentPort);
+        });
+        restartDebounceTimer.setRepeats(false);
+
         OptionsChangeListener listener = (toolOptions, optionName, oldValue, newValue) -> {
             if (optionName.equals(PORT_OPTION_NAME)) {
                 int newPort = (Integer) newValue;
-                if (newPort != currentPort) {
-                    Msg.info(this, "MCP Server port changing from " + currentPort + " to " + newPort);
-                    currentPort = newPort;
-                    GhidraMcpServer.restartJettyServer(currentPort);
+                if (newPort != this.currentPort) {
+                    Msg.info(this, "MCP Server port changing from " + this.currentPort + " to " + newPort);
+                    this.currentPort = newPort;
                 }
-            } else {
-                Msg.info(this, "Tool option '" + optionName + "' changed. Restarting MCP server.");
-                GhidraMcpServer.restartMcpServer(currentPort);
             }
+            restartDebounceTimer.restart();
         };
 
         options.addOptionsChangeListener(listener);
@@ -84,6 +96,11 @@ public class GhidraMCPPlugin extends Plugin {
 
         GhidraMcpServer.dispose(); // Dispose server
         // Service deregistration is automatic
+
+        if (restartDebounceTimer != null && restartDebounceTimer.isRunning()) {
+            restartDebounceTimer.stop();
+            Msg.info(this, "Stopped options change debounce timer.");
+        }
 
         // Remove listener if options object is still valid
         ToolOptions options = tool.getOptions(MCP_TOOL_OPTIONS_CATEGORY);
