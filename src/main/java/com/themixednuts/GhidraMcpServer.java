@@ -53,7 +53,7 @@ public class GhidraMcpServer {
 	 * Reference to the PluginTool, used for accessing services and project context.
 	 */
 	private static PluginTool currentTool;
-	private static long currentJettyIdleTimeoutMs; // Store current timeout
+	private static boolean currentEnableSseKeepAlive; // Store current enable state
 	private static long currentSseMaxKeepAliveSeconds; // Store current keep-alive
 
 	/**
@@ -67,16 +67,15 @@ public class GhidraMcpServer {
 	 * @param tool                   The Ghidra {@link PluginTool} providing the
 	 *                               context (project,
 	 *                               services).
-	 * @param jettyIdleTimeoutMs     Jetty server idle connection timeout in
-	 *                               milliseconds (0 for infinite).
+	 * @param enableSseKeepAlive     Whether to enable SSE keep-alive pings.
 	 * @param sseMaxKeepAliveSeconds Maximum duration in seconds for SSE keep-alive
-	 *                               pings (0 for infinite).
+	 *                               pings (if enabled).
 	 */
-	public static void start(int port, PluginTool tool, long jettyIdleTimeoutMs, long sseMaxKeepAliveSeconds) {
+	public static void start(int port, PluginTool tool, boolean enableSseKeepAlive, long sseMaxKeepAliveSeconds) {
 		synchronized (lock) {
 			Project currentProject = tool.getProject();
 			currentTool = tool;
-			currentJettyIdleTimeoutMs = jettyIdleTimeoutMs;
+			currentEnableSseKeepAlive = enableSseKeepAlive;
 			currentSseMaxKeepAliveSeconds = sseMaxKeepAliveSeconds;
 
 			// Handle project changes: If the project context differs, force a full restart.
@@ -128,7 +127,7 @@ public class GhidraMcpServer {
 							.build();
 
 					// Create and Configure Jetty Server
-					startJettyServer(port, currentJettyIdleTimeoutMs, currentSseMaxKeepAliveSeconds);
+					startJettyServer(port, currentEnableSseKeepAlive, currentSseMaxKeepAliveSeconds);
 
 				} catch (JsonProcessingException e) {
 					Msg.error(GhidraMcpServer.class, "MCP Server JSON configuration error during startup: " + e.getMessage(), e);
@@ -152,12 +151,11 @@ public class GhidraMcpServer {
 	 * Configures the MCP transport servlet.
 	 *
 	 * @param port                   The port number for the Jetty server.
-	 * @param jettyIdleTimeoutMs     Jetty server idle connection timeout in
-	 *                               milliseconds (0 for infinite).
+	 * @param enableSseKeepAlive     Whether to enable SSE keep-alive pings.
 	 * @param sseMaxKeepAliveSeconds Maximum duration in seconds for SSE keep-alive
-	 *                               pings (0 for infinite).
+	 *                               pings (if enabled).
 	 */
-	private static void startJettyServer(int port, long jettyIdleTimeoutMs, long sseMaxKeepAliveSeconds) {
+	private static void startJettyServer(int port, boolean enableSseKeepAlive, long sseMaxKeepAliveSeconds) {
 		try {
 			jettyServer = new Server();
 
@@ -165,18 +163,21 @@ public class GhidraMcpServer {
 			ServerConnector connector = new ServerConnector(jettyServer);
 			connector.setPort(port);
 			connector.setHost("127.0.0.1"); // Bind to localhost only for security
-			connector.setIdleTimeout(jettyIdleTimeoutMs); // Set idle timeout (0 means infinite)
 			jettyServer.addConnector(connector);
 
 			// Configure Servlet Handler
 			ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
 			context.setContextPath("/");
 
-			// Add the KeepAliveSseFilter
-			// It should run for requests and async dispatches to cover SSE.
-			GhidraKeepAliveSseFilter keepAliveFilter = new GhidraKeepAliveSseFilter(sseMaxKeepAliveSeconds);
-			FilterHolder filterHolder = new FilterHolder(keepAliveFilter);
-			context.addFilter(filterHolder, MCP_PATH_SPEC, EnumSet.of(DispatcherType.REQUEST, DispatcherType.ASYNC));
+			// Add the KeepAliveSseFilter only if enabled
+			if (enableSseKeepAlive) {
+				GhidraKeepAliveSseFilter keepAliveFilter = new GhidraKeepAliveSseFilter(sseMaxKeepAliveSeconds);
+				FilterHolder filterHolder = new FilterHolder(keepAliveFilter);
+				context.addFilter(filterHolder, MCP_PATH_SPEC, EnumSet.of(DispatcherType.REQUEST, DispatcherType.ASYNC));
+				Msg.info(GhidraMcpServer.class, "SSE Keep-Alive Filter is ENABLED.");
+			} else {
+				Msg.info(GhidraMcpServer.class, "SSE Keep-Alive Filter is DISABLED.");
+			}
 
 			// Use the transportProvider created in the start() method
 			// Ensure transportProvider is not null before using it
@@ -204,12 +205,15 @@ public class GhidraMcpServer {
 	 * specified port.
 	 *
 	 * @param port                   The new port number for the Jetty server.
-	 * @param jettyIdleTimeoutMs     The new Jetty idle timeout.
-	 * @param sseMaxKeepAliveSeconds The new SSE max keep-alive duration.
+	 * @param enableSseKeepAlive     Whether to enable SSE keep-alive pings for the
+	 *                               new instance.
+	 * @param sseMaxKeepAliveSeconds The new SSE max keep-alive duration (if
+	 *                               enabled).
 	 */
-	public static void restartJettyServer(int port, long jettyIdleTimeoutMs, long sseMaxKeepAliveSeconds) {
-		Msg.info(GhidraMcpServer.class, "Restarting Jetty Server on port " + port + " with IdleTimeout="
-				+ jettyIdleTimeoutMs + "ms, SSEKeepAlive=" + sseMaxKeepAliveSeconds + "s...");
+	public static void restartJettyServer(int port, boolean enableSseKeepAlive, long sseMaxKeepAliveSeconds) {
+		Msg.info(GhidraMcpServer.class, "Restarting Jetty Server on port " + port
+				+ " with SSE Keep-Alive: " + (enableSseKeepAlive ? "Enabled" : "Disabled")
+				+ (enableSseKeepAlive ? " (Max Duration: " + sseMaxKeepAliveSeconds + "s)" : "") + "...");
 		if (jettyServer != null) {
 			try {
 				jettyServer.stop();
@@ -221,7 +225,7 @@ public class GhidraMcpServer {
 			}
 		}
 		// Start new Jetty instance with new parameters
-		startJettyServer(port, jettyIdleTimeoutMs, sseMaxKeepAliveSeconds);
+		startJettyServer(port, enableSseKeepAlive, sseMaxKeepAliveSeconds);
 	}
 
 	/**
@@ -232,10 +236,11 @@ public class GhidraMcpServer {
 	 * sequence.
 	 *
 	 * @param port                   The port number to restart the server on.
-	 * @param jettyIdleTimeoutMs     The Jetty idle timeout in milliseconds.
-	 * @param sseMaxKeepAliveSeconds The SSE max keep-alive duration in seconds.
+	 * @param enableSseKeepAlive     Whether to enable SSE keep-alive pings.
+	 * @param sseMaxKeepAliveSeconds The SSE max keep-alive duration in seconds (if
+	 *                               enabled).
 	 */
-	public static void restartMcpServer(int port, long jettyIdleTimeoutMs, long sseMaxKeepAliveSeconds) {
+	public static void restartMcpServer(int port, boolean enableSseKeepAlive, long sseMaxKeepAliveSeconds) {
 		synchronized (lock) {
 			if (currentTool == null) {
 				Msg.error(GhidraMcpServer.class,
@@ -243,13 +248,14 @@ public class GhidraMcpServer {
 				return;
 			}
 			Msg.info(GhidraMcpServer.class, "Performing full MCP Server restart due to configuration change... Port: " + port
-					+ ", JettyTimeout: " + jettyIdleTimeoutMs + "ms, SSEKeepAlive: " + sseMaxKeepAliveSeconds + "s");
+					+ ", SSE Keep-Alive: " + (enableSseKeepAlive ? "Enabled" : "Disabled")
+					+ (enableSseKeepAlive ? " (Max Duration: " + sseMaxKeepAliveSeconds + "s)" : ""));
 			// Stop everything cleanly
 			cleanUpResources();
 			// Reset refCount to ensure start logic runs fully
 			refCount.set(0);
 			// Start again with current tool reference and new config
-			start(port, currentTool, jettyIdleTimeoutMs, sseMaxKeepAliveSeconds);
+			start(port, currentTool, enableSseKeepAlive, sseMaxKeepAliveSeconds);
 		}
 	}
 
