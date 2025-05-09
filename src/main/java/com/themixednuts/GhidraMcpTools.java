@@ -25,7 +25,7 @@ import com.themixednuts.tools.grouped.IGroupedTool;
  * Tool Options), and providing MCP tool specifications.
  * <p>
  * This class implements the {@link IGhidraMcpToolProvider} service interface
- * and is registered by {@link GhidraMCPPlugin}.
+ * and is registered by {@link GhidraMcpPlugin}.
  */
 public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	/** The Ghidra PluginTool context used to access options and pass to tools. */
@@ -42,7 +42,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	 */
 	public GhidraMcpTools(PluginTool tool) {
 		this.tool = tool;
-		this.options = tool.getOptions(GhidraMCPPlugin.MCP_TOOL_OPTIONS_CATEGORY);
+		this.options = tool.getOptions(GhidraMcpPlugin.MCP_TOOL_OPTIONS_CATEGORY);
 	}
 
 	/**
