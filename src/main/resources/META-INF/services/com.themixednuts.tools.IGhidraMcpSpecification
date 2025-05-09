@@ -3,7 +3,7 @@ com.themixednuts.tools.functions.GhidraGetFunctionContainingLocationTool
 com.themixednuts.tools.functions.GhidraGetFunctionTool
 com.themixednuts.tools.functions.GhidraGetSymbolInFunctionTool
 com.themixednuts.tools.functions.GhidraListFunctionNamesTool
-com.themixednuts.tools.functions.GhidraListSymbolsInFunctionTool
+com.themixednuts.tools.functions.GhidraListFunctionVariablesTool
 com.themixednuts.tools.functions.GhidraSearchFunctionsByNameTool
 com.themixednuts.tools.projectmanagement.GhidraListOpenFilesTool
 com.themixednuts.tools.projectmanagement.GhidraGetCurrentProgramInfoTool
@@ -33,7 +33,6 @@ com.themixednuts.tools.datatypes.GhidraUpdateStructMemberTool
 com.themixednuts.tools.datatypes.GhidraDeleteStructMemberTool
 com.themixednuts.tools.datatypes.GhidraRenameDataTypeTool
 com.themixednuts.tools.datatypes.GhidraDeleteDataTypeTool
-com.themixednuts.tools.datatypes.GhidraCreateDataTypeTool
 com.themixednuts.tools.datatypes.GhidraGetDataTypeTool
 com.themixednuts.tools.datatypes.GhidraUpdateDataTypeTool
 com.themixednuts.tools.datatypes.GhidraRenameCategoryTool
@@ -47,6 +46,7 @@ com.themixednuts.tools.grouped.GroupedSymbolOperationsTool
 com.themixednuts.tools.grouped.GroupedControlFlowOperationsTool
 com.themixednuts.tools.functions.GhidraCreateFunctionTool
 com.themixednuts.tools.functions.GhidraDeleteFunctionTool
+com.themixednuts.tools.functions.GhidraUpdateFunctionVariableNameTool
 com.themixednuts.tools.symbols.GhidraListAllSymbolsTool
 com.themixednuts.tools.symbols.GhidraCreateLabelTool
 com.themixednuts.tools.symbols.GhidraDeleteLabelTool
@@ -78,3 +78,9 @@ com.themixednuts.tools.datatypes.GhidraListCategoriesTool
 com.themixednuts.tools.datatypes.GhidraListDataTypesTool
 com.themixednuts.tools.datatypes.GhidraListClassesTool
 com.themixednuts.tools.datatypes.GhidraDeleteCategoryTool
+com.themixednuts.tools.datatypes.GhidraCreateCategoryTool
+com.themixednuts.tools.datatypes.GhidraCreateStructTool
+com.themixednuts.tools.datatypes.GhidraCreateUnionTool
+com.themixednuts.tools.datatypes.GhidraCreateEnumTool
+com.themixednuts.tools.datatypes.GhidraCreateTypedefTool
+com.themixednuts.tools.datatypes.GhidraCreateFunctionDefinitionTool

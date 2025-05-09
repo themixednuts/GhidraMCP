@@ -339,7 +339,7 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
 
 ## Ghidra API Documentation Links
 
-*   **Ghidra Commands (`Cmd`) are found within the following `ghidra.app.cmd.*` these are the only packages, refer directly to the docs. packages:**
+*   **Ghidra Commands (`Cmd`) are found within the following `ghidra.app.cmd.*` packages:** (Note: these are package summaries, refer directly to the Ghidra API docs for specific command classes)
     *   [`ghidra.app.cmd.analysis`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/analysis/package-summary.html)
     *   [`ghidra.app.cmd.comments`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/comments/package-summary.html)
     *   [`ghidra.app.cmd.data`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/data/package-summary.html)
@@ -352,12 +352,19 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
     *   [`ghidra.app.cmd.module`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/module/package-summary.html)
     *   [`ghidra.app.cmd.refs`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/refs/package-summary.html)
     *   [`ghidra.app.cmd.register`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/cmd/register/package-summary.html)
-*   **Core Models (`Program`, `Listing`, `DataType`, `Function`, `Address`, `Symbol`, etc.) live under `ghidra.program.model.*`:**
-    *   Listing API: [`ghidra.program.model.listing`](mdc:ghidra.program.model.listing)
-    *   Address API: [`ghidra.program.model.address`](mdc:ghidra.program.model.address)
-    *   Symbol API: [`ghidra.program.model.symbol`](mdc:ghidra.program.model.symbol)
-    *   Data API: [`ghidra.program.model.data`](mdc:ghidra.program.model.data)
-    *   PCode API: [`ghidra.program.model.pcode`](mdc:ghidra.program.model.pcode)
+*   **Core Models (`Program`, `Listing`, `DataType`, `Function`, `Address`, `Symbol`, etc.) live under `ghidra.program.model.*`:** (Explore these packages in the Ghidra API docs for classes like `ghidra.program.model.listing.Program`, `ghidra.program.model.symbol.SymbolTable` etc.)
+    *   Listing API: [`ghidra.program.model.listing`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/listing/package-summary.html)
+    *   Address API: [`ghidra.program.model.address`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/address/package-summary.html)
+    *   Symbol API: [`ghidra.program.model.symbol`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/symbol/package-summary.html)
+    *   Data API: [`ghidra.program.model.data`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/data/package-summary.html)
+    *   PCode API: [`ghidra.program.model.pcode`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/package-summary.html)
     *   Etc.
-*   **Decompiler:** [`ghidra.app.decompiler.DecompInterface`](mdc:ghidra.app.decompiler.DecompInterface)
-*   **Task Monitor:** [`ghidra.util.task.TaskMonitor`](mdc:ghidra.util.task.TaskMonitor)
+*   **Decompiler:** [`ghidra.app.decompiler.DecompInterface`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/app/decompiler/DecompInterface.html)
+*   **Task Monitor:** [`ghidra.util.task.TaskMonitor`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/util/task/TaskMonitor.html)
+
+### Specific API Class References
+*   [`SymbolManager` (implements `SymbolTable`)](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/database/symbol/SymbolManager.html)
+*   [`HighSymbol`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighSymbol.html)
+*   [`FunctionManager`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/listing/FunctionManager.html)
+*   [`HighVariable`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighVariable.html)
+*   [](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighFunction.html)

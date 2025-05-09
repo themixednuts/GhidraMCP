@@ -29,11 +29,15 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 
 	@Override
 	public JsonSchema schema() {
-		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
+		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode()
+				.property(ARG_FILE_NAME,
+						JsonSchemaBuilder.string(mapper)
+								.description("The name of the program file."),
+						true)
+				.property(ARG_FILTER,
+						JsonSchemaBuilder.string(mapper)
+								.description("The filter to apply to the function names."));
+
 		return schemaRoot.build();
 	}
 
@@ -41,18 +45,22 @@ public class GhidraListFunctionNamesTool implements IGhidraMcpSpecification {
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
 			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+			Optional<String> filterOpt = getOptionalStringArgument(args, ARG_FILTER);
 			Address cursorAddr = null;
+
 			if (cursorOpt.isPresent()) {
 				cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
 				if (cursorAddr == null) {
 					throw new IllegalArgumentException("Invalid cursor format: " + cursorOpt.get());
 				}
 			}
+
 			final Address finalCursorAddr = cursorAddr;
 
 			FunctionManager functionManager = program.getFunctionManager();
 			List<FunctionInfo> collectedItems = StreamSupport
 					.stream(functionManager.getFunctions(true).spliterator(), false)
+					.filter(item -> filterOpt.map(f -> item.getName().toLowerCase().contains(f.toLowerCase())).orElse(true))
 					.sorted(Comparator.comparing(Function::getEntryPoint))
 					.dropWhile(item -> finalCursorAddr != null && item.getEntryPoint().compareTo(finalCursorAddr) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)

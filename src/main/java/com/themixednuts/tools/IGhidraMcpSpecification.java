@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -30,6 +31,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Base interface for all Ghidra MCP tool specifications.
@@ -55,29 +57,37 @@ public interface IGhidraMcpSpecification {
 	// ===================================================================================
 	// Common Argument Name Constants
 	// ===================================================================================
-	public static final String ARG_FILE_NAME = "fileName";
 	public static final String ARG_ADDRESS = "address";
-	public static final String ARG_OFFSET = "offset";
+	public static final String ARG_CATEGORY_PATH = "categoryPath";
+	public static final String ARG_COMMENT = "comment";
+	public static final String ARG_CURRENT_NAME = "currentName";
+	public static final String ARG_CURSOR = "cursor";
+	public static final String ARG_DATA_TYPE = "dataType";
+	public static final String ARG_DATA_TYPE_PATH = "dataTypePath";
+	public static final String ARG_ENUM_PATH = "enumPath";
+	public static final String ARG_FILE_NAME = "fileName";
+	public static final String ARG_FILTER = "filter";
+	public static final String ARG_FUNC_DEF_PATH = "functionDefinitionPath";
+	public static final String ARG_FUNCTION_ADDRESS = "functionAddress";
+	public static final String ARG_FUNCTION_NAME = "functionName";
+	public static final String ARG_FUNCTION_SYMBOL_ID = "functionSymbolId";
+	public static final String ARG_LENGTH = "length";
 	public static final String ARG_NAME = "name";
 	public static final String ARG_NEW_NAME = "newName";
-	public static final String ARG_PATH = "path";
-	public static final String ARG_COMMENT = "comment";
-	public static final String ARG_VALUE = "value";
-	public static final String ARG_LENGTH = "length";
-	public static final String ARG_SIZE = "size";
-	public static final String ARG_CURSOR = "cursor";
 	public static final String ARG_NEXT_CURSOR = "nextCursor";
-	public static final String ARG_FUNCTION_NAME = "functionName";
-	public static final String ARG_FUNCTION_ADDRESS = "functionAddress";
-	public static final String ARG_DATA_TYPE_PATH = "dataTypePath";
-	public static final String ARG_CATEGORY_PATH = "categoryPath";
+	public static final String ARG_OFFSET = "offset";
+	public static final String ARG_PATH = "path";
+	public static final String ARG_SIZE = "size";
+	public static final String ARG_STORAGE_STRING = "storageString";
 	public static final String ARG_STRUCT_PATH = "structPath";
-	public static final String ARG_ENUM_PATH = "enumPath";
-	public static final String ARG_UNION_PATH = "unionPath";
+	public static final String ARG_SYMBOL_ID = "symbolId";
 	public static final String ARG_TYPEDEF_PATH = "typedefPath";
-	public static final String ARG_FUNC_DEF_PATH = "functionDefinitionPath";
-	public static final String ARG_FILTER = "filter";
-	public static final String ARG_DATA_TYPE = "dataType";
+	public static final String ARG_UNION_PATH = "unionPath";
+	public static final String ARG_USE_DECOMPILER_VIEW = "useDecompilerView";
+	public static final String ARG_VALUE = "value";
+	public static final String ARG_VARIABLE_IDENTIFIER = "variableIdentifier";
+	public static final String ARG_VARIABLE_SYMBOL_ID = "variableSymbolId";
+	// ===================================================================================
 
 	// ===================================================================================
 	// Core Interface Methods
@@ -187,44 +197,58 @@ public interface IGhidraMcpSpecification {
 	default Mono<? extends Object> executeInTransaction(Program program, String transactionName,
 			Callable<? extends Object> work) {
 		return Mono.fromCallable(() -> {
+			// Use AtomicReferences to capture result or exception from EDT
+			AtomicReference<Object> resultRef = new AtomicReference<>();
+			AtomicReference<Throwable> exceptionRef = new AtomicReference<>();
 
-			Object rawResultOrErrorSignal = Swing.runNow(() -> {
+			Swing.runNow(() -> { // This still runs its lambda on the EDT
 				int txId = -1;
 				boolean success = false; // Assume failure initially
-				Object rawResult = null;
-
 				try {
 					txId = program.startTransaction(transactionName);
-					rawResult = work.call();
+					resultRef.set(work.call()); // work.call() runs on EDT
 					success = true;
-
-				} catch (Exception e) {
-					// Log the exception from work.call() or block()
-					Msg.error(this, "Exception during Ghidra transaction work '" + transactionName + "': " + e.getMessage(), e);
-					// Throw the exception to be caught by onErrorResume outside Swing.runNow
-					throw new RuntimeException("Transaction work failed: " + e.getMessage(), e);
+				} catch (Throwable t) {
+					// Capture the exception to be handled by the Mono
+					exceptionRef.set(t);
+					// Optionally, log it here too if desired, but primary handling will be via Mono
+					Msg.error(this, "Throwable during Ghidra transaction work '" + transactionName + "': " + t.getMessage(), t);
 				} finally {
-					// Ensure transaction is ended
 					if (txId != -1) {
 						try {
-							program.endTransaction(txId, success);
+							// Only commit if work.call() succeeded AND no prior exception was captured from
+							// it.
+							program.endTransaction(txId, success && exceptionRef.get() == null);
 						} catch (Exception e) {
-							Msg.error(this, "Failed to end transaction '" + transactionName + "' (success=" + success + ")", e);
-							// If ending fails, we still need to propagate the original error if one
-							// occurred,
-							// or signal a new error if the work succeeded but ending failed.
-							if (success) { // Only throw if work succeeded but end failed
-								throw new RuntimeException("Failed to end successful transaction: " + e.getMessage(), e);
+							Msg.error(this, "Failed to end transaction '" + transactionName + "' (intended success: "
+									+ (success && exceptionRef.get() == null) + ")", e);
+							// If ending the transaction fails, this is a new error or compounds an existing
+							// one.
+							// Prioritize the original exception from work.call() if one exists.
+							if (exceptionRef.get() == null) {
+								exceptionRef
+										.set(new RuntimeException("Failed to end transaction after successful work: " + e.getMessage(), e));
 							}
 						}
 					}
 				}
-				return rawResult;
 			});
 
-			// Wrap the result of Swing.runNow into a Mono
-			return rawResultOrErrorSignal;
-		});
+			// After Swing.runNow completes (or times out, which Ghidra's Swing.runNow
+			// handles internally by potentially throwing RuntimeException):
+			// Check if an exception was captured from the EDT execution of work.call() or
+			// from endTransaction.
+			if (exceptionRef.get() != null) {
+				// Propagate the captured exception to the Mono stream
+				Throwable capturedError = exceptionRef.get();
+				if (capturedError instanceof RuntimeException) {
+					throw (RuntimeException) capturedError;
+				}
+				throw new RuntimeException("Error during EDT execution: " + capturedError.getMessage(), capturedError);
+			}
+			return resultRef.get(); // Return the result from work.call() if no exception occurred
+		})
+				.subscribeOn(Schedulers.boundedElastic()); // Ensures the fromCallable body runs on a worker thread
 
 	}
 
@@ -692,7 +716,7 @@ public interface IGhidraMcpSpecification {
 								+ "'. Expected non-blank String."));
 	}
 
-	// --- Integer ---
+	// --- Integer --- (from JsonNode)
 	/**
 	 * Retrieves an optional integer argument from the provided {@link JsonNode}.
 	 * Handles values provided as JSON numbers or as numeric Strings.
@@ -710,7 +734,6 @@ public interface IGhidraMcpSpecification {
 		if (valueNode.isInt()) {
 			return Optional.of(valueNode.asInt());
 		} else if (valueNode.isTextual()) {
-			// Also allow integer provided as a string
 			String textValue = valueNode.asText();
 			if (textValue.isBlank()) {
 				return Optional.empty();
@@ -744,7 +767,7 @@ public interface IGhidraMcpSpecification {
 								+ "'. Expected Integer or numeric String."));
 	}
 
-	// --- Long ---
+	// --- Long --- (from JsonNode)
 	/**
 	 * Retrieves an optional long argument from the provided {@link JsonNode}.
 	 * Handles values provided as JSON integral numbers or as numeric Strings.

@@ -891,6 +891,22 @@ public class JsonSchemaBuilder {
 		IArraySchemaBuilder items(IBuildableSchemaType itemSchemaBuilder);
 
 		/**
+		 * Specifies that the items in the array must be valid against any of the given
+		 * schemas.
+		 * This is equivalent to setting the "items" keyword to an object schema
+		 * that itself contains an "anyOf" keyword.
+		 * Corresponds to: "items": { "anyOf": [ schema1, schema2, ... ] }
+		 *
+		 * @param schemas A list of schema builders. The items in the array must
+		 *                validate against
+		 *                at least one of the schemas built by these builders.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (items, anyOf)</a>
+		 */
+		IArraySchemaBuilder itemsAnyOf(List<? extends IBuildableSchemaType> schemas);
+
+		/**
 		 * Specifies that the data must be valid against any of the given schemas.
 		 * Corresponds to the "anyOf" keyword in the JSON Schema specification,
 		 * as used by the Google AI API.
@@ -1519,6 +1535,35 @@ public class JsonSchemaBuilder {
 		public IArraySchemaBuilder maxItems(int maxItems) {
 			assertType(JsonSchemaType.ARRAY);
 			builder.schema.put(MAX_ITEMS, maxItems);
+			return this;
+		}
+
+		@Override
+		public IArraySchemaBuilder itemsAnyOf(List<? extends IBuildableSchemaType> schemas) {
+			assertType(JsonSchemaType.ARRAY); // Ensures 'this.builder' is for an array schema
+			Objects.requireNonNull(schemas, "itemsAnyOf schemas list cannot be null");
+			if (schemas.isEmpty()) {
+				throw new IllegalArgumentException("itemsAnyOf schemas list cannot be empty.");
+			}
+
+			// Collect the ObjectNode schemas for the anyOf array
+			List<ObjectNode> subSchemaNodes = new ArrayList<>();
+			for (IBuildableSchemaType schemaBuilder : schemas) {
+				Objects.requireNonNull(schemaBuilder, "Schema builder in itemsAnyOf list cannot be null");
+				// It's assumed that schemaBuilder.build().getNode() will produce an object
+				// schema
+				// as per the usage in IGroupedTool.createSchemaVariantForTool
+				subSchemaNodes.add(schemaBuilder.build().getNode());
+			}
+
+			// Create the items schema: {"type": "object", "anyOf": [subSchemaNodes...]}
+			// We use JsonSchemaBuilder.object() to ensure "type":"object" is set,
+			// and then call its anyOf method that takes pre-built ObjectNodes.
+			IObjectSchemaBuilder itemsObjectSchemaBuilder = JsonSchemaBuilder.object(this.mapper);
+			itemsObjectSchemaBuilder.anyOf(subSchemaNodes.toArray(new ObjectNode[0])); // Pass the already built ObjectNodes
+
+			// Set this composite object schema as the "items" for the current array schema
+			builder.schema.set(ITEMS, itemsObjectSchemaBuilder.build().getNode());
 			return this;
 		}
 

@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import java.util.regex.Pattern;
 import java.util.Comparator;
 import java.util.Optional;
 
@@ -27,8 +26,6 @@ import ghidra.program.model.address.Address;
 @GhidraMcpTool(name = "Search Functions by Name", category = ToolCategory.FUNCTIONS, description = "Searches for functions whose names contain a given substring.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names match a search query.")
 public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification {
 
-	public static final String ARG_REGEX_PATTERN = "regexPattern";
-	public static final String ARG_CURSOR = "cursor";
 	public static final int DEFAULT_PAGE_LIMIT = 10;
 
 	@Override
@@ -36,16 +33,16 @@ public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification 
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the program file."));
-		schemaRoot.property(ARG_REGEX_PATTERN,
+						.description("The name of the program file."),
+				true);
+		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The regex pattern to search for within function names."));
+						.description("The name of the function to search for."),
+				true);
 		schemaRoot.property(ARG_CURSOR,
 				JsonSchemaBuilder.string(mapper)
 						.description(
 								"Optional cursor for pagination (typically the address of the last item from the previous page)."));
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_REGEX_PATTERN);
 
 		return schemaRoot.build();
 	}
@@ -53,13 +50,7 @@ public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
-			String regexPatternStr = getRequiredStringArgument(args, ARG_REGEX_PATTERN);
-			Pattern pattern;
-			try {
-				pattern = Pattern.compile(regexPatternStr);
-			} catch (java.util.regex.PatternSyntaxException e) {
-				throw new IllegalArgumentException("Invalid regex pattern: " + e.getMessage(), e);
-			}
+			String nameStr = getRequiredStringArgument(args, ARG_NAME);
 
 			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 			Address cursorAddr = null;
@@ -75,7 +66,7 @@ public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification 
 			FunctionManager functionManager = program.getFunctionManager();
 			List<FunctionInfo> collectedItems = StreamSupport
 					.stream(functionManager.getFunctions(true).spliterator(), false)
-					.filter(f -> pattern.matcher(f.getName()).find())
+					.filter(f -> f.getName().toLowerCase().contains(nameStr.toLowerCase()))
 					.sorted(Comparator.comparing(Function::getEntryPoint))
 					.dropWhile(item -> finalCursorAddr != null && item.getEntryPoint().compareTo(finalCursorAddr) <= 0)
 					.limit(DEFAULT_PAGE_LIMIT + 1)

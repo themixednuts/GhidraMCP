@@ -7,7 +7,7 @@ import ghidra.framework.plugintool.ServiceInfo;
 /**
  * Service interface for providing configured MCP tool specifications.
  */
-@ServiceInfo(defaultProvider = com.themixednuts.GhidraMCPPlugin.class)
+@ServiceInfo(defaultProvider = com.themixednuts.GhidraMcpPlugin.class)
 public interface IGhidraMcpToolProvider {
 
 	/**

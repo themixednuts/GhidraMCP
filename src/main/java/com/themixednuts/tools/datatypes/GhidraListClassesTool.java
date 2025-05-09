@@ -35,7 +35,8 @@ public class GhidraListClassesTool implements IGhidraMcpSpecification {
 
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The file name of the Ghidra tool window to target."))
+						.description("The file name of the Ghidra tool window to target."),
+				true)
 				.property(ARG_PATH,
 						JsonSchemaBuilder.string(mapper)
 								.description(

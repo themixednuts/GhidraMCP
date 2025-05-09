@@ -7,5 +7,6 @@ public enum DataTypeKind {
 	TYPEDEF,
 	FUNCTION_DEFINITION,
 	CATEGORY,
+	POINTER,
 	OTHER
 }

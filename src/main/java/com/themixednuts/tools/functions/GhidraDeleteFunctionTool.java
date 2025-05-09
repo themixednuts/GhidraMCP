@@ -17,6 +17,9 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
@@ -29,14 +32,18 @@ public class GhidraDeleteFunctionTool implements IGhidraMcpSpecification {
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property(ARG_FUNCTION_NAME,
-				JsonSchemaBuilder.string(mapper)
-						.description("The name of the function to remove. Either this or address must be provided."));
+		schemaRoot.property(ARG_FUNCTION_SYMBOL_ID,
+				JsonSchemaBuilder.integer(mapper)
+						.description("The Symbol ID of the function to delete. Preferred identifier."));
 		schemaRoot.property(ARG_ADDRESS,
 				JsonSchemaBuilder.string(mapper)
 						.description(
-								"Optional entry point address of the function to remove (e.g., '0x1004010'). Preferred over name if provided.")
+								"Optional entry point address of the function to remove (e.g., '0x1004010'). Used if Symbol ID is not provided or not found.")
 						.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_FUNCTION_NAME,
+				JsonSchemaBuilder.string(mapper)
+						.description(
+								"The name of the function to remove. Used if Symbol ID and Address are not provided or not found."));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
@@ -51,44 +58,71 @@ public class GhidraDeleteFunctionTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
-			Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
-			Optional<String> nameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+			Optional<Long> funcSymbolIdOpt = getOptionalLongArgument(args, ARG_FUNCTION_SYMBOL_ID);
+			Optional<String> funcAddressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+			Optional<String> funcNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
 
-			if (addressOpt.isEmpty() && nameOpt.isEmpty()) {
-				throw new IllegalArgumentException("Either function address ('" + ARG_ADDRESS + "') or function name ('"
-						+ ARG_FUNCTION_NAME + "') must be provided.");
+			if (funcSymbolIdOpt.isEmpty() && funcAddressOpt.isEmpty() && funcNameOpt.isEmpty()) {
+				throw new IllegalArgumentException(
+						"At least one identifier (functionSymbolId, address, or functionName) must be provided.");
 			}
 
 			Function functionToDelete = null;
 			FunctionManager functionManager = program.getFunctionManager();
-			String identifier = "";
-			Address entryPointAddress = null;
+			SymbolTable symbolTable = program.getSymbolTable();
 
-			if (addressOpt.isPresent()) {
-				String addressString = addressOpt.get();
-				identifier = addressString;
-				entryPointAddress = program.getAddressFactory().getAddress(addressString);
-				functionToDelete = functionManager.getFunctionAt(entryPointAddress);
+			if (funcSymbolIdOpt.isPresent()) {
+				long symId = funcSymbolIdOpt.get();
+				Symbol symbol = symbolTable.getSymbol(symId);
+				if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+					functionToDelete = functionManager.getFunctionAt(symbol.getAddress());
+				}
 			}
 
-			if (functionToDelete == null && nameOpt.isPresent()) {
-				String functionName = nameOpt.get();
-				identifier = functionName;
+			if (functionToDelete == null && funcAddressOpt.isPresent()) {
+				String addressString = funcAddressOpt.get();
+				Address entryPointAddress = program.getAddressFactory().getAddress(addressString);
+				if (entryPointAddress != null) {
+					functionToDelete = functionManager.getFunctionAt(entryPointAddress);
+				} else {
+					if (funcNameOpt.isEmpty() && funcSymbolIdOpt.isEmpty()) {
+						throw new IllegalArgumentException("Invalid address format: " + addressString);
+					}
+				}
+			} else if (funcNameOpt.isPresent()) {
+				String functionName = funcNameOpt.get();
 				functionToDelete = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
 						.filter(f -> f.getName(true).equals(functionName))
 						.findFirst()
 						.orElse(null);
-				if (functionToDelete != null) {
-					entryPointAddress = functionToDelete.getEntryPoint();
+			}
+
+			if (functionToDelete == null) {
+				StringBuilder errorMsgBuilder = new StringBuilder(
+						"Function not found using any of the provided valid identifiers. Attempted with: ");
+				boolean first = true;
+				if (funcSymbolIdOpt.isPresent()) {
+					errorMsgBuilder.append("functionSymbolId='").append(funcSymbolIdOpt.get()).append("'");
+					first = false;
 				}
+				if (funcAddressOpt.isPresent()) {
+					if (!first)
+						errorMsgBuilder.append(", ");
+					errorMsgBuilder.append("address='").append(funcAddressOpt.get()).append("'");
+					first = false;
+				}
+				if (funcNameOpt.isPresent()) {
+					if (!first)
+						errorMsgBuilder.append(", ");
+					errorMsgBuilder.append("functionName='").append(funcNameOpt.get()).append("'");
+				}
+				if (errorMsgBuilder.toString().endsWith("Attempted with: ")) {
+					errorMsgBuilder.append("(no valid identifiers led to a function)");
+				}
+				throw new IllegalArgumentException(errorMsgBuilder.toString());
 			}
 
-			if (functionToDelete == null || entryPointAddress == null) {
-				throw new IllegalArgumentException(
-						"Function not found or address could not be determined for identifier: " + identifier);
-			}
-
-			return new DeleteFunctionContext(program, entryPointAddress);
+			return new DeleteFunctionContext(program, functionToDelete.getEntryPoint());
 
 		}).flatMap(context -> {
 			final String entryPointStr = context.addressToDelete().toString();

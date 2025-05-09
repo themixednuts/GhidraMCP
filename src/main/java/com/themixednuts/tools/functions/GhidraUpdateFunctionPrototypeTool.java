@@ -1,6 +1,7 @@
 package com.themixednuts.tools.functions;
 
 import java.util.Map;
+import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
@@ -18,6 +19,8 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.symbol.SourceType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema.LoggingLevel;
@@ -34,15 +37,25 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.property(ARG_FUNCTION_ADDRESS,
-				JsonSchemaBuilder.string(mapper)
-						.description("The address of the function entry point (e.g., '0x1004010')."));
+
+		schemaRoot.property(ARG_FUNCTION_SYMBOL_ID,
+				JsonSchemaBuilder.integer(mapper)
+						.description("Optional: Symbol ID of the function. Preferred identifier."))
+				.property(ARG_FUNCTION_ADDRESS,
+						JsonSchemaBuilder.string(mapper)
+								.description(
+										"Optional: Entry point address of the function (e.g., '0x1004010'). Used if Symbol ID is not provided or not found.")
+								.pattern("^(0x)?[0-9a-fA-F]+$"))
+				.property(ARG_FUNCTION_NAME,
+						JsonSchemaBuilder.string(mapper)
+								.description(
+										"Optional: Name of the function. Used if Symbol ID and Address are not provided or not found."));
+
 		schemaRoot.property("prototype",
 				JsonSchemaBuilder.string(mapper)
 						.description("The new function prototype string (e.g., 'void FUN_00401000(int param1, char *param2)')."));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_FUNCTION_ADDRESS)
 				.requiredProperty("prototype");
 
 		return schemaRoot.build();
@@ -51,19 +64,19 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).flatMap(program -> {
+			Optional<Long> funcSymbolIdOpt = getOptionalLongArgument(args, ARG_FUNCTION_SYMBOL_ID);
+			Optional<String> funcAddressOpt = getOptionalStringArgument(args, ARG_FUNCTION_ADDRESS);
+			Optional<String> funcNameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+
+			String newPrototypeString = getRequiredStringArgument(args, "prototype");
+
+			if (funcSymbolIdOpt.isEmpty() && funcAddressOpt.isEmpty() && funcNameOpt.isEmpty()) {
+				return Mono.error(new IllegalArgumentException(
+						"At least one function identifier (functionSymbolId, functionAddress, or functionName) must be provided."));
+			}
+
 			return Mono.fromCallable(() -> {
-				String addressString = getRequiredStringArgument(args, ARG_FUNCTION_ADDRESS);
-				String newPrototypeString = getRequiredStringArgument(args, "prototype");
-
-				Address functionAddress = program.getAddressFactory().getAddress(addressString);
-				if (functionAddress == null) {
-					throw new IllegalArgumentException("Invalid address format: " + addressString);
-				}
-
-				Function targetFunction = program.getFunctionManager().getFunctionAt(functionAddress);
-				if (targetFunction == null) {
-					throw new IllegalArgumentException("Function not found: " + addressString);
-				}
+				Function targetFunction = resolveFunction(program, funcSymbolIdOpt, funcAddressOpt, funcNameOpt);
 
 				return Tuples.of(targetFunction, newPrototypeString);
 			})
@@ -102,4 +115,60 @@ public class GhidraUpdateFunctionPrototypeTool implements IGhidraMcpSpecificatio
 		});
 	}
 
+	// Helper method to resolve function by Symbol ID, Address, or Name
+	private Function resolveFunction(Program program, Optional<Long> funcSymbolIdOpt, Optional<String> funcAddressOpt,
+			Optional<String> funcNameOpt) {
+		FunctionManager funcMan = program.getFunctionManager();
+		Function function = null;
+
+		// Attempt 1: Resolve by Symbol ID
+		if (funcSymbolIdOpt.isPresent()) {
+			long symbolID = funcSymbolIdOpt.get();
+			ghidra.program.model.symbol.Symbol symbol = program.getSymbolTable().getSymbol(symbolID);
+			if (symbol != null && symbol.getSymbolType() == ghidra.program.model.symbol.SymbolType.FUNCTION) {
+				function = funcMan.getFunctionAt(symbol.getAddress());
+				if (function != null) {
+					return function; // Successfully found by Symbol ID
+				}
+			}
+		}
+
+		// Attempt 2: Resolve by Address
+		if (funcAddressOpt.isPresent()) {
+			Address funcAddr = program.getAddressFactory().getAddress(funcAddressOpt.get());
+			if (funcAddr == null) {
+				ghidra.util.Msg.warn(this, "Invalid function address format or address not found: " + funcAddressOpt.get());
+			}
+			if (funcAddr != null) {
+				function = funcMan.getFunctionAt(funcAddr);
+				if (function != null) {
+					return function; // Successfully found by address
+				}
+			}
+		}
+
+		// Attempt 3: Resolve by Name
+		if (funcNameOpt.isPresent()) {
+			String functionName = funcNameOpt.get();
+			java.util.List<Function> foundFunctionsByName = java.util.stream.StreamSupport
+					.stream(funcMan.getFunctions(true).spliterator(), false)
+					.filter(f -> f.getName().equals(functionName))
+					.collect(java.util.stream.Collectors.toList());
+
+			if (foundFunctionsByName.size() == 1) {
+				return foundFunctionsByName.get(0); // Found unique function by name
+			} else if (foundFunctionsByName.size() > 1) {
+				throw new IllegalArgumentException(
+						"Multiple functions found with name: '" + functionName +
+								"'. Please use a more specific identifier like address or symbol ID.");
+			}
+		}
+
+		// If not found by any means
+		StringBuilder errorMessage = new StringBuilder("Function not found using any of the provided identifiers: ");
+		funcSymbolIdOpt.ifPresent(id -> errorMessage.append("functionSymbolId='").append(id).append("' "));
+		funcAddressOpt.ifPresent(addr -> errorMessage.append("functionAddress='").append(addr).append("' "));
+		funcNameOpt.ifPresent(name -> errorMessage.append("functionName='").append(name).append("' "));
+		throw new IllegalArgumentException(errorMessage.toString().trim());
+	}
 }

@@ -10,9 +10,7 @@ import ghidra.program.model.data.Union;
 import ghidra.program.model.data.Enum;
 import ghidra.program.model.data.TypeDef;
 import ghidra.program.model.data.Pointer;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
+import ghidra.program.model.data.FunctionDefinitionDataType;
 
 /**
  * Utility class to hold relevant information about a Ghidra DataType for JSON
@@ -21,48 +19,22 @@ import java.util.stream.Collectors;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataTypeInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("display_name")
 	private final String displayName;
-
-	@JsonProperty("path_name") // Consistent naming with tool
 	private final String pathName;
-
-	@JsonProperty("category_path")
 	private final String categoryPath;
-
-	@JsonProperty("length")
 	private final int length;
-
-	@JsonProperty("aligned_length")
 	private final int alignedLength;
-
-	@JsonProperty("alignment") // Add alignment
 	private final int alignment;
-
-	@JsonProperty("description")
 	private final String description;
-
-	@JsonProperty("is_zero_length")
 	private final boolean isZeroLength;
-
-	// Added type flags
-	@JsonProperty("is_structure")
 	private final boolean isStructure;
-	@JsonProperty("is_union")
 	private final boolean isUnion;
-	@JsonProperty("is_enum")
 	private final boolean isEnum;
-	@JsonProperty("is_type_def")
 	private final boolean isTypeDef;
-	@JsonProperty("is_pointer")
 	private final boolean isPointer;
-
-	// New field for members (will be null if not applicable)
-	@JsonProperty("members")
-	private final List<?> members; // Use wildcard, specific type handled in constructor
+	private final boolean isFunctionDefinition;
+	private BaseDataTypeDetails details;
 
 	public DataTypeInfo(DataType dataType) {
 		this.name = dataType.getName();
@@ -78,90 +50,112 @@ public class DataTypeInfo {
 		this.description = dataType.getDescription();
 		this.isZeroLength = dataType.isZeroLength();
 
-		// Set type flags
+		// Set type flags first
 		this.isStructure = dataType instanceof Structure;
 		this.isUnion = dataType instanceof Union;
 		this.isEnum = dataType instanceof Enum;
 		this.isTypeDef = dataType instanceof TypeDef;
 		this.isPointer = dataType instanceof Pointer;
+		this.isFunctionDefinition = dataType instanceof FunctionDefinitionDataType;
 
-		// Populate members if applicable
+		// Populate details based on the type
 		if (this.isStructure) {
-			// TODO: Populate with StructMemberInfo when created
-			this.members = null; // Placeholder
+			this.details = new StructureDetails((Structure) dataType);
 		} else if (this.isUnion) {
-			Union unionDt = (Union) dataType;
-			this.members = Arrays.stream(unionDt.getDefinedComponents()) // Use getDefinedComponents
-					.map(UnionMemberInfo::new)
-					.collect(Collectors.toList());
+			this.details = new UnionDetails((Union) dataType);
 		} else if (this.isEnum) {
-			// TODO: Populate with EnumEntryInfo when created
-			this.members = null; // Placeholder
+			this.details = new EnumDetails((Enum) dataType);
+		} else if (this.isTypeDef) {
+			this.details = new TypedefDetails((TypeDef) dataType);
+		} else if (this.isFunctionDefinition) {
+			this.details = new FunctionDefinitionDetails((FunctionDefinitionDataType) dataType);
+		} else if (this.isPointer) {
+			this.details = new PointerDetails((Pointer) dataType);
 		} else {
-			this.members = null;
+			// Fallback for built-in types, arrays, or other unspecifically handled types
+			this.details = new OtherDataTypeDetails(dataType);
 		}
 	}
 
-	// Getters
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("display_name")
 	public String getDisplayName() {
 		return displayName;
 	}
 
+	@JsonProperty("path_name")
 	public String getPathName() {
 		return pathName;
 	}
 
+	@JsonProperty("category_path")
 	public String getCategoryPath() {
 		return categoryPath;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}
 
+	@JsonProperty("aligned_length")
 	public int getAlignedLength() {
 		return alignedLength;
 	}
 
+	@JsonProperty("alignment")
 	public int getAlignment() {
 		return alignment;
 	}
 
+	@JsonProperty("description")
 	public String getDescription() {
 		return description;
 	}
 
+	@JsonProperty("is_zero_length")
 	public boolean isZeroLength() {
 		return isZeroLength;
 	}
 
 	// Getters for type flags
+	@JsonProperty("is_structure")
 	public boolean isStructure() {
 		return isStructure;
 	}
 
+	@JsonProperty("is_union")
 	public boolean isUnion() {
 		return isUnion;
 	}
 
+	@JsonProperty("is_enum")
 	public boolean isEnum() {
 		return isEnum;
 	}
 
+	@JsonProperty("is_type_def")
 	public boolean isTypeDef() {
 		return isTypeDef;
 	}
 
+	@JsonProperty("is_pointer")
 	public boolean isPointer() {
 		return isPointer;
 	}
 
-	// Getter for members
-	public List<?> getMembers() {
-		return members;
+	@JsonProperty("is_function_definition")
+	public boolean isFunctionDefinition() {
+		return isFunctionDefinition;
+	}
+
+	@JsonProperty("details")
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	public BaseDataTypeDetails getDetails() {
+		return details;
 	}
 }

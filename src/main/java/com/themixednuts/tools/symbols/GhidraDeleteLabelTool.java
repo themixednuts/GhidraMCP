@@ -17,6 +17,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
+import ghidra.program.model.symbol.SymbolIterator;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
@@ -42,10 +43,13 @@ public class GhidraDeleteLabelTool implements IGhidraMcpSpecification {
 						.pattern("^(0x)?[0-9a-fA-F]+$"));
 		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("Optional name of the label to verify before removing."));
+						.description(
+								"The name of the label. Used for verification if address/ID provided, or for finding a global label."));
+		schemaRoot.property(ARG_SYMBOL_ID,
+				JsonSchemaBuilder.integer(mapper)
+						.description("The unique Symbol ID of the label to remove."));
 
-		schemaRoot.requiredProperty(ARG_FILE_NAME)
-				.requiredProperty(ARG_ADDRESS);
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
 		return schemaRoot.build();
 	}
@@ -54,42 +58,105 @@ public class GhidraDeleteLabelTool implements IGhidraMcpSpecification {
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool)
 				.map(program -> {
-					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-					Optional<String> labelNameOpt = getOptionalStringArgument(args, ARG_NAME);
+					Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+					Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
+					Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
 
-					Address targetAddress = program.getAddressFactory().getAddress(addressStr);
-					if (targetAddress == null) {
-						throw new IllegalArgumentException("Invalid address string (resolved to null): " + addressStr);
+					if (symbolIdOpt.isEmpty() && addressOpt.isEmpty() && nameOpt.isEmpty()) {
+						throw new IllegalArgumentException(
+								"At least one identifier (symbolId, address, or name) must be provided to delete a label.");
 					}
 
 					SymbolTable symbolTable = program.getSymbolTable();
-					Symbol primarySymbol = symbolTable.getPrimarySymbol(targetAddress);
+					Symbol symbolToDelete = null;
+					String criteriaInfo = "";
 
-					// Validate symbol exists
-					if (primarySymbol == null) {
-						throw new IllegalArgumentException("No primary symbol found at address: " + addressStr);
+					if (symbolIdOpt.isPresent()) {
+						long symId = symbolIdOpt.get();
+						criteriaInfo = "ID '" + symId + "'";
+						symbolToDelete = symbolTable.getSymbol(symId);
+						if (symbolToDelete != null) {
+							if (nameOpt.isPresent() && !symbolToDelete.getName().equals(nameOpt.get())) {
+								throw new IllegalArgumentException("Symbol with ID '" + symId + "' found, but name mismatch. Expected '"
+										+ nameOpt.get() + "' but was '" + symbolToDelete.getName() + "'.");
+							}
+							Address parsedAddressForVerification = addressOpt.map(program.getAddressFactory()::getAddress)
+									.orElse(null);
+							if (parsedAddressForVerification != null
+									&& !symbolToDelete.getAddress().equals(parsedAddressForVerification)) {
+								throw new IllegalArgumentException(
+										"Symbol with ID '" + symId + "' found, but address mismatch. Expected '"
+												+ addressOpt.get() + "' but was '" + symbolToDelete.getAddress().toString() + "'.");
+							}
+						}
+					} else if (addressOpt.isPresent()) {
+						String addressStr = addressOpt.get();
+						criteriaInfo = "address '" + addressStr + "'";
+						Address targetAddress = program.getAddressFactory().getAddress(addressStr);
+						if (targetAddress == null) {
+							throw new IllegalArgumentException("Invalid address string: " + addressStr);
+						}
+
+						if (nameOpt.isPresent()) {
+							// If name is also provided, iterate to find the specific named symbol at the
+							// address
+							String targetName = nameOpt.get();
+							criteriaInfo += " and name '" + targetName + "'";
+							Symbol[] symbolsAtAddr = symbolTable.getSymbols(targetAddress);
+							for (Symbol sym : symbolsAtAddr) {
+								if (sym.getName().equals(targetName)) {
+									symbolToDelete = sym;
+									break;
+								}
+							}
+							if (symbolToDelete == null) {
+								throw new IllegalArgumentException(
+										"Label with name '" + targetName + "' not found at address '" + addressStr + "'.");
+							}
+						} else {
+							// Only address provided, try primary then first symbol
+							symbolToDelete = symbolTable.getPrimarySymbol(targetAddress);
+							if (symbolToDelete == null) {
+								Symbol[] symbolsAtAddr = symbolTable.getSymbols(targetAddress);
+								if (symbolsAtAddr.length > 0) {
+									symbolToDelete = symbolsAtAddr[0];
+								}
+							}
+						}
+					} else if (nameOpt.isPresent()) { // Only name provided
+						String labelName = nameOpt.get();
+						criteriaInfo = "name '" + labelName + "'";
+						SymbolIterator symIter = symbolTable.getSymbolIterator(labelName, true); // Global symbols
+						Symbol firstMatch = null;
+						int count = 0;
+						while (symIter.hasNext()) {
+							Symbol currentSym = symIter.next();
+							if (currentSym.getSymbolType() == SymbolType.LABEL) {
+								if (count == 0)
+									firstMatch = currentSym;
+								count++;
+							}
+						}
+						if (count == 1) {
+							symbolToDelete = firstMatch;
+						} else if (count > 1) {
+							throw new IllegalArgumentException(
+									"Multiple global labels found with name: '" + labelName + "'. Please use address or symbol ID.");
+						}
 					}
 
-					// Validate symbol is a LABEL
-					// DeleteLabelCmd handles various symbol types implicitly, so type check might
-					// be redundant,
-					// but we keep it for clearer error messages if user specifically targets a
-					// non-label.
-					if (primarySymbol.getSymbolType() != SymbolType.LABEL) {
+					if (symbolToDelete == null) {
+						throw new IllegalArgumentException("Label not found using criteria: " + criteriaInfo);
+					}
+
+					if (symbolToDelete.getSymbolType() != SymbolType.LABEL) {
 						throw new IllegalArgumentException(
-								"Symbol at address " + addressStr + " is a " + primarySymbol.getSymbolType() + ", not a Label.");
-					}
-
-					final String actualSymbolName = primarySymbol.getName();
-
-					// Validate name if provided
-					if (labelNameOpt.isPresent() && !actualSymbolName.equals(labelNameOpt.get())) {
-						throw new IllegalArgumentException("Label name mismatch at address " + addressStr + ". Expected '"
-								+ labelNameOpt.get() + "' but found '" + actualSymbolName + "'.");
+								"Symbol found by " + criteriaInfo + " is a " + symbolToDelete.getSymbolType()
+										+ ", not a Label. Cannot delete.");
 					}
 
 					// --- Modification Phase (Pass needed context) ---
-					return new DeleteLabelContext(program, targetAddress, actualSymbolName);
+					return new DeleteLabelContext(program, symbolToDelete.getAddress(), symbolToDelete.getName());
 
 				})
 				.flatMap(context -> {

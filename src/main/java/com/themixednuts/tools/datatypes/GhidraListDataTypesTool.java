@@ -11,7 +11,6 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.DataTypeInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -22,6 +21,7 @@ import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Program;
+import ghidra.util.Msg;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.data.Union;
 import ghidra.program.model.data.TypeDef;
@@ -31,8 +31,6 @@ import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(name = "List DataTypes", category = ToolCategory.DATATYPES, description = "Lists data types within a program, with optional filtering by category path, name fragment, and specific data type kind.", mcpName = "list_data_types", mcpDescription = "Lists data types, optionally filtering by category path, name fragment, and specific data type kind.")
 public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
-
-	protected static final String ARG_RECURSIVE = "recursive";
 
 	@Override
 	public JsonSchema schema() {
@@ -56,7 +54,7 @@ public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 								.description(
 										"Optional specific kind of data type to filter by (e.g., STRUCT, ENUM). If omitted, all data types matching other criteria are listed.")
 								.enumValues(Arrays.stream(DataTypeKind.values())
-										.filter(dk -> dk != DataTypeKind.CATEGORY) // Exclude CATEGORY from this tool's options
+										.filter(dk -> dk != DataTypeKind.CATEGORY)
 										.map(Enum::name)
 										.collect(Collectors.toList())))
 				.description(
@@ -86,12 +84,15 @@ public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 		DataTypeManager dtm = program.getDataTypeManager();
 		List<DataType> candidateDataTypes = new ArrayList<>();
 
+		dtm.getAllDataTypes(candidateDataTypes);
+
 		if (filterOpt.isPresent()) {
-			dtm.findDataTypes(filterOpt.get(), candidateDataTypes);
-		} else if (pathOpt.isPresent() && dtm.containsCategory(pathOpt.get())) {
-			Arrays.stream(dtm.getCategory(pathOpt.get()).getDataTypes()).forEach(candidateDataTypes::add);
-		} else {
-			dtm.getAllDataTypes(candidateDataTypes);
+			candidateDataTypes.removeIf(dt -> !dt.getName().toLowerCase().contains(filterOpt.get().toLowerCase()));
+		}
+
+		if (pathOpt.isPresent()) {
+			Msg.info(this, "Path: " + pathOpt.get().getPath());
+			candidateDataTypes.removeIf(dt -> !dt.getCategoryPath().getPath().startsWith(pathOpt.get().getPath()));
 		}
 
 		// Apply data type kind filter (if any)
@@ -121,18 +122,22 @@ public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 								dt instanceof FunctionDefinition || dt.isNotYetDefined());
 						break;
 					default:
-						matches = false; // Should not be reached
+						matches = false;
 				}
-				return !matches; // removeIf removes if true (i.e., if it !matches)
+				return !matches;
 			});
 		}
 
+		Msg.info(this, "Candidate DataTypes: " + candidateDataTypes.size());
+
 		List<DataTypeInfo> dataTypes = candidateDataTypes.stream()
 				.sorted((d1, d2) -> d1.getPathName().compareToIgnoreCase(d2.getPathName()))
-				.dropWhile(dt -> !cursorOpt.map(c -> c.equals(dt.getPathName())).orElse(false))
+				.dropWhile(dt -> cursorOpt.map(cv -> dt.getPathName().compareToIgnoreCase(cv) <= 0).orElse(false))
 				.limit(DEFAULT_PAGE_LIMIT + 1)
 				.map(DataTypeInfo::new)
 				.collect(Collectors.toList());
+
+		Msg.info(this, "DataTypes: " + dataTypes.size());
 
 		boolean hasMore = dataTypes.size() > DEFAULT_PAGE_LIMIT;
 		if (hasMore) {
