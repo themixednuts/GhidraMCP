@@ -82,7 +82,7 @@ public class GhidraMcpServer {
 
 		Msg.info(GhidraMcpServer.class, "Creating new McpAsyncServer shell instance...");
 		return McpServer.async(transportProvider)
-				.serverInfo("ghidra-mcp", "0.1.0")
+				.serverInfo("ghidra-mcp", "0.1.1")
 				.capabilities(ServerCapabilities.builder()
 						.tools(true)
 						.logging()
