@@ -16,7 +16,7 @@ This guide provides templates and key patterns for creating new Ghidra MCP tools
         *   `description`: Hover description in Ghidra Tool Options.
         *   `category`: Category in Ghidra Tool Options (e.g., [`ToolCategory.FUNCTIONS`](mdc:src/main/java/com/themixednuts/tools/ToolCategory.java)). **Use an existing category or `ToolCategory.UNCATEGORIZED`. Do NOT add new categories to the `ToolCategory` enum.**
         *   `mcpName`: Name for the MCP tool specification (e.g., "list_functions").
-        *   `mcpDescription`: Description for the MCP tool specification.
+        *   `mcpDescription`: Detailed description for the MCP tool specification, guiding its usage by AI agents. See "Writing Effective `mcpDescription`" section below for detailed guidance. Use Java's multi-line string literals (`\"\"\"...\"\"\"`) for readability.
 2.  **Register Service:** Add the fully qualified class name to `src/main/resources/META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`. **This step is mandatory for the tool to be loaded and must be performed automatically when creating a new tool class.**
 3.  **Naming Convention:** Follow standard CRUD naming conventions for both the Java class (`Ghidra<Action><Noun>Tool`) and the `mcpName` (`<action>_<noun>`) where possible:
     *   **Create:** Use `Create` for adding new items (e.g., `GhidraCreateBookmarkTool`, `create_bookmark`). Avoid synonyms like `Add`.
@@ -37,6 +37,166 @@ This guide provides templates and key patterns for creating new Ghidra MCP tools
 
 ---
 
+## Structured Error Handling Guidelines
+
+**CRITICAL:** Always use structured error handling with [`GhidraMcpError.java`](mdc:src/main/java/com/themixednuts/models/GhidraMcpError.java) and [`GhidraMcpException`](mdc:src/main/java/com/themixednuts/exceptions/GhidraMcpException.java) instead of simple `IllegalArgumentException` or other basic exceptions. This provides clients with actionable error information and maintains consistency across all tools.
+
+### Required Imports for Error Handling
+
+```java
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
+import java.util.List;
+import java.util.Map;
+```
+
+### Constants Usage - NO MAGIC STRINGS
+
+**ALWAYS use constants and annotation values instead of string literals:**
+
+```java
+// ✅ CORRECT - Get tool name using the helper from IGhidraMcpSpecification
+String toolMcpName = this.getMcpName();
+
+// ✅ CORRECT - Use argument constants
+funcSymbolIdOpt.ifPresent(id -> criteria.put(ARG_FUNCTION_SYMBOL_ID, id));
+funcAddressOpt.ifPresent(addr -> criteria.put(ARG_ADDRESS, addr));
+funcNameOpt.ifPresent(name -> criteria.put(ARG_FUNCTION_NAME, name));
+
+// ❌ WRONG - Never use string literals
+throw new IllegalArgumentException("Function not found"); // DON'T DO THIS
+criteria.put("functionName", name); // DON'T DO THIS
+// String toolName = "get_function"; // DON'T DO THIS - Use this.getMcpName()
+```
+
+### Error Handling Patterns
+
+#### 1. Missing Required Arguments
+
+```java
+if (funcSymbolIdOpt.isEmpty() && funcAddressOpt.isEmpty() && funcNameOpt.isEmpty()) {
+    Map<String, Object> providedIdentifiers = Map.of(
+            ARG_FUNCTION_SYMBOL_ID, "not provided",
+            ARG_ADDRESS, "not provided", 
+            ARG_FUNCTION_NAME, "not provided"
+    );
+
+    GhidraMcpError error = GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+            .message("At least one identifier must be provided")
+            .context(new GhidraMcpError.ErrorContext(
+                    getMcpName(),
+                    "identifier validation",
+                    args,
+                    providedIdentifiers,
+                    Map.of("identifiersProvided", 0, "minimumRequired", 1)
+            ))
+            .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                            "Provide at least one identifier",
+                            "Include at least one required argument",
+                            List.of(
+															ARG_FUNCTION_SYMBOL_ID,
+															ARG_ADDRESS,
+															ARG_FUNCTION_NAME,
+                            ),
+                            null
+                    )
+            ))
+            .build();
+    throw new GhidraMcpException(error);
+}
+```
+
+#### 2. Resource Not Found (Use Utility Methods or Direct Builder)
+
+```java
+// For functions not found
+if (functionToReturn == null) {
+    Map<String, Object> searchCriteria = createSearchCriteriaMap(funcSymbolIdOpt, funcAddressOpt, funcNameOpt);
+    List<String> availableFunctions = getAvailableFunctionNames(functionManager);
+    
+    GhidraMcpError error = GhidraMcpError.resourceNotFound()
+        .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
+        .message("Function not found based on provided criteria.")
+        .context(new GhidraMcpError.ErrorContext(
+            this.getMcpName(),
+            "function lookup",
+            searchCriteria,
+            Map.of("criteriaUsed", searchCriteria),
+            Map.of("functionsAvailable", availableFunctions.size())
+        ))
+        .relatedResources(availableFunctions)
+        .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+            "List available functions",
+            "Use the 'list_function_names' tool to see available functions.",
+            null,
+            List.of(getMcpName(GhidraListFunctionNamesTool.class))
+        )))
+        .build();
+    throw new GhidraMcpException(error);
+}
+```
+
+#### 3. Helper Methods for Clean Code
+
+```java
+/**
+ * Creates a search criteria map using constants instead of string literals.
+ */
+private Map<String, Object> createSearchCriteriaMap(Optional<Long> funcSymbolIdOpt, 
+        Optional<String> funcAddressOpt, Optional<String> funcNameOpt) {
+    Map<String, Object> criteria = new java.util.HashMap<>();
+    
+    funcSymbolIdOpt.ifPresent(id -> criteria.put(ARG_FUNCTION_SYMBOL_ID, id));
+    funcAddressOpt.ifPresent(addr -> criteria.put(ARG_ADDRESS, addr));
+    funcNameOpt.ifPresent(name -> criteria.put(ARG_FUNCTION_NAME, name));
+    
+    return criteria;
+}
+
+/**
+ * Gets available resources for error suggestions (limit results).
+ */
+private List<String> getAvailableFunctionNames(FunctionManager functionManager) {
+    return StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+            .map(f -> f.getName(true))
+            .limit(50) // Prevent overwhelming error messages
+            .collect(Collectors.toList());
+}
+```
+
+### Error Processing Enhancement
+
+The [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) interface has been enhanced to automatically detect and serialize `GhidraMcpException` instances as structured JSON errors. This happens automatically in the `createErrorResult(Throwable t)` method - **you don't need to handle this manually**.
+
+### Error Types and When to Use Them
+
+- **`GhidraMcpError.validation()`**: Missing arguments, invalid formats, constraint violations
+- **`GhidraMcpError.resourceNotFound()`**: Functions, data types, addresses, files not found
+- **`GhidraMcpError.dataTypeParsing()`**: Invalid data type syntax, pointer/array format issues
+- **`GhidraMcpError.execution()`**: Script failures, transaction errors, system issues
+- **`GhidraMcpError.searchNoResults()`**: Empty search results, no matches found
+- **`GhidraMcpError.internal()`**: Unexpected errors, system failures
+
+### Utility Methods Available
+
+Use [`GhidraMcpErrorUtils`](mdc:src/main/java/com/themixednuts/utils/GhidraMcpErrorUtils.java) factory methods:
+
+- `GhidraMcpErrorUtils.missingRequiredArgument()`
+- `GhidraMcpErrorUtils.functionNotFound()`
+- `GhidraMcpErrorUtils.dataTypeNotFound()`
+- `GhidraMcpErrorUtils.addressParseError()`
+- `GhidraMcpErrorUtils.searchNoResults()`
+- `GhidraMcpErrorUtils.fileNotFound()`
+
+**Reference Implementation:** See [`GhidraGetFunctionTool`](mdc:src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionTool.java) for a complete example of structured error handling with proper constant usage.
+
+---
+
 ## Commenting
 
 *   Avoid comments that merely restate the code or describe the immediate code block (e.g., `// Setup phase`, `// Validation`).
@@ -51,7 +211,133 @@ This guide provides templates and key patterns for creating new Ghidra MCP tools
 *   `description`: Hover description in Ghidra Tool Options.
 *   `category`: Category in Ghidra Tool Options (e.g., [`ToolCategory.FUNCTIONS`](mdc:src/main/java/com/themixednuts/tools/ToolCategory.java)). Use existing or `UNCATEGORIZED`.
 *   `mcpName`: Name for the MCP tool specification (e.g., "list_functions").
-*   `mcpDescription`: Description for the MCP tool specification.
+*   `mcpDescription`: Description for the MCP tool specification. **Crucial for guiding AI agent interaction.** Use Java's multi-line string literals (`"""..."""`) for clarity.
+
+### Writing Effective `mcpDescription`
+
+The `mcpDescription` field in the `@GhidraMcpTool` annotation is **critical** for guiding AI agents (like LLMs) on how to understand and use your tool effectively. It should be written from the perspective of an AI agent that needs to decide *when*, *why*, and *how* to use this tool. Always use Java's multi-line string literals (`"""..."""`) for `mcpDescription` for better readability and structure, especially for complex tools.
+
+**General Principles:**
+*   **Clarity and Precision:** Use clear, unambiguous language.
+*   **Completeness:** Provide all necessary information for an AI to make informed decisions.
+*   **Target Audience:** Remember you are writing for an AI agent, not a human Ghidra user directly. Focus on what the *agent* needs to know to interact with the tool and then communicate with a human.
+
+**Simple vs. Complex Tools:**
+
+Not all tools require highly detailed descriptions. Adapt your approach based on the tool's complexity:
+
+**1. Simple Tools:**
+For tools with straightforward functionality (e.g., a simple getter, a single atomic action):
+*   **Description Length:** A few concise sentences are usually sufficient.
+*   **Focus:** Clearly state the tool's primary purpose, key inputs if not obvious from the schema, and the nature of its output.
+*   **Example (`get_current_program_info`):**
+    ```java
+    @GhidraMcpTool(
+        // ... other annotations ...
+        mcpName = "get_current_program_info",
+        mcpDescription = """
+            Retrieves basic information about the currently open Ghidra program.
+            Provides details like program name, path, architecture, and image base.
+            Requires the 'fileName' of an open program as context.
+            """
+    )
+    ```
+
+**2. Complex Tools (Multi-Step, Conditional Logic, Specific Agent Behavior):**
+For tools that involve multiple steps, have significant prerequisites, require specific follow-up actions from the agent, or have nuanced behavior, a more structured and detailed description is necessary. We recommend using a pseudo-XML tagging style within the multi-line string to organize this information, inspired by practices seen in other MCP implementations like [Neon Tools](mdc:https:/raw.githubusercontent.com/neondatabase-labs/mcp-server-neon/refs/heads/main/src/tools.ts).
+
+*   **Recommended Tags for Structuring Complex Descriptions:**
+    *   `<use_case>`: Clearly describe the primary scenarios or problems this tool is designed to solve. *When should the agent choose this tool?*
+    *   `<parameters_summary>`: (Optional) Briefly explain critical parameters if their role or interplay isn't obvious from the schema alone. Focus on *why* an agent might set a particular parameter.
+    *   `<workflow>` or `<tool_logic>`: Outline the high-level steps the tool performs internally. This helps the agent understand the tool's process.
+    *   `<important_notes>` or `<critical_considerations>`: Highlight any crucial details, prerequisites, conditions, or caveats the AI agent *MUST* be aware of before or during tool use. Use `MUST`, `SHOULD`, `MUST NOT` for clarity.
+    *   `<ghidra_specific_notes>`: Detail any Ghidra-specific context, such as:
+        *   Whether an active program is required.
+        *   If the tool might trigger Ghidra's auto-analysis or modify the database.
+        *   Dependencies on specific Ghidra services or states.
+        *   Interactions with UI elements (e.g., "Navigates the Ghidra UI to...").
+    *   `<return_value_summary>`: Describe what the tool typically returns and how the agent should interpret different parts of the result, especially for complex POJOs or `GroupedOperationResult`.
+    *   `<example_interaction>` or `<usage_scenario>`: Provide a concise example of how an agent might use the tool in a dialogue or a typical sequence of operations. This is less about the literal API call and more about the conceptual interaction.
+    *   `<agent_response_guidance>`: Instruct the agent on how it should formulate its response *to the end-user* after this tool executes. Specify:
+        *   Key information that MUST be relayed.
+        *   Information that SHOULD or SHOULD NOT be relayed (e.g., avoid overly technical Ghidra details unless specifically requested).
+        *   A template or style for the user-facing message.
+    *   `<error_handling_summary>`: Briefly explain common failure modes or how errors are generally structured by this tool (though detailed error info comes from `GhidraMcpError`). For instance, "If a specified address is not found, a RESOURCE_NOT_FOUND error is thrown."
+    *   `<next_steps_suggestion>`: If this tool is typically part of a larger workflow, suggest what the agent should consider doing next (e.g., "After creating a function, consider using 'decompile_function' or 'get_function_prototype'.").
+
+*   **Example of a Complex `mcpDescription` (Hypothetical `analyze_and_rename_confusing_functions` tool):**
+    ```java
+    @GhidraMcpTool(
+        // ... other annotations ...
+        mcpName = "analyze_and_rename_confusing_functions",
+        mcpDescription = """
+            <use_case>
+            Analyzes functions within a specified address range for common anti-debugging or obfuscation patterns
+            (e.g., opaque predicates, indirect jumps through calculated values). If patterns are found,
+            it attempts to rename these functions to a standardized naming scheme (e.g., "OBF_跳转_0xADDRESS").
+            Use this tool when the user suspects obfuscation and wants to clarify the control flow.
+            </use_case>
+
+            <ghidra_specific_notes>
+            - Requires an active program ('fileName' argument is mandatory).
+            - This tool MODIFIES the program database by renaming functions.
+            - It may take a significant amount of time for large address ranges or complex functions.
+            - It is recommended to save the program before running this tool.
+            - Does not trigger a full auto-analysis but interacts with the decompiler.
+            </ghidra_specific_notes>
+
+            <parameters_summary>
+            - 'addressRange': The range of addresses (e.g., "0x1000-0x2000") to scan for functions.
+            - 'aggressiveness': (Optional, default 'medium') Controls how strictly patterns are matched ('low', 'medium', 'high').
+            </parameters_summary>
+
+            <workflow>
+            1. Identifies all functions within the given 'addressRange'.
+            2. For each function, decompiles it and analyzes its P-code for known obfuscation patterns.
+            3. If a pattern is matched with sufficient confidence (based on 'aggressiveness'):
+                a. Generates a new standardized name.
+                b. Renames the function in Ghidra.
+            4. Collects a list of all functions that were renamed.
+            </workflow>
+
+            <return_value_summary>
+            Returns a list of objects, where each object contains:
+            - 'originalName': The original name of the function.
+            - 'newName': The new name assigned to the function.
+            - 'address': The entry point address of the function.
+            - 'patternsDetected': A list of strings describing the obfuscation patterns found.
+            If no functions were renamed, an empty list is returned.
+            </return_value_summary>
+
+            <important_notes>
+            - The renaming is based on heuristics and might not always be perfect.
+            - The agent SHOULD inform the user that changes are being made to the database.
+            - The agent SHOULD suggest reviewing the changes made by this tool.
+            </important_notes>
+
+            <agent_response_guidance>
+            After execution, inform the user about the number of functions renamed and provide a summary of a few key changes.
+            Example: "I analyzed the address range and renamed 5 functions that appeared to be obfuscated.
+            For example, the function at 0x1050 (originally FUN_00001050) was renamed to OBF_IndirectJump_0x1050 because it used a calculated jump.
+            Would you like to see the full list of changes or decompile one of these functions?"
+            MUST NOT simply dump the raw JSON output to the user.
+            </agent_response_guidance>
+
+            <next_steps_suggestion>
+            Consider using 'get_function_prototype' or 'decompile_function' on the newly renamed functions
+            to further understand their behavior. The user might also want to add comments or bookmarks.
+            </next_steps_suggestion>
+
+            <error_handling_summary>
+            - Throws VALIDATION error if 'addressRange' is invalid.
+            - Throws EXECUTION error if decompiler fails for a critical function.
+            - Individual function analysis failures are logged but do not stop the entire tool unless critical.
+            </error_handling_summary>
+            """
+    )
+    ```
+
+By providing such detailed and structured `mcpDescription`s, you significantly improve the reliability and effectiveness of AI agents interacting with your Ghidra MCP tools.
 
 ---
 
@@ -130,7 +416,9 @@ public JsonSchema schema() {
 
 ## `execute(...)` Method Templates
 
-Implement this method containing the core logic. Return a `Mono<? extends Object>` emitting the **raw result object** (POJO, List, String, `GroupedOperationResult`, etc.) or signaling an error (`Mono.error(throwable)` or throwing from sync blocks like `.map`). **Do NOT call `createSuccessResult` or `createErrorResult` here.** The `IGhidraMcpSpecification` default `specification()` method correctly wraps this `Mono<? extends Object>`.
+Implement this method containing the core logic. Return a `Mono<? extends Object>` emitting the **raw result object** (POJO, List, String, `GroupedOperationResult`, etc.) or signaling an error (`Mono.error(throwable)` or throwing from sync blocks like `.map`). **When throwing errors from synchronous blocks (e.g., inside `.map()` or a `Callable`), prefer throwing a `GhidraMcpException` directly, or catch and wrap other exceptions into a `GhidraMcpException` to ensure structured error details are propagated.**
+
+**Do NOT call `createSuccessResult` or `createErrorResult` here.** The `IGhidraMcpSpecification` default `specification()` method correctly wraps this `Mono<? extends Object>`.
 
 **Note on `.cast(Object.class)`:** Due to the `execute` method now returning `Mono<? extends Object>`, you generally **no longer need** to add `.cast(Object.class)` at the end of your reactive chain if it naturally produces a `Mono<SpecificType>` (e.g., `Mono<Map<String, String>>`, `Mono<List<Pojo>>`). The `Mono<SpecificType>` will be compatible with `Mono<? extends Object>`.
 
@@ -286,7 +574,7 @@ For tools implementing cursor-based pagination via `tools/call`:
 
 1.  **Schema:** The `ARG_CURSOR` constant (defined in `IGhidraMcpSpecification`) should **NOT** be included as a property in the `schema()` definition. The MCP client is expected to handle passing the cursor implicitly if `nextCursor` was returned in the previous response.
 2.  **Execution:** Inside the `execute()` method, still attempt to read the cursor using `getOptionalStringArgument(args, ARG_CURSOR)`. This allows the tool logic to handle the presence of a cursor passed by the client.
-3.  **Result:** The `Mono<Object>` returned by `execute()` should emit a [`PaginatedResult<Pojo>`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java) object containing the list of results and the next cursor value (if any). Example:
+3.  **Result:** The `Mono<Object>` returned by `execute()` should emit a [`PaginatedResult<Pojo>`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java) object containing the list of results and the next cursor value (if any). This is the preferred structure. Example:
     ```java
     // Inside execute(...).map(...) or similar
     List<MyPojo> pageResults = ... ;
@@ -294,7 +582,7 @@ For tools implementing cursor-based pagination via `tools/call`:
     // Return the PaginatedResult object directly
     return new PaginatedResult<>(pageResults, nextCursor);
     ```
-4.  **Reference:** See [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java) for an example implementation (note: this example was refactored to return a `Map` but the principle remains; using `PaginatedResult` is preferred according to this rule).
+4.  **Reference:** See [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java) for an example implementation (note: while this specific example might have been refactored historically, the use of `PaginatedResult` as described here is the current best practice).
 
 ---
 
