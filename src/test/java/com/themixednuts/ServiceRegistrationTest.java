@@ -41,25 +41,26 @@ public class ServiceRegistrationTest {
 		extraInServiceFile.removeAll(foundToolClasses);
 
 		if (!missingFromServiceFile.isEmpty()) {
-			log.error("Classes implementing IGhidraMcpSpecification found but NOT listed in service file: {}",
-					missingFromServiceFile);
+			String errorMessage = "Service file is missing entries for the following tool(s). Please ADD them:\n  - "
+					+ String.join("\n  - ", missingFromServiceFile);
+			log.error(errorMessage);
+			assertTrue(missingFromServiceFile.isEmpty(), errorMessage);
 		}
+
 		if (!extraInServiceFile.isEmpty()) {
-			log.error("Classes listed in service file that do NOT implement IGhidraMcpSpecification or do not exist: {}",
-					extraInServiceFile);
+			String errorMessage = "The following tool(s) are listed in the service file but were NOT FOUND or do NOT implement IGhidraMcpSpecification. Please REMOVE these entries or ensure the classes exist and are correctly implemented:\n  - "
+					+ String.join("\n  - ", extraInServiceFile);
+			log.error(errorMessage);
+			assertTrue(extraInServiceFile.isEmpty(), errorMessage);
 		}
-
-		assertTrue(missingFromServiceFile.isEmpty(),
-				"Classes implementing IGhidraMcpSpecification found but NOT listed in service file: " + missingFromServiceFile);
-
-		assertTrue(extraInServiceFile.isEmpty(),
-				"Classes listed in service file that do NOT implement IGhidraMcpSpecification or do not exist: "
-						+ extraInServiceFile);
 
 		// Optional: Check count equality as a final verification
-		assertEquals(serviceFileClasses.size(), foundToolClasses.size(),
-				String.format("Mismatch in total count between service file entries (%d) and found implementations (%d).",
-						serviceFileClasses.size(), foundToolClasses.size()));
+		if (missingFromServiceFile.isEmpty() && extraInServiceFile.isEmpty()) {
+			assertEquals(serviceFileClasses.size(), foundToolClasses.size(),
+					String.format(
+							"Mismatch in total count between service file entries (%d) and found implementations (%d). This should not happen if the above checks passed.",
+							serviceFileClasses.size(), foundToolClasses.size()));
+		}
 
 		log.info("Service registration verification test passed successfully.");
 	}
