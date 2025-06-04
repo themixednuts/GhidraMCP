@@ -5,7 +5,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.InvalidDataTypeException;
-import ghidra.program.model.data.ProgramBasedDataTypeManager;
 import ghidra.program.model.listing.Program;
 import ghidra.util.data.DataTypeParser;
 import ghidra.util.exception.CancelledException;

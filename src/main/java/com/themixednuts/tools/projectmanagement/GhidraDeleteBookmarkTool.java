@@ -18,7 +18,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
-import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 

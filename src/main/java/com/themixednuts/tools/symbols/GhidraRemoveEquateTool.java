@@ -16,7 +16,6 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.app.cmd.equate.ClearEquateCmd;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressFormatException;
 import ghidra.program.model.listing.Instruction;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;

@@ -1,11 +1,9 @@
 package com.themixednuts.tools.projectmanagement;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
@@ -13,13 +11,11 @@ import com.themixednuts.models.BookmarkInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
-import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;

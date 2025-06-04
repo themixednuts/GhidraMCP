@@ -2,11 +2,9 @@ package com.themixednuts.tools.projectmanagement;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
-import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -16,10 +14,7 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
-import ghidra.framework.options.OptionType;
-import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 

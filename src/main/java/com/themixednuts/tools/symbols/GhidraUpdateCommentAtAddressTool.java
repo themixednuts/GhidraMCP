@@ -1,11 +1,8 @@
 package com.themixednuts.tools.symbols;
 
-import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.exceptions.GhidraMcpException;
-import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
