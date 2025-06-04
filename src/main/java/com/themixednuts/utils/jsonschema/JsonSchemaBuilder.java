@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * A type-safe builder for creating JSON Schema objects following the Google AI
@@ -225,6 +226,15 @@ public class JsonSchemaBuilder {
 		 *      (enum)</a>
 		 */
 		IStringSchemaBuilder enumValues(String... values);
+
+		/**
+		 * Sets the allowed enum values for a string type from a Java Enum class.
+		 * The names of the enum constants will be used as the allowed string values.
+		 *
+		 * @param enumClass The Class object of the enum.
+		 * @return This builder instance for chaining.
+		 */
+		IStringSchemaBuilder enumValues(Class<? extends Enum<?>> enumClass);
 
 		/**
 		 * Specifies that the data must be valid against any of the given schemas.
@@ -1418,6 +1428,20 @@ public class JsonSchemaBuilder {
 		public BuilderStateImpl enumValues(String... values) {
 			assertType(JsonSchemaType.STRING);
 			return enumValues(Arrays.asList(values));
+		}
+
+		@Override
+		public IStringSchemaBuilder enumValues(Class<? extends Enum<?>> enumClass) {
+			assertType(JsonSchemaType.STRING);
+			Objects.requireNonNull(enumClass, "Enum class cannot be null");
+			Enum<?>[] constants = enumClass.getEnumConstants();
+			if (constants == null) {
+				throw new IllegalArgumentException(enumClass.getName() + " is not an enum type or has no constants.");
+			}
+			List<String> stringValues = Arrays.stream(constants)
+					.map(Enum::name)
+					.collect(Collectors.toList());
+			return enumValues(stringValues);
 		}
 
 		// --- String Methods --- //

@@ -1,8 +1,11 @@
 package com.themixednuts.tools.symbols;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -16,7 +19,7 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Undefine Code Unit at Address", category = ToolCategory.SYMBOLS, description = "Clears the definition (instruction or data) at a specific address.", mcpName = "undefine_at_address", mcpDescription = "Removes the code unit definition (instruction or data) at the specified address.")
+@GhidraMcpTool(name = "Undefine Code Unit at Address", category = ToolCategory.SYMBOLS, description = "Clears the definition (instruction or data) at a specific address.", mcpName = "undefine_at_address", mcpDescription = "Clear the code unit definition at an address. Removes instruction or data definitions, returning the area to undefined bytes.")
 public class GhidraUndefineAtAddressTool implements IGhidraMcpSpecification {
 
 	private static record UndefineContext(
@@ -45,10 +48,51 @@ public class GhidraUndefineAtAddressTool implements IGhidraMcpSpecification {
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-			Address targetAddress = program.getAddressFactory().getAddress(addressStr);
+			final String toolMcpName = getMcpName();
+
+			Address targetAddress;
+			try {
+				targetAddress = program.getAddressFactory().getAddress(addressStr);
+			} catch (Exception e) {
+				GhidraMcpError error = GhidraMcpError.execution()
+						.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+						.message("Invalid address format: " + addressStr)
+						.context(new GhidraMcpError.ErrorContext(
+								toolMcpName,
+								"address parsing",
+								args,
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("parseError", e.getMessage())))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid address format",
+										"Provide address in hexadecimal format",
+										List.of("0x401000", "0x00401000", "401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			}
 
 			if (targetAddress == null) {
-				throw new IllegalArgumentException("Invalid address provided: " + addressStr);
+				GhidraMcpError error = GhidraMcpError.execution()
+						.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+						.message("Invalid address format: " + addressStr)
+						.context(new GhidraMcpError.ErrorContext(
+								toolMcpName,
+								"address parsing",
+								args,
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("addressResult", "null")))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid address format",
+										"Provide address in hexadecimal format",
+										List.of("0x401000", "0x00401000", "401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 
 			return new UndefineContext(program, targetAddress);

@@ -9,6 +9,8 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -26,7 +28,7 @@ import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List All Symbols", category = ToolCategory.SYMBOLS, description = "Lists all symbols defined in the program's main symbol table, with optional filters.", mcpName = "list_all_symbols", mcpDescription = "Retrieves a paginated list of all symbols (labels, functions, globals, etc.) from the program, optionally filtering by name and/or type.")
+@GhidraMcpTool(name = "List All Symbols", category = ToolCategory.SYMBOLS, description = "Lists all symbols defined in the program's main symbol table, with optional filters.", mcpName = "list_all_symbols", mcpDescription = "List all symbols in a Ghidra program. Supports filtering by name and type with pagination for large symbol tables.")
 public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 	private static final String ARG_NAME_FILTER = "nameFilter";
 	private static final String ARG_TYPE_FILTER = "typeFilter";
@@ -58,9 +60,51 @@ public class GhidraListAllSymbolsTool implements IGhidraMcpSpecification {
 
 			Address cursorAddr = null;
 			if (cursorStr != null) {
-				cursorAddr = program.getAddressFactory().getAddress(cursorStr);
-				if (cursorAddr == null) {
-					throw new IllegalArgumentException("Invalid cursor format (could not parse address): " + cursorStr);
+				try {
+					cursorAddr = program.getAddressFactory().getAddress(cursorStr);
+					if (cursorAddr == null) {
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid cursor address format")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"cursor address parsing",
+										args,
+										Map.of(ARG_CURSOR, cursorStr),
+										Map.of("isValidFormat", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format for cursor",
+												"Provide cursor address in hexadecimal format",
+												List.of(
+														"\"" + ARG_CURSOR + "\": \"0x401000\"",
+														"\"" + ARG_CURSOR + "\": \"401000\""),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
+				} catch (Exception e) {
+					GhidraMcpError error = GhidraMcpError.validation()
+							.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+							.message("Failed to parse cursor address: " + e.getMessage())
+							.context(new GhidraMcpError.ErrorContext(
+									getMcpName(),
+									"cursor address parsing",
+									args,
+									Map.of(ARG_CURSOR, cursorStr),
+									Map.of("parseException", e.getClass().getSimpleName())))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+											"Use valid hexadecimal address format for cursor",
+											"Provide cursor address in correct hexadecimal format",
+											List.of(
+													"\"" + ARG_CURSOR + "\": \"0x401000\"",
+													"\"" + ARG_CURSOR + "\": \"401000\""),
+											null)))
+							.build();
+					throw new GhidraMcpException(error);
 				}
 			}
 			final Address finalCursorAddr = cursorAddr;

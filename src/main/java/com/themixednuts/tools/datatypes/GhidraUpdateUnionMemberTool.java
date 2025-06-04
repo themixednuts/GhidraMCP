@@ -6,17 +6,22 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.DataTypeUtils;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.InvalidDataTypeException;
 import ghidra.program.model.data.Union;
 import ghidra.program.model.listing.Program;
+import ghidra.util.exception.CancelledException;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
@@ -55,7 +60,8 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 								.description("Optional: New name for the member."))
 				.property(ARG_NEW_DATA_TYPE_PATH,
 						JsonSchemaBuilder.string(mapper)
-								.description("Optional: New data type path for the member (e.g., 'dword', '/MyOtherStruct')."))
+								.description(
+										"Optional: New data type path for the member (e.g., 'dword', '/MyOtherStruct', 'int[5]', 'char *'). Array and pointer notations are supported."))
 				.property(ARG_NEW_COMMENT,
 						JsonSchemaBuilder.string(mapper)
 								.description("Optional: New comment for the member. An empty string clears the comment."))
@@ -84,11 +90,28 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 	// Context to hold details needed for the transaction
 	private static record UnionMemberUpdateBatchContext(
 			Program program,
+			PluginTool tool,
 			Union union,
 			List<UnionMemberUpdateDefinition> memberUpdateDefs) {
 	}
 
-	private boolean processSingleUnionMemberUpdate(Union union, UnionMemberUpdateDefinition updateDef, Program program) {
+	/**
+	 * Get the tool name from the annotation for error reporting
+	 */
+
+	/**
+	 * Get available member names for error suggestions
+	 */
+	private List<String> getAvailableMemberNames(Union union) {
+		return java.util.Arrays.stream(union.getDefinedComponents())
+				.map(DataTypeComponent::getFieldName)
+				.filter(name -> name != null && !name.isEmpty())
+				.sorted()
+				.collect(Collectors.toList());
+	}
+
+	private boolean processSingleUnionMemberUpdate(Union union, UnionMemberUpdateDefinition updateDef, Program program,
+			PluginTool tool) {
 		DataTypeComponent componentToUpdate = null;
 		int componentIndex = -1;
 		for (DataTypeComponent comp : union.getDefinedComponents()) {
@@ -99,8 +122,26 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 			}
 		}
 		if (componentToUpdate == null) {
-			throw new IllegalArgumentException(
-					"No component found with name '" + updateDef.name() + "' in union '" + union.getPathName() + "'.");
+			List<String> availableMembers = getAvailableMemberNames(union);
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+					.message("No member found with name '" + updateDef.name() + "' in union '" + union.getPathName() + "'")
+					.context(new GhidraMcpError.ErrorContext(
+							getMcpName(),
+							"union member lookup",
+							Map.of(ARG_MEMBER_NAME, updateDef.name(), ARG_UNION_PATH, union.getPathName()),
+							Map.of("unionPath", union.getPathName(), "memberName", updateDef.name()),
+							Map.of("memberExists", false, "availableMembers", availableMembers, "memberCount",
+									availableMembers.size())))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use an existing member name",
+									"Member name must match an existing union member",
+									availableMembers.isEmpty() ? List.of("<no members available>") : availableMembers,
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		String finalName = updateDef.newName().orElse(componentToUpdate.getFieldName());
@@ -109,12 +150,34 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 		boolean dataTypeChanged = false;
 
 		if (updateDef.newDataTypePath().isPresent()) {
-			DataType newDt = program.getDataTypeManager().getDataType(updateDef.newDataTypePath().get());
-			if (newDt == null) {
-				throw new IllegalArgumentException("New data type not found: " + updateDef.newDataTypePath().get());
+			String newDataTypePathStr = updateDef.newDataTypePath().get();
+			try {
+				DataType newDt = DataTypeUtils.parseDataTypeString(program, newDataTypePathStr, tool);
+				finalDataType = newDt;
+				dataTypeChanged = !finalDataType.isEquivalent(componentToUpdate.getDataType());
+			} catch (InvalidDataTypeException e) {
+				GhidraMcpError error = GhidraMcpError.dataTypeParsing()
+						.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+						.message("Invalid data type format for '" + newDataTypePathStr + "': " + e.getMessage())
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"member data type parsing",
+								Map.of(ARG_NEW_DATA_TYPE_PATH, newDataTypePathStr, ARG_MEMBER_NAME, updateDef.name()),
+								Map.of("dataTypePath", newDataTypePathStr, "memberName", updateDef.name()),
+								Map.of("parseError", e.getMessage())))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use correct data type format",
+										"Check data type path format",
+										List.of("'dword'", "'/MyOtherStruct'", "'int[5]'", "'char *'"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			} catch (CancelledException e) {
+				throw new RuntimeException(
+						"Parsing cancelled for new data type '" + newDataTypePathStr + "': " + e.getMessage(), e);
 			}
-			finalDataType = newDt;
-			dataTypeChanged = !finalDataType.isEquivalent(componentToUpdate.getDataType());
 		} else {
 			finalDataType = componentToUpdate.getDataType();
 		}
@@ -125,8 +188,26 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 				finalSize = componentToUpdate.getLength();
 			}
 			if (finalSize <= 0) {
-				throw new IllegalArgumentException("Cannot determine positive size for final data type '"
-						+ finalDataType.getPathName() + "' for member '" + updateDef.name() + "'.");
+				GhidraMcpError error = GhidraMcpError.validation()
+						.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+						.message("Cannot determine positive size for data type '" + finalDataType.getPathName() + "' for member '"
+								+ updateDef.name() + "'")
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"member size validation",
+								Map.of(ARG_MEMBER_NAME, updateDef.name(), ARG_NEW_DATA_TYPE_PATH, finalDataType.getPathName()),
+								Map.of("memberName", updateDef.name(), "dataTypePath", finalDataType.getPathName(), "calculatedSize",
+										finalSize),
+								Map.of("sizeInvalid", true, "expectedSizeRange", "> 0")))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use a data type with defined size",
+										"Some data types may not have a determinable size",
+										null,
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 		}
 
@@ -148,11 +229,46 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 				.map(program -> {
 					String unionPathString = getRequiredStringArgument(args, ARG_UNION_PATH);
 					List<Map<String, Object>> rawMemberUpdates = getOptionalListArgument(args, ARG_MEMBER_UPDATES)
-							.orElseThrow(
-									() -> new IllegalArgumentException("Missing required argument: '" + ARG_MEMBER_UPDATES + "'"));
+							.orElseThrow(() -> {
+								GhidraMcpError error = GhidraMcpError.validation()
+										.errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+										.message("Missing required argument: '" + ARG_MEMBER_UPDATES + "'")
+										.context(new GhidraMcpError.ErrorContext(
+												getMcpName(),
+												"argument validation",
+												Map.of(),
+												Map.of("missingArgument", ARG_MEMBER_UPDATES),
+												Map.of("argumentRequired", true)))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+														"Provide member updates array",
+														"Include the memberUpdates array with at least one update definition",
+														null,
+														null)))
+										.build();
+								return new GhidraMcpException(error);
+							});
 
 					if (rawMemberUpdates.isEmpty()) {
-						throw new IllegalArgumentException("Argument '" + ARG_MEMBER_UPDATES + "' cannot be empty.");
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Argument '" + ARG_MEMBER_UPDATES + "' cannot be empty")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"member updates validation",
+										Map.of(ARG_MEMBER_UPDATES, rawMemberUpdates),
+										Map.of("memberUpdatesLength", rawMemberUpdates.size()),
+										Map.of("arrayEmpty", true)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Provide at least one member update",
+												"Add at least one member update definition to the array",
+												null,
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					List<UnionMemberUpdateDefinition> memberUpdateDefs = rawMemberUpdates.stream()
@@ -165,25 +281,93 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 
 					DataType dt = program.getDataTypeManager().getDataType(unionPathString);
 					if (dt == null) {
-						throw new IllegalArgumentException("Union not found at path: " + unionPathString);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Union not found at path: " + unionPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"union lookup",
+										Map.of(ARG_UNION_PATH, unionPathString),
+										Map.of("unionPath", unionPathString),
+										Map.of("unionExists", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"List available data types",
+												"Check what unions exist",
+												null,
+												List.of(getMcpName(GhidraListDataTypesTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					if (!(dt instanceof Union)) {
-						throw new IllegalArgumentException("Data type at path is not a Union: " + unionPathString);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Data type at path is not a Union: " + unionPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"data type validation",
+										Map.of(ARG_UNION_PATH, unionPathString),
+										Map.of("unionPath", unionPathString, "actualDataType", dt.getDisplayName()),
+										Map.of("isUnion", false, "actualTypeName", dt.getClass().getSimpleName())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use a union data type",
+												"Ensure the path points to a union, not " + dt.getClass().getSimpleName(),
+												null,
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					Union union = (Union) dt;
 
 					for (UnionMemberUpdateDefinition def : memberUpdateDefs) {
 						if (def.name().isBlank()) {
-							throw new IllegalArgumentException("Member name to identify for update cannot be blank.");
+							GhidraMcpError error = GhidraMcpError.validation()
+									.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+									.message("Member name to identify for update cannot be blank")
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"member name validation",
+											Map.of(ARG_MEMBER_NAME, def.name()),
+											Map.of("memberName", def.name()),
+											Map.of("nameBlank", true)))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+													"Provide a valid member name",
+													"Member names must not be blank",
+													null,
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 						if (def.newName().isEmpty() && def.newDataTypePath().isEmpty() && def.newComment().isEmpty()) {
-							throw new IllegalArgumentException(
-									"No updates specified for member '" + def.name()
-											+ "'. Provide at least one of 'newName', 'newDataTypePath', or 'newComment'.");
+							GhidraMcpError error = GhidraMcpError.validation()
+									.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+									.message("No updates specified for member '" + def.name()
+											+ "'. Provide at least one of 'newName', 'newDataTypePath', or 'newComment'")
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"member update validation",
+											Map.of(ARG_MEMBER_NAME, def.name()),
+											Map.of("memberName", def.name()),
+											Map.of("noUpdatesProvided", true, "availableUpdateFields",
+													List.of("newName", "newDataTypePath", "newComment"))))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+													"Specify at least one update",
+													"Provide at least one field to update",
+													List.of("newName", "newDataTypePath", "newComment"),
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 					}
 
-					return new UnionMemberUpdateBatchContext(program, union, memberUpdateDefs);
+					return new UnionMemberUpdateBatchContext(program, tool, union, memberUpdateDefs);
 				})
 				.flatMap(context -> {
 					String transactionName = "Update Union Members in " + context.union().getName();
@@ -193,13 +377,33 @@ public class GhidraUpdateUnionMemberTool implements IGhidraMcpSpecification {
 						int localMembersUpdatedCount = 0;
 						try {
 							for (UnionMemberUpdateDefinition updateDef : context.memberUpdateDefs()) {
-								if (processSingleUnionMemberUpdate(context.union(), updateDef, context.program())) {
+								if (processSingleUnionMemberUpdate(context.union(), updateDef, context.program(), context.tool())) {
 									localMembersUpdatedCount++;
 								}
 							}
 							return localMembersUpdatedCount;
+						} catch (GhidraMcpException e) {
+							// Re-throw GhidraMcpException as-is to preserve structured error
+							throw e;
 						} catch (IllegalArgumentException e) {
-							throw new IllegalArgumentException("Error updating a union member: " + e.getMessage(), e);
+							GhidraMcpError error = GhidraMcpError.execution()
+									.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+									.message("Error updating union member: " + e.getMessage())
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"union member update operation",
+											Map.of(ARG_UNION_PATH, unionPathName),
+											Map.of("unionPath", unionPathName, "errorMessage", e.getMessage()),
+											Map.of("updatesFailed", true, "operationType", "union member update")))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+													"Verify union and member information",
+													"Check that the union and members exist",
+													null,
+													List.of(getMcpName(GhidraListDataTypesTool.class)))))
+									.build();
+							throw new GhidraMcpException(error);
 						} catch (Exception e) {
 							throw new RuntimeException("Unexpected error updating a union member: " + e.getMessage(), e);
 						}

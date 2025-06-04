@@ -43,6 +43,7 @@ public class GhidraMcpPlugin extends Plugin {
 
     private final OptionsChangeListener mcpOptionsListener;
     private Timer restartDebounceTimer;
+    private Timer notifyToolsDebounceTimer;
 
     public GhidraMcpPlugin(PluginTool tool) {
         super(tool);
@@ -86,10 +87,10 @@ public class GhidraMcpPlugin extends Plugin {
         if (mcpOptionsListener != null) {
             options.removeOptionsChangeListener(mcpOptionsListener);
         }
+
         if (restartDebounceTimer != null) {
             restartDebounceTimer.stop();
         }
-
         restartDebounceTimer = new Timer(50, e -> {
             Msg.info(this, "MCP tool options changed. Restarting MCP server with new settings.");
             GhidraMcpServer.restartMcpServer(this.currentPort, this.currentEnableSseKeepAlive,
@@ -97,14 +98,29 @@ public class GhidraMcpPlugin extends Plugin {
         });
         restartDebounceTimer.setRepeats(false);
 
+        if (notifyToolsDebounceTimer != null) {
+            notifyToolsDebounceTimer.stop();
+        }
+        notifyToolsDebounceTimer = new Timer(50, e -> {
+            GhidraMcpServer.notifyToolsListChanged()
+                    .subscribe(
+                            null, // onNext is not relevant for Mono<Void>
+                            error -> Msg.error(GhidraMcpPlugin.this,
+                                    "Asynchronous tool list notification chain failed: " + error.getMessage(), error),
+                            () -> Msg.info(GhidraMcpPlugin.this,
+                                    "Asynchronous tool list notification chain completed successfully."));
+        });
+        notifyToolsDebounceTimer.setRepeats(false);
+
         OptionsChangeListener listener = (toolOptions, optionName, oldValue, newValue) -> {
-            boolean changed = false;
+            boolean restartServer = false;
+            boolean notifyTools = false;
             if (optionName.equals(PORT_OPTION_NAME)) {
                 int newPort = (Integer) newValue;
                 if (newPort != this.currentPort) {
                     Msg.info(this, "MCP Server port changing from " + this.currentPort + " to " + newPort);
                     this.currentPort = newPort;
-                    changed = true;
+                    restartServer = true;
                 }
             } else if (optionName.equals(ENABLE_SSE_KEEP_ALIVE_OPTION_NAME)) {
                 boolean newEnable = (Boolean) newValue;
@@ -112,7 +128,7 @@ public class GhidraMcpPlugin extends Plugin {
                     Msg.info(this,
                             "SSE Keep-Alive changing from " + this.currentEnableSseKeepAlive + " to " + newEnable);
                     this.currentEnableSseKeepAlive = newEnable;
-                    changed = true;
+                    restartServer = true;
                 }
             } else if (optionName.equals(SSE_MAX_KEEP_ALIVE_OPTION_NAME)) {
                 long newKeepAlive = (Long) newValue;
@@ -120,12 +136,20 @@ public class GhidraMcpPlugin extends Plugin {
                     Msg.info(this, "SSE Max Keep-Alive changing from " + this.currentSseMaxKeepAlive + "s to "
                             + newKeepAlive + "s");
                     this.currentSseMaxKeepAlive = newKeepAlive;
-                    changed = true;
+                    restartServer = true;
                 }
+            } else if (oldValue == null || !oldValue.equals(newValue)) {
+                Msg.info(this, "MCP Tool option '" + optionName + "' changed from " + oldValue + " to " + newValue
+                        + ". Will notify clients.");
+                notifyTools = true;
             }
 
-            if (changed) {
+            if (restartServer) {
                 restartDebounceTimer.restart();
+            }
+
+            if (notifyTools) {
+                notifyToolsDebounceTimer.restart();
             }
         };
 
@@ -133,6 +157,7 @@ public class GhidraMcpPlugin extends Plugin {
         GhidraMcpTools.registerOptions(options, "GhidraMCP");
 
         return listener;
+
     }
 
     @Override
@@ -144,7 +169,11 @@ public class GhidraMcpPlugin extends Plugin {
 
         if (restartDebounceTimer != null && restartDebounceTimer.isRunning()) {
             restartDebounceTimer.stop();
-            Msg.info(this, "Stopped options change debounce timer.");
+            Msg.info(this, "Stopped server restart debounce timer.");
+        }
+        if (notifyToolsDebounceTimer != null && notifyToolsDebounceTimer.isRunning()) {
+            notifyToolsDebounceTimer.stop();
+            Msg.info(this, "Stopped client notification debounce timer.");
         }
 
         // Remove listener if options object is still valid

@@ -1,8 +1,11 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -54,14 +57,65 @@ public class GhidraRenameCategoryTool implements IGhidraMcpSpecification {
 					Category category = program.getDataTypeManager().getCategory(new CategoryPath(originalPathString));
 
 					if (category == null) {
-						throw new IllegalArgumentException("Category not found at path: " + originalPathString);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Category not found at path: " + originalPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"category lookup",
+										Map.of(ARG_CATEGORY_PATH, originalPathString),
+										Map.of("categoryPath", originalPathString),
+										Map.of("categoryExists", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"List available categories",
+												"Check what categories exist",
+												null,
+												List.of(getMcpName(GhidraListCategoriesTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					if (category.isRoot()) {
-						throw new IllegalArgumentException("Cannot rename the root category.");
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Cannot rename the root category")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"root category validation",
+										Map.of(ARG_CATEGORY_PATH, originalPathString),
+										Map.of("categoryPath", originalPathString, "isRoot", true),
+										Map.of("rootCategory", true)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Choose a non-root category",
+												"Select a category other than the root for renaming",
+												null,
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					if (newName.isBlank()) {
-						throw new IllegalArgumentException("New category name cannot be blank.");
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("New category name cannot be blank")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"new name validation",
+										Map.of(ARG_NEW_NAME, newName),
+										Map.of("newName", newName, "isBlank", true),
+										Map.of("nameBlank", true)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Provide a valid name",
+												"Enter a non-empty name for the category",
+												List.of("\"MyCategory\"", "\"UpdatedCategory\""),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					return new RenameContext(program, category, newName);

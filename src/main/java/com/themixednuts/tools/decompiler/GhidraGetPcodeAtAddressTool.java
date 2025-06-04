@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RawPcodeOpInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -21,7 +23,7 @@ import ghidra.program.model.pcode.PcodeOp;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Get PCode at Address", category = ToolCategory.DECOMPILER, description = "Retrieves the PCode representation for the instruction at a specific address.", mcpName = "get_pcode_at_address", mcpDescription = "Get the PCode intermediate representation for the instruction at a specific address.")
+@GhidraMcpTool(name = "Get PCode at Address", category = ToolCategory.DECOMPILER, description = "Retrieves the PCode representation for the instruction at a specific address.", mcpName = "get_pcode_at_address", mcpDescription = "Get the PCode intermediate representation for an instruction at a specific address. PCode provides a simplified, architecture-independent view of assembly operations.")
 public class GhidraGetPcodeAtAddressTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -46,13 +48,75 @@ public class GhidraGetPcodeAtAddressTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool)
 				.map(program -> {
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-					Address targetAddress = program.getAddressFactory().getAddress(addressStr);
+					final String toolMcpName = getMcpName();
+
+					Address targetAddress;
+					try {
+						targetAddress = program.getAddressFactory().getAddress(addressStr);
+					} catch (Exception e) {
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of(),
+										Map.of("parseError", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
+
+					if (targetAddress == null) {
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of(),
+										Map.of("addressResult", "null")))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 
 					Listing listing = program.getListing();
 					Instruction instruction = listing.getInstructionAt(targetAddress);
 
 					if (instruction == null) {
-						throw new IllegalArgumentException("No instruction found at address: " + addressStr);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_NOT_FOUND)
+								.message("No instruction found at address: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"instruction lookup",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("parsedAddress", targetAddress.toString()),
+										Map.of("programName", program.getDomainFile().getName())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify address contains an instruction",
+												"Use get_assembly_at_address to check what's at this location",
+												List.of(),
+												List.of("get_assembly_at_address", "search_memory"))))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					PcodeOp[] pcodeOps = instruction.getPcode();

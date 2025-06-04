@@ -1,14 +1,19 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+
+import com.themixednuts.tools.datatypes.GhidraListCategoriesTool;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
@@ -17,7 +22,7 @@ import ghidra.program.model.data.DataTypeManager;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Delete Category", mcpName = "delete_category", category = ToolCategory.DATATYPES, description = "Deletes an existing empty category.", mcpDescription = "Removes an empty user-defined category from the Data Type Manager.")
+@GhidraMcpTool(name = "Delete Category", mcpName = "delete_category", category = ToolCategory.DATATYPES, description = "Deletes an existing empty category.", mcpDescription = "Delete an empty data type category from a Ghidra program. Only categories without any data types or subcategories can be removed.")
 public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -57,16 +62,50 @@ public class GhidraDeleteCategoryTool implements IGhidraMcpSpecification {
 	}
 
 	private String deleteCategoryAtPath(DataTypeManager dtm, String pathString, GhidraMcpTaskMonitor monitor) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 		CategoryPath categoryPathToDelete = new CategoryPath(pathString);
 		Category catToDelete = dtm.getCategory(categoryPathToDelete);
 
 		if (catToDelete == null) {
-			throw new IllegalArgumentException("Category not found at path: " + pathString);
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+					.message("Category not found at path: " + pathString)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"category lookup",
+							Map.of(ARG_PATH, pathString),
+							Map.of("categoryPath", pathString),
+							Map.of("categoryExists", false)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List available categories",
+									"Check what categories exist in the data type manager",
+									null,
+									List.of(getMcpName(GhidraListCategoriesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		if (categoryPathToDelete.isRoot()) {
-			throw new IllegalArgumentException(
-					"Cannot delete the root category ('/') using this tool. It must be empty and managed via specific root category operations if applicable.");
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+					.message("Cannot delete the root category ('/') using this tool.")
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"category validation",
+							Map.of(ARG_PATH, pathString),
+							Map.of("isRootCategory", true),
+							Map.of("providedPath", pathString, "isRoot", true)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use a non-root category path",
+									"Provide a specific category path to delete",
+									List.of("/MyCategory", "/UserTypes/MyStruct"),
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		CategoryPath parentPath = categoryPathToDelete.getParent();

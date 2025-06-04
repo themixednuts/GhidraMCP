@@ -9,6 +9,8 @@ import java.util.Comparator;
 
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.models.DataInfo;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -23,7 +25,7 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(name = "Get Defined Strings", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get the defined strings in the project.", mcpName = "get_defined_strings", mcpDescription = "Retrieve a list of defined string data items from the specified program, including their label, address, value, and type. Supports pagination and optional minimum length filtering.")
+@GhidraMcpTool(name = "Get Defined Strings", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get the defined strings in the project.", mcpName = "get_defined_strings", mcpDescription = "Get analyzed string data from a Ghidra program. Faster than memory search for known strings but only returns strings identified by the decompiler. If expected strings are missing, use search_memory with type 'string' for comprehensive byte-level scanning.")
 public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 	private static final int PAGE_SIZE = 100; // Number of strings per page
 
@@ -53,9 +55,51 @@ public class GhidraGetDefinedStringsTool implements IGhidraMcpSpecification {
 			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 			Address cursor = null;
 			if (cursorOpt.isPresent()) {
-				cursor = program.getAddressFactory().getAddress(cursorOpt.get());
-				if (cursor == null) {
-					throw new IllegalArgumentException("Invalid cursor address format: " + cursorOpt.get());
+				try {
+					cursor = program.getAddressFactory().getAddress(cursorOpt.get());
+					if (cursor == null) {
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid cursor address format")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"cursor address parsing",
+										args,
+										Map.of(ARG_CURSOR, cursorOpt.get()),
+										Map.of("isValidFormat", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format for cursor",
+												"Provide cursor address in hexadecimal format",
+												List.of(
+														"\"" + ARG_CURSOR + "\": \"0x401000\"",
+														"\"" + ARG_CURSOR + "\": \"401000\""),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
+				} catch (Exception e) {
+					GhidraMcpError error = GhidraMcpError.validation()
+							.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+							.message("Failed to parse cursor address: " + e.getMessage())
+							.context(new GhidraMcpError.ErrorContext(
+									getMcpName(),
+									"cursor address parsing",
+									args,
+									Map.of(ARG_CURSOR, cursorOpt.get()),
+									Map.of("parseException", e.getClass().getSimpleName())))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+											"Use valid hexadecimal address format for cursor",
+											"Provide cursor address in correct hexadecimal format",
+											List.of(
+													"\"" + ARG_CURSOR + "\": \"0x401000\"",
+													"\"" + ARG_CURSOR + "\": \"401000\""),
+											null)))
+							.build();
+					throw new GhidraMcpException(error);
 				}
 			}
 			final Address finalCursor = cursor;

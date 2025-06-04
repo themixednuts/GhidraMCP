@@ -12,10 +12,7 @@ import ghidra.program.model.pcode.HighSymbol;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class HighSymbolInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("data_type_name")
 	private final String dataTypeName;
 
 	// Consider adding other relevant HighSymbol fields if needed (e.g., size,
@@ -32,12 +29,12 @@ public class HighSymbolInfo {
 		// this.size = highSymbol.getSize();
 	}
 
-	// --- Getters ---
-
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("data_type_name")
 	public String getDataTypeName() {
 		return dataTypeName;
 	}

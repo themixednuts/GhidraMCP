@@ -1,8 +1,11 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -61,18 +64,69 @@ public class GhidraMoveCategoryTool implements IGhidraMcpSpecification {
 			final CategoryPath newParentPath = new CategoryPath(newParentPathString);
 
 			if (categoryToMovePath.isRoot()) {
-				throw new IllegalArgumentException("Cannot move the root category.");
+				GhidraMcpError error = GhidraMcpError.validation()
+						.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+						.message("Cannot move the root category")
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"root category validation",
+								Map.of(ARG_CATEGORY_PATH, categoryToMovePathString),
+								Map.of("categoryPath", categoryToMovePathString, "isRoot", true),
+								Map.of("rootCategory", true)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Choose a non-root category",
+										"Select a category other than the root for moving",
+										null,
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 
 			DataTypeManager dtm = program.getDataTypeManager();
 			Category categoryToMove = dtm.getCategory(categoryToMovePath);
 			if (categoryToMove == null) {
-				throw new IllegalArgumentException("Category to move not found: " + categoryToMovePathString);
+				GhidraMcpError error = GhidraMcpError.resourceNotFound()
+						.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+						.message("Category to move not found: " + categoryToMovePathString)
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"source category lookup",
+								Map.of(ARG_CATEGORY_PATH, categoryToMovePathString),
+								Map.of("categoryPath", categoryToMovePathString),
+								Map.of("categoryExists", false)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+										"List available categories",
+										"Check what categories exist",
+										null,
+										List.of(getMcpName(GhidraListCategoriesTool.class)))))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 
 			Category newParentCategory = dtm.getCategory(newParentPath);
 			if (newParentCategory == null) {
-				throw new IllegalArgumentException("New parent category not found: " + newParentPathString);
+				GhidraMcpError error = GhidraMcpError.resourceNotFound()
+						.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+						.message("New parent category not found: " + newParentPathString)
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"destination category lookup",
+								Map.of(ARG_NEW_PARENT_CATEGORY_PATH, newParentPathString),
+								Map.of("parentCategoryPath", newParentPathString),
+								Map.of("parentCategoryExists", false)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+										"List available categories",
+										"Check what categories exist for the parent",
+										null,
+										List.of(getMcpName(GhidraListCategoriesTool.class)))))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 
 			// Return type-safe context

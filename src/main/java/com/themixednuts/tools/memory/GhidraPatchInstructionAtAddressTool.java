@@ -1,8 +1,11 @@
 package com.themixednuts.tools.memory;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -21,7 +24,33 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuples;
 
-@GhidraMcpTool(name = "Patch Instruction at Address", category = ToolCategory.MEMORY, description = "Patches the instruction at a given address, e.g., by NOPing it.", mcpName = "patch_instruction_at_address", mcpDescription = "Modify bytes corresponding to a single instruction (potentially safer/more abstract than raw byte writes).")
+@GhidraMcpTool(name = "Patch Instruction at Address", category = ToolCategory.MEMORY, description = "Patches the instruction at a given address, e.g., by NOPing it.", mcpName = "patch_instruction_at_address", mcpDescription = """
+		<use_case>Patch an instruction at a specific address by replacing it with alternative bytes while respecting instruction boundaries.</use_case>
+
+		<important_notes>
+		• Currently supports only NOP patching (replacing with 0x90 bytes)
+		• Safer than raw byte writes as it respects instruction boundaries
+		• Replaces entire instruction length with NOP bytes
+		• Permanently modifies program memory and affects execution flow
+		• Changes may impact analysis results and control flow graphs
+		</important_notes>
+
+		<example>
+		{
+		  "fileName": "malware.exe",
+		  "address": "0x401030",
+		  "patchType": "NOP"
+		}
+		// NOPs out the instruction at 0x401030
+		</example>
+
+		<workflow>
+		1. Validate address and locate target instruction
+		2. Determine instruction length from disassembly
+		3. Generate appropriate patch bytes (e.g., 0x90 for NOP)
+		4. Replace instruction bytes maintaining length alignment
+		</workflow>
+		""")
 public class GhidraPatchInstructionAtAddressTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_PATCH_TYPE = "patchType";
@@ -52,35 +81,95 @@ public class GhidraPatchInstructionAtAddressTool implements IGhidraMcpSpecificat
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool)
 				.map(program -> { // .map for setup
+					GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 					String patchType = getRequiredStringArgument(args, ARG_PATCH_TYPE);
 
 					Address targetAddress = program.getAddressFactory().getAddress(addressStr);
 					if (targetAddress == null) {
-						throw new IllegalArgumentException("Invalid address format: " + addressStr);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"address parsing",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("expectedFormat", "hexadecimal address", "providedValue", addressStr)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format",
+												"Provide address as hexadecimal value",
+												List.of("0x401000", "401000", "0x00401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					Listing listing = program.getListing();
 					Instruction instruction = listing.getInstructionAt(targetAddress);
 					if (instruction == null) {
-						throw new IllegalArgumentException("No instruction found at address: " + addressStr);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_NOT_FOUND)
+								.message("No instruction found at address: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"instruction lookup",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("targetAddress", addressStr),
+										Map.of("hasInstruction", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify address contains an instruction",
+												"Use an address that contains a valid instruction",
+												null,
+												List.of(getMcpName(GhidraGetAssemblyAtAddressTool.class))),
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Try a different address",
+												"Use an address in the program's instruction range",
+												null,
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					// Return context
 					return Tuples.of(program, targetAddress, instruction, patchType);
 				})
-				.flatMap(context -> { // flatMap for transaction
-					Program program = context.getT1();
-					Address targetAddress = context.getT2();
-					Instruction instruction = context.getT3();
-					String patchType = context.getT4();
-					String addressStr = targetAddress.toString(); // Get string rep here
+				.flatMap(tuple -> executeInTransaction(tuple.getT1(), "Patch Instruction",
+						() -> {
+							Program program = tuple.getT1();
+							Address targetAddress = tuple.getT2();
+							Instruction instruction = tuple.getT3();
+							String patchType = tuple.getT4();
 
-					return executeInTransaction(program, "Patch Instruction at " + addressStr, () -> {
-						Memory memory = program.getMemory();
-						int instructionLength = instruction.getLength();
+							if (!"NOP".equalsIgnoreCase(patchType)) {
+								GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+								GhidraMcpError error = GhidraMcpError.validation()
+										.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+										.message("Unsupported patch type: " + patchType)
+										.context(new GhidraMcpError.ErrorContext(
+												annotation.mcpName(),
+												"patch type validation",
+												Map.of(ARG_PATCH_TYPE, patchType),
+												Map.of("requestedPatchType", patchType),
+												Map.of("supportedTypes", List.of("NOP"))))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+														"Use supported patch type",
+														"Currently only 'NOP' patch type is supported",
+														List.of("NOP"),
+														null)))
+										.build();
+								throw new GhidraMcpException(error);
+							}
 
-						if ("NOP".equalsIgnoreCase(patchType)) {
-							// Note: 0x90 is x86/x64 specific. A better impl would use language properties.
+							Memory memory = program.getMemory();
+							int instructionLength = instruction.getLength();
+
 							byte nopByte = (byte) 0x90;
 							byte[] nopBytes = new byte[instructionLength];
 							for (int i = 0; i < instructionLength; i++) {
@@ -88,14 +177,12 @@ public class GhidraPatchInstructionAtAddressTool implements IGhidraMcpSpecificat
 							}
 							try {
 								memory.setBytes(targetAddress, nopBytes);
-								return "Successfully NOPed instruction (" + instructionLength + " bytes) at " + addressStr;
+								return "Successfully NOPed instruction (" + instructionLength + " bytes) at "
+										+ targetAddress.toString();
 							} catch (MemoryAccessException e) {
-								throw new RuntimeException("Memory error patching at " + addressStr + ": " + e.getMessage(), e);
+								throw new RuntimeException(
+										"Memory error patching at " + targetAddress.toString() + ": " + e.getMessage(), e);
 							}
-						} else {
-							throw new IllegalArgumentException("Unsupported patch type: " + patchType);
-						}
-					});
-				});
+						}));
 	}
 }

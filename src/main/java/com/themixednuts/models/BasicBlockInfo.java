@@ -6,6 +6,9 @@ import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
 import ghidra.program.model.block.CodeBlock;
@@ -13,6 +16,7 @@ import ghidra.program.model.block.CodeBlock;
 /**
  * Plain Old Java Object (POJO) representing information about a basic block.
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class BasicBlockInfo {
 
 	private final String name;
@@ -42,22 +46,27 @@ public class BasicBlockInfo {
 
 	// --- Getters ---
 
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("start_address")
 	public String getStartAddress() {
 		return startAddress;
 	}
 
+	@JsonProperty("end_address")
 	public String getEndAddress() {
 		return endAddress;
 	}
 
+	@JsonProperty("size")
 	public long getSize() {
 		return size;
 	}
 
+	@JsonProperty("address_ranges")
 	public List<String> getAddressRanges() {
 		return addressRanges;
 	}

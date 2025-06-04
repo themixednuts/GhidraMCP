@@ -8,7 +8,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.DataTypeInfo;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.PaginatedResult;
@@ -29,7 +31,7 @@ import ghidra.program.model.data.FunctionDefinition;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List DataTypes", category = ToolCategory.DATATYPES, description = "Lists data types within a program, with optional filtering by category path, name fragment, and specific data type kind.", mcpName = "list_data_types", mcpDescription = "Lists data types, optionally filtering by category path, name fragment, and specific data type kind.")
+@GhidraMcpTool(name = "List DataTypes", category = ToolCategory.DATATYPES, description = "Lists data types within a program, with optional filtering by category path, name fragment, and specific data type kind.", mcpName = "list_data_types", mcpDescription = "List data types from a Ghidra program with optional filtering by category path, name fragment, and specific data type kind. Supports pagination for large result sets.")
 public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -146,7 +148,7 @@ public class GhidraListDataTypesTool implements IGhidraMcpSpecification {
 
 		String nextCursor = null;
 		if (hasMore && !dataTypes.isEmpty()) {
-			nextCursor = dataTypes.get(dataTypes.size() - 1).getPathName();
+			nextCursor = dataTypes.get(dataTypes.size() - 1).getDetails().getPath();
 		}
 
 		return new PaginatedResult<>(dataTypes, nextCursor);

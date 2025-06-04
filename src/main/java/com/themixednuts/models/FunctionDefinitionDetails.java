@@ -16,19 +16,10 @@ import ghidra.program.model.data.ParameterDefinition;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionDefinitionDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("return_type_path")
 	private final String returnTypePath;
-
-	@JsonProperty("calling_convention_name")
 	private final String callingConventionName;
-
-	@JsonProperty("has_var_args")
 	private final boolean hasVarArgs;
-
-	@JsonProperty("has_no_return")
 	private final boolean hasNoReturn;
-
-	@JsonProperty("parameters")
 	private final List<ParameterInfo> parameters;
 
 	public FunctionDefinitionDetails(FunctionDefinition funcDef) {
@@ -56,23 +47,27 @@ public class FunctionDefinitionDetails extends BaseDataTypeDetails {
 		this.parameters = paramInfos;
 	}
 
-	// Getters
+	@JsonProperty("return_type_path")
 	public String getReturnTypePath() {
 		return returnTypePath;
 	}
 
+	@JsonProperty("calling_convention_name")
 	public String getCallingConventionName() {
 		return callingConventionName;
 	}
 
+	@JsonProperty("has_var_args")
 	public boolean hasVarArgs() {
 		return hasVarArgs;
 	}
 
+	@JsonProperty("has_no_return")
 	public boolean hasNoReturn() {
 		return hasNoReturn;
 	}
 
+	@JsonProperty("parameters")
 	public List<ParameterInfo> getParameters() {
 		return parameters;
 	}

@@ -16,10 +16,7 @@ import ghidra.program.model.data.Union;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class UnionDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("num_components")
 	private final int numComponents;
-
-	@JsonProperty("members")
 	private final List<UnionMemberInfo> members;
 
 	public UnionDetails(Union unionDt) {
@@ -40,11 +37,12 @@ public class UnionDetails extends BaseDataTypeDetails {
 		this.members = memberInfos;
 	}
 
-	// Getters
+	@JsonProperty("num_components")
 	public int getNumComponents() {
 		return numComponents;
 	}
 
+	@JsonProperty("members")
 	public List<UnionMemberInfo> getMembers() {
 		return members;
 	}

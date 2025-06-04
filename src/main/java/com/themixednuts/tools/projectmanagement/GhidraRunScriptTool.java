@@ -37,7 +37,37 @@ import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Run Ghidra Script", mcpName = "run_ghidra_script", mcpDescription = "Runs a specified Ghidra script with given arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Runs a Ghidra script.")
+@GhidraMcpTool(name = "Run Ghidra Script", mcpName = "run_ghidra_script", mcpDescription = """
+		<use_case>
+		Execute Ghidra scripts with arguments and capture their output. Essential for automating complex analysis tasks and running custom reverse engineering workflows.
+		</use_case>
+
+		<important_notes>
+		- Scripts must be available in Ghidra's script directories or user script paths
+		- Arguments passed as ordered array with type and value information
+		- Scripts have full Ghidra API access and can modify program data
+		- Output captured from print statements and returned with execution status
+		</important_notes>
+
+		<example>
+		Run script with arguments:
+		{
+		  "fileName": "malware.dll",
+		  "scriptName": "FindPattern.java",
+		  "scriptArguments": [
+		    {"order": 0, "value": "deadbeef", "name": "pattern", "type": "String"},
+		    {"order": 1, "value": true, "name": "verbose", "type": "boolean"}
+		  ]
+		}
+		</example>
+
+		<workflow>
+		1. Use list_ghidra_scripts to discover available scripts and their arguments
+		2. Prepare arguments array with correct order and types
+		3. Execute script in context of specified program
+		4. Review captured output and execution status
+		</workflow>
+		""", category = ToolCategory.PROJECT_MANAGEMENT, description = "Runs a Ghidra script.")
 public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_SCRIPT_NAME = "scriptName";

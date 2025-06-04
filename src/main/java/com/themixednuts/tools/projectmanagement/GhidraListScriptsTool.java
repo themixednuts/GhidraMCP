@@ -12,6 +12,8 @@ import java.util.stream.Stream;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ScriptArgumentInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -23,14 +25,12 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.app.script.GhidraScriptUtil;
 import ghidra.app.script.ScriptInfo;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.util.Msg;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import generic.jar.ResourceFile;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Ghidra Scripts", mcpName = "list_ghidra_scripts", mcpDescription = "Lists available Ghidra scripts, optionally filtering by category, and shows their arguments.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists available Ghidra scripts and their arguments.")
+@GhidraMcpTool(name = "List Ghidra Scripts", mcpName = "list_ghidra_scripts", mcpDescription = "List available Ghidra scripts with optional category filtering and argument information. Essential for discovering automation scripts and their required parameters.", category = ToolCategory.PROJECT_MANAGEMENT, description = "Lists available Ghidra scripts and their arguments.")
 public class GhidraListScriptsTool implements IGhidraMcpSpecification {
-
 	private static final String ARG_CATEGORY_FILTER = "categoryFilter";
 
 	@Override
@@ -46,10 +46,35 @@ public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return Mono.fromCallable(() -> {
-			Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
-			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+			try {
+				Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
+				Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-			return findAndParseScripts(categoryFilterOpt, cursorOpt);
+				return findAndParseScripts(categoryFilterOpt, cursorOpt);
+			} catch (Exception e) {
+				if (e instanceof GhidraMcpException) {
+					throw e;
+				}
+				throw new GhidraMcpException(
+						GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+								.message("Failed to list Ghidra scripts: " + e.getMessage())
+								.context(new GhidraMcpError.ErrorContext(
+										"list_scripts",
+										getMcpName(),
+										args,
+										Map.of("operation", "discover_scripts"),
+										Map.of("exception_type", e.getClass().getSimpleName(),
+												"exception_message", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify Ghidra script directories are accessible",
+												"Check script directory permissions and availability",
+												null,
+												null)))
+								.build());
+			}
 		});
 	}
 
@@ -59,28 +84,95 @@ public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 		List<ScriptInfo> allScriptInfo = new ArrayList<>();
 		List<ResourceFile> scriptDirs = GhidraScriptUtil.getScriptSourceDirectories();
 
+		if (scriptDirs == null || scriptDirs.isEmpty()) {
+			throw new GhidraMcpException(
+					GhidraMcpError.resourceNotFound()
+							.errorCode(GhidraMcpError.ErrorCode.FILE_NOT_FOUND)
+							.message("No Ghidra script directories found")
+							.context(new GhidraMcpError.ErrorContext(
+									"discover_script_directories",
+									getMcpName(),
+									Map.of("categoryFilter", categoryFilterOpt.orElse("none")),
+									Map.of("script_directories_found", 0),
+									Map.of("search_performed", "GhidraScriptUtil.getScriptSourceDirectories()")))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+											"Verify Ghidra installation and script directory configuration",
+											"Check that Ghidra script directories are properly configured",
+											null,
+											null)))
+							.build());
+		}
+
 		// Collect ScriptInfo for all valid script files
 		for (ResourceFile scriptDirFile : scriptDirs) {
-			Path scriptDirPath = Path.of(scriptDirFile.getAbsolutePath());
-			if (!Files.isDirectory(scriptDirPath)) {
-				continue;
-			}
-			try (Stream<Path> stream = Files.walk(scriptDirPath)) {
-				stream
-						.filter(Files::isRegularFile)
-						// Use GhidraScriptUtil to check provider compatibility if needed, for now
-						// assume .java
-						.filter(path -> path.toString().endsWith(".java"))
-						.forEach(scriptPath -> {
-							ResourceFile scriptFile = new ResourceFile(scriptPath.toFile());
-							// Use Ghidra's method to get ScriptInfo
-							ScriptInfo info = GhidraScriptUtil.newScriptInfo(scriptFile);
-							if (info != null) {
-								allScriptInfo.add(info);
-							}
-						});
+			try {
+				Path scriptDirPath = Path.of(scriptDirFile.getAbsolutePath());
+				if (!Files.isDirectory(scriptDirPath)) {
+					continue;
+				}
+
+				try (Stream<Path> stream = Files.walk(scriptDirPath)) {
+					stream
+							.filter(Files::isRegularFile)
+							.filter(path -> path.toString().endsWith(".java"))
+							.forEach(scriptPath -> {
+								try {
+									ResourceFile scriptFile = new ResourceFile(scriptPath.toFile());
+									ScriptInfo info = GhidraScriptUtil.newScriptInfo(scriptFile);
+									if (info != null) {
+										allScriptInfo.add(info);
+									}
+								} catch (Exception e) {
+									// Log individual script parsing failures but continue processing
+									// Don't throw exception for individual script failures
+								}
+							});
+				}
 			} catch (IOException e) {
-				Msg.warn(this, "Error walking script directory: " + scriptDirPath, e);
+				throw new GhidraMcpException(
+						GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.FILE_NOT_FOUND)
+								.message("Failed to access script directory: " + scriptDirFile.getAbsolutePath())
+								.context(new GhidraMcpError.ErrorContext(
+										"access_script_directory",
+										getMcpName(),
+										Map.of("categoryFilter", categoryFilterOpt.orElse("none"),
+												"scriptDirectory", scriptDirFile.getAbsolutePath()),
+										Map.of("directory_path", scriptDirFile.getAbsolutePath()),
+										Map.of("exception_type", e.getClass().getSimpleName(),
+												"exception_message", e.getMessage(),
+												"operation", "Files.walk()")))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify script directory permissions and accessibility",
+												"Check that the script directory exists and is readable",
+												null,
+												null)))
+								.build());
+			} catch (Exception e) {
+				throw new GhidraMcpException(
+						GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+								.message("Unexpected error processing script directory: " + e.getMessage())
+								.context(new GhidraMcpError.ErrorContext(
+										"process_script_directory",
+										getMcpName(),
+										Map.of("categoryFilter", categoryFilterOpt.orElse("none"),
+												"scriptDirectory", scriptDirFile.getAbsolutePath()),
+										Map.of("directory_path", scriptDirFile.getAbsolutePath()),
+										Map.of("exception_type", e.getClass().getSimpleName(),
+												"exception_message", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify script directory state and Ghidra configuration",
+												"Check directory permissions and Ghidra script system",
+												null,
+												null)))
+								.build());
 			}
 		}
 
@@ -113,7 +205,6 @@ public class GhidraListScriptsTool implements IGhidraMcpSpecification {
 				: limitedResults;
 
 		// Map Ghidra ScriptInfo to our result format
-		// Note: Arguments are not directly available in ScriptInfo in a parsed way.
 		List<ScriptArgumentInfo.ScriptInfo> pageResults = pageScriptInfo.stream()
 				.map(si -> new ScriptArgumentInfo.ScriptInfo(
 						si.getName(), // Full name with extension

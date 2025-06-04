@@ -1,36 +1,38 @@
 package com.themixednuts.tools.memory;
 
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ReferenceInfo;
+import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.tools.ToolCategory;
+import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.tools.ToolCategory;
 
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.Reference;
-import ghidra.program.model.symbol.ReferenceManager;
-import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Get XRefs From Address", category = ToolCategory.MEMORY, description = "Retrieves cross-references originating from a specific address.", mcpName = "get_xrefs_from_address", mcpDescription = "Get a list of addresses that are referenced by the instruction or data at the given address.")
+@GhidraMcpTool(name = "Get XRefs From Address", category = ToolCategory.MEMORY, description = "Retrieves all cross-references (XRefs) from a specific address.", mcpName = "get_xrefs_from_address", mcpDescription = "Get all outgoing cross-references from a specified memory address. Returns function calls, jumps, and data references originating from the location.")
 public class GhidraGetXRefsFromAddressTool implements IGhidraMcpSpecification {
 
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
-		schemaRoot.property(ARG_FILE_NAME, JsonSchemaBuilder.string(mapper).description("The name of the program file."));
-		schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
-				.description("The source address to find references from (e.g., '0x1004010').")
-				.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_FILE_NAME,
+				JsonSchemaBuilder.string(mapper)
+						.description("The name of the program file."));
+		schemaRoot.property(ARG_ADDRESS,
+				JsonSchemaBuilder.string(mapper)
+						.description("The address to get outgoing cross-references from (e.g., '0x1004010').")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME)
 				.requiredProperty(ARG_ADDRESS);
@@ -40,23 +42,93 @@ public class GhidraGetXRefsFromAddressTool implements IGhidraMcpSpecification {
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
 		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-			Address address = program.getAddressFactory().getAddress(addressStr);
-			if (address == null) {
-				throw new IllegalArgumentException("Invalid address format: " + addressStr);
+
+			// Parse and validate address
+			Address address;
+			try {
+				address = program.getAddressFactory().getAddress(addressStr);
+			} catch (Exception e) {
+				GhidraMcpError error = GhidraMcpError.validation()
+						.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+						.message("Failed to parse address: " + e.getMessage())
+						.context(new GhidraMcpError.ErrorContext(
+								annotation.mcpName(),
+								"address parsing",
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("parseError", e.getMessage(), "providedValue", addressStr)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid hexadecimal address format",
+										"Provide address as hexadecimal value",
+										List.of("0x401000", "401000", "0x00401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 
-			ReferenceManager refManager = program.getReferenceManager();
-			Reference[] refsFrom = refManager.getReferencesFrom(address);
+			if (address == null) {
+				GhidraMcpError error = GhidraMcpError.validation()
+						.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+						.message("Invalid address format")
+						.context(new GhidraMcpError.ErrorContext(
+								annotation.mcpName(),
+								"address validation",
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("expectedFormat", "hexadecimal address", "providedValue", addressStr)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid hexadecimal address format",
+										"Provide address as hexadecimal value",
+										List.of("0x401000", "401000", "0x00401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			}
 
-			List<ReferenceInfo> references = Arrays.stream(refsFrom)
-					.map(ReferenceInfo::new)
-					.sorted(Comparator.comparing(ReferenceInfo::getToAddress))
-					.collect(Collectors.toList());
+			// Get references from the address
+			Reference[] referencesArray = program.getReferenceManager().getReferencesFrom(address);
+			List<ReferenceInfo> references = new ArrayList<>();
+
+			try {
+				for (Reference ref : referencesArray) {
+					references.add(new ReferenceInfo(ref));
+				}
+			} catch (Exception e) {
+				GhidraMcpError error = GhidraMcpError.execution()
+						.errorCode(GhidraMcpError.ErrorCode.ANALYSIS_FAILED)
+						.message("Error analyzing cross-references: " + e.getMessage())
+						.context(new GhidraMcpError.ErrorContext(
+								annotation.mcpName(),
+								"reference analysis",
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("analysisError", e.getMessage()),
+								Map.of("referencesFound", references.size())))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+										"Verify program analysis is complete",
+										"Ensure the program has been fully analyzed",
+										List.of("Run auto-analysis", "Check analysis completion status"),
+										null),
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Try a different address",
+										"Use an address in a well-analyzed region",
+										null,
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			}
 
 			return references;
 		});
 	}
-
 }

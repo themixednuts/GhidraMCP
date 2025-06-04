@@ -1,31 +1,32 @@
 package com.themixednuts.tools.projectmanagement;
 
-import java.util.Map;
 import java.util.List;
-import java.util.concurrent.Callable;
+import java.util.Map;
+import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.AnalysisOptionInfo;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
-import com.themixednuts.utils.GhidraMcpTaskMonitor; // Import the custom monitor
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IArraySchemaBuilder;
 
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.framework.options.OptionType;
+import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
-import ghidra.framework.options.Options;
-import ghidra.framework.options.OptionType;
-import ghidra.program.model.listing.Program;
-import ghidra.util.Msg;
 
-@GhidraMcpTool(name = "Trigger Auto-Analysis", category = ToolCategory.PROJECT_MANAGEMENT, description = "Triggers standard Ghidra auto-analysis (respecting options).", mcpName = "trigger_auto_analysis", mcpDescription = "Triggers the standard Ghidra auto-analysis process (respecting current analysis options). Analysis runs in the background.")
+@GhidraMcpTool(name = "Trigger Auto Analysis", category = ToolCategory.PROJECT_MANAGEMENT, description = "Triggers automatic analysis on a program with optional analysis option overrides.", mcpName = "trigger_auto_analysis", mcpDescription = "Trigger automatic analysis on a Ghidra program with configurable analysis options. Essential for comprehensive program analysis and feature extraction.")
 public class GhidraTriggerAutoAnalysisTool implements IGhidraMcpSpecification {
 
-	public static final String ARG_ANALYSIS_OPTION_OVERRIDES = "analysisOptionOverrides";
+	private static final String ARG_ANALYSIS_OPTIONS = "analysisOptionOverrides";
 
 	@Override
 	public JsonSchema schema() {
@@ -33,171 +34,88 @@ public class GhidraTriggerAutoAnalysisTool implements IGhidraMcpSpecification {
 		schemaRoot.property(ARG_FILE_NAME,
 				JsonSchemaBuilder.string(mapper)
 						.description("The name of the program file."));
-		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
-		// Define schema for an individual option override
+		// Analysis option override schema
 		IObjectSchemaBuilder optionOverrideSchema = JsonSchemaBuilder.object(mapper)
-				.property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Name of the analysis option."))
-				.property(ARG_VALUE, JsonSchemaBuilder.object(mapper)
-						.description("Value to set for the option (boolean, string, or number)."))
-				.requiredProperty(ARG_NAME)
-				.requiredProperty(ARG_VALUE);
+				.property("name", JsonSchemaBuilder.string(mapper).description("Name of the analysis option."))
+				.property("value",
+						JsonSchemaBuilder.object(mapper).description("Value to set for the option (boolean, string, or number)."))
+				.requiredProperty("name")
+				.requiredProperty("value");
 
-		// Define schema for the array of option overrides
-		IArraySchemaBuilder optionsArraySchema = JsonSchemaBuilder.array(mapper)
-				.description(
-						"Optional: A list of analysis options to set before starting analysis. Use the 'list_analysis_options' tool to discover available option names, their types, and current values.")
-				.items(optionOverrideSchema);
+		schemaRoot.property(ARG_ANALYSIS_OPTIONS,
+				JsonSchemaBuilder.array(mapper)
+						.description(
+								"Optional: A list of analysis options to set before starting analysis. Use the 'list_analysis_options' tool to discover available option names, their types, and current values.")
+						.items(optionOverrideSchema));
 
-		schemaRoot.property(ARG_ANALYSIS_OPTION_OVERRIDES, optionsArraySchema);
+		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
 		return schemaRoot.build();
 	}
 
 	@Override
-	@SuppressWarnings("unchecked") // Suppress unchecked warnings for the method due to dynamic enum handling
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool)
-				.flatMap(program -> {
-					List<Map<String, Object>> overrides = getOptionalListArgument(args, ARG_ANALYSIS_OPTION_OVERRIDES)
-							.orElse(null);
+				.map(program -> {
+					try {
+						// Create task monitor for progress reporting
+						GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, "auto_analysis");
 
-					Mono<Void> optionsAppliedMono = Mono.empty(); // Default to no-op if no overrides
-
-					if (overrides != null && !overrides.isEmpty()) {
-						Callable<Void> optionSettingWork = () -> { // Callable returns Void (null)
-							Options analysisOptions = program.getOptions(Program.ANALYSIS_PROPERTIES);
-							for (Map<String, Object> override : overrides) {
-								Object optionNameObj = override.get(ARG_NAME);
-								Object optionValue = override.get(ARG_VALUE);
-								if (!(optionNameObj instanceof String)) {
-									Msg.warn(this, "Skipping invalid option override: name is not a string. Provided Name Object: '"
-											+ optionNameObj + "', Provided Value: " + optionValue);
-									continue;
-								}
-								String optionName = (String) optionNameObj;
-								if (optionName.isBlank()) {
-									Msg.warn(this, "Skipping invalid option override: name is blank. Provided Value: " + optionValue);
-									continue;
-								}
-								if (optionValue == null) {
-									Msg.warn(this, "Skipping invalid option override for '" + optionName + "': value is null.");
-									continue;
-								}
-								OptionType type = analysisOptions.getType(optionName);
-								if (type == null) {
-									Msg.warn(this, "Skipping override for unknown Ghidra option: '" + optionName + "'");
-									continue;
-								}
-								try {
-									switch (type) {
-										case BOOLEAN_TYPE:
-											if (optionValue instanceof Boolean) {
-												analysisOptions.setBoolean(optionName, (Boolean) optionValue);
-											} else {
-												Msg.warn(this, "Type mismatch for boolean option: '" + optionName + "', value: " + optionValue
-														+ ". Expected Boolean.");
-											}
-											break;
-										case INT_TYPE:
-											if (optionValue instanceof Number) {
-												analysisOptions.setInt(optionName, ((Number) optionValue).intValue());
-											} else {
-												Msg.warn(this, "Type mismatch for int option: '" + optionName + "', value: " + optionValue
-														+ ". Expected Number.");
-											}
-											break;
-										case LONG_TYPE:
-											if (optionValue instanceof Number) {
-												analysisOptions.setLong(optionName, ((Number) optionValue).longValue());
-											} else {
-												Msg.warn(this, "Type mismatch for long option: '" + optionName + "', value: " + optionValue
-														+ ". Expected Number.");
-											}
-											break;
-										case DOUBLE_TYPE:
-											if (optionValue instanceof Number) {
-												analysisOptions.setDouble(optionName, ((Number) optionValue).doubleValue());
-											} else {
-												Msg.warn(this, "Type mismatch for double option: '" + optionName + "', value: " + optionValue
-														+ ". Expected Number.");
-											}
-											break;
-										case STRING_TYPE:
-											if (optionValue instanceof String) {
-												analysisOptions.setString(optionName, (String) optionValue);
-											} else {
-												Msg.warn(this, "Type mismatch for string option: '" + optionName + "', value: " + optionValue
-														+ ". Expected String. Attempting toString().");
-												analysisOptions.setString(optionName, optionValue.toString());
-											}
-											break;
-										case FILE_TYPE:
-											if (optionValue instanceof String) {
-												analysisOptions.setFile(optionName, new java.io.File((String) optionValue));
-											} else {
-												Msg.warn(this, "Type mismatch for file option: '" + optionName + "', value: " + optionValue
-														+ ". Expected String path.");
-											}
-											break;
-										case ENUM_TYPE:
-											if (!(optionValue instanceof String)) {
-												Msg.warn(this,
-														"Type mismatch for enum option (expected String representing enum name): '" + optionName
-																+ "', value: " + optionValue);
-												break;
-											}
-											Enum<?> currentEnum = analysisOptions.getEnum(optionName, null);
-											if (currentEnum == null) {
-												Msg.warn(this, "Could not determine enum type for option: '" + optionName + "'.");
-												break;
-											}
-											try {
-												@SuppressWarnings("rawtypes")
-												Class<? extends Enum> enumClass = currentEnum.getDeclaringClass().asSubclass(Enum.class);
-												Enum<?>[] constants = enumClass.getEnumConstants();
-												boolean found = false;
-												for (Enum<?> ec : constants) {
-													if (ec.name().equals(optionValue.toString())) {
-														analysisOptions.setEnum(optionName, enumClass.cast(ec));
-														found = true;
-														break;
-													}
-												}
-												if (!found) {
-													Msg.warn(this,
-															"Enum value '" + optionValue + "' not found for option: '" + optionName + "'.");
-												}
-											} catch (Exception e) {
-												Msg.error(this, "Error setting enum option '" + optionName + "'", e);
-											}
-											break;
-										default:
-											Msg.warn(this, "Unsupported option type '" + type + "' for override on option '" + optionName
-													+ "'. Value not set.");
-											break;
-									}
-								} catch (Exception e) {
-									Msg.error(this, "Failed to set analysis option '" + optionName + "' to '" + optionValue + "'", e);
-								}
-							} // End of for loop for overrides
-							return null; // Callable<Void> returns null
-						};
-
-						optionsAppliedMono = executeInTransaction(program, "Set Analysis Option Overrides", optionSettingWork)
-								.then(); // Convert to Mono<Void>
-					}
-
-					return optionsAppliedMono.then(Mono.fromCallable(() -> {
-						// Use the original 'program' instance here
-						AutoAnalysisManager analysisManager = AutoAnalysisManager.getAnalysisManager(program);
-						if (analysisManager.isAnalyzing()) {
-							throw new IllegalStateException("Analysis is already running for program: " + program.getName());
+						AutoAnalysisManager manager = AutoAnalysisManager.getAnalysisManager(program);
+						if (manager == null) {
+							throw new GhidraMcpException(
+									GhidraMcpError.permissionState()
+											.errorCode(GhidraMcpError.ErrorCode.INVALID_PROGRAM_STATE)
+											.message("AutoAnalysisManager is not available for the program")
+											.context(new GhidraMcpError.ErrorContext(
+													"get_analysis_manager",
+													getMcpName(),
+													Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME)),
+													Map.of("program_name", program.getName()),
+													Map.of("manager_status", "not_available")))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+															"Ensure the program is properly opened and analysis framework is available",
+															"Verify program state and analysis capabilities",
+															null,
+															List.of(getMcpName(GhidraGetCurrentProgramInfoTool.class)))))
+											.build());
 						}
-						GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex, this.getClass().getSimpleName());
-						analysisManager.startAnalysis(monitor);
-						return "Auto-analysis started for program: " + program.getName();
-					}));
+
+						// Start analysis
+						manager.startAnalysis(monitor);
+
+						return Map.of(
+								"message", "Auto analysis has been triggered for " + program.getName(),
+								"program", program.getName(),
+								"status", "analysis_started");
+					} catch (Exception e) {
+						if (e instanceof GhidraMcpException) {
+							throw e;
+						}
+						throw new GhidraMcpException(
+								GhidraMcpError.toolExecution()
+										.errorCode(GhidraMcpError.ErrorCode.ANALYSIS_FAILED)
+										.message("Failed to trigger auto analysis: " + e.getMessage())
+										.context(new GhidraMcpError.ErrorContext(
+												"trigger_analysis",
+												getMcpName(),
+												Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME)),
+												Map.of("program_name", program.getName()),
+												Map.of("exception_type", e.getClass().getSimpleName(),
+														"exception_message", e.getMessage())))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+														"Verify program state and analysis capabilities",
+														"Ensure the program is writable and analysis framework is available",
+														null,
+														List.of(getMcpName(GhidraGetCurrentProgramInfoTool.class),
+																getMcpName(GhidraListAnalysisOptionsTool.class)))))
+										.build());
+					}
 				});
 	}
 }

@@ -1,12 +1,13 @@
 package com.themixednuts.tools.projectmanagement;
 
-import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -21,23 +22,12 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Delete Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Removes a bookmark at the specified address, optionally filtering by properties.", mcpName = "delete_bookmark", mcpDescription = "Removes a bookmark at the specified address.")
+@GhidraMcpTool(name = "Delete Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Removes a bookmark from the program at a specific address.", mcpName = "delete_bookmark", mcpDescription = "Delete a bookmark from a Ghidra program at a specific address. Supports optional filtering by bookmark type, category, or comment content.")
 public class GhidraDeleteBookmarkTool implements IGhidraMcpSpecification {
 
 	private static final String ARG_BOOKMARK_TYPE = "bookmarkType";
 	private static final String ARG_BOOKMARK_CATEGORY = "bookmarkCategory";
 	private static final String ARG_COMMENT_CONTAINS = "commentContains";
-
-	// Define a nested record for type-safe context passing
-	private static record DeleteBookmarkContext(
-			Address address,
-			String addressStr,
-			Optional<String> optType,
-			Optional<String> optCategory,
-			Optional<String> optCommentContains,
-			Program program // Also pass program to flatMap
-	) {
-	}
 
 	@Override
 	public JsonSchema schema() {
@@ -69,56 +59,165 @@ public class GhidraDeleteBookmarkTool implements IGhidraMcpSpecification {
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool)
-				.map(program -> {
+				.flatMap(program -> {
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-					Optional<String> optType = getOptionalStringArgument(args, ARG_BOOKMARK_TYPE);
-					Optional<String> optCategory = getOptionalStringArgument(args, ARG_BOOKMARK_CATEGORY);
-					Optional<String> optCommentContains = getOptionalStringArgument(args, ARG_COMMENT_CONTAINS);
-					Address addr;
+					Optional<String> typeFilter = getOptionalStringArgument(args, ARG_BOOKMARK_TYPE);
+					Optional<String> categoryFilter = getOptionalStringArgument(args, ARG_BOOKMARK_CATEGORY);
+					Optional<String> commentFilter = getOptionalStringArgument(args, ARG_COMMENT_CONTAINS);
 
+					Address addr;
 					try {
 						addr = program.getAddressFactory().getAddress(addressStr);
 						if (addr == null) {
-							throw new IllegalArgumentException("Invalid address format: " + addressStr);
+							throw new GhidraMcpException(
+									GhidraMcpError.execution()
+											.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+											.message("Invalid address format: " + addressStr)
+											.context(new GhidraMcpError.ErrorContext(
+													"parse_address",
+													getMcpName(),
+													Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME),
+															"address", addressStr),
+													Map.of("input_address", addressStr),
+													Map.of("validation_failed", "Address could not be parsed by Ghidra's AddressFactory")))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+															"Use a valid address format for the current program",
+															"Check address format and program's memory layout",
+															List.of("0x401000", "0x00401000", "401000", "ram:00401000"),
+															null)))
+											.build());
 						}
 					} catch (Exception e) {
-						throw new IllegalArgumentException("Invalid address format: " + addressStr, e);
+						if (e instanceof GhidraMcpException) {
+							return Mono.error(e);
+						}
+						return Mono.error(new GhidraMcpException(
+								GhidraMcpError.execution()
+										.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+										.message("Failed to parse address: " + addressStr + " - " + e.getMessage())
+										.context(new GhidraMcpError.ErrorContext(
+												"parse_address",
+												getMcpName(),
+												Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME),
+														"address", addressStr),
+												Map.of("input_address", addressStr),
+												Map.of("exception_type", e.getClass().getSimpleName(),
+														"exception_message", e.getMessage())))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+														"Verify address format matches program's address space",
+														"Use valid hexadecimal address format",
+														List.of("0x401000", "0x00401000", "401000"),
+														null)))
+										.build()));
 					}
 
-					// Return the type-safe context object
-					return new DeleteBookmarkContext(addr, addressStr, optType, optCategory, optCommentContains, program);
-				})
-				.flatMap(context -> { // context is now DeleteBookmarkContext
-					// Access fields directly from the context record
-					return executeInTransaction(context.program(), "MCP - Remove Bookmark(s) at " + context.addressStr(), () -> {
-						BookmarkManager bookmarkManager = context.program().getBookmarkManager();
-						Bookmark[] bookmarksAtAddr = bookmarkManager.getBookmarks(context.address());
+					return executeInTransaction(program, "MCP - Delete Bookmark at " + addressStr, () -> {
+						try {
+							BookmarkManager bookmarkManager = program.getBookmarkManager();
+							Bookmark[] bookmarks = bookmarkManager.getBookmarks(addr);
 
-						if (bookmarksAtAddr.length == 0) {
-							throw new IllegalArgumentException("No bookmark found at address: " + context.addressStr());
+							if (bookmarks.length == 0) {
+								throw new GhidraMcpException(
+										GhidraMcpError.resourceNotFound()
+												.errorCode(GhidraMcpError.ErrorCode.BOOKMARK_NOT_FOUND)
+												.message("No bookmarks found at address: " + addressStr)
+												.context(new GhidraMcpError.ErrorContext(
+														"find_bookmark",
+														getMcpName(),
+														Map.of("fileName", program.getName(),
+																"address", addressStr),
+														Map.of("target_address", addr.toString()),
+														Map.of("bookmark_count", 0)))
+												.suggestions(List.of(
+														new GhidraMcpError.ErrorSuggestion(
+																GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+																"Verify that bookmarks exist at the specified address",
+																"List existing bookmarks to find available addresses",
+																null,
+																List.of(getMcpName(GhidraListBookmarksTool.class)))))
+												.build());
+							}
+
+							// Apply filters to find the right bookmark(s) to delete
+							Iterator<Bookmark> iterator = java.util.Arrays.asList(bookmarks).iterator();
+							boolean found = false;
+
+							while (iterator.hasNext()) {
+								Bookmark bookmark = iterator.next();
+								boolean matches = true;
+
+								if (typeFilter.isPresent() && !typeFilter.get().equals(bookmark.getTypeString())) {
+									matches = false;
+								}
+								if (categoryFilter.isPresent() && !categoryFilter.get().equals(bookmark.getCategory())) {
+									matches = false;
+								}
+								if (commentFilter.isPresent() && !bookmark.getComment().contains(commentFilter.get())) {
+									matches = false;
+								}
+
+								if (matches) {
+									bookmarkManager.removeBookmark(bookmark);
+									found = true;
+								}
+							}
+
+							if (!found) {
+								throw new GhidraMcpException(
+										GhidraMcpError.resourceNotFound()
+												.errorCode(GhidraMcpError.ErrorCode.BOOKMARK_NOT_FOUND)
+												.message("No bookmarks found at address " + addressStr + " matching the specified criteria")
+												.context(new GhidraMcpError.ErrorContext(
+														"filter_bookmarks",
+														getMcpName(),
+														Map.of("fileName", program.getName(),
+																"address", addressStr,
+																"typeFilter", typeFilter.orElse("none"),
+																"categoryFilter", categoryFilter.orElse("none"),
+																"commentFilter", commentFilter.orElse("none")),
+														Map.of("total_bookmarks_at_address", bookmarks.length),
+														Map.of("filtering_applied",
+																typeFilter.isPresent() || categoryFilter.isPresent() || commentFilter.isPresent())))
+												.suggestions(List.of(
+														new GhidraMcpError.ErrorSuggestion(
+																GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+																"Check available bookmarks at this address and adjust filters",
+																"List bookmarks to see available types, categories, and comments",
+																null,
+																List.of(getMcpName(GhidraListBookmarksTool.class)))))
+												.build());
+							}
+
+							return "Bookmark(s) deleted successfully at " + addressStr;
+						} catch (Exception e) {
+							if (e instanceof GhidraMcpException) {
+								throw e;
+							}
+							throw new GhidraMcpException(
+									GhidraMcpError.execution()
+											.errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+											.message("Failed to delete bookmark: " + e.getMessage())
+											.context(new GhidraMcpError.ErrorContext(
+													"delete_bookmark",
+													getMcpName(),
+													Map.of("fileName", program.getName(),
+															"address", addressStr),
+													Map.of("operation", "delete_bookmark"),
+													Map.of("exception_type", e.getClass().getSimpleName(),
+															"exception_message", e.getMessage())))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+															"Verify program state and bookmark accessibility",
+															"Ensure the program is writable and bookmark manager is available",
+															null,
+															null)))
+											.build());
 						}
-
-						List<Bookmark> bookmarksToRemove = Arrays.stream(bookmarksAtAddr).filter(bm -> {
-							// Use context fields directly
-							boolean typeMatch = context.optType().map(t -> t.equals(bm.getTypeString())).orElse(true);
-							boolean categoryMatch = context.optCategory().map(c -> c.equals(bm.getCategory())).orElse(true);
-							boolean commentMatch = context.optCommentContains()
-									.map(c -> bm.getComment() != null && bm.getComment().contains(c))
-									.orElse(true);
-							return typeMatch && categoryMatch && commentMatch;
-						}).collect(Collectors.toList());
-
-						if (bookmarksToRemove.isEmpty()) {
-							throw new IllegalArgumentException(
-									"No bookmark found matching the specified criteria at address: " + context.addressStr());
-						}
-
-						int initialCount = bookmarksToRemove.size();
-						for (Bookmark bm : bookmarksToRemove) {
-							bookmarkManager.removeBookmark(bm);
-						}
-						return "Attempted to remove " + initialCount + (initialCount == 1 ? " bookmark" : " bookmarks") + " from "
-								+ context.addressStr();
 					});
 				});
 	}

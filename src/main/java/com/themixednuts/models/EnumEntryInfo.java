@@ -9,10 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class EnumEntryInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("value")
 	private final long value;
 
 	public EnumEntryInfo(String name, long value) {
@@ -20,11 +17,12 @@ public class EnumEntryInfo {
 		this.value = value;
 	}
 
-	// Getters
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("value")
 	public long getValue() {
 		return value;
 	}

@@ -1,8 +1,11 @@
 package com.themixednuts.tools.symbols;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -19,7 +22,27 @@ import ghidra.util.exception.InvalidInputException;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Label", category = ToolCategory.SYMBOLS, description = "Adds a label at a specified address.", mcpName = "create_label", mcpDescription = "Creates a new symbol label at a specific address.")
+@GhidraMcpTool(name = "Create Label", category = ToolCategory.SYMBOLS, description = "Adds a label at a specified address.", mcpName = "create_label", mcpDescription = """
+		<use_case>
+		Create a new label at a specific address in a Ghidra program. Use this to mark important locations like function entry points, data structures, or string references.
+		</use_case>
+
+		<important_notes>
+		- Label names must be valid identifiers (letters, digits, underscore)
+		- Cannot start with a digit
+		- Creates USER_DEFINED label with highest priority
+		- Replaces any existing default labels at the address
+		</important_notes>
+
+		<example>
+		Create a label for a function entry point:
+		{
+		  "fileName": "program.exe",
+		  "address": "0x401000",
+		  "name": "decrypt_routine"
+		}
+		</example>
+		""")
 public class GhidraCreateLabelTool implements IGhidraMcpSpecification {
 
 	// Define nested record for context
@@ -57,19 +80,79 @@ public class GhidraCreateLabelTool implements IGhidraMcpSpecification {
 					// --- Setup Phase (Synchronous) ---
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 					String labelName = getRequiredStringArgument(args, ARG_NAME);
+					final String toolMcpName = getMcpName();
 					Address targetAddress;
 
 					// Validate label name format
 					try {
 						SymbolUtilities.validateName(labelName);
 					} catch (InvalidInputException e) {
-						throw new IllegalArgumentException("Invalid label name: " + e.getMessage(), e);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Invalid label name: " + e.getMessage())
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"label name validation",
+										args,
+										Map.of(ARG_NAME, labelName),
+										Map.of("validationError", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid label name format",
+												"Label names must be valid identifiers",
+												List.of(
+														"my_label",
+														"Label_123",
+														"importantFunction"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					// Parse address
-					targetAddress = program.getAddressFactory().getAddress(addressStr);
+					try {
+						targetAddress = program.getAddressFactory().getAddress(addressStr);
+					} catch (Exception e) {
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										args,
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("parseError", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
+
 					if (targetAddress == null) {
-						throw new IllegalArgumentException("Invalid address string: " + addressStr);
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										args,
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("addressResult", "null")))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					// Pass program and validated inputs to transaction
@@ -85,8 +168,27 @@ public class GhidraCreateLabelTool implements IGhidraMcpSpecification {
 								if (cmd.applyTo(context.program())) {
 									return "Successfully created label '" + context.labelName() + "' at " + context.address().toString();
 								} else {
-									// Throw exception with status message from command
-									throw new RuntimeException("Failed to create label: " + cmd.getStatusMsg());
+									String toolMcpName = getMcpName();
+									GhidraMcpError error = GhidraMcpError.execution()
+											.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+											.message("Failed to create label: " + cmd.getStatusMsg())
+											.context(new GhidraMcpError.ErrorContext(
+													toolMcpName,
+													"label creation",
+													Map.of(
+															ARG_ADDRESS, context.address().toString(),
+															ARG_NAME, context.labelName()),
+													null,
+													Map.of("commandStatus", cmd.getStatusMsg())))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+															"Check if label name conflicts with existing symbols",
+															"Verify label name is unique at the address",
+															null,
+															List.of("get_symbol_at_address", "list_all_symbols"))))
+											.build();
+									throw new GhidraMcpException(error);
 								}
 							});
 				});

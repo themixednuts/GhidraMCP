@@ -13,19 +13,10 @@ import ghidra.program.model.address.Address;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataInfo {
 
-	@JsonProperty("label")
 	private final String label;
-
-	@JsonProperty("address")
 	private final String address;
-
-	@JsonProperty("value")
 	private final String valueRepresentation;
-
-	@JsonProperty("data_type")
 	private final String dataTypeName;
-
-	@JsonProperty("length")
 	private final int length;
 
 	public DataInfo(Data data) {
@@ -38,23 +29,27 @@ public class DataInfo {
 		this.length = data.getLength();
 	}
 
-	// Getters
+	@JsonProperty("label")
 	public String getLabel() {
 		return label;
 	}
 
+	@JsonProperty("address")
 	public String getAddress() {
 		return address;
 	}
 
+	@JsonProperty("value")
 	public String getValueRepresentation() {
 		return valueRepresentation;
 	}
 
+	@JsonProperty("data_type")
 	public String getDataTypeName() {
 		return dataTypeName;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}

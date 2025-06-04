@@ -1,4 +1,4 @@
-com.themixednuts.tools.functions.GhidraUpdateSymbolDataTypeInFunctionTool
+com.themixednuts.tools.functions.GhidraUpdateSymbolInFunctionTool
 com.themixednuts.tools.functions.GhidraGetFunctionContainingLocationTool
 com.themixednuts.tools.functions.GhidraGetFunctionTool
 com.themixednuts.tools.functions.GhidraGetSymbolInFunctionTool
@@ -13,7 +13,7 @@ com.themixednuts.tools.projectmanagement.GhidraDeleteBookmarkTool
 com.themixednuts.tools.projectmanagement.GhidraListScriptsTool
 com.themixednuts.tools.projectmanagement.GhidraRunScriptTool
 com.themixednuts.tools.projectmanagement.GhidraTriggerAutoAnalysisTool
-com.themixednuts.tools.symbols.GhidraListNamespacesTool
+com.themixednuts.tools.projectmanagement.GhidraListAnalysisOptionsTool
 com.themixednuts.tools.symbols.GhidraGetDefinedStringsTool
 com.themixednuts.tools.symbols.GhidraRenameSymbolTool
 com.themixednuts.tools.memory.GhidraGetXRefsFromAddressTool
@@ -34,9 +34,14 @@ com.themixednuts.tools.datatypes.GhidraDeleteStructMemberTool
 com.themixednuts.tools.datatypes.GhidraRenameDataTypeTool
 com.themixednuts.tools.datatypes.GhidraDeleteDataTypeTool
 com.themixednuts.tools.datatypes.GhidraGetDataTypeTool
-com.themixednuts.tools.datatypes.GhidraUpdateDataTypeTool
 com.themixednuts.tools.datatypes.GhidraRenameCategoryTool
 com.themixednuts.tools.datatypes.GhidraMoveCategoryTool
+com.themixednuts.tools.datatypes.GhidraUpdateFunctionDefinitionTool
+com.themixednuts.tools.datatypes.GhidraUpdateTypedefTool
+com.themixednuts.tools.datatypes.GhidraUpdateStructTool
+com.themixednuts.tools.datatypes.GhidraUpdateEnumTool
+com.themixednuts.tools.datatypes.GhidraUpdateUnionTool
+com.themixednuts.tools.datatypes.GhidraUpdateCategoryTool
 com.themixednuts.tools.grouped.GroupedFunctionOperationsTool
 com.themixednuts.tools.grouped.GroupedDatatypeOperationsTool
 com.themixednuts.tools.grouped.GroupedDecompilerOperationsTool
@@ -46,7 +51,6 @@ com.themixednuts.tools.grouped.GroupedSymbolOperationsTool
 com.themixednuts.tools.grouped.GroupedControlFlowOperationsTool
 com.themixednuts.tools.functions.GhidraCreateFunctionTool
 com.themixednuts.tools.functions.GhidraDeleteFunctionTool
-com.themixednuts.tools.functions.GhidraUpdateFunctionVariableNameTool
 com.themixednuts.tools.symbols.GhidraListAllSymbolsTool
 com.themixednuts.tools.symbols.GhidraCreateLabelTool
 com.themixednuts.tools.symbols.GhidraDeleteLabelTool
@@ -71,8 +75,6 @@ com.themixednuts.tools.controlflow.GhidraGetBasicBlockPredecessorsTool
 com.themixednuts.tools.controlflow.GhidraGetBasicBlockSuccessorsTool
 com.themixednuts.tools.memory.GhidraGetCurrentAddressTool
 com.themixednuts.tools.functions.GhidraGetCurrentFunctionTool
-com.themixednuts.tools.functions.GhidraRenameSymbolInFunctionTool
-com.themixednuts.tools.projectmanagement.GhidraListAnalysisOptionsTool
 com.themixednuts.tools.datatypes.GhidraListNamespacesTool
 com.themixednuts.tools.datatypes.GhidraListCategoriesTool
 com.themixednuts.tools.datatypes.GhidraListDataTypesTool
@@ -84,3 +86,7 @@ com.themixednuts.tools.datatypes.GhidraCreateUnionTool
 com.themixednuts.tools.datatypes.GhidraCreateEnumTool
 com.themixednuts.tools.datatypes.GhidraCreateTypedefTool
 com.themixednuts.tools.datatypes.GhidraCreateFunctionDefinitionTool
+com.themixednuts.tools.symbols.GhidraApplyEquateTool
+com.themixednuts.tools.symbols.GhidraRemoveEquateTool
+com.themixednuts.tools.symbols.GhidraConvertOperandDisplayTool
+com.themixednuts.tools.datatypes.GhidraCreatePointerTool

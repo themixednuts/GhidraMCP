@@ -8,28 +8,13 @@ import ghidra.program.model.mem.MemoryBlock;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class MemoryBlockInfo {
 
-	@JsonProperty("name")
 	private String name;
-
-	@JsonProperty("start_address")
 	private String startAddress;
-
-	@JsonProperty("end_address")
 	private String endAddress;
-
-	@JsonProperty("size")
 	private long size;
-
-	@JsonProperty("read")
 	private boolean read;
-
-	@JsonProperty("write")
 	private boolean write;
-
-	@JsonProperty("execute")
 	private boolean execute;
-
-	@JsonProperty("volatile")
 	private boolean isVolatile;
 
 	public MemoryBlockInfo(MemoryBlock block) {
@@ -43,35 +28,42 @@ public class MemoryBlockInfo {
 		this.isVolatile = block.isVolatile();
 	}
 
-	// Getters (optional, Jackson uses fields or getters)
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("start_address")
 	public String getStartAddress() {
 		return startAddress;
 	}
 
+	@JsonProperty("end_address")
 	public String getEndAddress() {
 		return endAddress;
 	}
 
+	@JsonProperty("size")
 	public long getSize() {
 		return size;
 	}
 
+	@JsonProperty("read")
 	public boolean isRead() {
 		return read;
 	}
 
+	@JsonProperty("write")
 	public boolean isWrite() {
 		return write;
 	}
 
+	@JsonProperty("execute")
 	public boolean isExecute() {
 		return execute;
 	}
 
+	@JsonProperty("volatile")
 	public boolean isVolatile() {
 		return isVolatile;
 	}

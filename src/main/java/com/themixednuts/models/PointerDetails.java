@@ -8,10 +8,7 @@ import ghidra.program.model.data.Pointer;
 
 public class PointerDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("pointed_to_type_path_name")
 	private final String pointedToTypePathName;
-
-	@JsonProperty("pointer_length_specific_to_pointer_details")
 	private final int pointerLengthSpecificToPointerDetails;
 
 	public PointerDetails(Pointer pointer) {
@@ -32,10 +29,12 @@ public class PointerDetails extends BaseDataTypeDetails {
 		this.pointerLengthSpecificToPointerDetails = pointer.getLength();
 	}
 
+	@JsonProperty("pointed_to_type_path_name")
 	public String getPointedToTypePathName() {
 		return pointedToTypePathName;
 	}
 
+	@JsonProperty("pointer_length_specific_to_pointer_details")
 	public int getPointerLengthSpecificToPointerDetails() {
 		return pointerLengthSpecificToPointerDetails;
 	}

@@ -9,32 +9,19 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class StructureMemberInfo {
 
-	@JsonProperty("name")
 	private final String name;
 
-	@JsonProperty("data_type_path")
 	private final String dataTypePath;
 
-	@JsonProperty("offset")
 	private final int offset;
 
-	@JsonProperty("ordinal")
 	private final int ordinal;
 
-	@JsonProperty("length")
 	private final int length;
 
-	@JsonProperty("comment")
 	private final String comment;
 
-	@JsonProperty("is_bit_field")
 	private final boolean isBitField;
-
-	// @JsonProperty("bit_size") // Linter issue
-	// private final Integer bitSize;
-
-	// @JsonProperty("bit_offset") // Linter issue
-	// private final Integer bitOffset;
 
 	public StructureMemberInfo(
 			String name,
@@ -43,10 +30,7 @@ public class StructureMemberInfo {
 			int ordinal,
 			int length,
 			String comment,
-			boolean isBitField
-	// Integer bitSize, // Linter issue
-	// Integer bitOffset // Linter issue
-	) {
+			boolean isBitField) {
 		this.name = name;
 		this.dataTypePath = dataTypePath;
 		this.offset = offset;
@@ -54,38 +38,40 @@ public class StructureMemberInfo {
 		this.length = length;
 		this.comment = comment;
 		this.isBitField = isBitField;
-		// this.bitSize = bitSize;
-		// this.bitOffset = bitOffset;
 	}
 
-	// Getters
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("data_type_path")
 	public String getDataTypePath() {
 		return dataTypePath;
 	}
 
+	@JsonProperty("offset")
 	public int getOffset() {
 		return offset;
 	}
 
+	@JsonProperty("ordinal")
 	public int getOrdinal() {
 		return ordinal;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}
 
+	@JsonProperty("comment")
 	public String getComment() {
 		return comment;
 	}
 
+	@JsonProperty("is_bit_field")
 	public boolean isBitField() {
 		return isBitField;
 	}
-	// public Integer getBitSize() { return bitSize; }
-	// public Integer getBitOffset() { return bitOffset; }
 }

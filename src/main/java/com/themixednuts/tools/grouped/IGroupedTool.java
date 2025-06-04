@@ -12,6 +12,7 @@ import java.util.Optional;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -253,8 +254,9 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 		ToolOptions options = tool.getOptions(GhidraMcpPlugin.MCP_TOOL_OPTIONS_CATEGORY);
 		String categoryName = targetCategory.getCategoryName();
 
-		// 1. Get <mcpName, argumentSchemaNode> map for enabled granular tools
-		Map<String, ObjectNode> enabledToolArgumentSchemas = getGranularToolClasses(categoryName).stream()
+		// 1. Get <mcpName, JsonNode (representing an array schema)> map for enabled
+		// granular tools
+		Map<String, JsonNode> enabledToolArgumentSchemasAsArray = getGranularToolClasses(categoryName).stream()
 				.filter(toolClass -> { // Filter by enabled
 					GhidraMcpTool specAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
 					if (specAnnotation == null) {
@@ -281,7 +283,15 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 						GhidraMcpTool toolAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
 						JsonSchema granularSchema = toolInstance.schema();
 						if (toolAnnotation != null && !toolAnnotation.mcpName().isBlank() && granularSchema != null) {
-							return Map.entry(toolAnnotation.mcpName(), granularSchema.getNode());
+							ObjectNode granularArgsNode = granularSchema.getNode(); // Schema for ONE arg set
+							// Create an array schema where 'items' is the granularArgsNode
+							JsonNode arraySchemaNode = JsonSchemaBuilder.array(IGhidraMcpSpecification.mapper)
+									.items(granularArgsNode)
+									.description("An array of argument objects for the '" + toolAnnotation.mcpName()
+											+ "' operation. Each object in the array should conform to the arguments schema of this specific operation.")
+									.minItems(1) // Require at least one argument set if the operation is included
+									.build().getNode(); // Get the JsonNode for the array schema
+							return Map.entry(toolAnnotation.mcpName(), arraySchemaNode);
 						}
 					} catch (Exception e) {
 						Msg.error(this, "Failed to get schema for granular tool: " + toolClass.getName(), e);
@@ -292,30 +302,25 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 				.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1)); // In case of duplicates,
 																																														// keep first
 
-		if (enabledToolArgumentSchemas.isEmpty()) {
+		if (enabledToolArgumentSchemasAsArray.isEmpty()) {
 			Msg.warn(this,
 					"No *enabled* granular tools for grouped tool: " + this.getClass().getSimpleName() + " cat: " + categoryName);
-			// Return a schema indicating no operations are available if that's desired,
-			// or an empty object schema for ARG_OPERATIONS.
-			// For now, let's make ARG_OPERATIONS an empty object if no tools are enabled.
 			schemaRoot.property(ARG_OPERATIONS,
 					JsonSchemaBuilder.object(IGhidraMcpSpecification.mapper)
 							.description("Container for operations. Currently, no operations are enabled for this group."),
-					true); // ARG_OPERATIONS is still required, even if it's an empty object.
+					true);
 			return schemaRoot.build();
 		}
 
-		// Define ARG_OPERATIONS as an object, with its properties being the enabled
-		// tools
+		// Define ARG_OPERATIONS as an object
 		IObjectSchemaBuilder operationsObjectSchema = JsonSchemaBuilder.object(IGhidraMcpSpecification.mapper)
 				.description(
-						"An object where each key is an enabled operation's mcpName, and the value is an object containing its arguments.")
-				.properties(enabledToolArgumentSchemas); // Add all enabled tools as properties
-		// We don't mark individual tool properties as "required" at this level.
-		// The client chooses which optional properties (tools) to include in the
-		// operations object.
+						"An object where each key is an enabled operation's mcpName, and the value is an array of argument objects for that operation. Each object in the array must conform to the specific arguments schema of the keyed operation.")
+				.properties((Map<String, ObjectNode>) (Map<?, ?>) enabledToolArgumentSchemasAsArray); // Add all enabled tools
+																																															// (now with array
+																																															// schemas) as properties
 
-		schemaRoot.property(ARG_OPERATIONS, operationsObjectSchema, true); // Mark ARG_OPERATIONS itself as required
+		schemaRoot.property(ARG_OPERATIONS, operationsObjectSchema, true);
 
 		return schemaRoot.build();
 	}
@@ -395,80 +400,115 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 	 * @return A Mono containing the CallToolResult with a summary of all operation
 	 *         outcomes.
 	 */
-	default Mono<? extends Object> executeGroupedOperations(McpAsyncServerExchange ex, Map<String, Object> args,
-			PluginTool tool) {
-		// Get the operations object using helper from IGhidraMcpSpecification
+	default Mono<GroupedOperationResult> executeGroupedOperations(McpAsyncServerExchange ex, Map<String, Object> args,
+			PluginTool tool, Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap) {
+
 		IGhidraMcpSpecification specHelpers = (IGhidraMcpSpecification) this;
 		Map<String, Object> operationsObject = specHelpers
 				.getOptionalMapArgument(args, ARG_OPERATIONS)
 				.orElse(null);
 
 		if (operationsObject == null || operationsObject.isEmpty()) {
-			// If allowing empty operations object is desired, this could return an empty
-			// GroupedOperationResult.
-			// For now, assume at least one operation is expected if ARG_OPERATIONS is
-			// provided.
-			return Mono.error(new IllegalArgumentException("'operations' object cannot be null or empty."));
+			// If ARG_OPERATIONS is missing or empty, return an error result immediately.
+			return Mono.just(new GroupedOperationResult(List.of(
+					OperationResult.error(null, args, // 'null' for operationName as it's a general error
+							new IllegalArgumentException("'" + ARG_OPERATIONS + "' map is missing or empty.")))));
 		}
 
-		Map<String, Class<? extends IGhidraMcpSpecification>> toolClassMap = getToolClassMap(tool);
-
-		// Process each operation from the operationsObject
-		// The order of processing will depend on the iteration order of the map keys.
+		// Process each entry in the operationsObject (mcpName -> List of argument maps)
 		return Flux.fromIterable(operationsObject.entrySet())
 				.concatMap(entry -> {
 					final String operationName = entry.getKey();
-					Object argsValue = entry.getValue();
+					Object argsListValue = entry.getValue();
 
-					if (!(argsValue instanceof Map)) {
+					// 1. Validate that argsListValue is a List (array of argument sets)
+					if (!(argsListValue instanceof List)) {
 						Throwable error = new IllegalArgumentException(
-								"Arguments for operation '" + operationName + "' must be an object (Map).");
-						// Pass the original operationsObject as context for the error, or just the
-						// problematic entry
-						return Mono.just(
-								OperationResult.error(operationName,
-										(Map<String, Object>) argsValue,
-										error));
+								"Value for operation '" + operationName + "' must be an array of argument objects. Got: " +
+										(argsListValue == null ? "null" : argsListValue.getClass().getSimpleName()));
+						// Provide context for the error: which operation, expected type, actual type,
+						// and value.
+						Map<String, Object> errorContextArgs = Map.of(
+								"operation", operationName,
+								"expectedValueType", "List (array of argument objects)",
+								"receivedValueType", argsListValue == null ? "null" : argsListValue.getClass().getSimpleName(),
+								"receivedValue", argsListValue == null ? "null" : argsListValue.toString());
+						return Mono.just(OperationResult.error(operationName, errorContextArgs, error));
 					}
-					@SuppressWarnings("unchecked")
-					final Map<String, Object> granularArgs = (Map<String, Object>) argsValue;
 
-					final String opKey = operationName; // opName is the key from the map
+					List<?> argList = (List<?>) argsListValue; // Cast to List
 
+					// 2. Check if the operationName (mcpName) is known and mapped to a tool class
 					Class<? extends IGhidraMcpSpecification> targetToolClass = toolClassMap.get(operationName);
 					if (targetToolClass == null) {
 						Throwable error = new IllegalArgumentException("Unknown operation '" + operationName
-								+ "'. Known operations: " + toolClassMap.keySet());
-						return Mono.just(OperationResult.error(opKey, granularArgs, error));
+								+ "'. Known operations in toolClassMap: " + toolClassMap.keySet());
+						Map<String, Object> errorContextArgs = Map.of(
+								"attemptedOperation", operationName,
+								"knownOperations", toolClassMap.keySet().toString(),
+								"providedArgumentList", argList.toString() // Include the problematic list
+						);
+						return Mono.just(OperationResult.error(operationName, errorContextArgs, error));
 					}
 
-					// --- Defer Instantiation and Execution ---
-					return Mono.defer(() -> {
-						try {
-							IGhidraMcpSpecification targetToolInstance = targetToolClass.getDeclaredConstructor().newInstance();
-							String attemptMessage = String.format("Attempting operation '%s'.", opKey);
-							ex.loggingNotification(McpSchema.LoggingMessageNotification.builder()
-									.level(LoggingLevel.INFO).logger(this.getClass().getSimpleName()).data(attemptMessage).build());
+					// 3. If the list of argument sets for this operation is empty, log and skip.
+					// This operation effectively contributes no results to the grouped call.
+					if (argList.isEmpty()) {
+						Msg.info(this, "Operation '" + operationName
+								+ "' received an empty list of arguments. Skipping execution for this operation.");
+						return Flux.empty(); // Return an empty Flux for this operation, so it doesn't add to results
+					}
 
-							// Execute and log success
-							return targetToolInstance.execute(ex, granularArgs, tool)
-									.doOnSuccess(rawResult -> {
-										String successMessage = String.format("Successfully executed operation '%s'.", opKey);
-										ex.loggingNotification(McpSchema.LoggingMessageNotification.builder()
-												.level(LoggingLevel.INFO).logger(this.getClass().getSimpleName()).data(successMessage).build());
-									});
-						} catch (Exception e) { // Catch instantiation exceptions
-							Msg.error(IGroupedTool.class, "Failed to instantiate tool '" + targetToolClass.getSimpleName()
-									+ "' for operation '" + operationName + "'", e);
-							return Mono.error(e); // Signal error for onErrorResume below
-						}
-					}).map(rawResult -> OperationResult.success(opKey, granularArgs, rawResult)).onErrorResume(error -> {
-						String errorMsg = String.format("Error processing operation '%s': %s", opKey,
-								error.getMessage());
-						ghidra.util.Msg.error(this, errorMsg, error);
-						return Mono.just(OperationResult.error(opKey, granularArgs, error));
-					});
-				}).collectList().map(GroupedOperationResult::new);
+					// 4. Process each argument set in the argList for the current operationName
+					return Flux.fromIterable(argList)
+							.concatMap(argListItem -> { // argListItem is one set of arguments for the granular tool
+								// 4a. Validate that each argListItem is a Map (an argument object)
+								if (!(argListItem instanceof Map)) {
+									Throwable itemError = new IllegalArgumentException(
+											"Each item in the arguments array for operation '" + operationName +
+													"' must be an argument object (Map). Got: " +
+													(argListItem == null ? "null" : argListItem.getClass().getSimpleName()));
+									Map<String, Object> itemErrorContextArgs = Map.of(
+											"operation", operationName,
+											"expectedItemType", "Map (argument object)",
+											"receivedItemType", argListItem == null ? "null" : argListItem.getClass().getSimpleName(),
+											"receivedItemValue", argListItem == null ? "null" : argListItem.toString());
+									return Mono.just(OperationResult.error(operationName, itemErrorContextArgs, itemError));
+								}
+
+								@SuppressWarnings("unchecked")
+								final Map<String, Object> granularArgs = (Map<String, Object>) argListItem;
+
+								// --- Defer Instantiation and Execution of the Granular Tool ---
+								return Mono.defer(() -> {
+									try {
+										IGhidraMcpSpecification targetToolInstance = targetToolClass.getDeclaredConstructor()
+												.newInstance();
+										Msg.info(this, "Executing grouped operation '" + operationName + "' with args: " + granularArgs);
+										// Execute the granular tool with this specific set of arguments
+										return targetToolInstance.execute(ex, granularArgs, tool)
+												.doOnSuccess(res -> Msg.info(this,
+														"Grouped operation '" + operationName + "' (args: " + granularArgs + ") succeeded."))
+												.doOnError(err -> Msg.error(this, "Grouped operation '" + operationName
+														+ "' (args: " + granularArgs + ") failed.", err));
+									} catch (Exception e) { // Catch instantiation or other synchronous exceptions
+										Msg.error(this, "Failed to instantiate or prepare tool '" + targetToolClass.getSimpleName()
+												+ "' for operation '" + operationName + "' with args " + granularArgs, e);
+										return Mono.error(e); // Signal error for onErrorResume below
+									}
+								})
+										// Convert the raw result of the granular tool to an OperationResult
+										.map(rawResult -> OperationResult.success(operationName, granularArgs, rawResult))
+										// Handle errors from the granular tool's execution or instantiation
+										.onErrorResume(error -> {
+											Msg.error(this, "Error during execution of grouped operation '" + operationName
+													+ "' with args " + granularArgs, error);
+											return Mono.just(OperationResult.error(operationName, granularArgs, error));
+										});
+							});
+				})
+				.collectList() // Collect all OperationResult objects from all operations and all arg sets
+				.map(GroupedOperationResult::new); // Wrap the list in a GroupedOperationResult
 	}
 
 	// Default implementation for IGhidraMcpSpecification.specification
@@ -502,7 +542,7 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 	// Default implementation for IGhidraMcpSpecification.execute
 	@Override
 	default Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return executeGroupedOperations(ex, args, tool);
+		return executeGroupedOperations(ex, args, tool, getToolClassMap(tool));
 	}
 
 	// NEW Default implementation for IGhidraMcpSpecification.schema

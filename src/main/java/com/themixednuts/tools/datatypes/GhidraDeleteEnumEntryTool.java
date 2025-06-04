@@ -1,13 +1,18 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
+import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
+import com.themixednuts.tools.datatypes.GhidraGetDataTypeTool;
 
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
@@ -15,6 +20,8 @@ import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.EnumDataType;
 import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.DataTypePath;
+import ghidra.program.model.data.DataTypeManager;
 
 @GhidraMcpTool(name = "Delete Enum Entry", category = ToolCategory.DATATYPES, description = "Deletes an entry from an existing enum.", mcpName = "delete_enum_entry", mcpDescription = "Removes an entry (by name) from an existing enum data type.")
 public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
@@ -50,33 +57,84 @@ public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-		return getProgram(args, tool).map(program -> {
-			String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
-			String entryName = getRequiredStringArgument(args, ARG_NAME);
+		return getProgram(args, tool)
+				.flatMap(program -> executeInTransaction(program, "Delete Enum Entry", () -> {
+					GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+					String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
+					String entryName = getRequiredStringArgument(args, ARG_NAME);
 
-			DataType dt = program.getDataTypeManager().getDataType(enumPathString);
+					DataTypeManager dtm = program.getDataTypeManager();
+					DataType dataType = dtm.getDataType(enumPathString);
 
-			if (dt == null) {
-				throw new IllegalArgumentException("Enum not found at path: " + enumPathString);
-			}
-			if (!(dt instanceof EnumDataType)) {
-				throw new IllegalArgumentException("Data type at path is not an Enum: " + enumPathString);
-			}
-			EnumDataType enumDt = (EnumDataType) dt;
+					if (dataType == null) {
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Enum not found at path: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"enum lookup",
+										Map.of(ARG_ENUM_PATH, enumPathString, ARG_NAME, entryName),
+										Map.of("enumPath", enumPathString),
+										Map.of("enumFound", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"List available enums",
+												"Check what enums exist in the data type manager",
+												null,
+												List.of(getMcpName(GhidraListDataTypesTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 
-			if (!enumDt.contains(entryName)) {
-				throw new IllegalArgumentException("Entry '" + entryName + "' not found in enum " + enumPathString);
-			}
+					if (!(dataType instanceof EnumDataType)) {
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Data type at path is not an Enum: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"data type validation",
+										Map.of(ARG_ENUM_PATH, enumPathString),
+										Map.of("actualType", dataType.getClass().getSimpleName()),
+										Map.of("expectedType", "Enum", "actualType", dataType.getClass().getSimpleName())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify data type",
+												"Check that the path points to an enum data type",
+												null,
+												List.of(getMcpName(GhidraGetDataTypeTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 
-			return new DeleteEnumEntryContext(program, enumDt, entryName);
-		}).flatMap(context -> {
-			String finalEnumPathString = context.enumDt().getPathName();
+					EnumDataType enumDataType = (EnumDataType) dataType;
+					long entryValue = enumDataType.getValue(entryName);
 
-			return executeInTransaction(context.program(), "MCP - Delete Enum Entry: " + context.entryName(), () -> {
-				context.enumDt().remove(context.entryName());
-				return "Enum entry '" + context.entryName() + "' deleted successfully from " + finalEnumPathString + ".";
-			});
-		});
+					if (entryValue == -1 && !enumDataType.contains(entryName)) {
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Entry '" + entryName + "' not found in enum " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"enum entry lookup",
+										Map.of(ARG_ENUM_PATH, enumPathString, ARG_NAME, entryName),
+										Map.of("entryName", entryName),
+										Map.of("entryExists", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"List enum entries",
+												"Check what entries exist in this enum",
+												null,
+												List.of(getMcpName(GhidraGetDataTypeTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
+					}
+
+					enumDataType.remove(entryName);
+					return "Entry '" + entryName + "' removed from enum '" + enumPathString + "'.";
+				}));
 	}
 
 }

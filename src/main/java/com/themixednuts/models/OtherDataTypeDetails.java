@@ -13,7 +13,6 @@ import ghidra.program.model.data.DataType;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class OtherDataTypeDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("data_type_class_name")
 	private final String dataTypeClassName;
 
 	public OtherDataTypeDetails(DataType dt) {
@@ -28,7 +27,7 @@ public class OtherDataTypeDetails extends BaseDataTypeDetails {
 		this.dataTypeClassName = dt.getClass().getSimpleName();
 	}
 
-	// Getter
+	@JsonProperty("data_type_class_name")
 	public String getDataTypeClassName() {
 		return dataTypeClassName;
 	}

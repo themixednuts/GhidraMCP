@@ -1,8 +1,11 @@
 package com.themixednuts.tools.symbols;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -17,7 +20,7 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Update Comment at Address", category = ToolCategory.SYMBOLS, description = "Sets or replaces a comment of a specific type at a given memory address.", mcpName = "update_comment_at_address", mcpDescription = "Set or replace a comment of a specific type (e.g., EOL_COMMENT, PRE_COMMENT, PLATE_COMMENT) at the given memory address.")
+@GhidraMcpTool(name = "Update Comment at Address", category = ToolCategory.SYMBOLS, description = "Sets or replaces a comment of a specific type at a given memory address.", mcpName = "update_comment_at_address", mcpDescription = "Set or update a comment at a specific address. Choose from EOL, PRE, POST, PLATE, or REPEATABLE comment types.")
 public class GhidraUpdateCommentAtAddressTool implements IGhidraMcpSpecification {
 
 	public static final String ARG_COMMENT_TYPE = "commentType";

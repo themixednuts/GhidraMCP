@@ -15,10 +15,7 @@ import ghidra.program.model.data.Enum;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class EnumDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("count")
 	private final long count;
-
-	@JsonProperty("entries")
 	private final List<EnumEntryInfo> entries;
 
 	public EnumDetails(Enum enumDt) {
@@ -40,11 +37,12 @@ public class EnumDetails extends BaseDataTypeDetails {
 		this.entries = entryInfos;
 	}
 
-	// Getters
+	@JsonProperty("count")
 	public long getCount() {
 		return count;
 	}
 
+	@JsonProperty("entries")
 	public List<EnumEntryInfo> getEntries() {
 		return entries;
 	}

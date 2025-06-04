@@ -8,8 +8,10 @@ import java.util.Comparator;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.tools.IGhidraMcpSpecification;
+import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -23,7 +25,7 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import ghidra.program.model.address.Address;
 
-@GhidraMcpTool(name = "Search Functions by Name", category = ToolCategory.FUNCTIONS, description = "Searches for functions whose names contain a given substring.", mcpName = "search_functions_by_name", mcpDescription = "Returns a paginated list of functions whose names match a search query.")
+@GhidraMcpTool(name = "Search Functions by Name", category = ToolCategory.FUNCTIONS, description = "Searches for functions whose names contain a given substring.", mcpName = "search_functions_by_name", mcpDescription = "Search for functions whose names contain a specified substring with pagination support. Case-insensitive matching returns complete function information.")
 public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification {
 
 	public static final int DEFAULT_PAGE_LIMIT = 10;
@@ -37,28 +39,73 @@ public class GhidraSearchFunctionsByNameTool implements IGhidraMcpSpecification 
 				true);
 		schemaRoot.property(ARG_NAME,
 				JsonSchemaBuilder.string(mapper)
-						.description("The name of the function to search for."),
+						.description("The substring to search for in function names (case-insensitive)."),
 				true);
 		schemaRoot.property(ARG_CURSOR,
 				JsonSchemaBuilder.string(mapper)
-						.description(
-								"Optional cursor for pagination (typically the address of the last item from the previous page)."));
+						.description("Optional cursor for pagination (address from previous page's nextCursor).")
+						.pattern("^(0x)?[0-9a-fA-F]+$"));
 
 		return schemaRoot.build();
 	}
 
 	@Override
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
 		return getProgram(args, tool).map(program -> {
 			String nameStr = getRequiredStringArgument(args, ARG_NAME);
 
 			Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 			Address cursorAddr = null;
+
+			// Handle cursor address parsing with structured error
 			if (cursorOpt.isPresent()) {
 				try {
 					cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
+					if (cursorAddr == null) {
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Invalid cursor address format")
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"cursor address parsing",
+										args,
+										Map.of(ARG_CURSOR, cursorOpt.get()),
+										Map.of("expectedFormat", "hexadecimal address", "providedValue", cursorOpt.get())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format",
+												"Provide cursor as hexadecimal address",
+												List.of("0x401000", "401000", "0x00401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 				} catch (Exception e) {
-					throw new IllegalArgumentException("Invalid cursor format: " + cursorOpt.get());
+					if (e instanceof GhidraMcpException) {
+						throw e; // Re-throw our structured error
+					}
+					// Handle other address parsing exceptions
+					GhidraMcpError error = GhidraMcpError.validation()
+							.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+							.message("Failed to parse cursor address: " + e.getMessage())
+							.context(new GhidraMcpError.ErrorContext(
+									annotation.mcpName(),
+									"cursor address parsing",
+									args,
+									Map.of(ARG_CURSOR, cursorOpt.get()),
+									Map.of("parseError", e.getMessage(), "providedValue", cursorOpt.get())))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+											"Use valid address format for the current program",
+											"Ensure cursor address exists in the program's address space",
+											List.of("0x401000", "401000"),
+											null)))
+							.build();
+					throw new GhidraMcpException(error);
 				}
 			}
 			final Address finalCursorAddr = cursorAddr;

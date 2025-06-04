@@ -1,10 +1,10 @@
 package com.themixednuts.models;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import ghidra.program.model.data.DataTypeComponent;
 
-/**
- * POJO representing information about a member within a Union.
- */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class UnionMemberInfo {
 	public String name;
 	public String dataTypePath;
@@ -24,18 +24,22 @@ public class UnionMemberInfo {
 
 	// --- Getters (optional but good practice) ---
 
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("data_type_path")
 	public String getDataTypePath() {
 		return dataTypePath;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}
 
+	@JsonProperty("comment")
 	public String getComment() {
 		return comment;
 	}

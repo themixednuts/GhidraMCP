@@ -14,6 +14,8 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -22,7 +24,7 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import com.themixednuts.tools.ToolCategory;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Memory Segments", category = ToolCategory.MEMORY, description = "Lists all memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Retrieve a list of all memory segments/blocks.")
+@GhidraMcpTool(name = "List Memory Segments", category = ToolCategory.MEMORY, description = "Lists all memory segments (blocks) defined in the program.", mcpName = "list_memory_segments", mcpDescription = "Retrieve a paginated list of all memory segments/blocks in the program. Returns details about each memory block including start address, size, permissions, and type. Results are sorted by start address and support cursor-based pagination.")
 public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -51,8 +53,47 @@ public class GhidraListSegmentsTool implements IGhidraMcpSpecification {
 			if (cursorOpt.isPresent()) {
 				try {
 					cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
+					if (cursorAddr == null) {
+						GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Invalid cursor address format: " + cursorOpt.get())
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"cursor parsing",
+										Map.of(ARG_CURSOR, cursorOpt.get()),
+										Map.of("cursorValue", cursorOpt.get()),
+										Map.of("expectedFormat", "hexadecimal address", "providedValue", cursorOpt.get())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format for cursor",
+												"Provide cursor as hexadecimal value from previous result",
+												List.of("0x401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 				} catch (Exception e) {
-					throw new IllegalArgumentException("Invalid cursor address format: " + cursorOpt.get(), e);
+					GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+					GhidraMcpError error = GhidraMcpError.validation()
+							.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+							.message("Failed to parse cursor address: " + cursorOpt.get() + " - " + e.getMessage())
+							.context(new GhidraMcpError.ErrorContext(
+									annotation.mcpName(),
+									"cursor parsing",
+									Map.of(ARG_CURSOR, cursorOpt.get()),
+									Map.of("cursorValue", cursorOpt.get(), "parseError", e.getMessage()),
+									Map.of("expectedFormat", "hexadecimal address", "providedValue", cursorOpt.get())))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+											"Use valid hexadecimal address format for cursor",
+											"Provide cursor as hexadecimal value from previous result",
+											List.of("0x401000", "401000"),
+											null)))
+							.build();
+					throw new GhidraMcpException(error);
 				}
 			}
 			final Address finalCursorAddr = cursorAddr;

@@ -15,28 +15,13 @@ import ghidra.program.model.symbol.SourceType;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SymbolInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("address")
 	private final String address;
-
-	@JsonProperty("symbol_type")
 	private final String symbolType;
-
-	@JsonProperty("source_type")
 	private final String sourceType;
-
-	@JsonProperty("namespace")
 	private final String namespace;
-
-	@JsonProperty("is_primary")
 	private final boolean isPrimary;
-
-	@JsonProperty("is_global")
 	private final boolean isGlobal;
-
-	@JsonProperty("is_external")
 	private final boolean isExternal;
 
 	public SymbolInfo(Symbol symbol) {
@@ -59,35 +44,42 @@ public class SymbolInfo {
 		this.isExternal = symbol.isExternal();
 	}
 
-	// Getters
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("address")
 	public String getAddress() {
 		return address;
 	}
 
+	@JsonProperty("symbol_type")
 	public String getSymbolType() {
 		return symbolType;
 	}
 
+	@JsonProperty("source_type")
 	public String getSourceType() {
 		return sourceType;
 	}
 
+	@JsonProperty("namespace")
 	public String getNamespace() {
 		return namespace;
 	}
 
+	@JsonProperty("is_primary")
 	public boolean isPrimary() {
 		return isPrimary;
 	}
 
+	@JsonProperty("is_global")
 	public boolean isGlobal() {
 		return isGlobal;
 	}
 
+	@JsonProperty("is_external")
 	public boolean isExternal() {
 		return isExternal;
 	}

@@ -6,6 +6,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -91,6 +93,15 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 			List<EnumEntryUpdateDefinition> entryUpdateDefs) {
 	}
 
+	/**
+	 * Get available entry names for error suggestions
+	 */
+	private List<String> getAvailableEntryNames(Enum targetEnum) {
+		return java.util.Arrays.stream(targetEnum.getNames())
+				.limit(20) // Limit suggestions
+				.collect(Collectors.toList());
+	}
+
 	private boolean processSingleEnumEntryUpdate(Enum targetEnum, EnumEntryUpdateDefinition updateDef,
 			String enumPathStringForError) {
 		// Identify the entry
@@ -101,22 +112,72 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 		if (updateDef.name().isPresent()) {
 			currentName = updateDef.name().get();
 			if (!targetEnum.contains(currentName)) {
-				throw new IllegalArgumentException(
-						"Entry with name '" + currentName + "' not found in enum '" + enumPathStringForError + "'.");
+				List<String> availableNames = getAvailableEntryNames(targetEnum);
+				GhidraMcpError error = GhidraMcpError.resourceNotFound()
+						.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+						.message("Entry with name '" + currentName + "' not found in enum '" + enumPathStringForError + "'")
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"enum entry lookup by name",
+								Map.of(ARG_NAME, currentName, ARG_ENUM_PATH, enumPathStringForError),
+								Map.of("entryName", currentName, "enumPath", enumPathStringForError),
+								Map.of("entryExists", false, "availableEntries", availableNames)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use an existing entry name",
+										"Choose from the available entry names",
+										availableNames.stream().map(name -> "\"" + name + "\"").collect(Collectors.toList()),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 			currentValue = targetEnum.getValue(currentName);
 			currentComment = targetEnum.getComment(currentName);
 			if (updateDef.value().isPresent() && updateDef.value().get() != currentValue) {
-				throw new IllegalArgumentException(
-						"Provided value " + updateDef.value().get() + " for entry '" + currentName
-								+ "' does not match actual value " + currentValue + ".");
+				GhidraMcpError error = GhidraMcpError.validation()
+						.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+						.message("Provided value " + updateDef.value().get() + " for entry '" + currentName
+								+ "' does not match actual value " + currentValue)
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"entry value validation",
+								Map.of(ARG_NAME, currentName, ARG_VALUE, updateDef.value().get()),
+								Map.of("entryName", currentName, "providedValue", updateDef.value().get(), "actualValue", currentValue),
+								Map.of("valuesMatch", false)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use the correct value",
+										"Update the value to match the entry's actual value",
+										List.of("\"" + ARG_VALUE + "\": " + currentValue),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 		} else if (updateDef.value().isPresent()) {
 			currentValue = updateDef.value().get();
 			currentName = targetEnum.getName(currentValue);
 			if (currentName == null) {
-				throw new IllegalArgumentException(
-						"Entry with value " + currentValue + " not found in enum '" + enumPathStringForError + "'.");
+				List<String> availableNames = getAvailableEntryNames(targetEnum);
+				GhidraMcpError error = GhidraMcpError.resourceNotFound()
+						.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+						.message("Entry with value " + currentValue + " not found in enum '" + enumPathStringForError + "'")
+						.context(new GhidraMcpError.ErrorContext(
+								getMcpName(),
+								"enum entry lookup by value",
+								Map.of(ARG_VALUE, currentValue, ARG_ENUM_PATH, enumPathStringForError),
+								Map.of("entryValue", currentValue, "enumPath", enumPathStringForError),
+								Map.of("entryExists", false, "availableEntries", availableNames)))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use an existing entry",
+										"Choose from the available entry names and their values",
+										availableNames,
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
 			}
 			currentComment = targetEnum.getComment(currentName);
 		} else {
@@ -157,11 +218,47 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 				.map(program -> { // .map for synchronous setup
 					String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
 					List<Map<String, Object>> rawEntryUpdates = getOptionalListArgument(args, ARG_ENTRY_UPDATES)
-							.orElseThrow(
-									() -> new IllegalArgumentException("Missing required argument: '" + ARG_ENTRY_UPDATES + "'"));
+							.orElseThrow(() -> {
+								GhidraMcpError error = GhidraMcpError.validation()
+										.errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+										.message("Missing required argument: '" + ARG_ENTRY_UPDATES + "'")
+										.context(new GhidraMcpError.ErrorContext(
+												getMcpName(),
+												"entry updates validation",
+												args,
+												Map.of("entryUpdatesProvided", false),
+												Map.of("requiredArgument", ARG_ENTRY_UPDATES)))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+														"Provide entry updates",
+														"Include at least one entry update in the array",
+														List.of("\"" + ARG_ENTRY_UPDATES + "\": [{ \"name\": \"ENTRY_NAME\", \"newValue\": 123 }]"),
+														null)))
+										.build();
+								return new GhidraMcpException(error);
+							});
 
 					if (rawEntryUpdates.isEmpty()) {
-						throw new IllegalArgumentException("Argument '" + ARG_ENTRY_UPDATES + "' cannot be empty.");
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Argument '" + ARG_ENTRY_UPDATES + "' cannot be empty")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"entry updates validation",
+										Map.of(ARG_ENTRY_UPDATES, rawEntryUpdates),
+										Map.of("entryUpdatesSize", 0),
+										Map.of("isEmpty", true, "minimumRequired", 1)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Provide at least one entry update",
+												"Include at least one entry update definition in the array",
+												List.of("{ \"name\": \"ENTRY_NAME\", \"newValue\": 123 }",
+														"{ \"value\": 456, \"newName\": \"NEW_NAME\" }"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					List<EnumEntryUpdateDefinition> entryUpdateDefs = rawEntryUpdates.stream()
@@ -175,10 +272,44 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 
 					DataType dt = program.getDataTypeManager().getDataType(enumPathString);
 					if (dt == null) {
-						throw new IllegalArgumentException("Enum not found at path: " + enumPathString);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Enum not found at path: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"enum lookup",
+										Map.of(ARG_ENUM_PATH, enumPathString),
+										Map.of("enumPath", enumPathString),
+										Map.of("enumExists", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"List available data types",
+												"Check what enums exist",
+												null,
+												List.of(getMcpName(GhidraListDataTypesTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					if (!(dt instanceof Enum)) {
-						throw new IllegalArgumentException("Data type at path is not an Enum: " + enumPathString);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Data type at path is not an Enum: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"data type validation",
+										Map.of(ARG_ENUM_PATH, enumPathString),
+										Map.of("enumPath", enumPathString, "actualDataType", dt.getDisplayName()),
+										Map.of("isEnum", false, "actualTypeName", dt.getClass().getSimpleName())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use an enum data type",
+												"Ensure the path points to an enum, not " + dt.getClass().getSimpleName(),
+												null,
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 					Enum targetEnum = (Enum) dt;
 
@@ -186,13 +317,47 @@ public class GhidraUpdateEnumEntryTool implements IGhidraMcpSpecification {
 					// helper)
 					for (EnumEntryUpdateDefinition updateDef : entryUpdateDefs) {
 						if (updateDef.name().isEmpty() && updateDef.value().isEmpty()) {
-							throw new IllegalArgumentException(
-									"Missing identifier for an entry. Must provide either '" + ARG_NAME + "' or '" + ARG_VALUE + "'.");
+							GhidraMcpError error = GhidraMcpError.validation()
+									.errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+									.message(
+											"Missing identifier for an entry. Must provide either '" + ARG_NAME + "' or '" + ARG_VALUE + "'")
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"entry identifier validation",
+											Map.of("entryDefinition", updateDef),
+											Map.of("nameProvided", false, "valueProvided", false),
+											Map.of("identifiersProvided", 0, "minimumRequired", 1)))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+													"Provide an identifier",
+													"Include either name or value to identify the entry",
+													List.of("\"" + ARG_NAME + "\": \"ENTRY_NAME\"", "\"" + ARG_VALUE + "\": 123"),
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 						if (updateDef.newName().isEmpty() && updateDef.newValue().isEmpty() && updateDef.newComment().isEmpty()) {
-							throw new IllegalArgumentException(
-									"No updates specified for an entry. Provide at least '" + ARG_NEW_NAME + "', '" + ARG_NEW_VALUE
-											+ "', or '" + ARG_NEW_COMMENT + "'.");
+							GhidraMcpError error = GhidraMcpError.validation()
+									.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+									.message("No updates specified for an entry. Provide at least '" + ARG_NEW_NAME + "', '"
+											+ ARG_NEW_VALUE + "', or '" + ARG_NEW_COMMENT + "'")
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"entry update validation",
+											Map.of("entryDefinition", updateDef),
+											Map.of("newNameProvided", false, "newValueProvided", false, "newCommentProvided", false),
+											Map.of("updateFieldsProvided", 0, "minimumRequired", 1)))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+													"Provide at least one update",
+													"Include at least one field to update",
+													List.of("\"" + ARG_NEW_NAME + "\": \"NEW_NAME\"", "\"" + ARG_NEW_VALUE + "\": 456",
+															"\"" + ARG_NEW_COMMENT + "\": \"New comment\""),
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 					}
 					// --- End of Basic Pre-transaction Input Validation ---

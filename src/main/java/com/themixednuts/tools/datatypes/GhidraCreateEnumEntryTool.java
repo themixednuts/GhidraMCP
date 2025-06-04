@@ -6,6 +6,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -88,10 +90,50 @@ public class GhidraCreateEnumEntryTool implements IGhidraMcpSpecification {
 				.map(program -> {
 					String enumPathString = getRequiredStringArgument(args, ARG_ENUM_PATH);
 					List<Map<String, Object>> rawEntryDefs = getOptionalListArgument(args, ARG_ENTRIES)
-							.orElseThrow(() -> new IllegalArgumentException("Missing required argument: '" + ARG_ENTRIES + "'"));
+							.orElse(null);
+
+					if (rawEntryDefs == null) {
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+								.message("Missing required argument: '" + ARG_ENTRIES + "'")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"argument validation",
+										args,
+										Map.of(),
+										Map.of("requiredArgument", ARG_ENTRIES, "provided", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Provide enum entries",
+												"Include the entries array with at least one entry definition",
+												List.of("\"" + ARG_ENTRIES + "\": [{\"" + ARG_NAME + "\": \"ENTRY_NAME\", \"" + ARG_VALUE
+														+ "\": 1}]"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 
 					if (rawEntryDefs.isEmpty()) {
-						throw new IllegalArgumentException("Argument '" + ARG_ENTRIES + "' cannot be empty.");
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Argument '" + ARG_ENTRIES + "' cannot be empty")
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"argument validation",
+										args,
+										Map.of(ARG_ENTRIES, rawEntryDefs),
+										Map.of("arraySize", 0, "minimumRequired", 1)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Add enum entry definitions",
+												"Provide at least one enum entry in the array",
+												List.of("\"" + ARG_ENTRIES + "\": [{\"" + ARG_NAME + "\": \"ENTRY_NAME\", \"" + ARG_VALUE
+														+ "\": 1}]"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					List<EnumEntryDefinition> entryDefs = rawEntryDefs.stream()
@@ -104,16 +146,84 @@ public class GhidraCreateEnumEntryTool implements IGhidraMcpSpecification {
 					DataType dt = program.getDataTypeManager().getDataType(enumPathString);
 
 					if (dt == null) {
-						throw new IllegalArgumentException("Enum not found at path: " + enumPathString);
+						GhidraMcpError error = GhidraMcpError.resourceNotFound()
+								.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+								.message("Enum not found at path: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"enum lookup",
+										args,
+										Map.of(ARG_ENUM_PATH, enumPathString),
+										Map.of("searchedPath", enumPathString, "dataTypeExists", false)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify the enum path",
+												"Check if the enum exists at the specified path",
+												null,
+												List.of(getMcpName(GhidraListDataTypesTool.class),
+														getMcpName(GhidraGetDataTypeTool.class))),
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Check the path format",
+												"Ensure the path follows the correct format",
+												List.of("/MyCategory/MyEnum", "/BuiltInTypes/SomeEnum"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
+
 					if (!(dt instanceof Enum)) {
-						throw new IllegalArgumentException("Data type at path is not an Enum: " + enumPathString);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+								.message("Data type at path is not an Enum: " + enumPathString)
+								.context(new GhidraMcpError.ErrorContext(
+										getMcpName(),
+										"data type validation",
+										args,
+										Map.of(ARG_ENUM_PATH, enumPathString, "actualDataType", dt.getClass().getSimpleName()),
+										Map.of("expectedType", "Enum", "actualType", dt.getClass().getSimpleName(), "dataTypeName",
+												dt.getName())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.USE_DIFFERENT_TOOL,
+												"Use the appropriate tool for this data type",
+												"This data type requires a different creation operation",
+												null,
+												List.of(getMcpName(GhidraCreateStructMemberTool.class),
+														getMcpName(GhidraCreateUnionMemberTool.class))),
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+												"Verify the data type details",
+												"Check the actual type of the data type at this path",
+												null,
+												List.of(getMcpName(GhidraGetDataTypeTool.class)))))
+								.build();
+						throw new GhidraMcpException(error);
 					}
+
 					Enum targetEnum = (Enum) dt;
 
 					for (EnumEntryDefinition def : entryDefs) {
 						if (def.name().isBlank()) {
-							throw new IllegalArgumentException("Enum entry name cannot be blank.");
+							GhidraMcpError error = GhidraMcpError.validation()
+									.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+									.message("Enum entry name cannot be blank")
+									.context(new GhidraMcpError.ErrorContext(
+											getMcpName(),
+											"entry name validation",
+											args,
+											Map.of(ARG_NAME, def.name(), ARG_VALUE, def.value()),
+											Map.of("entryName", def.name(), "nameIsBlank", true)))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+													"Provide a valid entry name",
+													"Entry names must contain at least one non-whitespace character",
+													List.of("\"" + ARG_NAME + "\": \"VALID_ENTRY_NAME\"", "\"" + ARG_NAME + "\": \"OPTION_A\""),
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 					}
 
@@ -131,8 +241,8 @@ public class GhidraCreateEnumEntryTool implements IGhidraMcpSpecification {
 								localEntriesAddedCount++;
 							}
 							return localEntriesAddedCount;
-						} catch (IllegalArgumentException e) {
-							throw new IllegalArgumentException("Error processing an enum entry: " + e.getMessage(), e);
+						} catch (GhidraMcpException e) {
+							throw e; // Re-throw structured errors as-is
 						} catch (Exception e) {
 							throw new RuntimeException("Unexpected error processing an enum entry: " + e.getMessage(), e);
 						}

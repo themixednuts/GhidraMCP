@@ -12,6 +12,7 @@ import ghidra.program.model.pcode.Varnode;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Represents detailed information about a variable (parameter, local, or
@@ -138,42 +139,52 @@ public class FunctionVariableInfo {
 	}
 
 	// Standard Getters
+	@JsonProperty("listing_name")
 	public String getListingName() {
 		return listingName;
 	}
 
+	@JsonProperty("decompiler_name")
 	public String getDecompilerName() {
 		return decompilerName;
 	}
 
+	@JsonProperty("variable_category")
 	public VariableCategory getVariableCategory() {
 		return variableCategory;
 	}
 
+	@JsonProperty("data_type")
 	public String getDataType() {
 		return dataType;
 	}
 
+	@JsonProperty("storage")
 	public String getStorage() {
 		return storage;
 	}
 
+	@JsonProperty("source_type")
 	public String getSourceType() {
 		return sourceType;
 	}
 
+	@JsonProperty("is_parameter")
 	public boolean isParameter() {
 		return isParameter;
 	}
 
+	@JsonProperty("comment")
 	public String getComment() {
 		return comment;
 	}
 
+	@JsonProperty("address")
 	public String getAddress() {
 		return address;
 	}
 
+	@JsonProperty("symbol_id")
 	public Long getSymbolID() {
 		return symbolID;
 	}

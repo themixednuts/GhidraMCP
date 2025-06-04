@@ -1,9 +1,12 @@
 package com.themixednuts.tools.projectmanagement;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -17,7 +20,7 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark with a specified type, category, and comment at a given address.", mcpName = "create_bookmark", mcpDescription = "Adds a bookmark at the specified address.")
+@GhidraMcpTool(name = "Create Bookmark", category = ToolCategory.PROJECT_MANAGEMENT, description = "Adds a bookmark with a specified type, category, and comment at a given address.", mcpName = "create_bookmark", mcpDescription = "Create a bookmark at a specific address in a Ghidra program. Bookmarks help organize and annotate important locations during analysis.")
 public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 
 	// Define specific argument names for clarity
@@ -62,10 +65,54 @@ public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 					try {
 						addr = program.getAddressFactory().getAddress(addressStr);
 						if (addr == null) {
-							throw new IllegalArgumentException("Invalid address format: " + addressStr);
+							throw new GhidraMcpException(
+									GhidraMcpError.execution()
+											.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+											.message("Invalid address format: " + addressStr)
+											.context(new GhidraMcpError.ErrorContext(
+													"parse_address",
+													getMcpName(),
+													Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME),
+															"address", addressStr,
+															"bookmarkType", bookmarkType,
+															"bookmarkCategory", bookmarkCategory),
+													Map.of("input_address", addressStr),
+													Map.of("validation_failed", "Address could not be parsed by Ghidra's AddressFactory")))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+															"Use a valid address format for the current program",
+															"Check address format and program's memory layout",
+															List.of("0x401000", "0x00401000", "401000", "ram:00401000"),
+															null)))
+											.build());
 						}
 					} catch (Exception e) {
-						throw new IllegalArgumentException("Invalid address format: " + addressStr, e);
+						if (e instanceof GhidraMcpException) {
+							throw e;
+						}
+						throw new GhidraMcpException(
+								GhidraMcpError.execution()
+										.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+										.message("Failed to parse address: " + addressStr + " - " + e.getMessage())
+										.context(new GhidraMcpError.ErrorContext(
+												"parse_address",
+												getMcpName(),
+												Map.of("fileName", getRequiredStringArgument(args, ARG_FILE_NAME),
+														"address", addressStr,
+														"bookmarkType", bookmarkType,
+														"bookmarkCategory", bookmarkCategory),
+												Map.of("input_address", addressStr),
+												Map.of("exception_type", e.getClass().getSimpleName(),
+														"exception_message", e.getMessage())))
+										.suggestions(List.of(
+												new GhidraMcpError.ErrorSuggestion(
+														GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+														"Verify address format matches program's address space",
+														"Use valid hexadecimal address format",
+														List.of("0x401000", "0x00401000", "401000"),
+														null)))
+										.build());
 					}
 
 					Map<String, Object> contextMap = new HashMap<>();
@@ -85,9 +132,35 @@ public class GhidraCreateBookmarkTool implements IGhidraMcpSpecification {
 					String comment = (String) context.get("comment");
 
 					return executeInTransaction(program, "MCP - Add Bookmark at " + addr.toString(), () -> {
-						BookmarkManager bookmarkManager = program.getBookmarkManager();
-						bookmarkManager.setBookmark(addr, type, category, comment);
-						return "Bookmark added successfully at " + addr.toString();
+						try {
+							BookmarkManager bookmarkManager = program.getBookmarkManager();
+							bookmarkManager.setBookmark(addr, type, category, comment);
+							return "Bookmark added successfully at " + addr.toString();
+						} catch (Exception e) {
+							throw new GhidraMcpException(
+									GhidraMcpError.execution()
+											.errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+											.message("Failed to create bookmark: " + e.getMessage())
+											.context(new GhidraMcpError.ErrorContext(
+													"create_bookmark",
+													getMcpName(),
+													Map.of("fileName", program.getName(),
+															"address", addr.toString(),
+															"bookmarkType", type,
+															"bookmarkCategory", category,
+															"comment", comment),
+													Map.of("operation", "set_bookmark"),
+													Map.of("exception_type", e.getClass().getSimpleName(),
+															"exception_message", e.getMessage())))
+											.suggestions(List.of(
+													new GhidraMcpError.ErrorSuggestion(
+															GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+															"Verify bookmark parameters are valid",
+															"Check bookmark type and category formats",
+															List.of("Type: 'Note', 'Analysis', 'Error'", "Category: 'Default', 'Analysis'"),
+															null)))
+											.build());
+						}
 					});
 				});
 	}

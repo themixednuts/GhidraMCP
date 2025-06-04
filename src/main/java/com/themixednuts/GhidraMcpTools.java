@@ -19,6 +19,8 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.tools.grouped.IGroupedTool;
 
+import generic.stl.Pair;
+
 /**
  * Service implementation responsible for discovering, filtering (based on
  * Ghidra
@@ -57,7 +59,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	 *                                 issues).
 	 */
 	@Override
-	public List<AsyncToolSpecification> getAvailableToolSpecifications() throws JsonProcessingException {
+	public List<Pair<String, AsyncToolSpecification>> getAvailableToolSpecifications() throws JsonProcessingException {
 		// 1. Load all tool providers
 		List<ServiceLoader.Provider<IGhidraMcpSpecification>> allProviders = ServiceLoader
 				.load(IGhidraMcpSpecification.class).stream().collect(Collectors.toList());
@@ -143,13 +145,12 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 		// 5. Map the final providers to their specifications
 		return finalProviders.stream()
 				.map(provider -> {
-					IGhidraMcpSpecification toolInstance = null;
 					try {
-						toolInstance = provider.get();
-						return toolInstance.specification(this.tool);
+						IGhidraMcpSpecification toolInstance = provider.get();
+						String toolName = toolInstance.getClass().getAnnotation(GhidraMcpTool.class).mcpName();
+						return new Pair<String, AsyncToolSpecification>(toolName, toolInstance.specification(this.tool));
 					} catch (Exception e) {
-						String className = (toolInstance != null) ? toolInstance.getClass().getSimpleName()
-								: provider.type().getSimpleName();
+						String className = provider.type().getSimpleName();
 						Msg.error(GhidraMcpTools.class,
 								"Error getting specification for tool: " + className, e);
 						return null;

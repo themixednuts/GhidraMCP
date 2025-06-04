@@ -10,34 +10,24 @@ import ghidra.program.model.symbol.Reference;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ReferenceInfo {
 
-	@JsonProperty("from_address")
 	private final String fromAddress;
 
-	@JsonProperty("to_address")
 	private final String toAddress;
 
-	@JsonProperty("type")
 	private final String type;
 
-	@JsonProperty("is_primary")
 	private final boolean primary;
 
-	@JsonProperty("is_memory_reference")
 	private final boolean memoryReference;
 
-	@JsonProperty("is_offset_reference")
 	private final boolean offsetReference;
 
-	@JsonProperty("is_shift_reference")
 	private final boolean shiftedReference;
 
-	@JsonProperty("is_register_reference")
 	private final boolean registerReference;
 
-	@JsonProperty("is_stack_reference")
 	private final boolean stackReference;
 
-	@JsonProperty("is_external_reference")
 	private final boolean externalReference;
 
 	public ReferenceInfo(Reference reference) {
@@ -53,44 +43,52 @@ public class ReferenceInfo {
 		this.externalReference = reference.isExternalReference();
 	}
 
-	// --- Getters ---
-
+	@JsonProperty("from_address")
 	public String getFromAddress() {
 		return fromAddress;
 	}
 
+	@JsonProperty("to_address")
 	public String getToAddress() {
 		return toAddress;
 	}
 
+	@JsonProperty("type")
 	public String getType() {
 		return type;
 	}
 
+	@JsonProperty("is_primary")
 	public boolean isPrimary() {
 		return primary;
 	}
 
+	@JsonProperty("is_memory_reference")
 	public boolean isMemoryReference() {
 		return memoryReference;
 	}
 
+	@JsonProperty("is_offset_reference")
 	public boolean isOffsetReference() {
 		return offsetReference;
 	}
 
+	@JsonProperty("is_shift_reference")
 	public boolean isShiftedReference() {
 		return shiftedReference;
 	}
 
+	@JsonProperty("is_register_reference")
 	public boolean isRegisterReference() {
 		return registerReference;
 	}
 
+	@JsonProperty("is_stack_reference")
 	public boolean isStackReference() {
 		return stackReference;
 	}
 
+	@JsonProperty("is_external_reference")
 	public boolean isExternalReference() {
 		return externalReference;
 	}

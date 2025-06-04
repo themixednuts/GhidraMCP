@@ -1,14 +1,19 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+
+import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.CategoryPath;
@@ -19,7 +24,7 @@ import ghidra.program.model.data.TypedefDataType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Typedef", mcpName = "create_typedef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpDescription = "Creates a new typedef data type pointing to a base data type.")
+@GhidraMcpTool(name = "Create Typedef", mcpName = "create_typedef", category = ToolCategory.DATATYPES, description = "Creates a new typedef data type.", mcpDescription = "Create a new typedef data type in a Ghidra program. Typedefs create aliases for existing data types with optional pointer and array notation.")
 public class GhidraCreateTypedefTool implements IGhidraMcpSpecification {
 
 	protected static final String ARG_BASE_TYPE_PATH = "baseTypePath"; // Already in IGhidraMcpSpecification, but specific
@@ -37,7 +42,9 @@ public class GhidraCreateTypedefTool implements IGhidraMcpSpecification {
 				.description(
 						"Optional category path for the new typedef (e.g., /MyCategory). If omitted, uses default/root path."));
 		schemaRoot.property(ARG_BASE_TYPE_PATH, JsonSchemaBuilder.string(mapper)
-				.description("Path to a base data type (e.g., 'dword', '/MyCategory/MyStruct')."), true);
+				.description(
+						"Path to a base data type (e.g., 'dword', '/MyCategory/MyStruct', 'int[5]', 'char *'). Array and pointer notations are supported."),
+				true);
 		schemaRoot.property(ARG_COMMENT, JsonSchemaBuilder.string(mapper)
 				.description("Optional comment for the new typedef."));
 
@@ -69,14 +76,63 @@ public class GhidraCreateTypedefTool implements IGhidraMcpSpecification {
 
 	private String createTypedefInternal(DataTypeManager dtm, String typedefName, CategoryPath categoryPath,
 			Optional<String> commentOpt, String baseTypePath) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
 		DataType baseDt = dtm.getDataType(baseTypePath);
 		if (baseDt == null) {
-			throw new IllegalArgumentException("Base data type not found for TYPEDEF: " + baseTypePath);
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+					.message("Base data type not found for TYPEDEF: " + baseTypePath)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"typedef creation",
+							Map.of(ARG_BASE_TYPE_PATH, baseTypePath),
+							Map.of("baseTypePath", baseTypePath),
+							Map.of("baseDataTypeExists", false)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Check base data type path",
+									"Verify the base data type exists",
+									List.of("'dword'", "'/MyCategory/MyStruct'", "'int[5]'"),
+									null),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List available data types",
+									"See what data types are available",
+									null,
+									List.of(getMcpName(GhidraListDataTypesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
+
 		if (dtm.getDataType(categoryPath, typedefName) != null) {
-			throw new IllegalArgumentException("Data type already exists: " + categoryPath.getPath()
-					+ CategoryPath.DELIMITER_CHAR + typedefName);
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+					.message("Data type already exists: " + categoryPath.getPath() + CategoryPath.DELIMITER_CHAR + typedefName)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"typedef creation",
+							Map.of(ARG_NAME, typedefName, ARG_PATH, categoryPath.getPath()),
+							Map.of("proposedTypedefPath", categoryPath.getPath() + CategoryPath.DELIMITER_CHAR + typedefName),
+							Map.of("dataTypeExists", true, "categoryPath", categoryPath.getPath(), "typedefName", typedefName)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Choose a different typedef name",
+									"Use a unique name for the typedef",
+									null,
+									null),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"Check existing data types",
+									"List existing data types to avoid conflicts",
+									null,
+									List.of(getMcpName(GhidraListDataTypesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
+
 		TypedefDataType newTypedef = new TypedefDataType(categoryPath, typedefName, baseDt, dtm);
 		DataType newDt = dtm.addDataType(newTypedef, DataTypeConflictHandler.REPLACE_HANDLER);
 		if (newDt == null) {

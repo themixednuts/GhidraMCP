@@ -1,9 +1,12 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -19,7 +22,9 @@ import ghidra.program.model.data.EnumDataType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Enum", mcpName = "create_enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpDescription = "Creates a new enum data type.")
+import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
+
+@GhidraMcpTool(name = "Create Enum", mcpName = "create_enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpDescription = "Create a new enumeration data type in a Ghidra program with configurable storage size. Supports 1, 2, 4, or 8 byte storage.")
 public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -65,13 +70,55 @@ public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
 	private String createEnumInternal(DataTypeManager dtm, String enumName, CategoryPath categoryPath,
 			Optional<String> commentOpt, Optional<Integer> sizeOpt) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
 		if (dtm.getDataType(categoryPath, enumName) != null) {
-			throw new IllegalArgumentException("Data type already exists: " + categoryPath.getPath()
-					+ CategoryPath.DELIMITER_CHAR + enumName);
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+					.message("Data type already exists: " + categoryPath.getPath() + CategoryPath.DELIMITER_CHAR + enumName)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"enum creation",
+							Map.of(ARG_NAME, enumName, ARG_PATH, categoryPath.getPath()),
+							Map.of("fullPath", categoryPath.getPath() + CategoryPath.DELIMITER_CHAR + enumName),
+							Map.of("dataTypeExists", true, "proposedName", enumName)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use a different enum name",
+									"Choose a unique name for the enum",
+									null,
+									null),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List existing data types",
+									"Check what data types already exist",
+									null,
+									List.of(getMcpName(GhidraListDataTypesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
+
 		int enumSize = sizeOpt.orElse(1); // Default to 1 byte if not specified
 		if (enumSize != 1 && enumSize != 2 && enumSize != 4 && enumSize != 8) {
-			throw new IllegalArgumentException("Invalid ARG_SIZE for ENUM: Must be 1, 2, 4, or 8. Got: " + enumSize);
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+					.message("Invalid size for enum: Must be 1, 2, 4, or 8. Got: " + enumSize)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"size validation",
+							Map.of(ARG_SIZE, enumSize),
+							Map.of("providedSize", enumSize),
+							Map.of("validSizes", List.of(1, 2, 4, 8), "receivedSize", enumSize)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use a valid enum size",
+									"Provide one of the valid size values",
+									List.of("1", "2", "4", "8"),
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 		EnumDataType newEnum = new EnumDataType(categoryPath, enumName, enumSize, dtm);
 		DataType newDt = dtm.addDataType(newEnum, DataTypeConflictHandler.REPLACE_HANDLER);

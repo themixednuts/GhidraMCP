@@ -7,19 +7,12 @@ import ghidra.program.model.symbol.Namespace;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionInfo {
-	@JsonProperty("name")
 	private final String name;
-	@JsonProperty("address")
 	private final String address;
-	@JsonProperty("signature")
 	private final String signature;
-	@JsonProperty("calling_convention")
 	private final String callingConvention;
-	@JsonProperty("namespace")
 	private final String namespace;
-	@JsonProperty("body_min_address")
 	private final String bodyMinAddress;
-	@JsonProperty("body_max_address")
 	private final String bodyMaxAddress;
 
 	public FunctionInfo(Function function) {
@@ -56,33 +49,39 @@ public class FunctionInfo {
 			this.bodyMinAddress = null;
 			this.bodyMaxAddress = null;
 		}
-
 	}
 
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("address")
 	public String getAddress() {
 		return address;
 	}
 
+	@JsonProperty("signature")
 	public String getSignature() {
 		return signature;
 	}
 
+	@JsonProperty("calling_convention")
 	public String getCallingConvention() {
 		return callingConvention;
 	}
 
+	@JsonProperty("namespace")
 	public String getNamespace() {
 		return namespace;
 	}
 
+	@JsonProperty("body_min_address")
 	public String getBodyMinAddress() {
 		return bodyMinAddress;
 	}
 
+	@JsonProperty("body_max_address")
 	public String getBodyMaxAddress() {
 		return bodyMaxAddress;
 	}

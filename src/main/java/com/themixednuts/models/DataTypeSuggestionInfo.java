@@ -1,21 +1,19 @@
 package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import ghidra.program.model.data.DataType;
 
 /**
  * POJO representing basic information about a suggested DataType.
  * Used when a requested data type is not found.
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataTypeSuggestionInfo {
 
-	@JsonProperty("name")
 	private final String name;
-	@JsonProperty("path")
 	private final String path;
-	@JsonProperty("category")
 	private final String category;
-	@JsonProperty("length")
 	private final int length;
 
 	public DataTypeSuggestionInfo(DataType dataType) {
@@ -26,19 +24,22 @@ public class DataTypeSuggestionInfo {
 		// Add other relevant fields if needed
 	}
 
-	// Getters (optional, but good practice if needed elsewhere)
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("path")
 	public String getPath() {
 		return path;
 	}
 
+	@JsonProperty("category")
 	public String getCategory() {
 		return category;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}

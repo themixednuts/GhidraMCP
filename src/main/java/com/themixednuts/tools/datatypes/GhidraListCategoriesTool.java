@@ -7,7 +7,9 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.CategoryInfo;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -22,7 +24,7 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Categories", category = ToolCategory.DATATYPES, description = "Lists data type categories within a program, with optional filtering.", mcpName = "list_categories", mcpDescription = "Lists data type categories, optionally filtering by path and name fragment.")
+@GhidraMcpTool(name = "List Categories", category = ToolCategory.DATATYPES, description = "Lists data type categories within a program, with optional filtering.", mcpName = "list_categories", mcpDescription = "List data type categories from a Ghidra program with optional path and name filtering. Returns hierarchical category structure.")
 public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 
 	protected static final String ARG_RECURSIVE = "recursive";
@@ -61,6 +63,25 @@ public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 				});
 	}
 
+	/**
+	 * Gets available category paths for error suggestions.
+	 */
+	private List<String> getAvailableCategoryPaths(DataTypeManager dtm) {
+		List<String> paths = new ArrayList<>();
+		collectCategoryPaths(dtm.getRootCategory(), paths);
+		return paths.stream()
+				.sorted()
+				.limit(50) // Prevent overwhelming error messages
+				.collect(Collectors.toList());
+	}
+
+	private void collectCategoryPaths(Category category, List<String> paths) {
+		for (Category child : category.getCategories()) {
+			paths.add(child.getCategoryPath().getPath());
+			collectCategoryPaths(child, paths); // Recursive for nested categories
+		}
+	}
+
 	private List<CategoryInfo> listCategoriesInternal(Program program, Optional<String> pathOpt,
 			Optional<String> filterOpt) {
 		DataTypeManager dtm = program.getDataTypeManager();
@@ -68,7 +89,33 @@ public class GhidraListCategoriesTool implements IGhidraMcpSpecification {
 		Category startCategory = dtm.getCategory(categoryPath);
 
 		if (startCategory == null) {
-			throw new IllegalArgumentException("Specified category path not found: " + pathOpt.orElse("/"));
+			List<String> availablePaths = getAvailableCategoryPaths(dtm);
+
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.CATEGORY_NOT_FOUND)
+					.message("Category path not found: " + pathOpt.orElse("/"))
+					.context(new GhidraMcpError.ErrorContext(
+							getMcpName(),
+							"category lookup",
+							Map.of(ARG_PATH, pathOpt.orElse("/")),
+							Map.of("requestedPath", pathOpt.orElse("/"), "pathExists", false),
+							Map.of("totalCategories", availablePaths.size(), "searchedPath", pathOpt.orElse("/"))))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List all categories",
+									"Get all available category paths",
+									null,
+									List.of(getMcpName(GhidraListCategoriesTool.class))),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use an existing category path",
+									"Select from available categories",
+									availablePaths.isEmpty() ? List.of("/")
+											: availablePaths.subList(0, Math.min(10, availablePaths.size())),
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		List<CategoryInfo> categories = new ArrayList<>();

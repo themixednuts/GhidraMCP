@@ -1,8 +1,11 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -18,7 +21,7 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import ghidra.program.model.data.ArchiveType;
 
-@GhidraMcpTool(name = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Removes a user-defined data type (struct, enum, etc.).")
+@GhidraMcpTool(name = "Delete Data Type", category = ToolCategory.DATATYPES, description = "Deletes an existing data type.", mcpName = "delete_data_type", mcpDescription = "Delete a user-defined data type from a Ghidra program. Cannot delete built-in or external archive data types.")
 public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -58,9 +61,28 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 	}
 
 	private String deleteDataTypeAtPath(DataTypeManager dtm, String pathString, GhidraMcpTaskMonitor monitor) {
+		GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
 		DataType dt = dtm.getDataType(pathString);
 		if (dt == null) {
-			throw new IllegalArgumentException("Data type not found at path: " + pathString);
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+					.message("Data type not found at path: " + pathString)
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"data type lookup",
+							Map.of(ARG_PATH, pathString),
+							Map.of("dataTypePath", pathString),
+							Map.of("dataTypeExists", false)))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List available data types",
+									"Check what data types exist",
+									null,
+									List.of(getMcpName(GhidraListDataTypesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		// Check if it's deletable (not built-in, etc.)
@@ -68,9 +90,26 @@ public class GhidraDeleteDataTypeTool implements IGhidraMcpSpecification {
 		SourceArchive programArchive = dtm.getLocalSourceArchive();
 		if (sourceArchive != null && !sourceArchive.equals(programArchive)
 				&& sourceArchive.getArchiveType() != ArchiveType.PROJECT) {
-			throw new IllegalArgumentException(
-					"Cannot delete built-in or external archive data type: " + pathString + " from archive "
-							+ sourceArchive.getName());
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+					.message("Cannot delete built-in or external archive data type: " + pathString + " from archive "
+							+ sourceArchive.getName())
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"data type deletion validation",
+							Map.of(ARG_PATH, pathString),
+							Map.of("dataTypePath", pathString, "sourceArchive", sourceArchive.getName()),
+							Map.of("isBuiltIn", true, "isDeletable", false, "archiveType",
+									sourceArchive.getArchiveType().toString())))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Only delete user-defined data types",
+									"Built-in and external archive data types cannot be deleted",
+									null,
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		boolean removed = dtm.remove(dt, monitor);

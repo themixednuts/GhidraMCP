@@ -2,7 +2,6 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
 // Import specific types for instanceof checks
 import ghidra.program.model.data.Structure;
@@ -19,14 +18,11 @@ import ghidra.program.model.data.FunctionDefinitionDataType;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataTypeInfo {
 
-	private final String name;
+	// Fields duplicated in BaseDataTypeDetails are removed:
+	// name, pathName, categoryPath, length, alignment, description
+
 	private final String displayName;
-	private final String pathName;
-	private final String categoryPath;
-	private final int length;
 	private final int alignedLength;
-	private final int alignment;
-	private final String description;
 	private final boolean isZeroLength;
 	private final boolean isStructure;
 	private final boolean isUnion;
@@ -37,20 +33,12 @@ public class DataTypeInfo {
 	private BaseDataTypeDetails details;
 
 	public DataTypeInfo(DataType dataType) {
-		this.name = dataType.getName();
+		// Initialize fields unique to DataTypeInfo
 		this.displayName = dataType.getDisplayName();
-		this.pathName = dataType.getPathName();
-
-		CategoryPath catPath = dataType.getCategoryPath();
-		this.categoryPath = (catPath != null) ? catPath.getPath() : null;
-
-		this.length = dataType.getLength();
 		this.alignedLength = dataType.getAlignedLength();
-		this.alignment = dataType.getAlignment();
-		this.description = dataType.getDescription();
 		this.isZeroLength = dataType.isZeroLength();
 
-		// Set type flags first
+		// Set type flags
 		this.isStructure = dataType instanceof Structure;
 		this.isUnion = dataType instanceof Union;
 		this.isEnum = dataType instanceof Enum;
@@ -58,7 +46,8 @@ public class DataTypeInfo {
 		this.isPointer = dataType instanceof Pointer;
 		this.isFunctionDefinition = dataType instanceof FunctionDefinitionDataType;
 
-		// Populate details based on the type
+		// Populate details based on the type - this now creates the object containing
+		// the previously duplicated fields.
 		if (this.isStructure) {
 			this.details = new StructureDetails((Structure) dataType);
 		} else if (this.isUnion) {
@@ -72,49 +61,19 @@ public class DataTypeInfo {
 		} else if (this.isPointer) {
 			this.details = new PointerDetails((Pointer) dataType);
 		} else {
-			// Fallback for built-in types, arrays, or other unspecifically handled types
 			this.details = new OtherDataTypeDetails(dataType);
 		}
 	}
 
-	@JsonProperty("name")
-	public String getName() {
-		return name;
-	}
-
+	// Getters for fields unique to DataTypeInfo
 	@JsonProperty("display_name")
 	public String getDisplayName() {
 		return displayName;
 	}
 
-	@JsonProperty("path_name")
-	public String getPathName() {
-		return pathName;
-	}
-
-	@JsonProperty("category_path")
-	public String getCategoryPath() {
-		return categoryPath;
-	}
-
-	@JsonProperty("length")
-	public int getLength() {
-		return length;
-	}
-
 	@JsonProperty("aligned_length")
 	public int getAlignedLength() {
 		return alignedLength;
-	}
-
-	@JsonProperty("alignment")
-	public int getAlignment() {
-		return alignment;
-	}
-
-	@JsonProperty("description")
-	public String getDescription() {
-		return description;
 	}
 
 	@JsonProperty("is_zero_length")
@@ -158,4 +117,7 @@ public class DataTypeInfo {
 	public BaseDataTypeDetails getDetails() {
 		return details;
 	}
+
+	// Removed getters for name, pathName, categoryPath, length, alignment,
+	// description
 }

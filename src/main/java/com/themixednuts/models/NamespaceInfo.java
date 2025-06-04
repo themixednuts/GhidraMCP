@@ -13,22 +13,11 @@ import ghidra.program.model.symbol.Namespace;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class NamespaceInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("full_name")
 	private final String fullName;
-
-	@JsonProperty("id")
 	private final long id;
-
-	@JsonProperty("body_min_address")
-	private final String bodyMinAddress; // If available
-
-	@JsonProperty("body_max_address")
-	private final String bodyMaxAddress; // If available
-
-	@JsonProperty("is_global")
+	private final String bodyMinAddress;
+	private final String bodyMaxAddress;
 	private final boolean isGlobal;
 
 	public NamespaceInfo(Namespace namespace) {
@@ -49,27 +38,32 @@ public class NamespaceInfo {
 		}
 	}
 
-	// Getters
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("full_name")
 	public String getFullName() {
 		return fullName;
 	}
 
+	@JsonProperty("id")
 	public long getId() {
 		return id;
 	}
 
+	@JsonProperty("body_min_address")
 	public String getBodyMinAddress() {
 		return bodyMinAddress;
 	}
 
+	@JsonProperty("body_max_address")
 	public String getBodyMaxAddress() {
 		return bodyMaxAddress;
 	}
 
+	@JsonProperty("is_global")
 	public boolean isGlobal() {
 		return isGlobal;
 	}

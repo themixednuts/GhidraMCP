@@ -16,10 +16,8 @@ import ghidra.program.model.data.Structure;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class StructureDetails extends BaseDataTypeDetails {
 
-	@JsonProperty("num_components")
 	private final int numComponents;
 
-	@JsonProperty("members")
 	private final List<StructureMemberInfo> members;
 
 	public StructureDetails(Structure struct) {
@@ -47,11 +45,12 @@ public class StructureDetails extends BaseDataTypeDetails {
 		this.members = memberInfos;
 	}
 
-	// Getters
+	@JsonProperty("num_components")
 	public int getNumComponents() {
 		return numComponents;
 	}
 
+	@JsonProperty("members")
 	public List<StructureMemberInfo> getMembers() {
 		return members;
 	}

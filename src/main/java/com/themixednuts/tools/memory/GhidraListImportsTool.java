@@ -26,7 +26,7 @@ import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "List Imports", category = ToolCategory.MEMORY, description = "Lists all imported libraries and functions.", mcpName = "list_imports", mcpDescription = "Retrieve a list of imported libraries and their associated functions.")
+@GhidraMcpTool(name = "List Imports", category = ToolCategory.MEMORY, description = "Lists all imported libraries and functions.", mcpName = "list_imports", mcpDescription = "Retrieve a paginated list of all external symbols imported by the program. Returns import details including library names, function names, and addresses. Results are sorted by address and name, with cursor-based pagination support.")
 public class GhidraListImportsTool implements IGhidraMcpSpecification {
 
 	@Override

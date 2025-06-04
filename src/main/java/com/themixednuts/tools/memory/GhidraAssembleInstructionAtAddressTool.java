@@ -1,8 +1,11 @@
 package com.themixednuts.tools.memory;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -20,7 +23,33 @@ import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuples;
 
-@GhidraMcpTool(name = "Assemble Instruction at Address", category = ToolCategory.MEMORY, description = "Assembles an instruction at a given address.", mcpName = "assemble_instruction_at_address", mcpDescription = "Assemble an instruction at a specific memory address.")
+@GhidraMcpTool(name = "Assemble Instruction at Address", category = ToolCategory.MEMORY, description = "Assembles an instruction at a given address.", mcpName = "assemble_instruction_at_address", mcpDescription = """
+		<use_case>Assemble and insert a new instruction at a specific memory address, replacing any existing instruction at that location.</use_case>
+
+		<important_notes>
+		• Modifies program memory and instruction listing permanently
+		• Replaces existing instructions - clears code units before assembly
+		• Uses architecture-specific assembler syntax and opcodes
+		• Assembly must be valid for the target processor architecture
+		• Changes affect disassembly flow and may break analysis
+		</important_notes>
+
+		<example>
+		{
+		  "fileName": "target.exe",
+		  "address": "0x401020",
+		  "instruction": "MOV EAX, EBX"
+		}
+		// Assembles x86 MOV instruction at specified address
+		</example>
+
+		<workflow>
+		1. Parse and validate target address
+		2. Clear any existing instruction at address
+		3. Assemble instruction using program's assembler
+		4. Insert new instruction into program listing
+		</workflow>
+		""")
 public class GhidraAssembleInstructionAtAddressTool implements IGhidraMcpSpecification {
 
 	public static final String ARG_INSTRUCTION = "instruction";
@@ -48,11 +77,29 @@ public class GhidraAssembleInstructionAtAddressTool implements IGhidraMcpSpecifi
 				.map(program -> { // Setup phase
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
 					String instructionStr = getRequiredStringArgument(args, ARG_INSTRUCTION);
-					Address address = program.getAddressFactory().getAddress(addressStr);
-					if (address == null) {
-						throw new IllegalArgumentException("Invalid address format: " + addressStr);
+					Address targetAddress = program.getAddressFactory().getAddress(addressStr);
+					if (targetAddress == null) {
+						GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+						GhidraMcpError error = GhidraMcpError.validation()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										annotation.mcpName(),
+										"address parsing",
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("expectedFormat", "hexadecimal address", "providedValue", addressStr)))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid hexadecimal address format",
+												"Provide address as hexadecimal value",
+												List.of("0x401000", "401000", "0x00401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
-					return Tuples.of(program, address, instructionStr);
+					return Tuples.of(program, targetAddress, instructionStr);
 				})
 				.flatMap(context -> { // Transaction phase
 					Program program = context.getT1();

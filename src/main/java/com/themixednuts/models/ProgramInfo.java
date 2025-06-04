@@ -1,6 +1,7 @@
 package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import ghidra.framework.model.DomainFile;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -8,61 +9,29 @@ import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.CompilerSpec;
 import java.util.Objects;
 
-/**
- * Represents information about a Ghidra Program.
- */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ProgramInfo {
 
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("path")
 	private final String path;
-
-	@JsonProperty("executablePath")
 	private final String executablePath;
-
-	@JsonProperty("executableFormat")
 	private final String executableFormat;
-
-	@JsonProperty("creationDate")
 	private final String creationDate;
-
-	@JsonProperty("architecture")
 	private final String architecture;
-
-	@JsonProperty("endianness")
 	private final String endianness;
-
-	@JsonProperty("processor")
 	private final String processor;
-
-	@JsonProperty("compilerSpec")
 	private final String compilerSpec;
-
-	@JsonProperty("imageBase")
 	private final String imageBase;
-
-	@JsonProperty("memorySizeBytes")
 	private final long memorySizeBytes;
-
-	@JsonProperty("numFunctions")
 	private final int numFunctions;
-
-	@JsonProperty("numSymbols")
 	private final int numSymbols;
 
-	/**
-	 * Constructs ProgramInfo by extracting data from a Ghidra Program object.
-	 *
-	 * @param program The Ghidra Program instance. Must not be null.
-	 */
 	public ProgramInfo(Program program) {
 		Objects.requireNonNull(program, "Program cannot be null");
 
 		DomainFile domainFile = program.getDomainFile();
 		Language language = program.getLanguage();
-		CompilerSpec compilerSpecObj = program.getCompilerSpec(); // Use different name to avoid confusion
+		CompilerSpec compilerSpecObj = program.getCompilerSpec();
 		Address imageBaseAddr = program.getImageBase();
 
 		this.name = program.getName();
@@ -93,56 +62,67 @@ public class ProgramInfo {
 		this.numSymbols = program.getSymbolTable().getNumSymbols();
 	}
 
-	// --- Getters ---
-
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("path")
 	public String getPath() {
 		return path;
 	}
 
+	@JsonProperty("executablePath")
 	public String getExecutablePath() {
 		return executablePath;
 	}
 
+	@JsonProperty("executableFormat")
 	public String getExecutableFormat() {
 		return executableFormat;
 	}
 
+	@JsonProperty("creationDate")
 	public String getCreationDate() {
 		return creationDate;
 	}
 
+	@JsonProperty("architecture")
 	public String getArchitecture() {
 		return architecture;
 	}
 
+	@JsonProperty("endianness")
 	public String getEndianness() {
 		return endianness;
 	}
 
+	@JsonProperty("processor")
 	public String getProcessor() {
 		return processor;
 	}
 
+	@JsonProperty("compilerSpec")
 	public String getCompilerSpec() {
 		return compilerSpec;
 	}
 
+	@JsonProperty("imageBase")
 	public String getImageBase() {
 		return imageBase;
 	}
 
+	@JsonProperty("memorySizeBytes")
 	public long getMemorySizeBytes() {
 		return memorySizeBytes;
 	}
 
+	@JsonProperty("numFunctions")
 	public int getNumFunctions() {
 		return numFunctions;
 	}
 
+	@JsonProperty("numSymbols")
 	public int getNumSymbols() {
 		return numSymbols;
 	}

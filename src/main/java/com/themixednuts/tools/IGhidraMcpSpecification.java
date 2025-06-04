@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -87,6 +88,10 @@ public interface IGhidraMcpSpecification {
 	public static final String ARG_VALUE = "value";
 	public static final String ARG_VARIABLE_IDENTIFIER = "variableIdentifier";
 	public static final String ARG_VARIABLE_SYMBOL_ID = "variableSymbolId";
+
+	// Arguments for struct packing and alignment
+	public static final String ARG_PACKING_VALUE = "packingValue";
+	public static final String ARG_ALIGNMENT_VALUE = "alignmentValue";
 	// ===================================================================================
 
 	// ===================================================================================
@@ -851,26 +856,54 @@ public interface IGhidraMcpSpecification {
 
 	/**
 	 * Helper method to create an error {@link CallToolResult} from a Throwable.
-	 * The error message is generated from the throwable's class name and message
-	 * and wrapped in {@link TextContent}. The error is also logged using Msg.error.
+	 * If the throwable is a {@link GhidraMcpException}, the structured error
+	 * information
+	 * is serialized as JSON. Otherwise, a simple error message is generated from
+	 * the
+	 * throwable's class name and message and wrapped in {@link TextContent}.
+	 * The error is also logged using Msg.error.
 	 *
 	 * @param t The throwable that occurred.
 	 * @return An error {@code CallToolResult} containing the generated error
-	 *         message.
+	 *         message or structured error information.
 	 */
 	default Mono<CallToolResult> createErrorResult(Throwable t) {
-		String errorMessage;
 		if (t == null) {
-			errorMessage = "An unknown error occurred.";
-			Msg.error(this, errorMessage); // Log unknown error
-		} else {
-			String throwableType = t.getClass().getSimpleName();
-			String throwableMessage = t.getMessage();
-			errorMessage = throwableType
-					+ (throwableMessage != null && !throwableMessage.isBlank() ? ": " + throwableMessage : "");
-			// Log the error with the throwable for stack trace
-			Msg.error(this, errorMessage, t);
+			String errorMessage = "An unknown error occurred.";
+			Msg.error(this, errorMessage);
+			TextContent errorContent = new TextContent(errorMessage);
+			return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
 		}
+
+		// Check if this is a structured GhidraMcpException
+		if (t instanceof GhidraMcpException) {
+			GhidraMcpException mcpException = (GhidraMcpException) t;
+			try {
+				// Serialize the structured error as JSON
+				String structuredErrorJson = IGhidraMcpSpecification.mapper
+						.writeValueAsString(mcpException.getStructuredError());
+				// Log the structured error message for Ghidra's internal logging
+				Msg.error(this, "Structured error - " + mcpException.getErrorType() + " [" +
+						mcpException.getErrorCode() + "]: " + mcpException.getMessage(), mcpException);
+				// Return the structured error as JSON content
+				TextContent errorContent = new TextContent(structuredErrorJson);
+				return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
+			} catch (JsonProcessingException e) {
+				// If we can't serialize the structured error, fall back to simple message
+				Msg.error(this, "Failed to serialize structured error, falling back to simple message: " + e.getMessage(), e);
+				String fallbackMessage = "Structured error serialization failed: " + mcpException.getMessage();
+				TextContent errorContent = new TextContent(fallbackMessage);
+				return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
+			}
+		}
+
+		// Handle regular exceptions
+		String throwableType = t.getClass().getSimpleName();
+		String throwableMessage = t.getMessage();
+		String errorMessage = throwableType
+				+ (throwableMessage != null && !throwableMessage.isBlank() ? ": " + throwableMessage : "");
+		// Log the error with the throwable for stack trace
+		Msg.error(this, errorMessage, t);
 		// Create TextContent containing the generated error message
 		TextContent errorContent = new TextContent(errorMessage);
 		// Build the CallToolResult with isError=true
@@ -921,6 +954,39 @@ public interface IGhidraMcpSpecification {
 		TextContent errorContent = new TextContent(finalMessage);
 		// Build the CallToolResult with isError=true
 		return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
+	}
+
+	// ===================================================================================
+	// Tool Information Helpers
+	// ===================================================================================
+
+	/**
+	 * Gets the tool's MCP name from the @GhidraMcpTool annotation.
+	 * This provides consistent access to the tool's MCP identifier for error
+	 * reporting
+	 * and other purposes without requiring each tool to implement its own method.
+	 *
+	 * @return The MCP name from the annotation.
+	 */
+	default String getMcpName() {
+		return getMcpName(this.getClass());
+	}
+
+	/**
+	 * Gets the tool's MCP name from the @GhidraMcpTool annotation on a given class.
+	 * This provides consistent access to a tool's MCP identifier for error
+	 * reporting
+	 * and other purposes.
+	 *
+	 * @param toolClass The class of the tool.
+	 * @return The MCP name from the annotation, or a fallback if not found.
+	 */
+	default String getMcpName(Class<? extends IGhidraMcpSpecification> toolClass) {
+		return getMcpNameForTool(toolClass);
+	}
+
+	static String getMcpNameForTool(Class<? extends IGhidraMcpSpecification> toolClass) {
+		return toolClass.getAnnotation(GhidraMcpTool.class).mcpName();
 	}
 
 	// ===================================================================================

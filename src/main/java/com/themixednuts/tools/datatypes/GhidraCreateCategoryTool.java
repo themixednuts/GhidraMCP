@@ -1,9 +1,12 @@
 package com.themixednuts.tools.datatypes;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -16,7 +19,7 @@ import ghidra.program.model.data.DataTypeManager;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Create Category", mcpName = "create_category", category = ToolCategory.DATATYPES, description = "Creates a new data type category.", mcpDescription = "Creates a new data type category.")
+@GhidraMcpTool(name = "Create Category", mcpName = "create_category", category = ToolCategory.DATATYPES, description = "Creates a new data type category.", mcpDescription = "Create a new data type category in a Ghidra program. Supports nested category creation and hierarchical organization.")
 public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -69,7 +72,31 @@ public class GhidraCreateCategoryTool implements IGhidraMcpSpecification {
 		}
 
 		if (dtm.getCategory(newCategoryPath) != null) {
-			throw new IllegalArgumentException("Category already exists: " + newCategoryPath.getPath());
+			GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+					.message("Category already exists: " + newCategoryPath.getPath())
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"category creation",
+							Map.of(ARG_NAME, categoryName, ARG_PATH, parentPath.getPath()),
+							Map.of("newCategoryPath", newCategoryPath.getPath()),
+							Map.of("categoryExists", true, "proposedPath", newCategoryPath.getPath())))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use a different category name",
+									"Choose a unique name for the category",
+									null,
+									null),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List existing categories",
+									"Check what categories already exist",
+									null,
+									List.of(getMcpName(GhidraListCategoriesTool.class)))))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 		ghidra.program.model.data.Category createdCategory = dtm.createCategory(newCategoryPath);
 		if (createdCategory == null) {

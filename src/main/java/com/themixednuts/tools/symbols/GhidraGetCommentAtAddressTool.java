@@ -1,8 +1,11 @@
 package com.themixednuts.tools.symbols;
 
+import java.util.List;
 import java.util.Map;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -16,7 +19,7 @@ import ghidra.program.model.listing.CodeUnit;
 import ghidra.framework.plugintool.PluginTool;
 import com.themixednuts.tools.ToolCategory;
 
-@GhidraMcpTool(name = "Get Comment at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get a comment at a specific address.", mcpName = "get_comment_at_address", mcpDescription = "Retrieve the comment text for a specific comment type (e.g., EOL_COMMENT, PRE_COMMENT) at the given memory address.")
+@GhidraMcpTool(name = "Get Comment at Address", category = ToolCategory.SYMBOLS, description = "Enable the MCP tool to get a comment at a specific address.", mcpName = "get_comment_at_address", mcpDescription = "Get a comment of a specific type at a memory address. Returns the comment text or empty string if none exists.")
 public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 	private static final String ARG_COMMENT_TYPE = "commentType";
 
@@ -46,11 +49,53 @@ public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 	public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
 		return getProgram(args, tool).map(program -> {
 			String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-			Address addr = program.getAddressFactory().getAddress(addressStr);
-			if (addr == null) {
-				throw new IllegalArgumentException("Invalid address provided: " + addressStr);
-			}
 			String commentTypeStr = getRequiredStringArgument(args, ARG_COMMENT_TYPE);
+			final String toolMcpName = getMcpName();
+
+			Address addr;
+			try {
+				addr = program.getAddressFactory().getAddress(addressStr);
+			} catch (Exception e) {
+				GhidraMcpError error = GhidraMcpError.execution()
+						.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+						.message("Invalid address format: " + addressStr)
+						.context(new GhidraMcpError.ErrorContext(
+								toolMcpName,
+								"address parsing",
+								args,
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("parseError", e.getMessage())))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid address format",
+										"Provide address in hexadecimal format",
+										List.of("0x401000", "0x00401000", "401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			}
+
+			if (addr == null) {
+				GhidraMcpError error = GhidraMcpError.execution()
+						.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+						.message("Invalid address format: " + addressStr)
+						.context(new GhidraMcpError.ErrorContext(
+								toolMcpName,
+								"address parsing",
+								args,
+								Map.of(ARG_ADDRESS, addressStr),
+								Map.of("addressResult", "null")))
+						.suggestions(List.of(
+								new GhidraMcpError.ErrorSuggestion(
+										GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+										"Use valid address format",
+										"Provide address in hexadecimal format",
+										List.of("0x401000", "0x00401000", "401000"),
+										null)))
+						.build();
+				throw new GhidraMcpException(error);
+			}
 
 			int commentTypeInt;
 			switch (commentTypeStr) {
@@ -70,7 +115,24 @@ public class GhidraGetCommentAtAddressTool implements IGhidraMcpSpecification {
 					commentTypeInt = CodeUnit.REPEATABLE_COMMENT;
 					break;
 				default:
-					throw new IllegalArgumentException("Invalid comment type provided: " + commentTypeStr);
+					GhidraMcpError error = GhidraMcpError.validation()
+							.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+							.message("Invalid comment type: " + commentTypeStr)
+							.context(new GhidraMcpError.ErrorContext(
+									toolMcpName,
+									"comment type validation",
+									args,
+									Map.of(ARG_COMMENT_TYPE, commentTypeStr),
+									null))
+							.suggestions(List.of(
+									new GhidraMcpError.ErrorSuggestion(
+											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+											"Use valid comment type",
+											"Provide one of the valid comment types",
+											List.of("EOL_COMMENT", "PRE_COMMENT", "POST_COMMENT", "PLATE_COMMENT", "REPEATABLE_COMMENT"),
+											null)))
+							.build();
+					throw new GhidraMcpException(error);
 			}
 
 			String comment = program.getListing().getComment(commentTypeInt, addr);

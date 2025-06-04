@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.NamespaceInfo;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -28,6 +30,24 @@ import reactor.core.publisher.Mono;
 public class GhidraListClassesTool implements IGhidraMcpSpecification {
 
 	protected static final String ARG_RECURSIVE = "recursive";
+
+	/**
+	 * Gets available class and namespace names for error suggestions.
+	 */
+	private List<String> getAvailableClassesAndNamespaces(Program program) {
+		List<String> items = new ArrayList<>();
+		SymbolTable symbolTable = program.getSymbolTable();
+		SymbolIterator iter = symbolTable.getSymbolIterator();
+		int count = 0;
+		while (iter.hasNext() && count < 50) { // Prevent overwhelming error messages
+			Symbol symbol = iter.next();
+			if (symbol.getSymbolType() == SymbolType.NAMESPACE || symbol.getSymbolType() == SymbolType.CLASS) {
+				items.add(symbol.getName(true));
+				count++;
+			}
+		}
+		return items.stream().sorted().collect(Collectors.toList());
+	}
 
 	@Override
 	public JsonSchema schema() {
@@ -68,7 +88,33 @@ public class GhidraListClassesTool implements IGhidraMcpSpecification {
 				.orElse(program.getGlobalNamespace());
 
 		if (startNamespace == null) {
-			throw new IllegalArgumentException("Specified namespace path not found: " + pathOpt.orElse("Global"));
+			List<String> availableItems = getAvailableClassesAndNamespaces(program);
+
+			GhidraMcpError error = GhidraMcpError.resourceNotFound()
+					.errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
+					.message("Namespace path not found: " + pathOpt.orElse("Global"))
+					.context(new GhidraMcpError.ErrorContext(
+							getMcpName(),
+							"namespace lookup",
+							Map.of(ARG_PATH, pathOpt.orElse("Global")),
+							Map.of("requestedPath", pathOpt.orElse("Global"), "pathExists", false),
+							Map.of("totalNamespaces", availableItems.size(), "searchedPath", pathOpt.orElse("Global"))))
+					.suggestions(List.of(
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+									"List available namespaces and classes",
+									"Use tools to explore available namespaces and classes",
+									null,
+									List.of(getMcpName(GhidraListNamespacesTool.class), getMcpName(GhidraListClassesTool.class))),
+							new GhidraMcpError.ErrorSuggestion(
+									GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+									"Use an existing namespace path",
+									"Select from available namespaces or classes",
+									availableItems.isEmpty() ? List.of("Global")
+											: availableItems.subList(0, Math.min(10, availableItems.size())),
+									null)))
+					.build();
+			throw new GhidraMcpException(error);
 		}
 
 		List<NamespaceInfo> namespaces = new ArrayList<>();

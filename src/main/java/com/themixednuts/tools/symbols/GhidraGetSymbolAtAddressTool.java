@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo; // Use the existing POJO
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
@@ -20,7 +22,7 @@ import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Get Symbol at Address", category = ToolCategory.SYMBOLS, description = "Retrieves details of symbols at a specific memory address.", mcpName = "get_symbol_at_address", mcpDescription = "Retrieve details about the symbol(s) located at a specific address.")
+@GhidraMcpTool(name = "Get Symbol at Address", category = ToolCategory.SYMBOLS, description = "Retrieves details of symbols at a specific memory address.", mcpName = "get_symbol_at_address", mcpDescription = "Get all symbols at a specific address. Returns symbol details including name, type, and namespace information.")
 public class GhidraGetSymbolAtAddressTool implements IGhidraMcpSpecification {
 
 	@Override
@@ -45,10 +47,51 @@ public class GhidraGetSymbolAtAddressTool implements IGhidraMcpSpecification {
 		return getProgram(args, tool)
 				.map(program -> {
 					String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-					Address targetAddress = program.getAddressFactory().getAddress(addressStr);
+					final String toolMcpName = getMcpName();
+
+					Address targetAddress;
+					try {
+						targetAddress = program.getAddressFactory().getAddress(addressStr);
+					} catch (Exception e) {
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										args,
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("parseError", e.getMessage())))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
+					}
 
 					if (targetAddress == null) {
-						throw new IllegalArgumentException("Invalid address format: " + addressStr);
+						GhidraMcpError error = GhidraMcpError.execution()
+								.errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+								.message("Invalid address format: " + addressStr)
+								.context(new GhidraMcpError.ErrorContext(
+										toolMcpName,
+										"address parsing",
+										args,
+										Map.of(ARG_ADDRESS, addressStr),
+										Map.of("addressResult", "null")))
+								.suggestions(List.of(
+										new GhidraMcpError.ErrorSuggestion(
+												GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+												"Use valid address format",
+												"Provide address in hexadecimal format",
+												List.of("0x401000", "0x00401000", "401000"),
+												null)))
+								.build();
+						throw new GhidraMcpException(error);
 					}
 
 					SymbolTable symbolTable = program.getSymbolTable();

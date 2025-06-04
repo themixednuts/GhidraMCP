@@ -11,25 +11,12 @@ import com.themixednuts.tools.datatypes.DataTypeKind;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public abstract class BaseDataTypeDetails {
 
-	@JsonProperty("kind")
 	private final DataTypeKind kind;
-
-	@JsonProperty("path")
 	private final String path;
-
-	@JsonProperty("name")
 	private final String name;
-
-	@JsonProperty("category_path")
 	private final String categoryPath;
-
-	@JsonProperty("length")
 	private final int length;
-
-	@JsonProperty("alignment")
 	private final int alignment;
-
-	@JsonProperty("description")
 	private final String description;
 
 	protected BaseDataTypeDetails(
@@ -49,31 +36,37 @@ public abstract class BaseDataTypeDetails {
 		this.description = description;
 	}
 
-	// Getters
+	@JsonProperty("kind")
 	public DataTypeKind getKind() {
 		return kind;
 	}
 
+	@JsonProperty("path")
 	public String getPath() {
 		return path;
 	}
 
+	@JsonProperty("name")
 	public String getName() {
 		return name;
 	}
 
+	@JsonProperty("category_path")
 	public String getCategoryPath() {
 		return categoryPath;
 	}
 
+	@JsonProperty("length")
 	public int getLength() {
 		return length;
 	}
 
+	@JsonProperty("alignment")
 	public int getAlignment() {
 		return alignment;
 	}
 
+	@JsonProperty("description")
 	public String getDescription() {
 		return description;
 	}
