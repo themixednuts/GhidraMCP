@@ -22,103 +22,44 @@ A Ghidra extension that runs an embedded MCP server to expose Ghidra program dat
 
 ## ✨ Features
 
-<details>
-<summary>Click to expand/collapse the full features list</summary>
-
-This extension exposes various Ghidra functionalities to MCP clients, grouped by category:
+This extension exposes various Ghidra functionalities to MCP clients. For convenience and to manage client-side tool limits, related operations are often bundled into `grouped` tools, accessible via the category links below.
 
 > [!TIP]
-> To help manage limits on the number of enabled tools in some MCP clients, 'grouped' tools are available. These combine multiple related operations (e.g., several function operations) into a single tool interface. You can find links to these grouped tools in the category headers below (e.g., **Functions** - [`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java)).
+> While individual tools are available, this extension also provides `grouped` tools (linked in the category headers below). These grouped tools allow clients to perform multiple related operations in a single call, which can be more efficient and help manage limits on the number of enabled tools some MCP clients might have. Both grouped tools and individual operations can be enabled or disabled via the GhidraMCP extension options within Ghidra's main Tool Options.
 
-### Project Management ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java))
+### [`Project Management`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java)
 
-- [x] List open programs/files: [`GhidraListOpenFilesTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListOpenFilesTool.java)
-- [x] Get current program info: [`GhidraGetCurrentProgramInfoTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraGetCurrentProgramInfoTool.java)
-- [x] List bookmarks: [`GhidraListBookmarksTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListBookmarksTool.java)
-- [x] Add bookmark: [`GhidraCreateBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraCreateBookmarkTool.java)
-- [x] Remove bookmark: [`GhidraDeleteBookmarkTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraDeleteBookmarkTool.java)
-- [x] List Ghidra scripts: [`GhidraListScriptsTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraListScriptsTool.java)
-- [x] Run Ghidra script: [`GhidraRunScriptTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraRunScriptTool.java)
+Provides tools for managing Ghidra project context, including listing open files, getting current program information, handling bookmarks, and interacting with Ghidra scripts.
 
-### Functions ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java))
+### [`Functions`](src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java)
 
-- [x] List functions: [`GhidraListFunctionNamesTool`](src/main/java/com/themixednuts/tools/functions/GhidraListFunctionNamesTool.java)
-- [x] Get function details by name ([`GhidraGetFunctionByNameTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionByNameTool.java)) or address ([`GhidraGetFunctionByAddressTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionByAddressTool.java))
-- [x] Get function containing location: [`GhidraGetFunctionContainingLocationTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionContainingLocationTool.java)
-- [x] Get current function: [`GhidraGetCurrentFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetCurrentFunctionTool.java)
-- [x] Rename function by name ([`GhidraRenameFunctionByNameTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameFunctionByNameTool.java)) or address ([`GhidraRenameFunctionByAddressTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameFunctionByAddressTool.java))
-- [x] List symbols in function: [`GhidraListSymbolsInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraListSymbolsInFunctionTool.java)
-- [x] Get symbol by name in function: [`GhidraGetSymbolByNameInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraGetSymbolByNameInFunctionTool.java)
-- [x] Rename symbol in function: [`GhidraRenameSymbolInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraRenameSymbolInFunctionTool.java)
-- [x] Change symbol data type in function: [`GhidraUpdateSymbolDataTypeInFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraUpdateSymbolDataTypeInFunctionTool.java)
-- [x] Get/Set function comments (Use [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java) / [`GhidraUpdateCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraUpdateCommentAtAddressTool.java) at entry point)
-- [x] Add function: [`GhidraCreateFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraCreateFunctionTool.java)
-- [x] Remove function: [`GhidraDeleteFunctionTool`](src/main/java/com/themixednuts/tools/functions/GhidraDeleteFunctionTool.java)
-- [x] Update function prototype/signature: [`GhidraUpdateFunctionPrototypeTool`](src/main/java/com/themixednuts/tools/functions/GhidraUpdateFunctionPrototypeTool.java)
-- [x] Decompile function by name: [`GhidraDecompileFunctionByNameTool`](src/main/java/com/themixednuts/tools/decompiler/GhidraDecompileFunctionByNameTool.java)
+Offers a comprehensive suite of tools for inspecting, creating, deleting, and modifying functions within a program. This includes managing function names, prototypes, comments, and symbols within functions.
 
-### Symbols & Labels ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedSymbolOperationsTool.java))
+### [`Symbols & Labels`](src/main/java/com/themixednuts/tools/grouped/GroupedSymbolOperationsTool.java)
 
-- [x] List defined strings: [`GhidraGetDefinedStringsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetDefinedStringsTool.java)
-- [x] List namespaces: [`GhidraListNamespacesTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListNamespacesTool.java)
-- [x] Set comment at address: [`GhidraUpdateCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraUpdateCommentAtAddressTool.java)
-- [x] Get comment at address: [`GhidraGetCommentAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraGetCommentAtAddressTool.java)
-- [x] Rename data at address: [`GhidraRenameDataAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraRenameDataAtAddressTool.java)
-- [x] Clear symbol at address: [`GhidraDeleteSymbolAtAddressTool`](src/main/java/com/themixednuts/tools/symbols/GhidraDeleteSymbolAtAddressTool.java)
-- [x] List all symbols: [`GhidraListAllSymbolsTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListAllSymbolsTool.java)
-- [x] Add label at address: [`GhidraCreateLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraCreateLabelTool.java)
-- [x] Remove label at address: [`GhidraDeleteLabelTool`](src/main/java/com/themixednuts/tools/symbols/GhidraDeleteLabelTool.java)
+Enables interaction with various symbols and labels in Ghidra. Tools cover listing defined strings, managing namespaces, setting/getting comments at addresses, renaming data, and handling labels.
 
-### Data Types ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDatatypeOperationsTool.java))
+### [`Data Types`](src/main/java/com/themixednuts/tools/grouped/GroupedDatatypeOperationsTool.java)
 
-- [x] List data types: [`GhidraListDataTypesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListDataTypesTool.java)
-- [x] List categories: [`GhidraListCategoriesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java)
-- [x] Create category: [`GhidraCreateCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateCategoryTool.java)
-- [x] Rename category: [`GhidraRenameCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraRenameCategoryTool.java)
-- [x] Delete category: [`GhidraDeleteCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteCategoryTool.java)
-- [x] Move category: [`GhidraMoveCategoryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraMoveCategoryTool.java)
-- [x] List namespaces: [`GhidraListNamespacesTool`](src/main/java/com/themixednuts/tools/symbols/GhidraListNamespacesTool.java)
-- [x] List class names: [`GhidraListClassNamesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListClassNamesTool.java)
-- [x] List defined structures/enums (Covered by [`GhidraListDataTypesTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraListDataTypesTool.java))
-- [x] Get struct definition: [`GhidraGetStructDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetStructDefinitionTool.java)
-- [x] Get enum definition: [`GhidraGetEnumDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetEnumDefinitionTool.java)
-- [x] Get union definition: [`GhidraGetUnionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetUnionDefinitionTool.java)
-- [x] Get typedef definition: [`GhidraGetTypeDefDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetTypeDefDefinitionTool.java)
-- [x] Get function definition: [`GhidraGetFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraGetFunctionDefinitionTool.java)
-- [x] Create struct: [`GhidraCreateStructTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateStructTool.java)
-- [x] Create enum: [`GhidraCreateEnumTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateEnumTool.java)
-- [x] Create union: [`GhidraCreateUnionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateUnionTool.java)
-- [x] Create typedef: [`GhidraCreateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateTypeDefTool.java)
-- [x] Create function definition: [`GhidraCreateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateFunctionDefinitionTool.java)
-- [x] Modify structs (Add/Edit/Delete members): [`GhidraCreateStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateStructMemberTool.java), [`GhidraUpdateStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateStructMemberTool.java), [`GhidraDeleteStructMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteStructMemberTool.java)
-- [x] Modify enums (Add/Edit/Delete entries): [`GhidraCreateEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateEnumEntryTool.java), [`GhidraUpdateEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateEnumEntryTool.java), [`GhidraDeleteEnumEntryTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteEnumEntryTool.java)
-- [x] Modify unions (Add members): [`GhidraCreateUnionMemberTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraCreateUnionMemberTool.java)
-- [x] Modify function definitions: [`GhidraUpdateFunctionDefinitionTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateFunctionDefinitionTool.java)
-- [x] Modify typedefs: [`GhidraUpdateTypeDefTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraUpdateTypeDefTool.java)
-- [x] Rename data types: [`GhidraRenameDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraRenameDataTypeTool.java)
-- [x] Delete data types: [`GhidraDeleteDataTypeTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraDeleteDataTypeTool.java)
-- [x] Apply data type at address: [`GhidraSetDataTypeAtAddressTool`](src/main/java/com/themixednuts/tools/datatypes/GhidraSetDataTypeAtAddressTool.java)
+Allows for detailed management of data types within Ghidra's data type manager. This includes listing, creating, modifying, and deleting categories, structures, enums, unions, typedefs, and function definitions, as well as applying types to specific addresses.
 
-### Memory & Addresses ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedMemoryOperationsTool.java))
+### [`Memory & Addresses`](src/main/java/com/themixednuts/tools/grouped/GroupedMemoryOperationsTool.java)
 
-- [x] List segments: [`GhidraListSegmentsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListSegmentsTool.java)
-- [x] Get current address: [`GhidraGetCurrentAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetCurrentAddressTool.java)
-- [x] Read bytes from address: [`GhidraReadMemoryBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraReadMemoryBytesTool.java)
-- [x] Write bytes to address (Patching): [`GhidraWriteMemoryBytesTool`](src/main/java/com/themixednuts/tools/memory/GhidraWriteMemoryBytesTool.java)
-- [x] Search memory: [`GhidraSearchMemoryTool`](src/main/java/com/themixednuts/tools/memory/GhidraSearchMemoryTool.java)
-- [x] Get XRefs _to_ address: [`GhidraGetXRefsToAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsToAddressTool.java)
-- [x] Get XRefs _from_ address: [`GhidraGetXRefsFromAddressTool`](src/main/java/com/themixednuts/tools/memory/GhidraGetXRefsFromAddressTool.java)
-- [x] List imports: [`GhidraListImportsTool`](src/main/java/com/themixednuts/tools/memory/GhidraListImportsTool.java)
+Facilitates direct interaction with program memory. Tools include listing memory segments, reading/writing bytes (patching), searching memory, and retrieving cross-references (XRefs) to and from addresses, as well as listing imports.
 
-### Decompiler ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedDecompilerOperationsTool.java))
+### [`Decompiler`](src/main/java/com/themixednuts/tools/grouped/GroupedDecompilerOperationsTool.java)
 
-- [x] Decompile function by name: [`GhidraDecompileFunctionByNameTool`](src/main/java/com/themixednuts/tools/decompiler/GhidraDecompileFunctionByNameTool.java)
+Provides access to Ghidra's decompiler capabilities, primarily for decompiling functions to view their C-like representation and P-code.
 
-### Analysis & Scripting ([`grouped`](src/main/java/com/themixednuts/tools/grouped/GroupedAnalysisOperationsTool.java))
+### [`Control Flow`](src/main/java/com/themixednuts/tools/grouped/GroupedControlFlowOperationsTool.java)
 
-- [x] Trigger auto-analysis: [`GhidraTriggerAutoAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAutoAnalysisTool.java)
+Includes tools for analyzing program control flow, such as retrieving information about basic blocks and their predecessors/successors.
 
-</details>
+### Analysis & Scripting
+
+Contains tools related to Ghidra's analysis capabilities.
+
+- Trigger auto-analysis: Allows programmatic initiation of Ghidra's auto-analysis process for a program via [`GhidraTriggerAutoAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAutoAnalysisTool.java).
 
 ---
 
@@ -158,7 +99,7 @@ This extension exposes various Ghidra functionalities to MCP clients, grouped by
     - `Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar`
     - `Ghidra/Framework/Utility/lib/Utility.jar`
     - `Ghidra/Framework/Gui/lib/Gui.jar`
-    - > [!NOTE]
+      > [!NOTE]
       > Paths are relative to your Ghidra installation folder. Exact paths might vary slightly based on Ghidra version and OS.
 5.  Build the project using Maven:
     ```bash
@@ -187,18 +128,21 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 }
 ```
 
-> [!IMPORTANT] > **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+> [!IMPORTANT]
+> **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
 
-> [!IMPORTANT] > **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
+> [!IMPORTANT]
+> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
 
 ---
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit pull requests or open issues.
+AI agents are also welcome to contribute; please ensure agents refer to the project's contribution guidelines and development conventions (often found in `.cursor/rules/` or a `CONTRIBUTING.md` file if present).
 
 ---
 
 ## Acknowledgements
 
-This project is heavily inspired by and based on the work of [LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this plugin directly embeds the server in the plugin. Developed by TheMixedNuts.
+This project is heavily inspired by and based on the work of [LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this plugin directly embeds the server in the plugin.
