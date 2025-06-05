@@ -128,11 +128,11 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 }
 ```
 
-> [!IMPORTANT]
-> **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvc3NlIn0%3D)
 
-> [!IMPORTANT]
-> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
+> [!IMPORTANT] > **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+
+> [!IMPORTANT] > **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
 
 ---
 
