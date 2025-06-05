@@ -12,6 +12,9 @@
   <img src="PATH_TO_YOUR_LOGO.png" alt="GhidraMCP Logo" width="200"/>
 </p> -->
 
+<div align="center">
+  <a href="https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvc3NlIn0%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add ghidra MCP server to Cursor" height="32" /></a>
+</div>
 <h1 align="center">GhidraMCP</h1>
 
 > Ghidra integration for the Model Context Protocol (MCP)
@@ -127,8 +130,6 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 	}
 }
 ```
-
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvc3NlIn0%3D)
 
 > [!IMPORTANT] > **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
 
