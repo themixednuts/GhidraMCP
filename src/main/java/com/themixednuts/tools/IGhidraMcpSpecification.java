@@ -217,7 +217,7 @@ public interface IGhidraMcpSpecification {
 					// Capture the exception to be handled by the Mono
 					exceptionRef.set(t);
 					// Optionally, log it here too if desired, but primary handling will be via Mono
-					Msg.error(this, "Throwable during Ghidra transaction work '" + transactionName + "': " + t.getMessage(), t);
+					Msg.error(this, "Throwable during Ghidra transaction work '" + transactionName + "': " + t.getMessage());
 				} finally {
 					if (txId != -1) {
 						try {
@@ -226,7 +226,7 @@ public interface IGhidraMcpSpecification {
 							program.endTransaction(txId, success && exceptionRef.get() == null);
 						} catch (Exception e) {
 							Msg.error(this, "Failed to end transaction '" + transactionName + "' (intended success: "
-									+ (success && exceptionRef.get() == null) + ")", e);
+									+ (success && exceptionRef.get() == null) + ")");
 							// If ending the transaction fails, this is a new error or compounds an existing
 							// one.
 							// Prioritize the original exception from work.call() if one exists.
@@ -847,7 +847,7 @@ public interface IGhidraMcpSpecification {
 			return Mono.just(new CallToolResult(Collections.singletonList(textContent), false));
 		} catch (JsonProcessingException e) {
 			// Log the serialization error
-			Msg.error(this, "Error serializing result data to JSON: " + e.getMessage(), e);
+			Msg.error(this, "Error serializing result data to JSON: " + e.getMessage());
 			// Return an error CallToolResult using the error helper
 			return createErrorResult(new RuntimeException("Error serializing result data: " + e.getMessage(), e)); // Wrap
 																																																							// exception
@@ -884,13 +884,13 @@ public interface IGhidraMcpSpecification {
 						.writeValueAsString(mcpException.getStructuredError());
 				// Log the structured error message for Ghidra's internal logging
 				Msg.error(this, "Structured error - " + mcpException.getErrorType() + " [" +
-						mcpException.getErrorCode() + "]: " + mcpException.getMessage(), mcpException);
+						mcpException.getErrorCode() + "]: " + mcpException.getMessage());
 				// Return the structured error as JSON content
 				TextContent errorContent = new TextContent(structuredErrorJson);
 				return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
 			} catch (JsonProcessingException e) {
 				// If we can't serialize the structured error, fall back to simple message
-				Msg.error(this, "Failed to serialize structured error, falling back to simple message: " + e.getMessage(), e);
+				Msg.error(this, "Failed to serialize structured error, falling back to simple message: " + e.getMessage());
 				String fallbackMessage = "Structured error serialization failed: " + mcpException.getMessage();
 				TextContent errorContent = new TextContent(fallbackMessage);
 				return Mono.just(new CallToolResult(Collections.singletonList(errorContent), true));
@@ -903,7 +903,7 @@ public interface IGhidraMcpSpecification {
 		String errorMessage = throwableType
 				+ (throwableMessage != null && !throwableMessage.isBlank() ? ": " + throwableMessage : "");
 		// Log the error with the throwable for stack trace
-		Msg.error(this, errorMessage, t);
+		Msg.error(this, errorMessage);
 		// Create TextContent containing the generated error message
 		TextContent errorContent = new TextContent(errorMessage);
 		// Build the CallToolResult with isError=true
@@ -929,7 +929,7 @@ public interface IGhidraMcpSpecification {
 		} catch (JsonProcessingException e) {
 			// If serialization fails, log the *serialization* error specifically
 			String serializationErrorMsg = "Failed to serialize data for error message: " + e.getMessage();
-			Msg.error(this, serializationErrorMsg, e);
+			Msg.error(this, serializationErrorMsg);
 			// Construct a final message indicating the failure
 			finalErrorMessage = (baseMessage != null ? baseMessage : "Error") + " (Failed to serialize details: "
 					+ e.getMessage() + ")";

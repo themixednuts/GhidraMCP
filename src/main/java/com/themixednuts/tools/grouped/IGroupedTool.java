@@ -133,7 +133,7 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 
 		} catch (Exception e) {
 			Msg.error(IGroupedTool.class,
-					"Failed to generate schema variant for tool: " + toolClass.getName(), e);
+					"Failed to generate schema variant for tool: " + toolClass.getName());
 			return null;
 		}
 	}
@@ -292,7 +292,7 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 							return Map.entry(toolAnnotation.mcpName(), arraySchemaNode);
 						}
 					} catch (Exception e) {
-						Msg.error(this, "Failed to get schema for granular tool: " + toolClass.getName(), e);
+						Msg.error(this, "Failed to get schema for granular tool: " + toolClass.getName());
 					}
 					return null; // Will be filtered out by Objects::nonNull
 				})
@@ -491,7 +491,7 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 														+ "' (args: " + granularArgs + ") failed.", err));
 									} catch (Exception e) { // Catch instantiation or other synchronous exceptions
 										Msg.error(this, "Failed to instantiate or prepare tool '" + targetToolClass.getSimpleName()
-												+ "' for operation '" + operationName + "' with args " + granularArgs, e);
+												+ "' for operation '" + operationName + "' with args " + granularArgs);
 										return Mono.error(e); // Signal error for onErrorResume below
 									}
 								})
@@ -500,7 +500,7 @@ public interface IGroupedTool extends IGhidraMcpSpecification {
 										// Handle errors from the granular tool's execution or instantiation
 										.onErrorResume(error -> {
 											Msg.error(this, "Error during execution of grouped operation '" + operationName
-													+ "' with args " + granularArgs, error);
+													+ "' with args " + granularArgs);
 											return Mono.just(OperationResult.error(operationName, granularArgs, error));
 										});
 							});

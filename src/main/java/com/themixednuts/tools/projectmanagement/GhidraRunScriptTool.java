@@ -214,7 +214,7 @@ public class GhidraRunScriptTool implements IGhidraMcpSpecification {
 			// Nulls are for currentLocation, currentSelection, currentHighlight.
 			return new GhidraState(tool, tool.getProject(), program, null, null, null);
 		} catch (Exception e) {
-			Msg.error(this, "Failed to create GhidraState", e);
+			Msg.error(this, "Failed to create GhidraState");
 			return null;
 		}
 	}

@@ -50,7 +50,7 @@ public class GhidraMcpTaskMonitor extends TaskMonitorAdapter {
 				.subscribe(
 						null,
 						error -> {
-							Msg.error(this.loggerName, "Failed to send MCP log notification: " + message, error);
+							Msg.error(this.loggerName, "Failed to send MCP log notification: " + message);
 						});
 	}
 

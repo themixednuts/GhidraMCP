@@ -2,7 +2,7 @@
   <a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/themixednuts/GhidraMCP/build.yml?style=flat-square" alt="Build Status"></a>
   <a href="#"><img src="https://img.shields.io/badge/Ghidra-11.3.2-blue?style=flat-square" alt="Tested Ghidra Version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/stargazers"><img src="https://img.shields.io/github/stars/themixednuts/GhidraMCP?style=flat-square" alt="GitHub stars"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/network/members"><img src="https://img.shields.io/github/forks/themixednuts/GhidraMCP?style=flat-square" alt="GitHub forks"></a>
 </div>
@@ -25,10 +25,7 @@ A Ghidra extension that runs an embedded MCP server to expose Ghidra program dat
 
 ## ✨ Features
 
-This extension exposes various Ghidra functionalities to MCP clients. For convenience and to manage client-side tool limits, related operations are often bundled into `grouped` tools, accessible via the category links below.
-
-> [!TIP]
-> While individual tools are available, this extension also provides `grouped` tools (linked in the category headers below). These grouped tools allow clients to perform multiple related operations in a single call, which can be more efficient and help manage limits on the number of enabled tools some MCP clients might have. Both grouped tools and individual operations can be enabled or disabled via the GhidraMCP extension options within Ghidra's main Tool Options.
+This extension exposes various Ghidra functionalities to MCP clients through categorized tool groups. Each category provides both individual tools and grouped operations for batch processing.
 
 ### [`Project Management`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java)
 
@@ -58,12 +55,6 @@ Provides access to Ghidra's decompiler capabilities, primarily for decompiling f
 
 Includes tools for analyzing program control flow, such as retrieving information about basic blocks and their predecessors/successors.
 
-### Analysis & Scripting
-
-Contains tools related to Ghidra's analysis capabilities.
-
-- Trigger auto-analysis: Allows programmatic initiation of Ghidra's auto-analysis process for a program via [`GhidraTriggerAutoAnalysisTool`](src/main/java/com/themixednuts/tools/projectmanagement/GhidraTriggerAutoAnalysisTool.java).
-
 ---
 
 ## 🚀 Installation
@@ -81,6 +72,10 @@ Contains tools related to Ghidra's analysis capabilities.
 
 1.  Ensure Ghidra is running with the GhidraMCP extension active.
 2.  Ensure your MCP Client is configured to connect to the GhidraMCP server (see 'Configuring an MCP Client' below).
+
+> [!WARNING] > **Script Error Dialogs:** Some tools that execute Ghidra scripts may trigger GUI error dialogs via `Msg.showError`. These dialogs **must** be manually closed, or the server will hang and become unresponsive.
+
+> [!TIP] > **Missing fileName Parameter:** When tools request a `fileName` parameter, use the `list_open_files` tool to see available programs. Most tools provide this context automatically on failed calls.
 
 ## 🛠️ Building from Source
 
@@ -134,6 +129,8 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 > [!IMPORTANT] > **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
 
 > [!IMPORTANT] > **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
+
+> [!NOTE] > **Timeout Issues:** If you encounter timeout problems, refer to the [Ghidra timeout configuration guide](https://github.com/NationalSecurityAgency/ghidra/issues/1613#issuecomment-597165377).
 
 ---
 
