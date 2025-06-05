@@ -126,13 +126,16 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 }
 ```
 
-> [!IMPORTANT] > **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
-
-> [!IMPORTANT] > **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
-
-> [!NOTE] > **Timeout Issues:** If you encounter timeout problems, refer to the [Ghidra timeout configuration guide](https://github.com/NationalSecurityAgency/ghidra/issues/1613#issuecomment-597165377).
-
 ---
+
+> [!IMPORTANT]
+> **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+
+> [!IMPORTANT]
+> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
+
+> [!NOTE]
+> **Timeout Issues:** If you encounter timeout problems, refer to the [Ghidra timeout configuration guide](https://github.com/NationalSecurityAgency/ghidra/issues/1613#issuecomment-597165377).
 
 ## 🤝 Contributing
 
