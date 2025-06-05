@@ -11,16 +11,12 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.tools.ToolCategory;
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
-import com.themixednuts.tools.datatypes.GhidraGetDataTypeTool;
 
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.EnumDataType;
-import ghidra.program.model.listing.Program;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.data.DataTypePath;
 import ghidra.program.model.data.DataTypeManager;
 
 @GhidraMcpTool(name = "Delete Enum Entry", category = ToolCategory.DATATYPES, description = "Deletes an entry from an existing enum.", mcpName = "delete_enum_entry", mcpDescription = "Removes an entry (by name) from an existing enum data type.")
@@ -47,12 +43,6 @@ public class GhidraDeleteEnumEntryTool implements IGhidraMcpSpecification {
 				.requiredProperty(ARG_NAME);
 
 		return schemaRoot.build();
-	}
-
-	private static record DeleteEnumEntryContext(
-			Program program,
-			EnumDataType enumDt,
-			String entryName) {
 	}
 
 	@Override

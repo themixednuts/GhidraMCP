@@ -8,15 +8,12 @@ import java.util.Optional;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
-import com.themixednuts.models.FunctionDefinitionDetails;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.DataTypeUtils;
-
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.CategoryPath;
@@ -71,17 +68,11 @@ import reactor.core.publisher.Mono;
 		""")
 public class GhidraCreateFunctionDefinitionTool implements IGhidraMcpSpecification {
 
-	// Constants from IGhidraMcpSpecification are used directly in schema if defined
-	// there.
-	// Local constants for arguments specific to this tool's schema or for clarity
-	// if also in IGhidraMcpSpecification.
 	protected static final String ARG_FD_RETURN_TYPE_PATH = "returnTypePath";
 	protected static final String ARG_FD_PARAMETERS = "parameters";
 	protected static final String ARG_FD_CALLING_CONVENTION_NAME = "callingConventionName";
 	protected static final String ARG_FD_HAS_VAR_ARGS = "hasVarArgs";
 	protected static final String ARG_FD_NO_RETURN = "noReturn";
-	// ARG_DATA_TYPE_PATH is used inside parameter definition, already in
-	// IGhidraMcpSpecification
 
 	@Override
 	public JsonSchema schema() {

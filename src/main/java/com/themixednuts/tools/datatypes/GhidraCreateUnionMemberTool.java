@@ -15,8 +15,6 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.DataTypeUtils;
 
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
-
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.InvalidDataTypeException;

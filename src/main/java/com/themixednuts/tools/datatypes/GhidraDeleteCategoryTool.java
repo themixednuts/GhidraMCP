@@ -13,8 +13,6 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
-import com.themixednuts.tools.datatypes.GhidraListCategoriesTool;
-
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Category;
 import ghidra.program.model.data.CategoryPath;

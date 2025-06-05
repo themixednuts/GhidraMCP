@@ -27,14 +27,6 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(name = "Get Basic Block at Address", category = ToolCategory.CONTROL_FLOW, description = "Retrieves information about the basic block containing the specified address.", mcpName = "get_basic_block_at_address", mcpDescription = "Get comprehensive information about the basic block containing a specified memory address. Returns block boundaries, size, and flow type information.")
 public class GhidraGetBasicBlockAtAddressTool implements IGhidraMcpSpecification {
 
-	/**
-	 * Helper method to get MCP tool name from annotation for error suggestions.
-	 */
-	private String getRelatedToolMcpName(Class<? extends IGhidraMcpSpecification> toolClass) {
-		GhidraMcpTool annotation = toolClass.getAnnotation(GhidraMcpTool.class);
-		return annotation != null ? annotation.mcpName() : toolClass.getSimpleName();
-	}
-
 	@Override
 	public JsonSchema schema() {
 		IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();

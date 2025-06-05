@@ -8,9 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.DataTypeInfo;
-import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.PaginatedResult;

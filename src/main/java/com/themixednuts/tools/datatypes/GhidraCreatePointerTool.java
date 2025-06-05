@@ -7,7 +7,6 @@ import java.util.Optional;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
-import com.themixednuts.models.PointerDetails;
 import com.themixednuts.tools.IGhidraMcpSpecification;
 import com.themixednuts.tools.ToolCategory;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
@@ -16,12 +15,9 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.DataTypeUtils;
 
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
-
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeConflictHandler;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.InvalidDataTypeException;
 import ghidra.program.model.data.Pointer;
@@ -134,17 +130,68 @@ public class GhidraCreatePointerTool implements IGhidraMcpSpecification {
 									.build();
 							throw new GhidraMcpException(error);
 						} catch (CancelledException e) {
-							throw new RuntimeException("Parsing cancelled for base data type path '" + baseDataTypePathArg + "'.", e);
+							GhidraMcpError error = GhidraMcpError.execution()
+									.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR) // Consider a more specific code if available,
+																																				// e.g., OPERATION_CANCELLED
+									.message("Operation cancelled while parsing base data type path: '" + baseDataTypePathArg + "'.")
+									.context(new GhidraMcpError.ErrorContext(
+											annotation.mcpName(),
+											"base data type parsing (cancellation)",
+											args,
+											Map.of("baseDataTypePath", baseDataTypePathArg),
+											Map.of("detail", "ghidra.util.exception.CancelledException occurred.")))
+									.debugInfo(new GhidraMcpError.ErrorDebugInfo(null, null, this.getClass().getName(), null, null))
+									.build();
+							throw new GhidraMcpException(error);
 						} catch (RuntimeException e) {
-							throw new RuntimeException(
-									"Unexpected error parsing base data type path '" + baseDataTypePathArg + "': " + e.getMessage(), e);
+							GhidraMcpError error = GhidraMcpError.execution()
+									.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+									.message("Unexpected error parsing base data type path '" + baseDataTypePathArg + "': "
+											+ e.getMessage())
+									.context(new GhidraMcpError.ErrorContext(
+											annotation.mcpName(),
+											"base data type parsing (unexpected)",
+											args,
+											Map.of("baseDataTypePath", baseDataTypePathArg),
+											Map.of("originalExceptionType", e.getClass().getName())))
+									.debugInfo(new GhidraMcpError.ErrorDebugInfo(null, null, this.getClass().getName(), null,
+											Map.of("originalMessage", e.getMessage())))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 
 						// Get an anonymous PointerDataType instance (cached if possible)
 						Pointer actualPointerDt = dtm.getPointer(pointedToDt, pointerLength);
 						if (actualPointerDt == null) {
-							// This should ideally not happen if pointedToDt is valid and dtm is functional
-							throw new RuntimeException("Failed to create or retrieve pointer for data type: " + baseDataTypePathArg);
+							GhidraMcpError error = GhidraMcpError.execution()
+									.errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR) // Or a more specific execution error if
+																																				// applicable
+									.message("Failed to create or retrieve an anonymous pointer for data type: '" + baseDataTypePathArg
+											+ "' with length " + pointerLength)
+									.context(new GhidraMcpError.ErrorContext(
+											annotation.mcpName(),
+											"pointer creation (internal)",
+											args, // Original arguments to the tool
+											Map.of(
+													"baseDataTypePath", baseDataTypePathArg,
+													"pointedToDataType", pointedToDt.getPathName(),
+													"pointerLength", pointerLength),
+											Map.of("detail", "dtm.getPointer() returned null unexpectedly.")))
+									.suggestions(List.of(
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+													"Verify base data type",
+													"Ensure the base data type '" + baseDataTypePathArg + "' is valid and accessible.",
+													null,
+													List.of(getMcpName(GhidraListDataTypesTool.class))),
+											new GhidraMcpError.ErrorSuggestion(
+													GhidraMcpError.ErrorSuggestion.SuggestionType.ALTERNATIVE_APPROACH,
+													"Try default pointer length",
+													"If a custom pointer length was specified, try omitting it or using -1 for the default.",
+													null,
+													null)))
+									.build();
+							throw new GhidraMcpException(error);
 						}
 
 						CategoryPath actualCategoryPath;

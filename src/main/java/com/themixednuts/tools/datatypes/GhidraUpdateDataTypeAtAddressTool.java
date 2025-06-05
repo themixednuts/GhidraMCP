@@ -3,7 +3,6 @@ package com.themixednuts.tools.datatypes;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -13,7 +12,6 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.DataTypeUtils;
-import com.themixednuts.utils.GhidraMcpErrorUtils;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;

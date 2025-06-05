@@ -22,8 +22,6 @@ import ghidra.program.model.data.EnumDataType;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
-
 @GhidraMcpTool(name = "Create Enum", mcpName = "create_enum", category = ToolCategory.DATATYPES, description = "Creates a new enum data type.", mcpDescription = "Create a new enumeration data type in a Ghidra program with configurable storage size. Supports 1, 2, 4, or 8 byte storage.")
 public class GhidraCreateEnumTool implements IGhidraMcpSpecification {
 
