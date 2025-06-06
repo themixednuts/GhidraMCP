@@ -215,7 +215,6 @@ public class GhidraSearchMemoryTool implements IGhidraMcpSpecification {
 					boolean caseSensitive = getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
 					int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(DEFAULT_PAGE_LIMIT);
 
-					// Validate search value is not empty
 					if (searchValue.trim().isEmpty()) {
 						GhidraMcpError error = GhidraMcpError.validation()
 								.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -236,12 +235,8 @@ public class GhidraSearchMemoryTool implements IGhidraMcpSpecification {
 					GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(ex,
 							"Searching memory for: " + context.searchValue());
 
-					// You will implement this method.
-					// For now, it returns an empty list and no next cursor.
 					List<SearchResult> results = search(context, monitor);
 
-					// The result is wrapped in PaginatedResult to support pagination if you
-					// implement it.
 					return new PaginatedResult<>(results, null);
 				});
 	}
