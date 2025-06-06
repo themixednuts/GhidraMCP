@@ -3,6 +3,8 @@ package com.themixednuts.tools.functions;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -28,8 +30,10 @@ import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Get Function", category = ToolCategory.FUNCTIONS, description = "Gets details about a function specified either by its name or entry point address.", mcpName = "get_function", mcpDescription = "Get detailed information about a function in a Ghidra program. Use symbol ID, address, or function name to identify the function.")
+@GhidraMcpTool(name = "Get Function", category = ToolCategory.FUNCTIONS, description = "Gets details about a function specified either by its name, entry point address, or a regular expression.", mcpName = "get_function", mcpDescription = "Get detailed information about one or more functions in a Ghidra program. Use symbol ID, address, function name, or a regular expression for the function name.")
 public class GhidraGetFunctionTool implements IGhidraMcpSpecification {
+
+	public static final String ARG_FUNCTION_NAME_REGEX = "functionNameRegex";
 
 	@Override
 	public JsonSchema schema() {
@@ -48,6 +52,10 @@ public class GhidraGetFunctionTool implements IGhidraMcpSpecification {
 						.description(
 								"Optional entry point address of the function (e.g., '0x1004010'). Used if Symbol ID is not provided or not found.")
 						.pattern("^(0x)?[0-9a-fA-F]+$"));
+		schemaRoot.property(ARG_FUNCTION_NAME_REGEX,
+				JsonSchemaBuilder.string(mapper)
+						.description(
+								"A regular expression to match against function names. Used if other identifiers are not provided. Returns a list of matching functions."));
 
 		schemaRoot.requiredProperty(ARG_FILE_NAME);
 
@@ -80,11 +88,18 @@ public class GhidraGetFunctionTool implements IGhidraMcpSpecification {
 						return handleFunctionByName(functionNameOpt.get(), functionManager, annotation).block();
 					}
 
+					// Check for function name regex
+					Optional<String> functionNameRegexOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME_REGEX);
+					if (functionNameRegexOpt.isPresent()) {
+						return handleFunctionByRegex(functionNameRegexOpt.get(), functionManager, annotation).block();
+					}
+
 					// No valid search criteria provided - use structured error handling
 					Map<String, Object> providedIdentifiers = Map.of(
 							ARG_FUNCTION_SYMBOL_ID, "not provided",
 							ARG_ADDRESS, "not provided",
-							ARG_FUNCTION_NAME, "not provided");
+							ARG_FUNCTION_NAME, "not provided",
+							ARG_FUNCTION_NAME_REGEX, "not provided");
 
 					GhidraMcpError error = GhidraMcpError.validation()
 							.errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
@@ -99,12 +114,13 @@ public class GhidraGetFunctionTool implements IGhidraMcpSpecification {
 									new GhidraMcpError.ErrorSuggestion(
 											GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
 											"Provide at least one function identifier",
-											"Include at least one of: " + ARG_FUNCTION_SYMBOL_ID + ", " + ARG_ADDRESS + ", or "
-													+ ARG_FUNCTION_NAME,
+											"Include at least one of: " + ARG_FUNCTION_SYMBOL_ID + ", " + ARG_ADDRESS + ", "
+													+ ARG_FUNCTION_NAME + ", or " + ARG_FUNCTION_NAME_REGEX,
 											List.of(
 													"\"" + ARG_FUNCTION_SYMBOL_ID + "\": 12345",
 													"\"" + ARG_ADDRESS + "\": \"0x401000\"",
-													"\"" + ARG_FUNCTION_NAME + "\": \"main\""),
+													"\"" + ARG_FUNCTION_NAME + "\": \"main\"",
+													"\"" + ARG_FUNCTION_NAME_REGEX + "\": \"^sub_.*\""),
 											null),
 									new GhidraMcpError.ErrorSuggestion(
 											GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
@@ -185,6 +201,55 @@ public class GhidraGetFunctionTool implements IGhidraMcpSpecification {
 		);
 
 		return Mono.error(new GhidraMcpException(structuredError));
+	}
+
+	/**
+	 * Handles function lookup by regex with enhanced error reporting.
+	 *
+	 * @param functionNameRegex The regex to match function names against
+	 * @param functionManager   The Ghidra FunctionManager
+	 * @param annotation        The tool's annotation for metadata
+	 * @return A Mono containing a list of matching functions or an error
+	 */
+	private Mono<Object> handleFunctionByRegex(String functionNameRegex, FunctionManager functionManager,
+			GhidraMcpTool annotation) {
+		Pattern pattern;
+		try {
+			pattern = Pattern.compile(functionNameRegex);
+		} catch (PatternSyntaxException e) {
+			Map<String, Object> failureContext = Map.of(
+					"regexPattern", functionNameRegex,
+					"exceptionMessage", e.getMessage());
+
+			GhidraMcpError error = GhidraMcpError.validation()
+					.errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+					.message("Invalid regular expression pattern")
+					.context(new GhidraMcpError.ErrorContext(
+							annotation.mcpName(),
+							"regex validation",
+							Map.of(ARG_FUNCTION_NAME_REGEX, functionNameRegex),
+							failureContext,
+							Map.of()))
+					.build();
+			return Mono.error(new GhidraMcpException(error));
+		}
+
+		List<FunctionInfo> matchingFunctions = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+				.filter(function -> pattern.matcher(function.getName(true)).matches())
+				.map(FunctionInfo::new)
+				.collect(Collectors.toList());
+
+		if (matchingFunctions.isEmpty()) {
+			Map<String, Object> searchCriteria = Map.of(ARG_FUNCTION_NAME_REGEX, functionNameRegex);
+			List<String> allFunctionNames = getAllAvailableFunctionNames(functionManager);
+			GhidraMcpError structuredError = GhidraMcpErrorUtils.functionNotFound(
+					searchCriteria,
+					annotation.mcpName(),
+					allFunctionNames);
+			return Mono.error(new GhidraMcpException(structuredError));
+		}
+
+		return Mono.just(matchingFunctions);
 	}
 
 	/**
