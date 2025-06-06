@@ -143,7 +143,7 @@ public class GhidraSearchMemoryTool implements IGhidraMcpSpecification {
 								"Value to search for. Format depends on search type:\n" +
 										"- string: text to find (e.g., 'hello')\n" +
 										"- hex: hexadecimal bytes (e.g., '48656c6c6f' or '48 65 6c 6c 6f')\n" +
-										"- binary: binary string (e.g., '0100100001100101')\n" +
+										"- binary: space-separated binary bytes (e.g., '01001000 01100101')\n" +
 										"- decimal: decimal number (e.g., '12345')\n" +
 										"- float: floating point number (e.g., '3.14159')\n" +
 										"- double: double precision number (e.g., '2.718281828')\n" +
