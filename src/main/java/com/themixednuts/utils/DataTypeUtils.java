@@ -57,7 +57,8 @@ public class DataTypeUtils {
 		DataTypeManager programDtm = program.getDataTypeManager();
 		DataTypeManagerService dtmService = tool.getService(DataTypeManagerService.class);
 
-		DataTypeParser parser = new DataTypeParser(programDtm, programDtm, dtmService, DataTypeParser.AllowedDataTypes.ALL);
+		DataTypeParser parser = new DataTypeParser(programDtm, programDtm, dtmService,
+				DataTypeParser.AllowedDataTypes.FIXED_LENGTH);
 		InvalidDataTypeException firstParseException = null;
 
 		try {
