@@ -6,7 +6,6 @@ import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.themixednuts.tools.datatypes.DataTypeKind;
 import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.Union;
 
@@ -17,7 +16,7 @@ import ghidra.program.model.data.Union;
 public class UnionDetails extends BaseDataTypeDetails {
 
 	private final int numComponents;
-	private final List<UnionMemberInfo> members;
+	private final List<ComponentMemberInfo> members;
 
 	public UnionDetails(Union unionDt) {
 		super(
@@ -30,9 +29,9 @@ public class UnionDetails extends BaseDataTypeDetails {
 				Optional.ofNullable(unionDt.getDescription()).orElse(""));
 		this.numComponents = unionDt.getNumComponents();
 
-		List<UnionMemberInfo> memberInfos = new ArrayList<>();
+		List<ComponentMemberInfo> memberInfos = new ArrayList<>();
 		for (DataTypeComponent component : unionDt.getComponents()) {
-			memberInfos.add(new UnionMemberInfo(component));
+			memberInfos.add(new ComponentMemberInfo(component, false));
 		}
 		this.members = memberInfos;
 	}
@@ -43,7 +42,7 @@ public class UnionDetails extends BaseDataTypeDetails {
 	}
 
 	@JsonProperty("members")
-	public List<UnionMemberInfo> getMembers() {
+	public List<ComponentMemberInfo> getMembers() {
 		return members;
 	}
 }

@@ -2,6 +2,7 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import ghidra.program.model.listing.Parameter;
 
 /**
  * Model representing a single parameter within a Function Definition.
@@ -19,6 +20,16 @@ public class ParameterInfo {
 		this.dataTypePath = dataTypePath;
 		this.comment = comment;
 		this.length = length;
+	}
+
+	/**
+	 * Constructor for creating ParameterInfo from Ghidra Parameter object.
+	 */
+	public ParameterInfo(Parameter parameter) {
+		this.name = parameter.getName();
+		this.dataTypePath = parameter.getDataType().getPathName();
+		this.comment = parameter.getComment();
+		this.length = parameter.getLength();
 	}
 
 	@JsonProperty("name")

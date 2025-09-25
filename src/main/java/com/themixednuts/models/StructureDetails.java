@@ -6,7 +6,6 @@ import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.themixednuts.tools.datatypes.DataTypeKind;
 import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.Structure;
 
@@ -18,11 +17,11 @@ public class StructureDetails extends BaseDataTypeDetails {
 
 	private final int numComponents;
 
-	private final List<StructureMemberInfo> members;
+	private final List<ComponentMemberInfo> members;
 
 	public StructureDetails(Structure struct) {
 		super(
-				DataTypeKind.STRUCT,
+				DataTypeKind.STRUCTURE,
 				struct.getPathName(),
 				struct.getName(),
 				struct.getCategoryPath().getPath(),
@@ -31,16 +30,9 @@ public class StructureDetails extends BaseDataTypeDetails {
 				Optional.ofNullable(struct.getDescription()).orElse(""));
 		this.numComponents = struct.getNumComponents();
 
-		List<StructureMemberInfo> memberInfos = new ArrayList<>();
+		List<ComponentMemberInfo> memberInfos = new ArrayList<>();
 		for (DataTypeComponent component : struct.getDefinedComponents()) {
-			memberInfos.add(new StructureMemberInfo(
-					component.getFieldName(),
-					component.getDataType().getPathName(),
-					component.getOffset(),
-					component.getOrdinal(),
-					component.getLength(),
-					Optional.ofNullable(component.getComment()).orElse(""),
-					component.isBitFieldComponent()));
+			memberInfos.add(new ComponentMemberInfo(component, true));
 		}
 		this.members = memberInfos;
 	}
@@ -51,7 +43,7 @@ public class StructureDetails extends BaseDataTypeDetails {
 	}
 
 	@JsonProperty("members")
-	public List<StructureMemberInfo> getMembers() {
+	public List<ComponentMemberInfo> getMembers() {
 		return members;
 	}
 }

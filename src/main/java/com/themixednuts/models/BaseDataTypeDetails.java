@@ -2,7 +2,6 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.themixednuts.tools.datatypes.DataTypeKind;
 
 /**
  * Base model containing common details for data types retrieved by

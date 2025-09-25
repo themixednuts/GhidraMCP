@@ -1,7 +1,6 @@
 package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.themixednuts.tools.datatypes.DataTypeKind;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.Pointer;
