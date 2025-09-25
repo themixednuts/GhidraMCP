@@ -1576,7 +1576,6 @@ public class JsonSchemaBuilder {
 				Objects.requireNonNull(schemaBuilder, "Schema builder in itemsAnyOf list cannot be null");
 				// It's assumed that schemaBuilder.build().getNode() will produce an object
 				// schema
-				// as per the usage in IGroupedTool.createSchemaVariantForTool
 				subSchemaNodes.add(schemaBuilder.build().getNode());
 			}
 

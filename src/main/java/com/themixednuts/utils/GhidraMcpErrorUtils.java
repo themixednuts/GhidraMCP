@@ -15,11 +15,6 @@ import com.themixednuts.models.GhidraMcpError.ErrorContext;
 import com.themixednuts.models.GhidraMcpError.ErrorDebugInfo;
 import com.themixednuts.models.GhidraMcpError.ErrorSuggestion;
 import com.themixednuts.models.GhidraMcpError.ErrorSuggestion.SuggestionType;
-import com.themixednuts.tools.IGhidraMcpSpecification;
-import com.themixednuts.tools.datatypes.GhidraListCategoriesTool;
-import com.themixednuts.tools.datatypes.GhidraListDataTypesTool;
-import com.themixednuts.tools.functions.GhidraListFunctionNamesTool;
-import com.themixednuts.tools.projectmanagement.GhidraListOpenFilesTool;
 
 import ghidra.framework.Application;
 import ghidra.program.model.data.DataTypeManager;
@@ -114,7 +109,7 @@ public class GhidraMcpErrorUtils {
 				"Check available functions in the program",
 				"Use the 'list_function_names' tool to see all available functions",
 				null,
-				List.of(IGhidraMcpSpecification.getMcpNameForTool(GhidraListFunctionNamesTool.class))));
+				List.of("analyze_functions")));
 
 		// Suggest similar function names if available
 		if (!availableFunctions.isEmpty()) {
@@ -162,8 +157,7 @@ public class GhidraMcpErrorUtils {
 				"Check available data types in the program",
 				"Use the 'list_data_types' tool to see available data types",
 				null,
-				List.of(IGhidraMcpSpecification.getMcpNameForTool(GhidraListDataTypesTool.class),
-						IGhidraMcpSpecification.getMcpNameForTool(GhidraListCategoriesTool.class))));
+				List.of("manage_data_types")));
 
 		// Add similar data type suggestions
 		if (suggestions != null && !suggestions.isEmpty()) {
@@ -340,7 +334,7 @@ public class GhidraMcpErrorUtils {
 				"Check available open files",
 				"Use the 'list_open_files' tool to see currently open files",
 				null,
-				List.of(IGhidraMcpSpecification.getMcpNameForTool(GhidraListOpenFilesTool.class))));
+				null));
 
 		if (!availableFiles.isEmpty()) {
 			List<String> similarNames = findSimilarNames(fileName, availableFiles, 3);
