@@ -25,35 +25,27 @@ A Ghidra extension that runs an embedded MCP server to expose Ghidra program dat
 
 ## ✨ Features
 
-This extension exposes various Ghidra functionalities to MCP clients through categorized tool groups. Each category provides both individual tools and grouped operations for batch processing.
+This extension exposes Ghidra functionalities to MCP clients through semantic tools designed for reverse engineering workflows. Each tool provides comprehensive operations tailored to specific analysis tasks.
 
-### [`Project Management`](src/main/java/com/themixednuts/tools/grouped/GroupedProjectManagementOperationsTool.java)
+### [`Function Analysis`](src/main/java/com/themixednuts/tools/AnalyzeFunctionsTool.java)
 
-Provides tools for managing Ghidra project context, including listing open files, getting current program information, handling bookmarks, and interacting with Ghidra scripts.
+Comprehensive function analysis including creation, inspection, decompilation, and prototype management. Supports multiple identification methods (name, address, symbol ID, regex) and provides detailed function information including parameters, return types, and call sites.
 
-### [`Functions`](src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java)
+### [`Code Decompilation`](src/main/java/com/themixednuts/tools/DecompileCodeTool.java)
 
-Offers a comprehensive suite of tools for inspecting, creating, deleting, and modifying functions within a program. This includes managing function names, prototypes, comments, and symbols within functions.
+Advanced decompilation and P-code analysis for functions and code regions. Decompiles functions to C-like pseudocode, analyzes P-code operations, and supports configurable timeout and analysis depth for complex control structures.
 
-### [`Symbols & Labels`](src/main/java/com/themixednuts/tools/grouped/GroupedSymbolOperationsTool.java)
+### [`Data Type Management`](src/main/java/com/themixednuts/tools/ManageDataTypesTool.java)
 
-Enables interaction with various symbols and labels in Ghidra. Tools cover listing defined strings, managing namespaces, setting/getting comments at addresses, renaming data, and handling labels.
+Comprehensive management of all data types in Ghidra programs. Create, read, update, delete, and list structures, enums, unions, typedefs, pointers, function definitions, and categories with automatic type resolution and validation.
 
-### [`Data Types`](src/main/java/com/themixednuts/tools/grouped/GroupedDatatypeOperationsTool.java)
+### [`Memory Operations`](src/main/java/com/themixednuts/tools/ManageMemoryTool.java)
 
-Allows for detailed management of data types within Ghidra's data type manager. This includes listing, creating, modifying, and deleting categories, structures, enums, unions, typedefs, and function definitions, as well as applying types to specific addresses.
+Comprehensive memory operations for reverse engineering. Read and write bytes, search for patterns, analyze memory layout, and manage memory segments. Supports multiple search formats including hex, string, binary, and regex patterns.
 
-### [`Memory & Addresses`](src/main/java/com/themixednuts/tools/grouped/GroupedMemoryOperationsTool.java)
+### [`Symbol Management`](src/main/java/com/themixednuts/tools/ManageSymbolsTool.java)
 
-Facilitates direct interaction with program memory. Tools include listing memory segments, reading/writing bytes (patching), searching memory, and retrieving cross-references (XRefs) to and from addresses, as well as listing imports.
-
-### [`Decompiler`](src/main/java/com/themixednuts/tools/grouped/GroupedDecompilerOperationsTool.java)
-
-Provides access to Ghidra's decompiler capabilities, primarily for decompiling functions to view their C-like representation and P-code.
-
-### [`Control Flow`](src/main/java/com/themixednuts/tools/grouped/GroupedControlFlowOperationsTool.java)
-
-Includes tools for analyzing program control flow, such as retrieving information about basic blocks and their predecessors/successors.
+Comprehensive symbol management including creating, renaming, deleting, searching, and analyzing symbols. Supports multiple symbol identification methods, namespace organization, and symbol scoping with validation according to Ghidra rules.
 
 ---
 
