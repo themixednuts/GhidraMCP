@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.ServiceLoader;
-import java.util.Set;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.themixednuts.annotation.GhidraMcpTool;
@@ -15,9 +14,7 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import com.themixednuts.tools.ToolCategory;
-import com.themixednuts.tools.grouped.IGroupedTool;
+import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 
 import generic.stl.Pair;
 
@@ -60,12 +57,8 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	 */
 	@Override
 	public List<Pair<String, AsyncToolSpecification>> getAvailableToolSpecifications() throws JsonProcessingException {
-		// 1. Load all tool providers
-		List<ServiceLoader.Provider<IGhidraMcpSpecification>> allProviders = ServiceLoader
-				.load(IGhidraMcpSpecification.class).stream().collect(Collectors.toList());
-
-		// 2. Filter based on Ghidra options
-		List<ServiceLoader.Provider<IGhidraMcpSpecification>> enabledToolProviders = allProviders.stream()
+		// Load all tool providers and filter based on Ghidra options
+		return ServiceLoader.load(IGhidraMcpSpecification.class).stream()
 				.filter(provider -> {
 					Class<? extends IGhidraMcpSpecification> toolClass = provider.type();
 					GhidraMcpTool toolAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
@@ -75,75 +68,14 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 										" is missing @GhidraMcpTool annotation. Skipping inclusion.");
 						return false;
 					}
-					String baseKey = toolAnnotation.name();
-					ToolCategory categoryEnum = toolAnnotation.category();
-					String fullKey = baseKey;
-					if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
-						fullKey = categoryEnum.getCategoryName() + "." + baseKey;
-					}
-					boolean isEnabled = this.options.getBoolean(fullKey, true);
+
+					String toolKey = toolAnnotation.name();
+					boolean isEnabled = this.options.getBoolean(toolKey, true);
 					if (!isEnabled) {
-						Msg.info(GhidraMcpTools.class, "Tool '" + fullKey + "' is disabled via options.");
+						Msg.info(GhidraMcpTools.class, "Tool '" + toolKey + "' is disabled via options.");
 					}
 					return isEnabled;
 				})
-				.collect(Collectors.toList());
-
-		// 3. Identify categories managed by *enabled* grouped tools
-		Set<String> groupedCategories = enabledToolProviders.stream()
-				.filter(provider -> IGroupedTool.class.isAssignableFrom(provider.type()))
-				.map(provider -> {
-					try {
-						IGhidraMcpSpecification instance = provider.get();
-						Class<?> instanceClass = instance.getClass();
-						java.lang.reflect.Field targetCategoryField = instanceClass.getDeclaredField("TARGET_CATEGORY"); // getField()
-						targetCategoryField.setAccessible(true); // If not public
-						ToolCategory targetCategoryEnum = (ToolCategory) targetCategoryField.get(instance);
-
-						if (targetCategoryEnum != null) {
-							return targetCategoryEnum.getCategoryName();
-						}
-						Msg.warn(this, "Could not retrieve TARGET_CATEGORY from grouped tool: " + provider.type().getSimpleName());
-						return null;
-
-					} catch (NoSuchFieldException e) {
-						Msg.error(this,
-								"Grouped tool " + provider.type().getSimpleName() + " does not have expected TARGET_CATEGORY field", e);
-						return null;
-					} catch (Exception e) { // Catch IllegalAccessException and other potential errors
-						Msg.error(this, "Error accessing TARGET_CATEGORY for grouped tool " + provider.type().getSimpleName(), e);
-						return null;
-					}
-				})
-				.filter(Objects::nonNull)
-				.collect(Collectors.toSet());
-
-		// 4. Filter again: Keep enabled grouped tools, and only keep enabled granular
-		// tools
-		// if their category isn't managed by an enabled grouped tool.
-		List<ServiceLoader.Provider<IGhidraMcpSpecification>> finalProviders = enabledToolProviders.stream()
-				.filter(provider -> {
-					Class<? extends IGhidraMcpSpecification> toolClass = provider.type();
-					// Keep if it IS a grouped tool
-					if (IGroupedTool.class.isAssignableFrom(toolClass)) {
-						return true;
-					}
-					// Otherwise, keep only if its category is NOT in the groupedCategories set
-					GhidraMcpTool toolAnnotation = toolClass.getAnnotation(GhidraMcpTool.class);
-					if (toolAnnotation != null) {
-						ToolCategory categoryEnum = toolAnnotation.category();
-						if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
-							return !groupedCategories.contains(categoryEnum.getCategoryName());
-						}
-					}
-					// Keep uncategorized tools or those with missing annotations (though the latter
-					// were already filtered)
-					return true;
-				})
-				.collect(Collectors.toList());
-
-		// 5. Map the final providers to their specifications
-		return finalProviders.stream()
 				.map(provider -> {
 					try {
 						IGhidraMcpSpecification toolInstance = provider.get();
@@ -189,17 +121,11 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 					return;
 				}
 
-				String baseKey = toolAnnotation.name();
+				String toolKey = toolAnnotation.name();
 				String desc = toolAnnotation.description();
-				ToolCategory categoryEnum = toolAnnotation.category();
-
-				String fullKey = baseKey;
-				if (categoryEnum != null && categoryEnum != ToolCategory.UNCATEGORIZED) {
-					fullKey = categoryEnum.getCategoryName() + "." + baseKey;
-				}
 
 				// Register the boolean option (defaulting to true/enabled)
-				options.registerOption(fullKey, OptionType.BOOLEAN_TYPE, true, help, desc);
+				options.registerOption(toolKey, OptionType.BOOLEAN_TYPE, true, help, desc);
 
 			} catch (SecurityException e) {
 				Msg.error(GhidraMcpTools.class,
