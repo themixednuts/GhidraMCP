@@ -3,7 +3,7 @@ package com.themixednuts.services;
 import java.util.List;
 
 import generic.stl.Pair;
-import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 import ghidra.framework.plugintool.ServiceInfo;
 
 /**
