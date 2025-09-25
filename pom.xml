@@ -45,7 +45,7 @@
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <ghidra.version>11.3.2</ghidra.version>
+    <ghidra.version>11.4.2</ghidra.version>
     <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
     <!-- Add any necessary properties here -->
   </properties>
