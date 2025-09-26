@@ -2,6 +2,7 @@ package com.themixednuts.tools;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonWriteFeature;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -11,6 +12,7 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import io.modelcontextprotocol.spec.McpSchema;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
@@ -22,6 +24,7 @@ import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecif
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -123,24 +126,21 @@ public interface IGhidraMcpSpecification {
             );
             return null;
         }
-        JsonSchema schemaObject = schema();
-        Optional<String> schemaStringOpt = parseSchema(schemaObject);
-        if (schemaStringOpt.isEmpty()) {
-            Msg.error(
-                this,
-                "Failed to generate schema for tool '" +
-                annotation.mcpName() +
-                "'. Tool will be disabled."
-            );
+        JsonSchema customSchemaObject = schema();
+        Optional<McpSchema.JsonSchema> mcpSchemaOpt = convertToMcpSchema(
+            customSchemaObject,
+            annotation
+        );
+        if (mcpSchemaOpt.isEmpty()) {
             return null;
         }
-        String schemaJson = schemaStringOpt.get();
+        McpSchema.JsonSchema mcpSchemaObject = mcpSchemaOpt.get();
 
         return new AsyncToolSpecification(
             Tool.builder()
                 .name(annotation.mcpName())
                 .description(annotation.mcpDescription())
-                .inputSchema(schemaJson)
+                .inputSchema(mcpSchemaObject)
                 .build(),
             (ex, request) ->
                 execute(ex, request.arguments(), tool)
@@ -1248,10 +1248,67 @@ public interface IGhidraMcpSpecification {
      *         by the {@code JsonSchema.toJsonString} method).
      */
     default Optional<String> parseSchema(JsonSchema schema) {
-        // Delegate serialization to the JsonSchema object, using the interface's
-        // mapper.
-        // Error logging is handled within JsonSchema.toJsonString.
         return schema.toJsonString(mapper);
+    }
+
+    /**
+     * Converts the project's {@link JsonSchema} representation to the MCP SDK's
+     * {@link McpSchema.JsonSchema} format.
+     *
+     * @param schema     The custom JsonSchema to convert.
+     * @param annotation The {@link GhidraMcpTool} annotation for logging context.
+     * @return An {@link Optional} containing the converted schema, or empty if conversion fails.
+     */
+    default Optional<McpSchema.JsonSchema> convertToMcpSchema(JsonSchema schema, GhidraMcpTool annotation) {
+        if (schema == null) {
+            return Optional.empty();
+        }
+
+        Optional<String> schemaStringOpt = parseSchema(schema);
+        if (schemaStringOpt.isEmpty()) {
+            Msg.error(
+                this,
+                "Failed to generate schema for tool '" +
+                annotation.mcpName() +
+                "'. Tool will be disabled."
+            );
+            return Optional.empty();
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> schemaMap = mapper.readValue(
+                schemaStringOpt.get(),
+                new TypeReference<Map<String, Object>>() {}
+            );
+
+            String type = (String) schemaMap.get("type");
+            Map<String, Object> properties = (Map<String, Object>) schemaMap.get("properties");
+            List<String> required = (List<String>) schemaMap.get("required");
+            Boolean additionalProperties = (Boolean) schemaMap.get("additionalProperties");
+            Map<String, Object> defs = (Map<String, Object>) schemaMap.get("$defs");
+            Map<String, Object> definitions = (Map<String, Object>) schemaMap.get("definitions");
+
+            return Optional.of(
+                new McpSchema.JsonSchema(
+                    type,
+                    properties,
+                    required,
+                    additionalProperties,
+                    defs,
+                    definitions
+                )
+            );
+        } catch (IOException e) {
+            Msg.error(
+                this,
+                "Failed to convert schema to MCP format for tool '" +
+                annotation.mcpName() +
+                "': " + e.getMessage(),
+                e
+            );
+            return Optional.empty();
+        }
     }
 
     /**
