@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.DataTypeUtils;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -63,6 +64,8 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     public static final String ARG_OFFSET = "offset";
     public static final String ARG_VALUE = "value";
     public static final String ARG_TYPE = "type";
+    private static final String ARG_PAGE_SIZE = "page_size";
+    private static final int DEFAULT_PAGE_SIZE = 100;
 
     @Override
     public JsonSchema schema() {
@@ -127,6 +130,12 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     .property(ARG_TYPE, JsonSchemaBuilder.string(mapper).description("Parameter type"))
                     .requiredProperty(ARG_TYPE))
                 .description("Parameters for function definitions"));
+
+        schemaRoot.property(ARG_PAGE_SIZE, JsonSchemaBuilder.integer(mapper)
+                .description("Maximum number of results per page for list action")
+                .minimum(1)
+                .maximum(500)
+                .defaultValue(DEFAULT_PAGE_SIZE));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
                 .requiredProperty(ARG_ACTION)
@@ -602,19 +611,55 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 .map(CategoryPath::new).orElse(CategoryPath.ROOT);
             Optional<String> filter = getOptionalStringArgument(args, "filter");
             boolean includeBuiltin = getOptionalBooleanArgument(args, "include_builtin").orElse(false);
+            Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+            int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
 
             DataTypeManager dtm = program.getDataTypeManager();
             List<Map<String, Object>> dataTypeList = new ArrayList<>();
 
-            // Get all data types in the category
             Category category = dtm.getCategory(categoryPath);
             if (category != null) {
                 collectDataTypesAsMaps(category, dataTypeList, dataTypeKind, filter, includeBuiltin);
             }
 
+            dataTypeList.sort(Comparator.comparing(
+                entry -> (String) entry.get("path"),
+                Comparator.nullsLast(String::compareTo)));
+
+            int startIndex = 0;
+            if (cursorOpt.isPresent()) {
+                String cursor = cursorOpt.get();
+                startIndex = dataTypeList.size();
+                for (int i = 0; i < dataTypeList.size(); i++) {
+                    String path = (String) dataTypeList.get(i).get("path");
+                    if (path != null && path.compareTo(cursor) > 0) {
+                        startIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            List<Map<String, Object>> pageBuffer = new ArrayList<>();
+            for (int i = startIndex; i < dataTypeList.size() && pageBuffer.size() < pageSize + 1; i++) {
+                pageBuffer.add(dataTypeList.get(i));
+            }
+
+            String nextCursor = null;
+            if (pageBuffer.size() > pageSize) {
+                nextCursor = (String) pageBuffer.get(pageSize).get("path");
+            }
+
+            List<Map<String, Object>> pageResults = pageBuffer.size() > pageSize
+                ? new ArrayList<>(pageBuffer.subList(0, pageSize))
+                : pageBuffer;
+
+            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(pageResults, nextCursor);
+
             return Map.of(
-                "data_types", dataTypeList,
-                "total_count", dataTypeList.size(),
+                "data_types", paginated,
+                "total_available", dataTypeList.size(),
+                "returned_count", pageResults.size(),
+                "page_size", pageSize,
                 "category", categoryPath.toString(),
                 "filter_applied", filter.orElse("none"),
                 "include_builtin", includeBuiltin,

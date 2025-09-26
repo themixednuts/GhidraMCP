@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -73,6 +74,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
     public static final String ARG_BYTES_HEX = "bytes_hex";
     public static final String ARG_CASE_SENSITIVE = "case_sensitive";
     public static final String ARG_MAX_RESULTS = "max_results";
+    public static final String ARG_PAGE_SIZE = "page_size";
+    private static final int DEFAULT_PAGE_SIZE = 100;
 
     public enum SearchType {
         STRING("string", SearchFormat.STRING),
@@ -145,6 +148,12 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 .minimum(1)
                 .maximum(1000)
                 .defaultValue(100));
+
+        schemaRoot.property(ARG_PAGE_SIZE, JsonSchemaBuilder.integer(mapper)
+                .description("Maximum number of search results to return per page")
+                .minimum(1)
+                .maximum(1000)
+                .defaultValue(DEFAULT_PAGE_SIZE));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
                 .requiredProperty(ARG_ACTION);
@@ -345,7 +354,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         String searchTypeStr = getRequiredStringArgument(args, ARG_SEARCH_TYPE);
         String searchValue = getRequiredStringArgument(args, ARG_SEARCH_VALUE);
         boolean caseSensitive = getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
-        int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(100);
+        int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
+        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
         return Mono.fromCallable(() -> {
             SearchType searchType;
@@ -384,12 +394,32 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
 
             ProgramByteSource byteSource = new ProgramByteSource(program);
             AddressSetView addressSet = program.getMemory().getLoadedAndInitializedAddressSet();
-            MemorySearcher searcher = new MemorySearcher(byteSource, matcher, addressSet, maxResults);
+            MemorySearcher searcher = new MemorySearcher(byteSource, matcher, addressSet, pageSize);
 
             ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
             searcher.findAll(accumulator, null);
 
-            List<Map<String, Object>> results = accumulator.stream()
+            List<MemoryMatch> matches = accumulator.stream().collect(Collectors.toList());
+            matches.sort(Comparator.comparing(match -> match.getAddress()));
+
+            int startIndex = 0;
+            if (cursorOpt.isPresent()) {
+                String cursor = cursorOpt.get();
+                for (int i = 0; i < matches.size(); i++) {
+                    String matchAddress = matches.get(i).getAddress().toString();
+                    if (matchAddress.compareTo(cursor) > 0) {
+                        startIndex = i;
+                        break;
+                    }
+                    if (i == matches.size() - 1) {
+                        startIndex = matches.size();
+                    }
+                }
+            }
+
+            List<Map<String, Object>> pageBuffer = matches.stream()
+                .skip(startIndex)
+                .limit((long) pageSize + 1)
                 .map(match -> Map.<String, Object>of(
                     "address", match.getAddress().toString(),
                     "bytes", HexFormat.of().formatHex(match.getBytes()),
@@ -398,13 +428,25 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 ))
                 .collect(Collectors.toList());
 
+            String nextCursor = null;
+            if (pageBuffer.size() > pageSize) {
+                nextCursor = (String) pageBuffer.get(pageSize).get("address");
+            }
+
+            List<Map<String, Object>> pageResults = pageBuffer.size() > pageSize
+                ? new ArrayList<>(pageBuffer.subList(0, pageSize))
+                : pageBuffer;
+
+            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(pageResults, nextCursor);
+
             return Map.of(
                 "search_type", searchTypeStr,
                 "search_value", searchValue,
                 "case_sensitive", caseSensitive,
-                "results", results,
-                "total_found", results.size(),
-                "max_results", maxResults
+                "results", paginated,
+                "total_found", matches.size(),
+                "returned_count", pageResults.size(),
+                "page_size", pageSize
             );
         });
     }

@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -77,6 +78,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     public static final String ARG_NAMESPACE = "namespace";
     public static final String ARG_CASE_SENSITIVE = "case_sensitive";
     public static final String ARG_MAX_RESULTS = "max_results";
+    public static final String ARG_PAGE_SIZE = "page_size";
+    private static final int DEFAULT_PAGE_SIZE = 100;
 
     @Override
     public JsonSchema schema() {
@@ -129,6 +132,12 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 .minimum(1)
                 .maximum(1000)
                 .defaultValue(100));
+
+        schemaRoot.property(ARG_PAGE_SIZE, JsonSchemaBuilder.integer(mapper)
+                .description("Maximum number of results per page for list/search actions")
+                .minimum(1)
+                .maximum(500)
+                .defaultValue(DEFAULT_PAGE_SIZE));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
                 .requiredProperty(ARG_ACTION);
@@ -464,13 +473,14 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         String namePattern = getOptionalStringArgument(args, ARG_NAME_PATTERN).orElse(".*");
         Optional<String> typeFilterOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE_FILTER);
         boolean caseSensitive = getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
-        int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(100);
+        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+        int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
 
         return Mono.fromCallable(() -> {
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator symbolIter = symbolTable.getAllSymbols(true);
 
-            List<Symbol> matchingSymbols = StreamSupport.stream(symbolIter.spliterator(), false)
+            List<Symbol> allSymbols = StreamSupport.stream(symbolIter.spliterator(), false)
                 .filter(symbol -> {
                     String symbolName = symbol.getName();
                     String pattern = caseSensitive ? namePattern : namePattern.toLowerCase();
@@ -481,13 +491,25 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 .filter(symbol -> {
                     if (typeFilterOpt.isEmpty()) return true;
                     SymbolType symbolType = symbol.getSymbolType();
-                    return symbolType != null &&
-                           symbolType.toString().equalsIgnoreCase(typeFilterOpt.get());
+                    return symbolType != null && symbolType.toString().equalsIgnoreCase(typeFilterOpt.get());
                 })
-                .limit(maxResults)
+                .sorted(Comparator.comparingLong(Symbol::getID))
                 .collect(Collectors.toList());
 
-            List<Map<String, Object>> results = matchingSymbols.stream()
+            long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
+
+            List<Symbol> pageBuffer = allSymbols.stream()
+                .filter(symbol -> symbol.getID() > cursorId)
+                .limit((long) pageSize + 1)
+                .collect(Collectors.toList());
+
+            String nextCursor = null;
+            if (pageBuffer.size() > pageSize) {
+                nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
+            }
+
+            List<Map<String, Object>> results = pageBuffer.stream()
+                .limit(pageSize)
                 .map(symbol -> Map.<String, Object>of(
                     "id", symbol.getID(),
                     "name", symbol.getName(),
@@ -498,27 +520,47 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     "primary", symbol.isPrimary()
                 ))
                 .collect(Collectors.toList());
+
+            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(results, nextCursor);
 
             return Map.of(
                 "pattern", namePattern,
                 "case_sensitive", caseSensitive,
                 "type_filter", typeFilterOpt.orElse("all"),
-                "results", results,
-                "total_found", results.size(),
-                "max_results", maxResults
+                "results", paginated,
+                "total_found", allSymbols.size(),
+                "returned_count", results.size(),
+                "page_size", pageSize
             );
         });
     }
 
     private Mono<? extends Object> handleList(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(100);
+        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+        int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
 
         return Mono.fromCallable(() -> {
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator symbolIter = symbolTable.getAllSymbols(true);
 
-            List<Map<String, Object>> symbols = StreamSupport.stream(symbolIter.spliterator(), false)
-                .limit(maxResults)
+            List<Symbol> allSymbols = StreamSupport.stream(symbolIter.spliterator(), false)
+                .sorted(Comparator.comparingLong(Symbol::getID))
+                .collect(Collectors.toList());
+
+            long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
+
+            List<Symbol> pageBuffer = allSymbols.stream()
+                .filter(symbol -> symbol.getID() > cursorId)
+                .limit((long) pageSize + 1)
+                .collect(Collectors.toList());
+
+            String nextCursor = null;
+            if (pageBuffer.size() > pageSize) {
+                nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
+            }
+
+            List<Map<String, Object>> symbols = pageBuffer.stream()
+                .limit(pageSize)
                 .map(symbol -> Map.<String, Object>of(
                     "id", symbol.getID(),
                     "name", symbol.getName(),
@@ -530,10 +572,13 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 ))
                 .collect(Collectors.toList());
 
+            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(symbols, nextCursor);
+
             return Map.of(
-                "symbols", symbols,
+                "symbols", paginated,
                 "displayed_count", symbols.size(),
-                "max_results", maxResults
+                "page_size", pageSize,
+                "total_available", allSymbols.size()
             );
         });
     }
