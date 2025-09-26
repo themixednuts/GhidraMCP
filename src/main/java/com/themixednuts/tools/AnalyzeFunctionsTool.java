@@ -2,8 +2,12 @@ package com.themixednuts.tools;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
-import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.FunctionAnalysis;
+import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.FunctionSearchCriteria;
+import com.themixednuts.models.FunctionSearchResponse;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -20,9 +24,19 @@ import ghidra.program.model.pcode.HighFunction;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.*;
-import java.util.stream.StreamSupport;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+import java.util.stream.Stream;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @GhidraMcpTool(
     name = "Analyze Functions",
@@ -70,6 +84,8 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
     public static final String ARG_INCLUDE_PCODE = "include_pcode";
     public static final String ARG_SEARCH_PATTERN = "search_pattern";
     public static final String ARG_PROTOTYPE = "prototype";
+
+    private static final int SEARCH_RESULT_LIMIT = 100;
 
     @Override
     public JsonSchema schema() {
@@ -312,7 +328,248 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
     }
 
     private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return Mono.just("Function search not yet implemented");
+        String toolOperation = getMcpName() + ".search";
+        return Mono.fromCallable(() -> {
+            FunctionManager functionManager = program.getFunctionManager();
+
+            String targetType = getOptionalStringArgument(args, ARG_TARGET_TYPE).orElse("name");
+            String normalizedType = targetType.toLowerCase(Locale.ROOT);
+
+            Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+            Optional<String> searchPatternOpt = getOptionalStringArgument(args, ARG_SEARCH_PATTERN);
+            Optional<String> targetValueOpt = getOptionalStringArgument(args, ARG_TARGET_VALUE);
+
+            String searchPatternValue = searchPatternOpt.map(String::trim).filter(value -> !value.isEmpty()).orElse(null);
+            String targetValueValue = targetValueOpt.map(String::trim).filter(value -> !value.isEmpty()).orElse(null);
+            String cursorValue = cursorOpt.map(String::trim).filter(value -> !value.isEmpty()).orElse(null);
+
+            Map<String, Object> searchCriteria = new HashMap<>();
+            searchCriteria.put(ARG_TARGET_TYPE, normalizedType);
+            if (searchPatternValue != null) {
+                searchCriteria.put(ARG_SEARCH_PATTERN, searchPatternValue);
+            }
+            if (targetValueValue != null) {
+                searchCriteria.put(ARG_TARGET_VALUE, targetValueValue);
+            }
+            if (cursorValue != null) {
+                searchCriteria.put(ARG_CURSOR, cursorValue);
+            }
+
+            Address cursorAddress = null;
+            if (cursorValue != null) {
+                try {
+                    cursorAddress = program.getAddressFactory().getAddress(cursorValue);
+                    if (cursorAddress == null) {
+                        throw new IllegalArgumentException("Unresolvable cursor address");
+                    }
+                } catch (Exception e) {
+                    GhidraMcpError error = GhidraMcpErrorUtils.addressParseError(cursorValue, toolOperation, e);
+                    throw new GhidraMcpException(error);
+                }
+            }
+
+            final Address finalCursorAddress = cursorAddress;
+
+            List<Function> matchingFunctions = switch (normalizedType) {
+                case "name" -> {
+                    String pattern = searchPatternValue != null ? searchPatternValue : targetValueValue;
+                    if (pattern == null) {
+                        String missingArgName = searchPatternOpt.isPresent() ? ARG_SEARCH_PATTERN : ARG_TARGET_VALUE;
+                        GhidraMcpError error = GhidraMcpErrorUtils.missingRequiredArgument(missingArgName, toolOperation, args);
+                        throw new GhidraMcpException(error);
+                    }
+
+                    String normalizedPattern = pattern.toLowerCase(Locale.ROOT);
+                    yield StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+                        .filter(function -> {
+                            String functionName = function.getName();
+                            return functionName != null && functionName.toLowerCase(Locale.ROOT).contains(normalizedPattern);
+                        })
+                        .collect(Collectors.toList());
+                }
+                case "regex" -> {
+                    String regexValue = searchPatternValue != null ? searchPatternValue : targetValueValue;
+                    if (regexValue == null) {
+                        String missingArgName = searchPatternOpt.isPresent() ? ARG_SEARCH_PATTERN : ARG_TARGET_VALUE;
+                        GhidraMcpError error = GhidraMcpErrorUtils.missingRequiredArgument(missingArgName, toolOperation, args);
+                        throw new GhidraMcpException(error);
+                    }
+
+                    Pattern compiled;
+                    try {
+                        compiled = Pattern.compile(regexValue);
+                    } catch (PatternSyntaxException e) {
+                        GhidraMcpError error = GhidraMcpError.validation()
+                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                            .message("Invalid regex pattern: " + e.getMessage())
+                            .context(new GhidraMcpError.ErrorContext(
+                                toolOperation,
+                                "function name regex",
+                                args,
+                                Map.of(ARG_SEARCH_PATTERN, regexValue),
+                                Map.of("patternValid", false, "patternError", e.getMessage())))
+                            .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                    "Provide a valid regular expression",
+                                    "Correct the regex syntax",
+                                    List.of("main.*", "sub_\\d+", ".*Init"),
+                                    null)))
+                            .build();
+                        throw new GhidraMcpException(error);
+                    }
+
+                    yield StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+                        .filter(function -> {
+                            String functionName = function.getName();
+                            return functionName != null && compiled.matcher(functionName).find();
+                        })
+                        .collect(Collectors.toList());
+                }
+                case "address" -> {
+                    String addressValue = targetValueValue != null ? targetValueValue : searchPatternValue;
+                    if (addressValue == null) {
+                        GhidraMcpError error = GhidraMcpErrorUtils.missingRequiredArgument(ARG_TARGET_VALUE, toolOperation, args);
+                        throw new GhidraMcpException(error);
+                    }
+
+                    Address address;
+                    try {
+                        address = program.getAddressFactory().getAddress(addressValue);
+                        if (address == null) {
+                            throw new IllegalArgumentException("Unresolvable address");
+                        }
+                    } catch (Exception e) {
+                        GhidraMcpError error = GhidraMcpErrorUtils.addressParseError(addressValue, toolOperation, e);
+                        throw new GhidraMcpException(error);
+                    }
+
+                    Function function = functionManager.getFunctionContaining(address);
+                    yield function != null ? List.of(function) : List.of();
+                }
+                case "symbol_id" -> {
+                    String symbolIdValue = targetValueValue != null ? targetValueValue : searchPatternValue;
+                    if (symbolIdValue == null) {
+                        GhidraMcpError error = GhidraMcpErrorUtils.missingRequiredArgument(ARG_TARGET_VALUE, toolOperation, args);
+                        throw new GhidraMcpException(error);
+                    }
+
+                    long symbolId;
+                    try {
+                        symbolId = Long.parseLong(symbolIdValue);
+                    } catch (NumberFormatException e) {
+                        GhidraMcpError error = GhidraMcpError.validation()
+                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                            .message("Invalid symbol ID: " + symbolIdValue)
+                            .context(new GhidraMcpError.ErrorContext(
+                                toolOperation,
+                                "function symbol lookup",
+                                args,
+                                Map.of(ARG_TARGET_VALUE, symbolIdValue),
+                                Map.of("expectedType", "long", "parseError", e.getMessage())))
+                            .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                    "Use numeric symbol identifiers",
+                                    "Provide a numeric symbol ID",
+                                    List.of("1024", "2048", "4096"),
+                                    null)))
+                            .build();
+                        throw new GhidraMcpException(error);
+                    }
+
+                    ghidra.program.model.symbol.Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+                    if (symbol == null) {
+                        yield List.of();
+                    }
+
+                    Function function = functionManager.getFunctionAt(symbol.getAddress());
+                    yield function != null ? List.of(function) : List.of();
+                }
+                case "all" -> StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+                    .collect(Collectors.toList());
+                default -> {
+                    GhidraMcpError error = GhidraMcpError.validation()
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message("Unsupported target_type for search: " + targetType)
+                        .context(new GhidraMcpError.ErrorContext(
+                            toolOperation,
+                            "target type validation",
+                            args,
+                            Map.of(ARG_TARGET_TYPE, targetType),
+                            Map.of("supportedTypes", List.of("name", "regex", "address", "symbol_id", "all"))))
+                        .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Use a supported target_type",
+                                "Choose one of the supported target types",
+                                List.of("name", "regex", "address", "symbol_id", "all"),
+                                null)))
+                        .build();
+                    throw new GhidraMcpException(error);
+                }
+            };
+
+            if (matchingFunctions.isEmpty()) {
+                List<String> suggestionNames = getFunctionNameSamples(functionManager, 10);
+                GhidraMcpError error = GhidraMcpErrorUtils.searchNoResults(searchCriteria, toolOperation, suggestionNames);
+                throw new GhidraMcpException(error);
+            }
+
+            matchingFunctions.sort(Comparator.comparing(Function::getEntryPoint));
+
+            Stream<Function> paginationStream = matchingFunctions.stream();
+            if (finalCursorAddress != null) {
+                paginationStream = paginationStream.filter(function -> function.getEntryPoint().compareTo(finalCursorAddress) > 0);
+            }
+
+            List<Function> pageBuffer = paginationStream
+                .limit((long) SEARCH_RESULT_LIMIT + 1)
+                .collect(Collectors.toList());
+
+            boolean hasMore = pageBuffer.size() > SEARCH_RESULT_LIMIT;
+            List<Function> pageFunctions = hasMore
+                ? pageBuffer.subList(0, SEARCH_RESULT_LIMIT)
+                : pageBuffer;
+
+            String nextCursor = hasMore
+                ? pageBuffer.get(SEARCH_RESULT_LIMIT).getEntryPoint().toString()
+                : null;
+
+            List<FunctionInfo> results = pageFunctions.stream()
+                .map(FunctionInfo::new)
+                .collect(Collectors.toList());
+
+            FunctionSearchCriteria criteria = new FunctionSearchCriteria(
+                normalizedType,
+                searchPatternValue,
+                targetValueValue,
+                cursorValue
+            );
+
+            return new FunctionSearchResponse(
+                criteria,
+                List.copyOf(results),
+                matchingFunctions.size(),
+                results.size(),
+                SEARCH_RESULT_LIMIT,
+                hasMore,
+                nextCursor
+            );
+        });
+    }
+
+    private List<String> getFunctionNameSamples(FunctionManager functionManager, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+
+        return StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+            .map(Function::getName)
+            .filter(name -> name != null && !name.isBlank())
+            .distinct()
+            .limit(limit)
+            .collect(Collectors.toList());
     }
 
     private Mono<? extends Object> handleList(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
