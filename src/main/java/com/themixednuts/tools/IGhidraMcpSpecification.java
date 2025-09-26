@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -34,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import ghidra.program.model.address.Address;
 
 /**
  * Base interface for all Ghidra MCP tool specifications.
@@ -1322,5 +1324,59 @@ public interface IGhidraMcpSpecification {
             .map(c -> ((TextContent) c).text())
             .filter(text -> text != null) // Ensure text is not null
             .collect(Collectors.joining("\n")); // Join with newline
+    }
+
+    class AddressResult {
+        private final Address address;
+        private final String addressString;
+
+        AddressResult(Address address, String addressString) {
+            this.address = address;
+            this.addressString = addressString;
+        }
+
+        public Address getAddress() {
+            return address;
+        }
+
+        public String getAddressString() {
+            return addressString;
+        }
+    }
+
+    default Mono<AddressResult> parseAddress(Program program, Map<String, Object> args, String addressStr, String operation, GhidraMcpTool annotation) {
+        return Mono.fromCallable(() -> {
+            Address address = program.getAddressFactory().getAddress(addressStr);
+            if (address == null) {
+                throw new GhidraMcpException(buildAddressError(addressStr, operation, annotation, args, null));
+            }
+            return new AddressResult(address, addressStr);
+        }).onErrorMap(throwable -> {
+            if (throwable instanceof GhidraMcpException) {
+                return throwable;
+            }
+            GhidraMcpError error = buildAddressError(addressStr, operation, annotation, args, throwable);
+            return new GhidraMcpException(error);
+        });
+    }
+
+    private GhidraMcpError buildAddressError(String addressStr, String operation, GhidraMcpTool annotation, Map<String, Object> args, Throwable cause) {
+        return GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                .message("Invalid address: " + addressStr)
+                .context(new GhidraMcpError.ErrorContext(
+                        annotation.mcpName(),
+                        operation,
+                        args,
+                        Map.of("address", addressStr),
+                        Map.of("parseError", cause != null ? cause.getMessage() : "unknown")))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Use valid address format",
+                                "Provide a properly formatted hexadecimal address",
+                                List.of("0x401000", "0x10040a0", "401000", "ram:00401000"),
+                                null)))
+                .build();
     }
 }
