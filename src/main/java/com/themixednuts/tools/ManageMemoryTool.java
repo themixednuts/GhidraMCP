@@ -9,6 +9,7 @@ import com.themixednuts.models.MemorySegmentAnalysisResult;
 import com.themixednuts.models.MemorySegmentInfo;
 import com.themixednuts.models.MemorySegmentsOverview;
 import com.themixednuts.models.MemoryWriteResult;
+import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -41,15 +42,18 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceIterator;
+
 @GhidraMcpTool(
     name = "Manage Memory",
-    description = "Comprehensive memory management including reading, writing, searching, and analyzing memory segments.",
+    description = "Comprehensive memory management including reading, writing, searching, analyzing memory segments, and inspecting cross-references.",
     mcpName = "manage_memory",
     mcpDescription = """
     <use_case>
     Comprehensive memory operations for reverse engineering. Read and write bytes, search for patterns,
-    analyze memory layout, and manage memory segments. Essential for understanding program structure,
-    patching code, and analyzing data structures.
+    analyze memory layout, manage memory segments, and inspect cross-references at specific addresses.
+    Essential for understanding program structure, patching code, and analyzing data structures.
     </use_case>
 
     <important_notes>
@@ -57,6 +61,7 @@ import java.util.stream.Collectors;
     - Search supports multiple formats: hex, string, binary, regex patterns
     - Memory modifications are transactional and reversible
     - Large operations are monitored for cancellation and progress
+    - Cross-reference queries return detailed metadata about incoming and outgoing references
     </important_notes>
 
     <examples>
@@ -76,6 +81,13 @@ import java.util.stream.Collectors;
       "search_value": "password",
       "max_results": 10
     }
+
+    List incoming cross-references:
+    {
+      "fileName": "program.exe",
+      "action": "get_xrefs_to",
+      "address": "0x401000"
+    }
     </examples>
     """
 )
@@ -89,6 +101,14 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
     public static final String ARG_MAX_RESULTS = "max_results";
     public static final String ARG_PAGE_SIZE = "page_size";
     private static final int DEFAULT_PAGE_SIZE = 100;
+
+    private static final String ACTION_READ = "read";
+    private static final String ACTION_WRITE = "write";
+    private static final String ACTION_SEARCH = "search";
+    private static final String ACTION_LIST_SEGMENTS = "list_segments";
+    private static final String ACTION_ANALYZE_SEGMENT = "analyze_segment";
+    private static final String ACTION_GET_XREFS_TO = "get_xrefs_to";
+    private static final String ACTION_GET_XREFS_FROM = "get_xrefs_from";
 
     public enum SearchType {
         STRING("string", SearchFormat.STRING),
@@ -129,7 +149,14 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
-                .enumValues("read", "write", "search", "list_segments", "analyze_segment")
+                .enumValues(
+                        ACTION_READ,
+                        ACTION_WRITE,
+                        ACTION_SEARCH,
+                        ACTION_LIST_SEGMENTS,
+                        ACTION_ANALYZE_SEGMENT,
+                        ACTION_GET_XREFS_TO,
+                        ACTION_GET_XREFS_FROM)
                 .description("Memory operation to perform"));
 
         schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
@@ -182,11 +209,13 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             String action = getRequiredStringArgument(args, ARG_ACTION);
 
             return switch (action.toLowerCase()) {
-                case "read" -> handleRead(program, args, annotation);
-                case "write" -> handleWrite(program, args, annotation);
-                case "search" -> handleSearch(program, args, annotation);
-                case "list_segments" -> handleListSegments(program, args, annotation);
-                case "analyze_segment" -> handleAnalyzeSegment(program, args, annotation);
+                case ACTION_READ -> handleRead(program, args, annotation);
+                case ACTION_WRITE -> handleWrite(program, args, annotation);
+                case ACTION_SEARCH -> handleSearch(program, args, annotation);
+                case ACTION_LIST_SEGMENTS -> handleListSegments(program, args, annotation);
+                case ACTION_ANALYZE_SEGMENT -> handleAnalyzeSegment(program, args, annotation);
+                case ACTION_GET_XREFS_TO -> handleGetXrefsTo(program, args, annotation);
+                case ACTION_GET_XREFS_FROM -> handleGetXrefsFrom(program, args, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -196,13 +225,27 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                             "action validation",
                             args,
                             Map.of(ARG_ACTION, action),
-                            Map.of("validActions", List.of("read", "write", "search", "list_segments", "analyze_segment"))))
+                            Map.of("validActions", List.of(
+                                    ACTION_READ,
+                                    ACTION_WRITE,
+                                    ACTION_SEARCH,
+                                    ACTION_LIST_SEGMENTS,
+                                    ACTION_ANALYZE_SEGMENT,
+                                    ACTION_GET_XREFS_TO,
+                                    ACTION_GET_XREFS_FROM))))
                         .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
-                                "Choose from: read, write, search, list_segments, analyze_segment",
-                                List.of("read", "write", "search", "list_segments", "analyze_segment"),
+                                "Choose from: read, write, search, list_segments, analyze_segment, get_xrefs_to, get_xrefs_from",
+                                List.of(
+                                        ACTION_READ,
+                                        ACTION_WRITE,
+                                        ACTION_SEARCH,
+                                        ACTION_LIST_SEGMENTS,
+                                        ACTION_ANALYZE_SEGMENT,
+                                        ACTION_GET_XREFS_TO,
+                                        ACTION_GET_XREFS_FROM),
                                 null)))
                         .build();
                     yield Mono.error(new GhidraMcpException(error));
@@ -521,6 +564,48 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         });
     }
 
+    private Mono<? extends Object> handleGetXrefsTo(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+        String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+
+        return parseAddress(program, args, addressStr, ACTION_GET_XREFS_TO, annotation)
+                .flatMap(addressResult -> Mono.fromCallable(() -> {
+                    ReferenceIterator refIterator = program.getReferenceManager().getReferencesTo(addressResult.getAddress());
+                    List<ReferenceInfo> references = new ArrayList<>();
+
+                    try {
+                        while (refIterator.hasNext()) {
+                            references.add(new ReferenceInfo(program, refIterator.next()));
+                        }
+                    } catch (Exception e) {
+                        throw buildXrefAnalysisException(annotation, args, ACTION_GET_XREFS_TO, addressResult.getAddressString(), references.size(), e);
+                    }
+
+                    return references;
+                }));
+    }
+
+    private Mono<? extends Object> handleGetXrefsFrom(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+        String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+
+        return parseAddress(program, args, addressStr, ACTION_GET_XREFS_FROM, annotation)
+                .flatMap(addressResult -> Mono.fromCallable(() -> {
+                    Reference[] referencesArray = program.getReferenceManager().getReferencesFrom(addressResult.getAddress());
+                    List<ReferenceInfo> references = new ArrayList<>(referencesArray != null ? referencesArray.length : 0);
+
+                    try {
+                        if (referencesArray != null) {
+                            for (Reference reference : referencesArray) {
+                                references.add(new ReferenceInfo(program, reference));
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw buildXrefAnalysisException(annotation, args, ACTION_GET_XREFS_FROM, addressResult.getAddressString(), references.size(), e);
+                    }
+
+                    return references;
+                }));
+    }
+
     private String getPermissionString(MemoryBlock block) {
         StringBuilder perms = new StringBuilder();
         perms.append(block.isRead() ? "r" : "-");
@@ -540,5 +625,37 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             }
         }
         return readable.toString();
+    }
+
+    private GhidraMcpException buildXrefAnalysisException(GhidraMcpTool annotation,
+                                                          Map<String, Object> args,
+                                                          String operation,
+                                                          String normalizedAddress,
+                                                          int referencesCollected,
+                                                          Exception cause) {
+        GhidraMcpError error = GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.ANALYSIS_FAILED)
+                .message("Error analyzing cross-references: " + cause.getMessage())
+                .context(new GhidraMcpError.ErrorContext(
+                        annotation.mcpName(),
+                        operation,
+                        args,
+                        Map.of(ARG_ADDRESS, normalizedAddress),
+                        Map.of("analysisError", cause.getMessage(), "referencesCollected", referencesCollected)))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                "Verify program analysis is complete",
+                                "Ensure the program has finished auto-analysis so reference data is available",
+                                List.of("Run auto-analysis", "Re-run reference analysis"),
+                                null),
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Try a different address",
+                                "Provide an address located in analyzed code or data",
+                                null,
+                                null)))
+                .build();
+        return new GhidraMcpException(error, cause);
     }
 }

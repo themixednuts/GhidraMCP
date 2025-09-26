@@ -254,11 +254,11 @@ public class GhidraMcpErrorUtils {
 			Throwable cause) {
 
 		ErrorContext context = new ErrorContext(
-				toolOperation,
-				"address: " + addressString,
-				Map.of("address", addressString),
-				Map.of("inputAddress", addressString),
-				Map.of("formatValid", false, "parseError", cause != null ? cause.getMessage() : "unknown"));
+			toolOperation,
+			"address: " + addressString,
+			Map.of("address", addressString),
+			Map.of("inputAddress", addressString),
+			Map.of("formatValid", false, "parseError", cause != null ? cause.getMessage() : "unknown"));
 
 		ErrorSuggestion suggestion = new ErrorSuggestion(
 				SuggestionType.FIX_REQUEST,
