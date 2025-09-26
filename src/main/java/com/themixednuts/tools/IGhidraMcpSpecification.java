@@ -1019,15 +1019,13 @@ public interface IGhidraMcpSpecification {
             // Serialize the raw result data directly to a JSON string
             String jsonResult =
                 IGhidraMcpSpecification.mapper.writeValueAsString(resultData);
-            // Create TextContent containing the raw JSON string
             TextContent textContent = new TextContent(jsonResult);
-            // Build the CallToolResult with the TextContent
-            return Mono.just(
-                new CallToolResult(
-                    Collections.singletonList(textContent),
-                    false
-                )
-            );
+            CallToolResult result = CallToolResult
+                .builder()
+                .content(Collections.singletonList(textContent))
+                .isError(Boolean.FALSE)
+                .build();
+            return Mono.just(result);
         } catch (JsonProcessingException e) {
             // Log the serialization error
             Msg.error(
@@ -1063,12 +1061,7 @@ public interface IGhidraMcpSpecification {
             String errorMessage = "An unknown error occurred.";
             Msg.error(this, errorMessage);
             TextContent errorContent = new TextContent(errorMessage);
-            return Mono.just(
-                new CallToolResult(
-                    Collections.singletonList(errorContent),
-                    true
-                )
-            );
+            return Mono.just(buildErrorResult(errorContent));
         }
 
         // Check if this is a structured GhidraMcpException
@@ -1080,7 +1073,6 @@ public interface IGhidraMcpSpecification {
                     IGhidraMcpSpecification.mapper.writeValueAsString(
                         mcpException.getErr()
                     );
-                // Log the structured error message for Ghidra's internal logging
                 Msg.error(
                     this,
                     "Structured error - " +
@@ -1090,14 +1082,8 @@ public interface IGhidraMcpSpecification {
                     "]: " +
                     mcpException.getMessage()
                 );
-                // Return the structured error as JSON content
                 TextContent errorContent = new TextContent(structuredErrorJson);
-                return Mono.just(
-                    new CallToolResult(
-                        Collections.singletonList(errorContent),
-                        true
-                    )
-                );
+                return Mono.just(buildErrorResult(errorContent));
             } catch (JsonProcessingException e) {
                 // If we can't serialize the structured error, fall back to simple message
                 Msg.error(
@@ -1109,12 +1095,7 @@ public interface IGhidraMcpSpecification {
                     "Structured error serialization failed: " +
                     mcpException.getMessage();
                 TextContent errorContent = new TextContent(fallbackMessage);
-                return Mono.just(
-                    new CallToolResult(
-                        Collections.singletonList(errorContent),
-                        true
-                    )
-                );
+                return Mono.just(buildErrorResult(errorContent));
             }
         }
 
@@ -1130,10 +1111,7 @@ public interface IGhidraMcpSpecification {
         Msg.error(this, errorMessage);
         // Create TextContent containing the generated error message
         TextContent errorContent = new TextContent(errorMessage);
-        // Build the CallToolResult with isError=true
-        return Mono.just(
-            new CallToolResult(Collections.singletonList(errorContent), true)
-        );
+        return Mono.just(buildErrorResult(errorContent));
     }
 
     /**
@@ -1190,10 +1168,15 @@ public interface IGhidraMcpSpecification {
         Msg.error(this, finalMessage);
         // Create TextContent containing the error message
         TextContent errorContent = new TextContent(finalMessage);
-        // Build the CallToolResult with isError=true
-        return Mono.just(
-            new CallToolResult(Collections.singletonList(errorContent), true)
-        );
+        return Mono.just(buildErrorResult(errorContent));
+    }
+
+    private CallToolResult buildErrorResult(TextContent errorContent) {
+        return CallToolResult
+            .builder()
+            .content(Collections.singletonList(errorContent))
+            .isError(Boolean.TRUE)
+            .build();
     }
 
     // ===================================================================================
