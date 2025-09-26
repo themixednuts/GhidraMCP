@@ -2,7 +2,15 @@ package com.themixednuts.tools;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.DataTypeDeleteResult;
+import com.themixednuts.models.CreateDataTypeResult;
+import com.themixednuts.models.DataTypeListEntry;
+import com.themixednuts.models.DataTypeListResult;
+import com.themixednuts.models.DataTypeReadResult;
+import com.themixednuts.models.DataTypeReadResult.DataTypeComponentDetail;
+import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.models.OperationResult;
 import com.themixednuts.utils.DataTypeUtils;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -15,7 +23,13 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 @GhidraMcpTool(
     name = "Manage Data Types",
@@ -183,12 +197,12 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     }
 
     private Mono<? extends Object> handleCreate(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
-        return Mono.fromCallable(() -> {
+        return Mono.defer(() -> {
             String name = getOptionalStringArgument(args, "name").orElse("NewDataType");
             String transactionName = "Create " + dataTypeKind + ": " + name;
 
             return executeInTransaction(program, transactionName, () -> {
-                return switch (dataTypeKind) {
+                CreateDataTypeResult createResult = switch (dataTypeKind) {
                     case "struct" -> createStruct(args, program, name);
                     case "enum" -> createEnum(args, program, name);
                     case "union" -> createUnion(args, program, name);
@@ -196,17 +210,21 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     case "pointer" -> createPointer(args, program, name);
                     case "function_definition" -> createFunctionDefinition(args, program, name);
                     case "category" -> createCategory(args, program, name);
-                    default -> "Unsupported data type kind for creation: " + dataTypeKind;
+                    default -> throw new IllegalArgumentException("Unsupported data type kind for creation: " + dataTypeKind);
                 };
+                return createResult;
+            }).map(result -> {
+                CreateDataTypeResult createResult = (CreateDataTypeResult) result;
+                return OperationResult.success(
+                    "create_data_type",
+                    dataTypeKind,
+                    createResult.getMessage())
+                    .setResult(createResult);
             });
-        }).map(result -> Map.of(
-            "success", true,
-            "message", result,
-            "data_type_kind", dataTypeKind
-        ));
+        });
     }
 
-    private String createStruct(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createStruct(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -286,11 +304,17 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             }
         }
 
-        return "Successfully created struct '" + addedStruct.getPathName() + "'" +
-               (members != null ? " with " + members.size() + " members" : "");
+        return new CreateDataTypeResult(
+            "struct",
+            addedStruct.getName(),
+            addedStruct.getPathName(),
+            "Successfully created struct",
+            Map.of(
+                "member_count", members != null ? members.size() : 0,
+                "size", addedStruct.getLength()));
     }
 
-    private String createEnum(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createEnum(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -328,11 +352,17 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         getOptionalStringArgument(args, "comment").ifPresent(addedEnum::setDescription);
 
-        return "Successfully created enum '" + addedEnum.getPathName() + "'" +
-               (entries != null ? " with " + entries.size() + " entries" : "");
+        return new CreateDataTypeResult(
+            "enum",
+            addedEnum.getName(),
+            addedEnum.getPathName(),
+            "Successfully created enum",
+            Map.of(
+                "entry_count", entries != null ? entries.size() : 0,
+                "size", addedEnum.getLength()));
     }
 
-    private String createUnion(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createUnion(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -374,11 +404,17 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         getOptionalStringArgument(args, "comment").ifPresent(addedUnion::setDescription);
 
-        return "Successfully created union '" + addedUnion.getPathName() + "'" +
-               (members != null ? " with " + members.size() + " members" : "");
+        return new CreateDataTypeResult(
+            "union",
+            addedUnion.getName(),
+            addedUnion.getPathName(),
+            "Successfully created union",
+            Map.of(
+                "member_count", members != null ? members.size() : 0,
+                "size", addedUnion.getLength()));
     }
 
-    private String createTypedef(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createTypedef(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -399,10 +435,15 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         getOptionalStringArgument(args, "comment").ifPresent(addedTypedef::setDescription);
 
-        return "Successfully created typedef '" + addedTypedef.getPathName() + "' -> " + baseType;
+        return new CreateDataTypeResult(
+            "typedef",
+            addedTypedef.getName(),
+            addedTypedef.getPathName(),
+            "Successfully created typedef",
+            Map.of("base_type", baseType));
     }
 
-    private String createPointer(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createPointer(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -425,10 +466,15 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         getOptionalStringArgument(args, "comment").ifPresent(addedPointer::setDescription);
 
-        return "Successfully created pointer type '" + addedPointer.getPathName() + "' -> " + baseType + "*";
+        return new CreateDataTypeResult(
+            "pointer",
+            addedPointer.getName(),
+            addedPointer.getPathName(),
+            "Successfully created pointer",
+            Map.of("base_type", baseType + "*"));
     }
 
-    private String createFunctionDefinition(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createFunctionDefinition(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -476,11 +522,17 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         getOptionalStringArgument(args, "comment").ifPresent(addedFuncDef::setDescription);
 
-        return "Successfully created function definition '" + addedFuncDef.getPathName() + "'" +
-               (parameters != null ? " with " + parameters.size() + " parameters" : "");
+        return new CreateDataTypeResult(
+            "function_definition",
+            addedFuncDef.getName(),
+            addedFuncDef.getPathName(),
+            "Successfully created function definition",
+            Map.of(
+                "parameter_count", parameters != null ? parameters.size() : 0,
+                "return_type", returnType));
     }
 
-    private String createCategory(Map<String, Object> args, Program program, String name) {
+    private CreateDataTypeResult createCategory(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
         CategoryPath parentPath = getOptionalStringArgument(args, "category_path")
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -496,7 +548,12 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             throw new RuntimeException("Failed to create category: " + newCategoryPath.getPath());
         }
 
-        return "Successfully created category '" + newCategoryPath.getPath() + "'";
+        return new CreateDataTypeResult(
+            "category",
+            name,
+            newCategoryPath.getPath(),
+            "Successfully created category",
+            Map.of());
     }
 
     private Mono<? extends Object> handleRead(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
@@ -516,58 +573,58 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error);
             }
 
-            Map<String, Object> result = new HashMap<>();
-            result.put("name", dataType.getName());
-            result.put("path_name", dataType.getPathName());
-            result.put("kind", DataTypeUtils.getDataTypeKind(dataType));
-            result.put("size", dataType.getLength());
-            result.put("description", dataType.getDescription());
+            List<DataTypeComponentDetail> components = null;
+            List<DataTypeEnumValue> enumValues = null;
+            int componentCount = 0;
+            int valueCount = 0;
 
-            // Add specific details based on type
             if (dataType instanceof Structure struct) {
-                List<Map<String, Object>> components = new ArrayList<>();
+                components = new ArrayList<>();
                 for (DataTypeComponent comp : struct.getComponents()) {
-                    components.add(Map.of(
-                        "name", comp.getFieldName() != null ? comp.getFieldName() : "",
-                        "type", comp.getDataType().getName(),
-                        "offset", comp.getOffset(),
-                        "length", comp.getLength()
-                    ));
+                    components.add(new DataTypeComponentDetail(
+                        comp.getFieldName() != null ? comp.getFieldName() : "",
+                        comp.getDataType().getName(),
+                        comp.getOffset(),
+                        comp.getLength()));
                 }
-                result.put("components", components);
-                result.put("component_count", struct.getNumComponents());
+                componentCount = struct.getNumComponents();
             } else if (dataType instanceof ghidra.program.model.data.Enum enumType) {
-                List<Map<String, Object>> values = new ArrayList<>();
+                enumValues = new ArrayList<>();
                 for (String valueName : enumType.getNames()) {
-                    values.add(Map.of(
-                        "name", valueName,
-                        "value", enumType.getValue(valueName)
-                    ));
+                    enumValues.add(new DataTypeEnumValue(valueName, enumType.getValue(valueName)));
                 }
-                result.put("values", values);
-                result.put("value_count", enumType.getCount());
+                valueCount = enumType.getCount();
             } else if (dataType instanceof Union union) {
-                List<Map<String, Object>> components = new ArrayList<>();
+                components = new ArrayList<>();
                 for (DataTypeComponent comp : union.getComponents()) {
-                    components.add(Map.of(
-                        "name", comp.getFieldName() != null ? comp.getFieldName() : "",
-                        "type", comp.getDataType().getName(),
-                        "length", comp.getLength()
-                    ));
+                    components.add(new DataTypeComponentDetail(
+                        comp.getFieldName() != null ? comp.getFieldName() : "",
+                        comp.getDataType().getName(),
+                        null,
+                        comp.getLength()));
                 }
-                result.put("components", components);
-                result.put("component_count", union.getNumComponents());
+                componentCount = union.getNumComponents();
             }
 
-            return result;
+            return new DataTypeReadResult(
+                dataType.getName(),
+                dataType.getPathName(),
+                DataTypeUtils.getDataTypeKind(dataType),
+                dataType.getLength(),
+                dataType.getDescription(),
+                components,
+                enumValues,
+                componentCount,
+                valueCount);
         });
     }
 
     private Mono<? extends Object> handleUpdate(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
-        return executeInTransaction(program, "MCP - Update " + dataTypeKind, () -> {
-            // Implementation would go here for updating data types
-            return Map.of("message", "Update operation not yet fully implemented", "success", false);
-        });
+        return executeInTransaction(program, "MCP - Update " + dataTypeKind, () ->
+            OperationResult.failure(
+                "update_data_type",
+                dataTypeKind,
+                "Update operation not yet fully implemented"));
     }
 
     private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
@@ -596,12 +653,11 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error);
             }
 
-            return Map.of(
-                "success", true,
-                "message", "Successfully deleted " + dataTypeKind + " '" + name + "'",
-                "deleted_type", name,
-                "category", categoryPath.toString()
-            );
+            return new DataTypeDeleteResult(
+                true,
+                "Successfully deleted " + dataTypeKind + " '" + name + "'",
+                name,
+                categoryPath.toString());
         });
     }
 
@@ -615,15 +671,15 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
 
             DataTypeManager dtm = program.getDataTypeManager();
-            List<Map<String, Object>> dataTypeList = new ArrayList<>();
+            List<DataTypeListEntry> dataTypeList = new ArrayList<>();
 
             Category category = dtm.getCategory(categoryPath);
             if (category != null) {
-                collectDataTypesAsMaps(category, dataTypeList, dataTypeKind, filter, includeBuiltin);
+                collectDataTypesAsEntries(category, dataTypeList, dataTypeKind, filter, includeBuiltin);
             }
 
             dataTypeList.sort(Comparator.comparing(
-                entry -> (String) entry.get("path"),
+                DataTypeListEntry::getPath,
                 Comparator.nullsLast(String::compareTo)));
 
             int startIndex = 0;
@@ -631,7 +687,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 String cursor = cursorOpt.get();
                 startIndex = dataTypeList.size();
                 for (int i = 0; i < dataTypeList.size(); i++) {
-                    String path = (String) dataTypeList.get(i).get("path");
+                    String path = dataTypeList.get(i).getPath();
                     if (path != null && path.compareTo(cursor) > 0) {
                         startIndex = i;
                         break;
@@ -639,38 +695,38 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 }
             }
 
-            List<Map<String, Object>> pageBuffer = new ArrayList<>();
+            List<DataTypeListEntry> pageBuffer = new ArrayList<>();
             for (int i = startIndex; i < dataTypeList.size() && pageBuffer.size() < pageSize + 1; i++) {
                 pageBuffer.add(dataTypeList.get(i));
             }
 
             String nextCursor = null;
             if (pageBuffer.size() > pageSize) {
-                nextCursor = (String) pageBuffer.get(pageSize).get("path");
+                nextCursor = pageBuffer.get(pageSize).getPath();
             }
 
-            List<Map<String, Object>> pageResults = pageBuffer.size() > pageSize
+            List<DataTypeListEntry> pageResults = pageBuffer.size() > pageSize
                 ? new ArrayList<>(pageBuffer.subList(0, pageSize))
                 : pageBuffer;
 
-            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(pageResults, nextCursor);
+            PaginatedResult<DataTypeListEntry> paginated = new PaginatedResult<>(pageResults, nextCursor);
 
-            return Map.of(
-                "data_types", paginated,
-                "total_available", dataTypeList.size(),
-                "returned_count", pageResults.size(),
-                "page_size", pageSize,
-                "category", categoryPath.toString(),
-                "filter_applied", filter.orElse("none"),
-                "include_builtin", includeBuiltin,
-                "data_type_kind", dataTypeKind
+            return new DataTypeListResult(
+                paginated,
+                dataTypeList.size(),
+                pageResults.size(),
+                pageSize,
+                categoryPath.toString(),
+                filter.orElse("none"),
+                includeBuiltin,
+                dataTypeKind
             );
         });
     }
 
 
-    private void collectDataTypesAsMaps(Category category, List<Map<String, Object>> dataTypes, String kindFilter,
-                                       Optional<String> nameFilter, boolean includeBuiltin) {
+    private void collectDataTypesAsEntries(Category category, List<DataTypeListEntry> dataTypes, String kindFilter,
+                                      Optional<String> nameFilter, boolean includeBuiltin) {
         // Collect from current category
         for (DataType dt : category.getDataTypes()) {
             if (!includeBuiltin && dt.getDataTypeManager() != category.getDataTypeManager()) {
@@ -682,24 +738,23 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 continue;
             }
 
-            if (nameFilter.isPresent() && !dt.getName().toLowerCase().contains(nameFilter.get().toLowerCase())) {
+            if (nameFilter.isPresent() && !dt.getName().toLowerCase(Locale.ROOT).contains(nameFilter.get().toLowerCase(Locale.ROOT))) {
                 continue;
             }
 
-            Map<String, Object> dataTypeMap = new HashMap<>();
-            dataTypeMap.put("name", dt.getName());
-            dataTypeMap.put("path", dt.getPathName());
-            dataTypeMap.put("kind", dtKind);
-            dataTypeMap.put("size", dt.getLength());
-            dataTypeMap.put("description", dt.getDescription() != null ? dt.getDescription() : "");
-            dataTypeMap.put("category", dt.getCategoryPath().toString());
-
-            dataTypes.add(dataTypeMap);
+            dataTypes.add(new DataTypeListEntry(
+                dt.getName(),
+                dt.getPathName(),
+                dtKind,
+                dt.getLength(),
+                dt.getDescription() != null ? dt.getDescription() : "",
+                dt.getCategoryPath().toString()
+            ));
         }
 
         // Recursively collect from subcategories
         for (Category subCategory : category.getCategories()) {
-            collectDataTypesAsMaps(subCategory, dataTypes, kindFilter, nameFilter, includeBuiltin);
+            collectDataTypesAsEntries(subCategory, dataTypes, kindFilter, nameFilter, includeBuiltin);
         }
     }
 

@@ -3,6 +3,12 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.models.MemoryReadResult;
+import com.themixednuts.models.MemorySearchResult;
+import com.themixednuts.models.MemorySegmentAnalysisResult;
+import com.themixednuts.models.MemorySegmentInfo;
+import com.themixednuts.models.MemorySegmentsOverview;
+import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -25,7 +31,14 @@ import ghidra.util.datastruct.ListAccumulator;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @GhidraMcpTool(
@@ -279,14 +292,13 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             String hexData = HexFormat.of().formatHex(bytesRead);
             String readable = generateReadableString(bytesRead);
 
-            return Map.of(
-                "address", address.toString(),
-                "length", actualBytesRead,
-                "hex_data", hexData,
-                "readable", readable,
-                "bytes_requested", length,
-                "bytes_read", actualBytesRead
-            );
+            return new MemoryReadResult(
+                address.toString(),
+                actualBytesRead,
+                hexData,
+                readable,
+                length,
+                actualBytesRead);
         });
     }
 
@@ -334,12 +346,10 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             // Write to memory
             try {
                 program.getMemory().setBytes(address, bytes);
-                return Map.of(
-                    "success", true,
-                    "address", address.toString(),
-                    "bytes_written", bytes.length,
-                    "hex_data", bytesHex
-                );
+                return new MemoryWriteResult(true,
+                    address.toString(),
+                    bytes.length,
+                    bytesHex);
             } catch (MemoryAccessException e) {
                 GhidraMcpError error = GhidraMcpError.execution()
                     .errorCode(GhidraMcpError.ErrorCode.MEMORY_ACCESS_FAILED)
@@ -358,6 +368,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
         return Mono.fromCallable(() -> {
+            long startTime = System.nanoTime();
             SearchType searchType;
             try {
                 searchType = SearchType.fromValue(searchTypeStr);
@@ -417,61 +428,58 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 }
             }
 
-            List<Map<String, Object>> pageBuffer = matches.stream()
+            List<MemorySearchResult.MemoryMatch> pageBuffer = matches.stream()
                 .skip(startIndex)
                 .limit((long) pageSize + 1)
-                .map(match -> Map.<String, Object>of(
-                    "address", match.getAddress().toString(),
-                    "bytes", HexFormat.of().formatHex(match.getBytes()),
-                    "length", match.getLength(),
-                    "readable", generateReadableString(match.getBytes())
-                ))
+                .map(match -> new MemorySearchResult.MemoryMatch(
+                    match.getAddress().toString(),
+                    HexFormat.of().formatHex(match.getBytes()),
+                    generateReadableString(match.getBytes()),
+                    match.getLength()))
                 .collect(Collectors.toList());
 
             String nextCursor = null;
             if (pageBuffer.size() > pageSize) {
-                nextCursor = (String) pageBuffer.get(pageSize).get("address");
+                nextCursor = pageBuffer.get(pageSize).getAddress();
             }
 
-            List<Map<String, Object>> pageResults = pageBuffer.size() > pageSize
+            List<MemorySearchResult.MemoryMatch> pageResults = pageBuffer.size() > pageSize
                 ? new ArrayList<>(pageBuffer.subList(0, pageSize))
                 : pageBuffer;
 
-            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(pageResults, nextCursor);
+            PaginatedResult<MemorySearchResult.MemoryMatch> paginated = new PaginatedResult<>(pageResults, nextCursor);
 
-            return Map.of(
-                "search_type", searchTypeStr,
-                "search_value", searchValue,
-                "case_sensitive", caseSensitive,
-                "results", paginated,
-                "total_found", matches.size(),
-                "returned_count", pageResults.size(),
-                "page_size", pageSize
-            );
+            long searchTimeMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
+
+            return new MemorySearchResult(
+                searchValue,
+                searchTypeStr,
+                caseSensitive,
+                paginated,
+                matches.size(),
+                pageResults.size(),
+                pageSize,
+                searchTimeMs);
         });
     }
 
     private Mono<? extends Object> handleListSegments(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
             MemoryBlock[] blocks = program.getMemory().getBlocks();
-            List<Map<String, Object>> segments = Arrays.stream(blocks)
-                .map(block -> Map.<String, Object>of(
-                    "name", block.getName(),
-                    "start_address", block.getStart().toString(),
-                    "end_address", block.getEnd().toString(),
-                    "size", block.getSize(),
-                    "permissions", getPermissionString(block),
-                    "type", block.getType().toString(),
-                    "initialized", block.isInitialized(),
-                    "comment", block.getComment() != null ? block.getComment() : ""
-                ))
-                .sorted(Comparator.comparing(seg -> (String) seg.get("start_address")))
+            List<MemorySegmentInfo> segments = Arrays.stream(blocks)
+                .map(block -> new MemorySegmentInfo(
+                    block.getName(),
+                    block.getStart().toString(),
+                    block.getEnd().toString(),
+                    block.getSize(),
+                    getPermissionString(block),
+                    block.getType().toString(),
+                    block.isInitialized(),
+                    block.getComment() != null ? block.getComment() : ""))
+                .sorted(Comparator.comparing(MemorySegmentInfo::getStartAddress))
                 .collect(Collectors.toList());
 
-            return Map.of(
-                "segments", segments,
-                "total_segments", segments.size()
-            );
+            return new MemorySegmentsOverview(segments);
         });
     }
 
@@ -499,18 +507,17 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error);
             }
 
-            return Map.of(
-                "name", block.getName(),
-                "start_address", block.getStart().toString(),
-                "end_address", block.getEnd().toString(),
-                "size", block.getSize(),
-                "permissions", getPermissionString(block),
-                "type", block.getType().toString(),
-                "initialized", block.isInitialized(),
-                "comment", block.getComment() != null ? block.getComment() : "",
-                "source_name", block.getSourceName() != null ? block.getSourceName() : "",
-                "overlay", block.isOverlay()
-            );
+            return new MemorySegmentAnalysisResult(
+                block.getName(),
+                block.getStart().toString(),
+                block.getEnd().toString(),
+                block.getSize(),
+                getPermissionString(block),
+                block.getType().toString(),
+                block.isInitialized(),
+                block.getComment() != null ? block.getComment() : "",
+                block.getSourceName() != null ? block.getSourceName() : "",
+                block.isOverlay());
         });
     }
 

@@ -2,8 +2,7 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-
-import java.util.List;
+import com.themixednuts.utils.PaginatedResult;
 
 /**
  * Memory search result model.
@@ -13,15 +12,28 @@ import java.util.List;
 public class MemorySearchResult {
     private final String searchTerm;
     private final String searchType;
+    private final boolean caseSensitive;
+    private final PaginatedResult<MemoryMatch> results;
     private final int totalMatches;
-    private final List<MemoryMatch> matches;
+    private final int returnedCount;
+    private final int pageSize;
     private final long searchTimeMs;
 
-    public MemorySearchResult(String searchTerm, String searchType, List<MemoryMatch> matches, long searchTimeMs) {
+    public MemorySearchResult(String searchTerm,
+                              String searchType,
+                              boolean caseSensitive,
+                              PaginatedResult<MemoryMatch> results,
+                              int totalMatches,
+                              int returnedCount,
+                              int pageSize,
+                              long searchTimeMs) {
         this.searchTerm = searchTerm;
         this.searchType = searchType;
-        this.matches = matches;
-        this.totalMatches = matches != null ? matches.size() : 0;
+        this.caseSensitive = caseSensitive;
+        this.results = results;
+        this.totalMatches = totalMatches;
+        this.returnedCount = returnedCount;
+        this.pageSize = pageSize;
         this.searchTimeMs = searchTimeMs;
     }
 
@@ -35,14 +47,29 @@ public class MemorySearchResult {
         return searchType;
     }
 
+    @JsonProperty("case_sensitive")
+    public boolean isCaseSensitive() {
+        return caseSensitive;
+    }
+
+    @JsonProperty("results")
+    public PaginatedResult<MemoryMatch> getResults() {
+        return results;
+    }
+
     @JsonProperty("total_matches")
     public int getTotalMatches() {
         return totalMatches;
     }
 
-    @JsonProperty("matches")
-    public List<MemoryMatch> getMatches() {
-        return matches;
+    @JsonProperty("returned_count")
+    public int getReturnedCount() {
+        return returnedCount;
+    }
+
+    @JsonProperty("page_size")
+    public int getPageSize() {
+        return pageSize;
     }
 
     @JsonProperty("search_time_ms")
@@ -56,15 +83,18 @@ public class MemorySearchResult {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class MemoryMatch {
         private final String address;
-        private final String context;
-        private final int matchLength;
-        private final String memoryBlockName;
+        private final String hexBytes;
+        private final String readable;
+        private final int length;
 
-        public MemoryMatch(String address, String context, int matchLength, String memoryBlockName) {
+        public MemoryMatch(String address,
+                           String hexBytes,
+                           String readable,
+                           int length) {
             this.address = address;
-            this.context = context;
-            this.matchLength = matchLength;
-            this.memoryBlockName = memoryBlockName;
+            this.hexBytes = hexBytes;
+            this.readable = readable;
+            this.length = length;
         }
 
         @JsonProperty("address")
@@ -72,19 +102,19 @@ public class MemorySearchResult {
             return address;
         }
 
-        @JsonProperty("context")
-        public String getContext() {
-            return context;
+        @JsonProperty("hex_bytes")
+        public String getHexBytes() {
+            return hexBytes;
         }
 
-        @JsonProperty("match_length")
-        public int getMatchLength() {
-            return matchLength;
+        @JsonProperty("readable")
+        public String getReadable() {
+            return readable;
         }
 
-        @JsonProperty("memory_block")
-        public String getMemoryBlockName() {
-            return memoryBlockName;
+        @JsonProperty("length")
+        public int getLength() {
+            return length;
         }
     }
 }

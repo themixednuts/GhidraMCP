@@ -8,6 +8,8 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
+import com.themixednuts.models.SymbolInfo;
+
 import ghidra.app.cmd.label.AddLabelCmd;
 import ghidra.app.cmd.label.DeleteLabelCmd;
 import ghidra.app.cmd.label.RenameLabelCmd;
@@ -34,40 +36,122 @@ import java.util.stream.StreamSupport;
     description = "Comprehensive symbol management including creating, renaming, deleting, searching, and analyzing symbols.",
     mcpName = "manage_symbols",
     mcpDescription = """
-    <use_case>
-    Comprehensive symbol management for reverse engineering. Create labels, rename functions and variables,
-    search for symbols, analyze symbol relationships, and manage symbol namespaces. Essential for
-    organizing analysis results and improving code readability.
-    </use_case>
+        <use_case>
+        Comprehensive symbol management for reverse engineering. Create labels, rename functions and variables,
+        search for symbols, analyze symbol relationships, and manage symbol namespaces. Essential for
+        organizing analysis results and improving code readability.
+        </use_case>
 
-    <important_notes>
-    - Supports multiple symbol identification methods (name, address, symbol ID)
-    - Handles namespace organization and symbol scoping
-    - Validates symbol names according to Ghidra rules
-    - Provides detailed symbol information including type and context
-    </important_notes>
+        <important_notes>
+        - Supports multiple symbol identification methods (name, address, symbol ID)
+        - Handles namespace organization and symbol scoping
+        - Validates symbol names according to Ghidra rules
+        - Provides detailed symbol information including type and context
+        </important_notes>
 
-    <examples>
-    Create a label:
-    {
-      "fileName": "program.exe",
-      "action": "create",
-      "symbol_type": "label",
-      "address": "0x401000",
-      "name": "main_entry"
-    }
+        <examples>
+        Create a label:
+        {
+          "fileName": "program.exe",
+          "action": "create",
+          "symbol_type": "label",
+          "address": "0x401000",
+          "name": "main_entry"
+        }
 
-    Search for symbols:
-    {
-      "fileName": "program.exe",
-      "action": "search",
-      "name_pattern": "decrypt.*",
-      "symbol_type_filter": "function"
-    }
-    </examples>
-    """
+        Search for symbols:
+        {
+          "fileName": "program.exe",
+          "action": "search",
+          "name_pattern": "decrypt.*",
+          "symbol_type_filter": "function"
+        }
+        </examples>
+        """
 )
 public class ManageSymbolsTool implements IGhidraMcpSpecification {
+
+    /**
+     * Structured result for symbol creation.
+     */
+    private record SymbolCreationResult(boolean success,
+            String symbolType,
+            String name,
+            String address,
+            String namespace) {}
+
+    /**
+     * Structured result for symbol reading.
+     */
+    private record SymbolReadResult(List<SymbolDetails> symbols, int total) {}
+
+    /**
+     * Structured result for symbol renaming.
+     */
+    private record SymbolRenameResult(boolean success,
+            String oldName,
+            String newName,
+            String address,
+            String namespace) {}
+
+    /**
+     * Structured result for symbol deletion.
+     */
+    private record SymbolDeletionResult(boolean success, String deletedSymbol, String address) {}
+
+    /**
+     * Structured response for symbol search.
+     */
+    private record SymbolSearchResponse(String pattern,
+            boolean caseSensitive,
+            String typeFilter,
+            PaginatedResult<SymbolListItem> results,
+            int totalFound,
+            int returnedCount,
+            int pageSize) {}
+
+    /**
+     * Structured response for symbol listing.
+     */
+    private record SymbolListResponse(PaginatedResult<SymbolListItem> symbols,
+            int displayedCount,
+            int pageSize,
+            int totalAvailable) {}
+
+    /**
+     * Structured analysis summary.
+     */
+    private record SymbolAnalysisSummary(String mostCommonType,
+            String largestNamespace,
+            double userDefinedPercentage) {}
+
+    /**
+     * Structured analysis result.
+     */
+    private record SymbolAnalysisResult(long totalSymbols,
+            long userDefinedSymbols,
+            Map<String, Long> symbolTypes,
+            Map<String, Long> namespaces,
+            SymbolAnalysisSummary analysisSummary) {}
+
+    /**
+     * Structured list item for symbol.
+     */
+    private record SymbolListItem(long id,
+            String name,
+            String address,
+            String type,
+            String namespace,
+            String source,
+            boolean primary) {}
+
+    /**
+     * Structured details for symbol.
+     */
+    private record SymbolDetails(long id,
+            SymbolInfo info,
+            boolean primary,
+            boolean pinned) {}
 
     public static final String ARG_ACTION = "action";
     public static final String ARG_SYMBOL_TYPE = "symbol_type";
@@ -269,13 +353,11 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             throw new GhidraMcpException(error);
         }
 
-        return Map.of(
-            "success", true,
-            "symbol_type", "label",
-            "name", name,
-            "address", address.toString(),
-            "namespace", namespaceOpt.orElse("global")
-        );
+        return new SymbolCreationResult(true,
+                "label",
+                name,
+                address.toString(),
+                namespaceOpt.orElse("global"));
     }
 
     private Mono<? extends Object> handleRead(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
@@ -322,26 +404,18 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             }
 
             if (symbols.isEmpty()) {
-                return Map.of("symbols", List.of(), "total", 0);
+                return new SymbolReadResult(List.of(), 0);
             }
 
-            List<Map<String, Object>> symbolData = symbols.stream()
-                .map(symbol -> Map.<String, Object>of(
-                    "id", symbol.getID(),
-                    "name", symbol.getName(),
-                    "address", symbol.getAddress().toString(),
-                    "type", symbol.getSymbolType().toString(),
-                    "namespace", symbol.getParentNamespace().getName(true),
-                    "source", symbol.getSource().toString(),
-                    "primary", symbol.isPrimary(),
-                    "pinned", symbol.isPinned()
-                ))
+            List<SymbolDetails> symbolDetails = symbols.stream()
+                .map(symbol -> new SymbolDetails(
+                    symbol.getID(),
+                    new SymbolInfo(symbol),
+                    symbol.isPrimary(),
+                    symbol.isPinned()))
                 .collect(Collectors.toList());
 
-            return Map.of(
-                "symbols", symbolData,
-                "total", symbolData.size()
-            );
+            return new SymbolReadResult(symbolDetails, symbolDetails.size());
         });
     }
 
@@ -388,13 +462,11 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error);
             }
 
-            return Map.of(
-                "success", true,
-                "old_name", currentName,
-                "new_name", newName,
-                "address", symbol.getAddress().toString(),
-                "namespace", targetNamespace.getName(true)
-            );
+            return new SymbolRenameResult(true,
+                    currentName,
+                    newName,
+                    symbol.getAddress().toString(),
+                    targetNamespace.getName(true));
         });
     }
 
@@ -461,11 +533,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error);
             }
 
-            return Map.of(
-                "success", true,
-                "deleted_symbol", symbolToDelete.getName(),
-                "address", symbolToDelete.getAddress().toString()
-            );
+            return new SymbolDeletionResult(true,
+                    symbolToDelete.getName(),
+                    symbolToDelete.getAddress().toString());
         });
     }
 
@@ -508,30 +578,28 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
             }
 
-            List<Map<String, Object>> results = pageBuffer.stream()
+            List<SymbolListItem> results = pageBuffer.stream()
                 .limit(pageSize)
-                .map(symbol -> Map.<String, Object>of(
-                    "id", symbol.getID(),
-                    "name", symbol.getName(),
-                    "address", symbol.getAddress().toString(),
-                    "type", symbol.getSymbolType().toString(),
-                    "namespace", symbol.getParentNamespace().getName(true),
-                    "source", symbol.getSource().toString(),
-                    "primary", symbol.isPrimary()
-                ))
+                .map(symbol -> new SymbolListItem(
+                    symbol.getID(),
+                    symbol.getName(),
+                    symbol.getAddress().toString(),
+                    symbol.getSymbolType().toString(),
+                    symbol.getParentNamespace().getName(true),
+                    symbol.getSource().toString(),
+                    symbol.isPrimary()))
                 .collect(Collectors.toList());
 
-            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(results, nextCursor);
+            PaginatedResult<SymbolListItem> paginated = new PaginatedResult<>(results, nextCursor);
 
-            return Map.of(
-                "pattern", namePattern,
-                "case_sensitive", caseSensitive,
-                "type_filter", typeFilterOpt.orElse("all"),
-                "results", paginated,
-                "total_found", allSymbols.size(),
-                "returned_count", results.size(),
-                "page_size", pageSize
-            );
+            return new SymbolSearchResponse(
+                namePattern,
+                caseSensitive,
+                typeFilterOpt.orElse("all"),
+                paginated,
+                allSymbols.size(),
+                results.size(),
+                pageSize);
         });
     }
 
@@ -559,27 +627,24 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
             }
 
-            List<Map<String, Object>> symbols = pageBuffer.stream()
+            List<SymbolListItem> symbols = pageBuffer.stream()
                 .limit(pageSize)
-                .map(symbol -> Map.<String, Object>of(
-                    "id", symbol.getID(),
-                    "name", symbol.getName(),
-                    "address", symbol.getAddress().toString(),
-                    "type", symbol.getSymbolType().toString(),
-                    "namespace", symbol.getParentNamespace().getName(true),
-                    "source", symbol.getSource().toString(),
-                    "primary", symbol.isPrimary()
-                ))
+                .map(symbol -> new SymbolListItem(
+                    symbol.getID(),
+                    symbol.getName(),
+                    symbol.getAddress().toString(),
+                    symbol.getSymbolType().toString(),
+                    symbol.getParentNamespace().getName(true),
+                    symbol.getSource().toString(),
+                    symbol.isPrimary()))
                 .collect(Collectors.toList());
 
-            PaginatedResult<Map<String, Object>> paginated = new PaginatedResult<>(symbols, nextCursor);
+            PaginatedResult<SymbolListItem> paginated = new PaginatedResult<>(symbols, nextCursor);
 
-            return Map.of(
-                "symbols", paginated,
-                "displayed_count", symbols.size(),
-                "page_size", pageSize,
-                "total_available", allSymbols.size()
-            );
+            return new SymbolListResponse(paginated,
+                symbols.size(),
+                pageSize,
+                allSymbols.size());
         });
     }
 
@@ -612,27 +677,25 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 }
             }
 
-            return Map.of(
-                "total_symbols", totalSymbols,
-                "user_defined_symbols", userDefinedSymbols,
-                "symbol_types", symbolTypeCounts.entrySet().stream()
+            Map<String, Long> symbolTypes = symbolTypeCounts.entrySet().stream()
                     .collect(Collectors.toMap(
-                        entry -> entry.getKey().toString(),
-                        Map.Entry::getValue)),
-                "namespaces", namespaceCounts,
-                "analysis_summary", Map.of(
-                    "most_common_type", symbolTypeCounts.entrySet().stream()
-                        .max(Map.Entry.comparingByValue())
-                        .map(entry -> entry.getKey().toString())
-                        .orElse("none"),
-                    "largest_namespace", namespaceCounts.entrySet().stream()
-                        .max(Map.Entry.comparingByValue())
-                        .map(Map.Entry::getKey)
-                        .orElse("none"),
-                    "user_defined_percentage", totalSymbols > 0 ?
-                        (double) userDefinedSymbols / totalSymbols * 100.0 : 0.0
-                )
-            );
+                            entry -> entry.getKey().toString(),
+                            Map.Entry::getValue));
+            SymbolAnalysisSummary summary = new SymbolAnalysisSummary(
+                    symbolTypeCounts.entrySet().stream()
+                            .max(Map.Entry.comparingByValue())
+                            .map(entry -> entry.getKey().toString())
+                            .orElse("none"),
+                    namespaceCounts.entrySet().stream()
+                            .max(Map.Entry.comparingByValue())
+                            .map(Map.Entry::getKey)
+                            .orElse("none"),
+                    totalSymbols > 0 ? (double) userDefinedSymbols / totalSymbols * 100.0 : 0.0);
+            return new SymbolAnalysisResult(totalSymbols,
+                    userDefinedSymbols,
+                    symbolTypes,
+                    namespaceCounts,
+                    summary);
         });
     }
 }
