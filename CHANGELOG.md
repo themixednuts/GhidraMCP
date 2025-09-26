@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-09-25
+
+### Changed
+- Updated MCP CallToolResult handling to use builder-based API
+- Bumped server metadata to reflect new version
+
 ## [0.2.1] - 2025-09-25
 
 ### Added

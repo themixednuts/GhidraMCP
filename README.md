@@ -1,5 +1,5 @@
 <div align="center">
-<a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square&version=0.2.1" alt="GitHub release (latest by date)"></a>
+<a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square&version=0.2.2" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/themixednuts/GhidraMCP/build.yml?style=flat-square" alt="Build Status"></a>
   <a href="#"><img src="https://img.shields.io/badge/Ghidra-11.4.2-blue?style=flat-square" alt="Tested Ghidra Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"></a>
