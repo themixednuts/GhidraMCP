@@ -86,6 +86,12 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private static final String ARG_PAGE_SIZE = "page_size";
     private static final int DEFAULT_PAGE_SIZE = 100;
 
+    private static final String ACTION_CREATE = "create";
+    private static final String ACTION_READ = "read";
+    private static final String ACTION_UPDATE = "update";
+    private static final String ACTION_DELETE = "delete";
+    private static final String ACTION_LIST = "list";
+
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -95,7 +101,12 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
-                .enumValues("create", "read", "update", "delete", "list")
+                .enumValues(
+                        ACTION_CREATE,
+                        ACTION_READ,
+                        ACTION_UPDATE,
+                        ACTION_DELETE,
+                        ACTION_LIST)
                 .description("Action to perform on data types"));
 
         schemaRoot.property(ARG_DATA_TYPE_KIND, JsonSchemaBuilder.string(mapper)
@@ -175,11 +186,11 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             String dataTypeKind = getRequiredStringArgument(args, ARG_DATA_TYPE_KIND);
 
             return switch (action.toLowerCase()) {
-                case "create" -> handleCreate(program, args, annotation, dataTypeKind);
-                case "read" -> handleRead(program, args, annotation, dataTypeKind);
-                case "update" -> handleUpdate(program, args, annotation, dataTypeKind);
-                case "delete" -> handleDelete(program, args, annotation, dataTypeKind);
-                case "list" -> handleList(program, args, annotation, dataTypeKind);
+                case ACTION_CREATE -> handleCreate(program, args, annotation, dataTypeKind);
+                case ACTION_READ -> handleRead(program, args, annotation, dataTypeKind);
+                case ACTION_UPDATE -> handleUpdate(program, args, annotation, dataTypeKind);
+                case ACTION_DELETE -> handleDelete(program, args, annotation, dataTypeKind);
+                case ACTION_LIST -> handleList(program, args, annotation, dataTypeKind);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -189,13 +200,23 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                             "action validation",
                             args,
                             Map.of(ARG_ACTION, action),
-                            Map.of("validActions", List.of("create", "read", "update", "delete", "list"))))
+                            Map.of("validActions", List.of(
+                                    ACTION_CREATE,
+                                    ACTION_READ,
+                                    ACTION_UPDATE,
+                                    ACTION_DELETE,
+                                    ACTION_LIST))))
                         .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
                                 "Choose from: create, read, update, delete, list",
-                                List.of("create", "read", "update", "delete", "list"),
+                                List.of(
+                                        ACTION_CREATE,
+                                        ACTION_READ,
+                                        ACTION_UPDATE,
+                                        ACTION_DELETE,
+                                        ACTION_LIST),
                                 null)))
                         .build();
                     yield Mono.error(new GhidraMcpException(error));
@@ -1336,13 +1357,5 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             return safeParent;
         }
         return new CategoryPath(safeParent, name);
-    }
-
-    private static CategoryPath normalizeCategoryPath(CategoryPath categoryPath, String name) {
-        return buildCategoryPath(categoryPath, name);
-    }
-
-    private static CategoryPath normalizeParentPath(String path, String name) {
-        return normalizeParentPath(path);
     }
 }

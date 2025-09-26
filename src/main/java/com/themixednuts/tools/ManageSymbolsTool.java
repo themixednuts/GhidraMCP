@@ -7,7 +7,6 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
-
 import com.themixednuts.models.SymbolInfo;
 
 import ghidra.app.cmd.label.AddLabelCmd;
@@ -170,6 +169,14 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     public static final String ARG_PAGE_SIZE = "page_size";
     private static final int DEFAULT_PAGE_SIZE = 100;
 
+    private static final String ACTION_CREATE = "create";
+    private static final String ACTION_READ = "read";
+    private static final String ACTION_UPDATE = "update";
+    private static final String ACTION_DELETE = "delete";
+    private static final String ACTION_SEARCH = "search";
+    private static final String ACTION_LIST = "list";
+    private static final String ACTION_ANALYZE = "analyze";
+
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -179,7 +186,14 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
-                .enumValues("create", "read", "update", "delete", "search", "list", "analyze")
+                .enumValues(
+                        ACTION_CREATE,
+                        ACTION_READ,
+                        ACTION_UPDATE,
+                        ACTION_DELETE,
+                        ACTION_SEARCH,
+                        ACTION_LIST,
+                        ACTION_ANALYZE)
                 .description("Action to perform on symbols"));
 
         schemaRoot.property(ARG_SYMBOL_TYPE, JsonSchemaBuilder.string(mapper)
@@ -242,13 +256,13 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             String action = getRequiredStringArgument(args, ARG_ACTION);
 
             return switch (action.toLowerCase()) {
-                case "create" -> handleCreate(program, args, annotation);
-                case "read" -> handleRead(program, args, annotation);
-                case "update" -> handleUpdate(program, args, annotation);
-                case "delete" -> handleDelete(program, args, annotation);
-                case "search" -> handleSearch(program, args, annotation);
-                case "list" -> handleList(program, args, annotation);
-                case "analyze" -> handleAnalyze(program, args, annotation);
+                case ACTION_CREATE -> handleCreate(program, args, annotation);
+                case ACTION_READ -> handleRead(program, args, annotation);
+                case ACTION_UPDATE -> handleUpdate(program, args, annotation);
+                case ACTION_DELETE -> handleDelete(program, args, annotation);
+                case ACTION_SEARCH -> handleSearch(program, args, annotation);
+                case ACTION_LIST -> handleList(program, args, annotation);
+                case ACTION_ANALYZE -> handleAnalyze(program, args, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -258,13 +272,27 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                             "action validation",
                             args,
                             Map.of(ARG_ACTION, action),
-                            Map.of("validActions", List.of("create", "read", "update", "delete", "search", "list", "analyze"))))
+                            Map.of("validActions", List.of(
+                                    ACTION_CREATE,
+                                    ACTION_READ,
+                                    ACTION_UPDATE,
+                                    ACTION_DELETE,
+                                    ACTION_SEARCH,
+                                    ACTION_LIST,
+                                    ACTION_ANALYZE))))
                         .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
                                 "Choose from: create, read, update, delete, search, list, analyze",
-                                List.of("create", "read", "update", "delete", "search", "list", "analyze"),
+                                List.of(
+                                        ACTION_CREATE,
+                                        ACTION_READ,
+                                        ACTION_UPDATE,
+                                        ACTION_DELETE,
+                                        ACTION_SEARCH,
+                                        ACTION_LIST,
+                                        ACTION_ANALYZE),
                                 null)))
                         .build();
                     yield Mono.error(new GhidraMcpException(error));
