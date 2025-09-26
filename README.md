@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square" alt="GitHub release (latest by date)"></a>
+<a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square&version=0.2.1" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/themixednuts/GhidraMCP/build.yml?style=flat-square" alt="Build Status"></a>
   <a href="#"><img src="https://img.shields.io/badge/Ghidra-11.4.2-blue?style=flat-square" alt="Tested Ghidra Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"></a>
@@ -13,7 +13,7 @@
 </p> -->
 
 <div align="center">
-  <a href="https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvc3NlIn0%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add ghidra MCP server to Cursor" height="32" /></a>
+  <a href="https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add ghidra MCP server to Cursor" height="32" /></a>
 </div>
 <h1 align="center">GhidraMCP</h1>
 
@@ -103,7 +103,7 @@ Comprehensive symbol management including creating, renaming, deleting, searchin
 
 To allow an MCP client (like Claude Desktop or a custom client) to interact with Ghidra via this extension, you need to configure the client to connect to the server endpoint provided by GhidraMCP.
 
-The GhidraMCP server runs within Ghidra itself when the extension is active. It typically exposes an HTTP SSE (Server-Sent Events) endpoint.
+The GhidraMCP server runs within Ghidra itself when the extension is active. It exposes an HTTP endpoint for stateless MCP communication.
 
 Add the following configuration to your MCP client's settings (e.g., `claude_desktop_config.json` for Claude Desktop). Adjust the key (`"ghidra"` in this example) as needed:
 
@@ -111,7 +111,7 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 {
 	"mcpServers": {
 		"ghidra": {
-			"url": "http://127.0.0.1:8080/sse"
+			"url": "http://127.0.0.1:8080/mcp"
 		}
 		// Add other MCP server configurations here if needed
 	}

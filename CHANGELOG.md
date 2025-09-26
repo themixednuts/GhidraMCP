@@ -7,6 +7,16 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-09-25
+
+### Added
+- `ListFilesTool` for listing currently open project files with structured output
+- `OpenFileInfo` model representing open file metadata
+
+### Changed
+- Updated service registration and project metadata to include the new tool
+- Improved error suggestion messaging to reference `list_files`
+
 ## [0.2.0] - 2025-09-25
 
 ### Changed

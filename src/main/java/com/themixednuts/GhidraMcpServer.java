@@ -137,13 +137,12 @@ public class GhidraMcpServer {
 
         // Create transport provider
         transportProvider = HttpServletStatelessServerTransport.builder()
-            .objectMapper(new ObjectMapper())
             .build();
 
         // Create MCP server
         mcpServer = McpServer.async(transportProvider)
-            .serverInfo("ghidra-mcp", "0.2.0")
-            .capabilities(ServerCapabilities.builder().tools(true).logging().build())
+            .serverInfo("ghidra-mcp", "0.2.1")
+            .capabilities(ServerCapabilities.builder().tools(true).build())
             .tools(toolSpecs.stream().map(spec -> spec.second).collect(Collectors.toList()))
             .build();
 
