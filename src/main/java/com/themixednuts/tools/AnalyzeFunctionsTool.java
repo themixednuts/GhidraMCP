@@ -7,6 +7,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionSearchCriteria;
 import com.themixednuts.models.FunctionSearchResponse;
+import com.themixednuts.models.OperationResult;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -14,13 +15,20 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.cmd.function.CreateFunctionCmd;
+import ghidra.app.cmd.function.DeleteFunctionCmd;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.PcodeOpAST;
 import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
@@ -84,6 +92,9 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
     public static final String ARG_INCLUDE_PCODE = "include_pcode";
     public static final String ARG_SEARCH_PATTERN = "search_pattern";
     public static final String ARG_PROTOTYPE = "prototype";
+    public static final String ARG_ADDRESS = "address";
+    public static final String ARG_FUNCTION_NAME = "function_name";
+    public static final String ARG_FUNCTION_SYMBOL_ID = "symbol_id";
 
     private static final int SEARCH_RESULT_LIMIT = 100;
 
@@ -108,6 +119,13 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
 
         schemaRoot.property(ARG_FUNCTION_NAME, JsonSchemaBuilder.string(mapper)
                 .description("Function name for creation or rename operations"));
+
+        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+                .description("Function entry point address used by create/delete actions")
+                .pattern("^(0x)?[0-9a-fA-F]+$"));
+
+        schemaRoot.property(ARG_FUNCTION_SYMBOL_ID, JsonSchemaBuilder.integer(mapper)
+                .description("Symbol ID identifying the target function"));
 
         schemaRoot.property(ARG_INCLUDE_DECOMPILATION, JsonSchemaBuilder.bool(mapper)
                 .description("Include decompiled C code in analysis results")
@@ -135,6 +153,14 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
 
         return getProgram(args, tool).flatMap(program -> {
             String action = getRequiredStringArgument(args, ARG_ACTION);
+
+            try {
+                if ("create".equalsIgnoreCase(action)) {
+                    ensureArgumentPresent(args, ARG_ADDRESS, annotation.mcpName() + ".create");
+                }
+            } catch (GhidraMcpException e) {
+                return Mono.error(e);
+            }
 
             return switch (action.toLowerCase()) {
                 case "analyze" -> handleAnalyze(program, args, annotation);
@@ -318,13 +344,181 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
         };
     }
 
-    // Stub implementations for other operations
     private Mono<? extends Object> handleCreate(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return Mono.just("Function creation not yet implemented");
+        String toolOperation = annotation.mcpName() + ".create";
+        String addressString = getRequiredStringArgument(args, ARG_ADDRESS);
+        Optional<String> nameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+
+        return parseAddressOrThrow(program, addressString, toolOperation, args).flatMap(functionAddress -> {
+            if (program.getFunctionManager().getFunctionAt(functionAddress) != null) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+                    .message("Function already exists at the specified address")
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "function existence check",
+                        args,
+                        Map.of(ARG_ADDRESS, addressString),
+                        Map.of("functionExists", true)))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                            "Verify the address is not already a function entry point",
+                            "Inspect existing functions around the target address",
+                            null,
+                            null)))
+                    .build();
+                return Mono.error(new GhidraMcpException(error));
+            }
+
+            return executeInTransaction(program, "MCP - Create Function at " + functionAddress, () -> {
+                CreateFunctionCmd cmd = new CreateFunctionCmd(
+                    nameOpt.orElse(null),
+                    functionAddress,
+                    new AddressSet(functionAddress),
+                    SourceType.USER_DEFINED);
+
+                boolean success = cmd.applyTo(program);
+                if (!success) {
+                    String status = Optional.ofNullable(cmd.getStatusMsg()).orElse("Unknown error");
+                    GhidraMcpError error = GhidraMcpError.execution()
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Failed to create function: " + status)
+                        .context(new GhidraMcpError.ErrorContext(
+                            toolOperation,
+                            "function creation command",
+                            Map.of(ARG_ADDRESS, addressString, ARG_FUNCTION_NAME, nameOpt.orElse("default")),
+                            Map.of("commandStatus", status),
+                            Map.of("commandSuccess", false)))
+                        .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                "Ensure the address contains executable code",
+                                "Verify the target address has been properly disassembled",
+                                null,
+                                null)))
+                        .build();
+                    throw new GhidraMcpException(error);
+                }
+
+                Function createdFunction = cmd.getFunction();
+                if (createdFunction == null) {
+                    GhidraMcpError error = GhidraMcpError.execution()
+                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                        .message("Function creation succeeded but returned no function object")
+                        .context(new GhidraMcpError.ErrorContext(
+                            toolOperation,
+                            "function creation result",
+                            Map.of(ARG_ADDRESS, addressString),
+                            Map.of("commandSuccess", true, "functionReturned", false),
+                            Map.of("internalError", true)))
+                        .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                "Verify the new function exists",
+                                "Inspect the program to confirm the created function",
+                                null,
+                                null)))
+                        .build();
+                    throw new GhidraMcpException(error);
+                }
+
+                return OperationResult
+                    .success("create_function", functionAddress.toString(), "Function created successfully")
+                    .setResult(new FunctionInfo(createdFunction))
+                    .setMetadata(Map.of(
+                        "function_name", createdFunction.getName(),
+                        "entry_point", createdFunction.getEntryPoint().toString()));
+            });
+        });
     }
 
     private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return Mono.just("Function deletion not yet implemented");
+        String toolOperation = annotation.mcpName() + ".delete";
+        Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_FUNCTION_SYMBOL_ID);
+        Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+        Optional<String> nameOpt = getOptionalStringArgument(args, ARG_FUNCTION_NAME);
+
+        if (symbolIdOpt.isEmpty() && addressOpt.isEmpty() && nameOpt.isEmpty()) {
+            Map<String, Object> providedIdentifiers = Map.of(
+                ARG_FUNCTION_SYMBOL_ID, "not provided",
+                ARG_ADDRESS, "not provided",
+                ARG_FUNCTION_NAME, "not provided");
+
+            GhidraMcpError error = GhidraMcpError.validation()
+                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+                .message("At least one identifier must be provided")
+                .context(new GhidraMcpError.ErrorContext(
+                    toolOperation,
+                    "function identifier validation",
+                    args,
+                    providedIdentifiers,
+                    Map.of("identifiersProvided", 0, "minimumRequired", 1)))
+                .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Provide at least one function identifier",
+                        "Include symbol ID, address, or name of the function",
+                        List.of(
+                            ARG_FUNCTION_SYMBOL_ID + ": 12345",
+                            ARG_ADDRESS + ": \"0x401000\"",
+                            ARG_FUNCTION_NAME + ": \"main\""),
+                        null)))
+                .build();
+            return Mono.error(new GhidraMcpException(error));
+        }
+
+        FunctionManager functionManager = program.getFunctionManager();
+        SymbolTable symbolTable = program.getSymbolTable();
+
+        Function targetFunction;
+        try {
+            targetFunction = resolveFunctionForDeletion(
+                program,
+                functionManager,
+                symbolTable,
+                symbolIdOpt,
+                addressOpt,
+                nameOpt,
+                toolOperation,
+                args);
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
+
+        Address entryPoint = targetFunction.getEntryPoint();
+        String entryPointStr = entryPoint.toString();
+
+        return executeInTransaction(program, "MCP - Delete Function at " + entryPointStr, () -> {
+            DeleteFunctionCmd cmd = new DeleteFunctionCmd(entryPoint);
+            if (!cmd.applyTo(program)) {
+                String status = Optional.ofNullable(cmd.getStatusMsg()).orElse("Unknown error");
+                GhidraMcpError error = GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to delete function: " + status)
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "function deletion command",
+                        Map.of(ARG_ADDRESS, entryPointStr),
+                        Map.of("commandStatus", status),
+                        Map.of("commandSuccess", false)))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                            "Verify the function is not protected",
+                            "Ensure the target function is not locked or already removed",
+                            null,
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+
+            return OperationResult
+                .success("delete_function", entryPointStr, "Function deleted successfully")
+                .setMetadata(Map.of(
+                    "name", targetFunction.getName(),
+                    "entry_point", entryPointStr));
+        });
     }
 
     private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
@@ -591,5 +785,157 @@ public class AnalyzeFunctionsTool implements IGhidraMcpSpecification {
 
     private Mono<? extends Object> handleUpdatePrototype(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         return Mono.just("Function prototype update not yet implemented");
+    }
+
+    private Mono<Address> parseAddressOrThrow(Program program, String addressString, String toolOperation, Map<String, Object> args) {
+        return Mono.fromCallable(() -> {
+            Address address = program.getAddressFactory().getAddress(addressString);
+            if (address == null) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                    .message("Invalid address: " + addressString)
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "address resolution",
+                        args,
+                        Map.of(ARG_ADDRESS, addressString),
+                        Map.of("addressResolved", false)))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                            "Use a valid hexadecimal address",
+                            "Provide the function entry point as a hexadecimal value",
+                            List.of("0x401000", "401000", "0x00401000"),
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+            return address;
+        }).onErrorMap(e -> {
+            if (e instanceof GhidraMcpException) {
+                return e;
+            }
+            return new GhidraMcpException(GhidraMcpErrorUtils.addressParseError(addressString, toolOperation, e));
+        });
+    }
+
+    private Function resolveFunctionForDeletion(
+        Program program,
+        FunctionManager functionManager,
+        SymbolTable symbolTable,
+        Optional<Long> symbolIdOpt,
+        Optional<String> addressOpt,
+        Optional<String> nameOpt,
+        String toolOperation,
+        Map<String, Object> args) throws GhidraMcpException {
+
+        Function function = null;
+
+        if (symbolIdOpt.isPresent()) {
+            long symbolId = symbolIdOpt.get();
+            Symbol symbol = symbolTable.getSymbol(symbolId);
+            if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+                function = functionManager.getFunctionAt(symbol.getAddress());
+            }
+            if (function == null) {
+                Map<String, Object> criteria = Map.of(ARG_FUNCTION_SYMBOL_ID, symbolId);
+                GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                    .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
+                    .message("No function found for symbol ID " + symbolId)
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "function lookup by symbol",
+                        args,
+                        criteria,
+                        Map.of("symbolId", symbolId)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+        }
+
+        if (function == null && addressOpt.isPresent()) {
+            String addressString = addressOpt.get();
+            try {
+                Address address = parseAddressOrThrow(program, addressString, toolOperation, args).block();
+                function = functionManager.getFunctionAt(address);
+                if (function == null && nameOpt.isEmpty() && symbolIdOpt.isEmpty()) {
+                    throw new GhidraMcpException(GhidraMcpError.resourceNotFound()
+                        .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
+                        .message("No function exists at address " + addressString)
+                        .context(new GhidraMcpError.ErrorContext(
+                            toolOperation,
+                            "function lookup by address",
+                            args,
+                            Map.of(ARG_ADDRESS, addressString),
+                            Map.of("functionFound", false)))
+                        .build());
+                }
+            } catch (GhidraMcpException e) {
+                if (nameOpt.isEmpty() && symbolIdOpt.isEmpty()) {
+                    throw e;
+                }
+            }
+        }
+
+        if (function == null && nameOpt.isPresent()) {
+            String name = nameOpt.get();
+            function = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+                .filter(f -> f.getName(true).equals(name))
+                .findFirst()
+                .orElse(null);
+        }
+
+        if (function == null) {
+            List<String> suggestions = getFunctionNameSamples(functionManager, 10);
+            Map<String, Object> criteria = new HashMap<>();
+            symbolIdOpt.ifPresent(id -> criteria.put(ARG_FUNCTION_SYMBOL_ID, id));
+            addressOpt.ifPresent(addr -> criteria.put(ARG_ADDRESS, addr));
+            nameOpt.ifPresent(name -> criteria.put(ARG_FUNCTION_NAME, name));
+
+            GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
+                .message("Function not found using provided identifiers")
+                .context(new GhidraMcpError.ErrorContext(
+                    toolOperation,
+                    "function lookup",
+                    args,
+                    criteria,
+                    Map.of("searchAttempted", true, "functionFound", false)))
+                .relatedResources(suggestions)
+                .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                        "List available functions",
+                        "Use search or list actions to review existing functions",
+                        null,
+                        null)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
+
+        return function;
+    }
+
+    private void ensureArgumentPresent(Map<String, Object> args, String argumentName, String toolOperation) throws GhidraMcpException {
+        if (!args.containsKey(argumentName) || args.get(argumentName) == null) {
+            GhidraMcpError error = GhidraMcpError.validation()
+                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+                .message("Missing required argument: '" + argumentName + "'")
+                .context(new GhidraMcpError.ErrorContext(
+                    toolOperation,
+                    "argument validation",
+                    args,
+                    Map.of(argumentName, "not provided"),
+                    Map.of("required", true)))
+                .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Provide the '" + argumentName + "' argument",
+                        "Include the " + argumentName + " field with a valid value",
+                        List.of("\"" + argumentName + "\": \"example_value\""),
+                        null)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
     }
 }
