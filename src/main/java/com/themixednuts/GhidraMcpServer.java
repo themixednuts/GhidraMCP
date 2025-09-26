@@ -1,6 +1,5 @@
 package com.themixednuts;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.services.IGhidraMcpToolProvider;
 import generic.stl.Pair;
 import ghidra.framework.plugintool.PluginTool;
