@@ -28,8 +28,13 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 @GhidraMcpTool(
     name = "Manage Symbols",
@@ -547,59 +552,82 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
 
         return Mono.fromCallable(() -> {
-            SymbolTable symbolTable = program.getSymbolTable();
-            SymbolIterator symbolIter = symbolTable.getAllSymbols(true);
-
-            List<Symbol> allSymbols = StreamSupport.stream(symbolIter.spliterator(), false)
-                .filter(symbol -> {
-                    String symbolName = symbol.getName();
-                    String pattern = caseSensitive ? namePattern : namePattern.toLowerCase();
-                    String name = caseSensitive ? symbolName : symbolName.toLowerCase();
-
-                    return name.matches(pattern);
-                })
-                .filter(symbol -> {
-                    if (typeFilterOpt.isEmpty()) return true;
-                    SymbolType symbolType = symbol.getSymbolType();
-                    return symbolType != null && symbolType.toString().equalsIgnoreCase(typeFilterOpt.get());
-                })
-                .sorted(Comparator.comparingLong(Symbol::getID))
-                .collect(Collectors.toList());
-
-            long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
-
-            List<Symbol> pageBuffer = allSymbols.stream()
-                .filter(symbol -> symbol.getID() > cursorId)
-                .limit((long) pageSize + 1)
-                .collect(Collectors.toList());
-
-            String nextCursor = null;
-            if (pageBuffer.size() > pageSize) {
-                nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
+            Pattern compiledPattern;
+            try {
+                int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
+                compiledPattern = Pattern.compile(namePattern, flags);
+            } catch (PatternSyntaxException e) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message("Invalid name_pattern regex: " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                                annotation.mcpName(),
+                                "pattern compilation",
+                                args,
+                                Map.of(ARG_NAME_PATTERN, namePattern),
+                                Map.of("regexError", e.getMessage())))
+                        .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                        "Provide a valid regular expression",
+                                        "Double-check regex syntax for name_pattern",
+                                        null,
+                                        null)))
+                        .build();
+                throw new GhidraMcpException(error);
             }
 
-            List<SymbolListItem> results = pageBuffer.stream()
-                .limit(pageSize)
-                .map(symbol -> new SymbolListItem(
-                    symbol.getID(),
-                    symbol.getName(),
-                    symbol.getAddress().toString(),
-                    symbol.getSymbolType().toString(),
-                    symbol.getParentNamespace().getName(true),
-                    symbol.getSource().toString(),
-                    symbol.isPrimary()))
-                .collect(Collectors.toList());
+            SymbolTable symbolTable = program.getSymbolTable();
+
+            SymbolIterator baseIterator = symbolTable.getSymbolIterator(namePattern, caseSensitive);
+
+
+            long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
+            int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(Integer.MAX_VALUE);
+
+            AtomicInteger matchCounter = new AtomicInteger();
+
+            List<Symbol> filteredPage = StreamSupport.stream(
+                            Spliterators.spliteratorUnknownSize(baseIterator, Spliterator.ORDERED), false)
+                    .filter(symbol -> symbol.getID() > cursorId)
+                    .filter(symbol -> compiledPattern.matcher(symbol.getName()).matches())
+                    .filter(symbol -> typeFilterOpt.map(filter -> {
+                        SymbolType symbolType = symbol.getSymbolType();
+                        return symbolType != null && symbolType.toString().equalsIgnoreCase(filter);
+                    }).orElse(true))
+                    .filter(symbol -> matchCounter.incrementAndGet() <= maxResults)
+                    .limit((long) pageSize + 1)
+                    .collect(Collectors.toList());
+
+            boolean hasMore = filteredPage.size() > pageSize;
+            String nextCursor = null;
+            if (hasMore) {
+                Symbol lastSymbol = filteredPage.get(pageSize);
+                nextCursor = String.valueOf(lastSymbol.getID());
+            }
+
+            List<SymbolListItem> results = filteredPage.stream()
+                    .limit(hasMore ? pageSize : filteredPage.size())
+                    .map(symbol -> new SymbolListItem(
+                            symbol.getID(),
+                            symbol.getName(),
+                            symbol.getAddress().toString(),
+                            symbol.getSymbolType().toString(),
+                            symbol.getParentNamespace().getName(true),
+                            symbol.getSource().toString(),
+                            symbol.isPrimary()))
+                    .collect(Collectors.toList());
 
             PaginatedResult<SymbolListItem> paginated = new PaginatedResult<>(results, nextCursor);
 
             return new SymbolSearchResponse(
-                namePattern,
-                caseSensitive,
-                typeFilterOpt.orElse("all"),
-                paginated,
-                allSymbols.size(),
-                results.size(),
-                pageSize);
+                    namePattern,
+                    caseSensitive,
+                    typeFilterOpt.orElse("all"),
+                    paginated,
+                    matchCounter.get(),
+                    results.size(),
+                    pageSize);
         });
     }
 
@@ -611,24 +639,34 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator symbolIter = symbolTable.getAllSymbols(true);
 
-            List<Symbol> allSymbols = StreamSupport.stream(symbolIter.spliterator(), false)
-                .sorted(Comparator.comparingLong(Symbol::getID))
-                .collect(Collectors.toList());
+            List<Symbol> allSymbols = new ArrayList<>();
+            while (symbolIter.hasNext()) {
+                allSymbols.add(symbolIter.next());
+            }
+
+            allSymbols.sort(Comparator.comparingLong(Symbol::getID));
 
             long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
 
-            List<Symbol> pageBuffer = allSymbols.stream()
-                .filter(symbol -> symbol.getID() > cursorId)
-                .limit((long) pageSize + 1)
-                .collect(Collectors.toList());
+            List<Symbol> pageBuffer = new ArrayList<>();
+            for (Symbol symbol : allSymbols) {
+                if (symbol.getID() <= cursorId) {
+                    continue;
+                }
+                pageBuffer.add(symbol);
+                if (pageBuffer.size() > pageSize) {
+                    break;
+                }
+            }
 
             String nextCursor = null;
-            if (pageBuffer.size() > pageSize) {
+            boolean hasMore = pageBuffer.size() > pageSize;
+            if (hasMore) {
                 nextCursor = String.valueOf(pageBuffer.get(pageSize).getID());
             }
 
             List<SymbolListItem> symbols = pageBuffer.stream()
-                .limit(pageSize)
+                .limit(hasMore ? pageSize : pageBuffer.size())
                 .map(symbol -> new SymbolListItem(
                     symbol.getID(),
                     symbol.getName(),

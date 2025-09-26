@@ -20,12 +20,15 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.data.DataTypeDependencyException;
+import ghidra.util.exception.DuplicateNameException;
+import ghidra.util.InvalidNameException;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,6 +81,8 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     public static final String ARG_OFFSET = "offset";
     public static final String ARG_VALUE = "value";
     public static final String ARG_TYPE = "type";
+    public static final String ARG_NEW_CATEGORY_PATH = "new_category_path";
+    public static final String ARG_NEW_NAME = "new_name";
     private static final String ARG_PAGE_SIZE = "page_size";
     private static final int DEFAULT_PAGE_SIZE = 100;
 
@@ -101,7 +106,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 .description("Name of the data type"));
 
         schemaRoot.property(ARG_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
-                .description("Category path (e.g., '/MyCategory/SubCategory')")
+                .description("For non-category data types: full category path. For category operations: parent category path (default '/').")
                 .defaultValue("/"));
 
         schemaRoot.property(ARG_SIZE, JsonSchemaBuilder.integer(mapper)
@@ -144,6 +149,9 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     .property(ARG_TYPE, JsonSchemaBuilder.string(mapper).description("Parameter type"))
                     .requiredProperty(ARG_TYPE))
                 .description("Parameters for function definitions"));
+
+        schemaRoot.property(ARG_NEW_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
+                .description("Destination parent path when moving a category"));
 
         schemaRoot.property(ARG_PAGE_SIZE, JsonSchemaBuilder.integer(mapper)
                 .description("Maximum number of results per page for list action")
@@ -196,6 +204,26 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         });
     }
 
+    private Object buildUpdateResult(String dataTypeKind,
+                                     DataType existing,
+                                     DataTypeManager dtm,
+                                     Map<String, Object> args,
+                                     GhidraMcpTool annotation) throws GhidraMcpException {
+        return switch (dataTypeKind.toLowerCase(Locale.ROOT)) {
+            case "struct" -> updateStruct(dtm, (Structure) existing, args, annotation);
+            case "enum" -> updateEnum(dtm, (ghidra.program.model.data.Enum) existing, args, annotation);
+            case "union" -> updateUnion(dtm, (Union) existing, args, annotation);
+            case "typedef" -> updateTypedef(dtm, (TypeDef) existing, args, annotation);
+            case "pointer" -> updatePointer(dtm, (TypeDef) existing, args, annotation);
+            case "function_definition" -> updateFunctionDefinition(dtm, (FunctionDefinition) existing, args, annotation);
+            case "category" -> updateCategory(dtm, args, annotation);
+            default -> OperationResult.failure(
+                "update_data_type",
+                dataTypeKind,
+                "Update not supported for data type kind: " + dataTypeKind);
+        };
+    }
+
     private Mono<? extends Object> handleCreate(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
         return Mono.defer(() -> {
             String name = getOptionalStringArgument(args, "name").orElse("NewDataType");
@@ -226,7 +254,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createStruct(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -316,7 +344,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createEnum(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -364,7 +392,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createUnion(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -416,7 +444,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createTypedef(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -445,7 +473,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createPointer(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -476,7 +504,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createFunctionDefinition(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath categoryPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
@@ -534,7 +562,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private CreateDataTypeResult createCategory(Map<String, Object> args, Program program, String name) {
         DataTypeManager dtm = program.getDataTypeManager();
-        CategoryPath parentPath = getOptionalStringArgument(args, "category_path")
+        CategoryPath parentPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         CategoryPath newCategoryPath = new CategoryPath(parentPath, name);
@@ -619,21 +647,103 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         });
     }
 
-    private Mono<? extends Object> handleUpdate(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
-        return executeInTransaction(program, "MCP - Update " + dataTypeKind, () ->
-            OperationResult.failure(
-                "update_data_type",
-                dataTypeKind,
-                "Update operation not yet fully implemented"));
+    private Mono<? extends Object> handleUpdate(Program program,
+                                               Map<String, Object> args,
+                                               GhidraMcpTool annotation,
+                                               String dataTypeKind) {
+        return executeInTransaction(program, "MCP - Update " + dataTypeKind, () -> {
+            String name = getRequiredStringArgument(args, ARG_NAME);
+            CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
+                .map(ManageDataTypesTool::normalizeParentPath)
+                .orElse(CategoryPath.ROOT);
+
+            DataTypeManager dtm = program.getDataTypeManager();
+
+            if ("category".equalsIgnoreCase(dataTypeKind)) {
+                CategoryPath targetPath = buildCategoryPath(categoryPath, name);
+                Category category = dtm.getCategory(targetPath);
+                if (category == null) {
+                    Optional<String> swapCandidate = getOptionalStringArgument(args, ARG_NEW_CATEGORY_PATH);
+                    if (swapCandidate.isPresent()) {
+                        CategoryPath swapParent = normalizeParentPath(swapCandidate.get());
+                        CategoryPath swappedPath = buildCategoryPath(swapParent, name);
+                        if (dtm.getCategory(swappedPath) != null) {
+                            throw new GhidraMcpException(GhidraMcpError.validation()
+                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                                .message("Category not found at provided category_path. It appears category_path and new_category_path might be swapped.")
+                                .context(new GhidraMcpError.ErrorContext(
+                                    annotation.mcpName(),
+                                    "category update lookup",
+                                    args,
+                                    Map.of(
+                                        ARG_CATEGORY_PATH, categoryPath.getPath(),
+                                        ARG_NEW_CATEGORY_PATH, swapParent.getPath(),
+                                        ARG_NAME, name),
+                                    Map.of("swapDetected", true)))
+                                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                    "Swap category_path and new_category_path",
+                                    "Provide the current parent in category_path and the destination parent in new_category_path",
+                                    List.of(
+                                        String.format("\"%s\": \"%s\"", ARG_CATEGORY_PATH, swapParent.getPath()),
+                                        String.format("\"%s\": \"%s\"", ARG_NEW_CATEGORY_PATH, categoryPath.getPath())),
+                                    null)))
+                                .build());
+                        }
+                    }
+                    GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                        .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+                        .message("Category not found at path: " + targetPath.getPath())
+                        .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "category update lookup",
+                            args,
+                            Map.of(ARG_CATEGORY_PATH, targetPath.getPath(), ARG_NAME, name),
+                            Map.of("dataTypeKind", dataTypeKind)))
+                        .build();
+                    throw new GhidraMcpException(error);
+                }
+                args.put(ARG_CATEGORY_PATH, targetPath.getPath());
+                return updateCategory(dtm, args, annotation);
+            }
+
+            DataType existing = dtm.getDataType(categoryPath, name);
+
+            if (existing == null) {
+                GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                    .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+                    .message("Data type not found: " + name)
+                    .context(new GhidraMcpError.ErrorContext(
+                        annotation.mcpName(),
+                        "update lookup",
+                        args,
+                        Map.of("category_path", categoryPath.getPath(), "name", name),
+                        Map.of("dataTypeKind", dataTypeKind)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+
+            return buildUpdateResult(dataTypeKind, existing, dtm, args, annotation);
+        });
     }
 
-    private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
+    private Mono<? extends Object> handleDelete(Program program,
+                                               Map<String, Object> args,
+                                               GhidraMcpTool annotation,
+                                               String dataTypeKind) {
         return executeInTransaction(program, "MCP - Delete " + dataTypeKind, () -> {
             String name = getRequiredStringArgument(args, ARG_NAME);
             CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
                 .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
             DataTypeManager dtm = program.getDataTypeManager();
+            if ("category".equalsIgnoreCase(dataTypeKind)) {
+                try {
+                    return deleteCategory(dtm, categoryPath, name, annotation, args);
+                } catch (GhidraMcpException e) {
+                    throw new RuntimeException(e);
+                }
+            }
             DataType dataType = dtm.getDataType(categoryPath, name);
 
             if (dataType == null) {
@@ -658,13 +768,101 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 "Successfully deleted " + dataTypeKind + " '" + name + "'",
                 name,
                 categoryPath.toString());
+        }).onErrorMap(throwable -> {
+            if (throwable instanceof RuntimeException runtime && runtime.getCause() instanceof GhidraMcpException ghidra) {
+                return ghidra;
+            }
+            return throwable;
         });
+    }
+
+    private DataTypeDeleteResult deleteCategory(DataTypeManager dtm,
+                                               CategoryPath categoryPath,
+                                               String name,
+                                               GhidraMcpTool annotation,
+                                               Map<String, Object> args) throws GhidraMcpException {
+
+        CategoryPath targetPath = buildCategoryPath(categoryPath, name);
+
+        if (targetPath.isRoot()) {
+            GhidraMcpError error = GhidraMcpError.validation()
+                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                .message("Cannot delete the root category '/' using this tool.")
+                .context(new GhidraMcpError.ErrorContext(
+                    annotation.mcpName(),
+                    "category validation",
+                    args,
+                    Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
+                    Map.of("isRoot", true)))
+                .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Provide a non-root category",
+                        "Specify a specific category path to delete",
+                        List.of("/UserDefined", "/MyTypes/MyEmptyCategory"),
+                        null)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
+
+        Category targetCategory = dtm.getCategory(targetPath);
+        if (targetCategory == null) {
+            GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+                .message("Category not found at path: " + targetPath.getPath())
+                .context(new GhidraMcpError.ErrorContext(
+                    annotation.mcpName(),
+                    "category lookup",
+                    args,
+                    Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
+                    Map.of("categoryExists", false)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
+
+        CategoryPath parentPath = targetCategory.getParent() != null
+            ? targetCategory.getParent().getCategoryPath()
+            : CategoryPath.ROOT;
+
+        Category parentCategory = dtm.getCategory(parentPath);
+        if (parentCategory == null) {
+            throw new IllegalStateException(
+                "Parent category '" + parentPath.getPath() + "' not found for '" + targetPath.getPath() + "'");
+        }
+
+        boolean removed = parentCategory.removeCategory(targetPath.getName(), TaskMonitor.DUMMY);
+        if (!removed) {
+            GhidraMcpError error = GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                .message("Failed to delete category '" + targetPath.getPath() + "'. Ensure it is empty.")
+                .context(new GhidraMcpError.ErrorContext(
+                    annotation.mcpName(),
+                    "category deletion",
+                    args,
+                    Map.of("attemptedCategory", targetPath.getPath()),
+                    Map.of("categoryEmpty", false)))
+                .suggestions(List.of(
+                    new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                        "Ensure the category is empty",
+                        "Remove any contained data types or subcategories before deletion",
+                        null,
+                        null)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
+
+        return new DataTypeDeleteResult(
+            true,
+            "Successfully deleted category '" + targetPath.getPath() + "'",
+            targetPath.getName(),
+            parentPath.getPath());
     }
 
     private Mono<? extends Object> handleList(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
         return Mono.fromCallable(() -> {
             CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
-                .map(CategoryPath::new).orElse(CategoryPath.ROOT);
+                .map(ManageDataTypesTool::normalizeParentPath).orElse(CategoryPath.ROOT);
             Optional<String> filter = getOptionalStringArgument(args, "filter");
             boolean includeBuiltin = getOptionalBooleanArgument(args, "include_builtin").orElse(false);
             Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
@@ -778,5 +976,373 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 throw new RuntimeException("Failed to create category: " + categoryPath.getPath());
             }
         }
+    }
+
+    private OperationResult updateStruct(DataTypeManager dtm,
+                                         Structure existing,
+                                         Map<String, Object> args,
+                                         GhidraMcpTool annotation) throws GhidraMcpException {
+        Structure struct = existing;
+
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(struct::setDescription);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
+        if (members != null) {
+            struct.deleteAll();
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get(ARG_NAME);
+                String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                Integer offset = (Integer) member.get(ARG_OFFSET);
+                String memberComment = (String) member.get(ARG_COMMENT);
+
+                DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                if (memberDataType == null) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .message("Could not resolve data type: " + dataTypePath)
+                        .build());
+                }
+
+                if (offset == null || offset == -1) {
+                    struct.add(memberDataType, memberName, memberComment);
+                } else {
+                    struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
+                }
+            }
+        }
+
+        return OperationResult.success(
+            "update_data_type",
+            "struct",
+            "Struct updated successfully");
+    }
+
+    private OperationResult updateEnum(DataTypeManager dtm,
+                                       ghidra.program.model.data.Enum existing,
+                                       Map<String, Object> args,
+                                       GhidraMcpTool annotation) throws GhidraMcpException {
+        ghidra.program.model.data.Enum enumType = existing;
+
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(enumType::setDescription);
+
+        Integer size = getOptionalIntArgument(args, ARG_SIZE).orElse(null);
+        if (size != null && size != enumType.getLength()) {
+            ghidra.program.model.data.EnumDataType resized = new ghidra.program.model.data.EnumDataType(
+                enumType.getCategoryPath(), enumType.getName(), size, dtm);
+            for (String name : enumType.getNames()) {
+                resized.add(name, enumType.getValue(name), enumType.getComment(name));
+            }
+            try {
+                dtm.replaceDataType(enumType, resized, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Failed to resize enum: " + e.getMessage())
+                    .build());
+            }
+            enumType = resized;
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) args.get(ARG_ENTRIES);
+        if (entries != null) {
+            ghidra.program.model.data.EnumDataType updated = new ghidra.program.model.data.EnumDataType(
+                enumType.getCategoryPath(), enumType.getName(), enumType.getLength(), dtm);
+            for (Map<String, Object> entry : entries) {
+                String entryName = (String) entry.get(ARG_NAME);
+                Number value = (Number) entry.get(ARG_VALUE);
+                String comment = (String) entry.get(ARG_COMMENT);
+                if (entryName != null && value != null) {
+                    if (comment != null) {
+                        updated.add(entryName, value.longValue(), comment);
+                    } else {
+                        updated.add(entryName, value.longValue());
+                    }
+                }
+            }
+            try {
+                dtm.replaceDataType(enumType, updated, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Failed to update enum entries: " + e.getMessage())
+                    .build());
+            }
+        }
+
+        return OperationResult.success(
+            "update_data_type",
+            "enum",
+            "Enum updated successfully");
+    }
+
+    private OperationResult updateUnion(DataTypeManager dtm,
+                                        Union existing,
+                                        Map<String, Object> args,
+                                        GhidraMcpTool annotation) throws GhidraMcpException {
+        Union union = existing;
+
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(union::setDescription);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
+        if (members != null) {
+            UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get(ARG_NAME);
+                String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                String memberComment = (String) member.get(ARG_COMMENT);
+
+                DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                if (memberDataType == null) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .message("Could not resolve data type: " + dataTypePath)
+                        .build());
+                }
+
+                updated.add(memberDataType, memberName, memberComment);
+            }
+            try {
+                dtm.replaceDataType(union, updated, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Failed to update union members: " + e.getMessage())
+                    .build());
+            }
+        }
+
+        return OperationResult.success(
+            "update_data_type",
+            "union",
+            "Union updated successfully");
+    }
+
+    private OperationResult updateTypedef(DataTypeManager dtm,
+                                          TypeDef existing,
+                                          Map<String, Object> args,
+                                          GhidraMcpTool annotation) throws GhidraMcpException {
+        String baseTypeName = getOptionalStringArgument(args, ARG_BASE_TYPE).orElse(null);
+        TypeDef typedef = existing;
+
+        if (baseTypeName != null) {
+            DataType baseType = DataTypeUtils.resolveDataType(dtm, baseTypeName);
+            if (baseType == null) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Could not resolve base type: " + baseTypeName)
+                    .build());
+            }
+            typedef = new TypedefDataType(typedef.getCategoryPath(), typedef.getName(), baseType, dtm);
+            try {
+                dtm.replaceDataType(existing, typedef, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Failed to update typedef base type: " + e.getMessage())
+                    .build());
+            }
+        }
+
+        TypeDef finalTypedef = typedef;
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(finalTypedef::setDescription);
+
+        return OperationResult.success(
+            "update_data_type",
+            "typedef",
+            "Typedef updated successfully");
+    }
+
+    private OperationResult updatePointer(DataTypeManager dtm,
+                                          TypeDef existing,
+                                          Map<String, Object> args,
+                                          GhidraMcpTool annotation) throws GhidraMcpException {
+        String baseTypeName = getOptionalStringArgument(args, ARG_BASE_TYPE).orElse(null);
+        TypeDef pointerTypedef = existing;
+
+        if (baseTypeName != null) {
+            DataType baseType = DataTypeUtils.resolveDataType(dtm, baseTypeName);
+            if (baseType == null) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Could not resolve base type: " + baseTypeName)
+                    .build());
+            }
+            DataType pointerType = PointerDataType.getPointer(baseType, dtm);
+            pointerTypedef = new TypedefDataType(pointerTypedef.getCategoryPath(), pointerTypedef.getName(), pointerType, dtm);
+            try {
+                dtm.replaceDataType(existing, pointerTypedef, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Failed to update pointer typedef: " + e.getMessage())
+                    .build());
+            }
+        }
+
+        TypeDef finalPointer = pointerTypedef;
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(finalPointer::setDescription);
+
+        return OperationResult.success(
+            "update_data_type",
+            "pointer",
+            "Pointer updated successfully");
+    }
+
+    private OperationResult updateFunctionDefinition(DataTypeManager dtm,
+                                                     FunctionDefinition existing,
+                                                     Map<String, Object> args,
+                                                     GhidraMcpTool annotation) throws GhidraMcpException {
+        String returnTypeName = getOptionalStringArgument(args, ARG_RETURN_TYPE).orElse(null);
+        if (returnTypeName != null) {
+            DataType returnType = DataTypeUtils.resolveDataType(dtm, returnTypeName);
+            if (returnType == null) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .message("Could not resolve return type: " + returnTypeName)
+                    .build());
+            }
+            existing.setReturnType(returnType);
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) args.get(ARG_PARAMETERS);
+        if (parameters != null) {
+            List<ParameterDefinition> defs = new ArrayList<>();
+            for (int i = 0; i < parameters.size(); i++) {
+                Map<String, Object> param = parameters.get(i);
+                String paramName = (String) param.get(ARG_NAME);
+                String paramTypeName = (String) param.get(ARG_TYPE);
+                if (paramTypeName == null) {
+                    continue;
+                }
+                DataType paramType = DataTypeUtils.resolveDataType(dtm, paramTypeName);
+                if (paramType == null) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .message("Could not resolve parameter type: " + paramTypeName)
+                        .build());
+                }
+                if (paramName == null || paramName.isBlank()) {
+                    paramName = "param" + (i + 1);
+                }
+                defs.add(new ParameterDefinitionImpl(paramName, paramType, null));
+            }
+            existing.setArguments(defs.toArray(new ParameterDefinition[0]));
+        }
+
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(existing::setDescription);
+
+        return OperationResult.success(
+            "update_data_type",
+            "function_definition",
+            "Function definition updated successfully");
+    }
+
+    private OperationResult updateCategory(DataTypeManager dtm,
+                                           Map<String, Object> args,
+                                           GhidraMcpTool annotation) throws GhidraMcpException {
+        String categoryPathStr = getRequiredStringArgument(args, ARG_CATEGORY_PATH);
+        CategoryPath currentPath = new CategoryPath(categoryPathStr);
+
+        if (currentPath.isRoot()) {
+            throw new GhidraMcpException(GhidraMcpError.validation()
+                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                .message("Cannot update the root category")
+                .build());
+        }
+
+        Category category = dtm.getCategory(currentPath);
+        if (category == null) {
+            throw new GhidraMcpException(GhidraMcpError.resourceNotFound()
+                .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
+                .message("Category not found at path: " + categoryPathStr)
+                .build());
+        }
+
+        Optional<String> renameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+        Optional<String> moveOpt = getOptionalStringArgument(args, ARG_NEW_CATEGORY_PATH);
+
+        boolean changed = false;
+
+        if (renameOpt.isPresent()) {
+            String newName = renameOpt.get();
+            if (!newName.equals(category.getName())) {
+                try {
+                    category.setName(newName);
+                    changed = true;
+                } catch (InvalidNameException | DuplicateNameException e) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .message("Failed to rename category: " + e.getMessage())
+                        .build());
+                }
+            }
+        }
+
+        if (moveOpt.isPresent()) {
+            CategoryPath targetParentPath = normalizeParentPath(moveOpt.get());
+
+            Category currentParent = category.getParent();
+            CategoryPath currentParentPath = currentParent != null ? currentParent.getCategoryPath() : CategoryPath.ROOT;
+
+            if (!targetParentPath.equals(currentParentPath)) {
+                Category destinationParent = dtm.getCategory(targetParentPath);
+                if (destinationParent == null) {
+                    destinationParent = dtm.createCategory(targetParentPath);
+                }
+
+                try {
+                    destinationParent.moveCategory(category, TaskMonitor.DUMMY);
+                } catch (DuplicateNameException e) {
+                    throw new RuntimeException(new GhidraMcpException(GhidraMcpError.execution()
+                        .message("Failed to move category: " + e.getMessage())
+                        .build()));
+                }
+
+                CategoryPath destination = buildCategoryPath(targetParentPath, category.getName());
+                Category refreshed = dtm.getCategory(destination);
+                if (refreshed != null) {
+                    category = refreshed;
+                }
+
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            return OperationResult.success(
+                "update_data_type",
+                "category",
+                "Category already up to date");
+        }
+
+        return OperationResult.success(
+            "update_data_type",
+            "category",
+            "Category updated successfully");
+    }
+
+    private static CategoryPath normalizeParentPath(String path) {
+        if (path == null) {
+            return CategoryPath.ROOT;
+        }
+        String trimmed = path.trim();
+        if (trimmed.isEmpty() || "/".equals(trimmed)) {
+            return CategoryPath.ROOT;
+        }
+        if (!trimmed.startsWith("/")) {
+            trimmed = "/" + trimmed;
+        }
+        return new CategoryPath(trimmed);
+    }
+
+    private static CategoryPath buildCategoryPath(CategoryPath parentPath, String name) {
+        CategoryPath safeParent = parentPath == null ? CategoryPath.ROOT : parentPath;
+        if (name == null || name.isBlank()) {
+            return safeParent;
+        }
+        if (safeParent.toString().endsWith("/" + name)) {
+            return safeParent;
+        }
+        return new CategoryPath(safeParent, name);
+    }
+
+    private static CategoryPath normalizeCategoryPath(CategoryPath categoryPath, String name) {
+        return buildCategoryPath(categoryPath, name);
+    }
+
+    private static CategoryPath normalizeParentPath(String path, String name) {
+        return normalizeParentPath(path);
     }
 }

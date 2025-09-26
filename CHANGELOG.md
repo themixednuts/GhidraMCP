@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-09-26
+
+### Changed
+- Improved `manage_data_types` category handling, clarifying parent vs. destination paths and providing automatic swap detection when arguments are reversed.
+- Streamlined `manage_symbols` pagination and iteration helpers to avoid stack overflows while keeping iterator-style composition.
+
 ## [0.2.2] - 2025-09-25
 
 ### Changed
