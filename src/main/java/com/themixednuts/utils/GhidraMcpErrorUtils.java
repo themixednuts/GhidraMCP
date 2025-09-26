@@ -332,7 +332,7 @@ public class GhidraMcpErrorUtils {
 		suggestions.add(new ErrorSuggestion(
 				SuggestionType.CHECK_RESOURCES,
 				"Check available open files",
-				"Use the 'list_open_files' tool to see currently open files",
+				"Use the 'list_files' tool to see currently open files",
 				null,
 				null));
 

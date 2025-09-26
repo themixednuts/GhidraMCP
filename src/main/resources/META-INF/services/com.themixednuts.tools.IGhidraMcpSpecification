@@ -3,3 +3,4 @@ com.themixednuts.tools.DecompileCodeTool
 com.themixednuts.tools.ManageDataTypesTool
 com.themixednuts.tools.ManageMemoryTool
 com.themixednuts.tools.ManageSymbolsTool
+com.themixednuts.tools.ListFilesTool
