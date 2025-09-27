@@ -1,4 +1,4 @@
-com.themixednuts.tools.AnalyzeFunctionsTool
+com.themixednuts.tools.ManageFunctionsTool
 com.themixednuts.tools.DecompileCodeTool
 com.themixednuts.tools.ManageDataTypesTool
 com.themixednuts.tools.ManageMemoryTool

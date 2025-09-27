@@ -27,12 +27,9 @@ import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @GhidraMcpTool(
     name = "Manage Data Types",
@@ -279,11 +276,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
-
-        // Check if already exists
-        if (dtm.getDataType(categoryPath, name) != null) {
-            throw new RuntimeException("Data type already exists: " + categoryPath.getPath() + "/" + name);
-        }
+        checkDataTypeExists(dtm, categoryPath, name);
 
         int size = getOptionalIntArgument(args, "size").orElse(0);
         StructureDataType newStruct = new StructureDataType(categoryPath, name, size, dtm);
@@ -323,35 +316,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         // Add members if provided
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get("members");
-        if (members != null && !members.isEmpty()) {
-            Structure struct = (Structure) addedStruct;
-            for (Map<String, Object> member : members) {
-                String memberName = (String) member.get("name");
-                String dataTypePath = (String) member.get("data_type_path");
-                Integer offset = (Integer) member.get("offset");
-                String memberComment = (String) member.get("comment");
-
-                try {
-                    DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
-                    if (memberDataType == null) {
-                        throw new RuntimeException("Could not resolve data type: " + dataTypePath);
-                    }
-
-                    if (offset == null || offset == -1) {
-                        // Append to end
-                        struct.add(memberDataType, memberName, memberComment);
-                    } else if (offset == 0) {
-                        // Insert at beginning
-                        struct.insertAtOffset(0, memberDataType, memberDataType.getLength(), memberName, memberComment);
-                    } else {
-                        // Insert at specific offset
-                        struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
-                }
-            }
-        }
+        processStructMembers(members, dtm, (Structure) addedStruct);
 
         return new CreateDataTypeResult(
             "struct",
@@ -369,30 +334,26 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
-
-        if (dtm.getDataType(categoryPath, name) != null) {
-            throw new RuntimeException("Data type already exists: " + categoryPath.getPath() + "/" + name);
-        }
+        checkDataTypeExists(dtm, categoryPath, name);
 
         int size = getOptionalIntArgument(args, "size").orElse(1);
-        if (size != 1 && size != 2 && size != 4 && size != 8) {
-            throw new RuntimeException("Invalid enum size: " + size + ". Must be 1, 2, 4, or 8 bytes.");
-        }
+        validateEnumSize(size);
 
         EnumDataType newEnum = new EnumDataType(categoryPath, name, size, dtm);
 
         // Add entries if provided
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> entries = (List<Map<String, Object>>) args.get("entries");
-        if (entries != null) {
-            for (Map<String, Object> entry : entries) {
-                String entryName = (String) entry.get("name");
-                Integer entryValue = (Integer) entry.get("value");
-                if (entryName != null && entryValue != null) {
-                    newEnum.add(entryName, entryValue.longValue());
-                }
-            }
-        }
+        Optional.ofNullable(entries)
+            .ifPresent(entryList -> 
+                entryList.stream()
+                    .filter(entry -> entry.get("name") != null && entry.get("value") != null)
+                    .forEach(entry -> {
+                        String entryName = (String) entry.get("name");
+                        Integer entryValue = (Integer) entry.get("value");
+                        newEnum.add(entryName, entryValue.longValue());
+                    })
+            );
 
         DataType addedEnum = dtm.addDataType(newEnum, DataTypeConflictHandler.REPLACE_HANDLER);
         if (addedEnum == null) {
@@ -417,34 +378,14 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             .map(CategoryPath::new).orElse(CategoryPath.ROOT);
 
         ensureCategoryExists(dtm, categoryPath);
-
-        if (dtm.getDataType(categoryPath, name) != null) {
-            throw new RuntimeException("Data type already exists: " + categoryPath.getPath() + "/" + name);
-        }
+        checkDataTypeExists(dtm, categoryPath, name);
 
         UnionDataType newUnion = new UnionDataType(categoryPath, name, dtm);
 
         // Add members if provided
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get("members");
-        if (members != null) {
-            for (Map<String, Object> member : members) {
-                String memberName = (String) member.get("name");
-                String dataTypePath = (String) member.get("data_type_path");
-                String memberComment = (String) member.get("comment");
-
-                try {
-                    DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
-                    if (memberDataType == null) {
-                        throw new RuntimeException("Could not resolve data type: " + dataTypePath);
-                    }
-
-                    newUnion.add(memberDataType, memberName, memberComment);
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
-                }
-            }
-        }
+        processUnionMembers(members, dtm, newUnion);
 
         DataType addedUnion = dtm.addDataType(newUnion, DataTypeConflictHandler.REPLACE_HANDLER);
         if (addedUnion == null) {
@@ -542,27 +483,27 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         // Add parameters if provided
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> parameters = (List<Map<String, Object>>) args.get("parameters");
-        if (parameters != null && !parameters.isEmpty()) {
-            List<ParameterDefinition> paramList = new ArrayList<>();
-            for (int i = 0; i < parameters.size(); i++) {
-                Map<String, Object> param = parameters.get(i);
-                String paramName = (String) param.get("name");
-                String paramType = (String) param.get("type");
-
-                if (paramName == null) {
-                    paramName = "param" + (i + 1);
-                }
-
-                DataType paramDataType = DataTypeUtils.resolveDataType(dtm, paramType);
-                if (paramDataType == null) {
-                    throw new RuntimeException("Could not resolve parameter type: " + paramType);
-                }
-
-                paramList.add(new ParameterDefinitionImpl(paramName, paramDataType, null));
-            }
-
-            funcDef.setArguments(paramList.toArray(new ParameterDefinition[0]));
-        }
+        Optional.ofNullable(parameters)
+            .filter(list -> !list.isEmpty())
+            .ifPresent(paramList -> {
+                List<ParameterDefinition> defs = IntStream.range(0, paramList.size())
+                    .mapToObj(i -> {
+                        Map<String, Object> param = paramList.get(i);
+                        String paramName = Optional.ofNullable((String) param.get("name"))
+                            .orElse("param" + (i + 1));
+                        String paramType = (String) param.get("type");
+                        
+                        DataType paramDataType = DataTypeUtils.resolveDataType(dtm, paramType);
+                        if (paramDataType == null) {
+                            throw new RuntimeException("Could not resolve parameter type: " + paramType);
+                        }
+                        
+                        return new ParameterDefinitionImpl(paramName, paramDataType, null);
+                    })
+                    .collect(Collectors.toList());
+                
+                funcDef.setArguments(defs.toArray(new ParameterDefinition[0]));
+            });
 
         DataType addedFuncDef = dtm.addDataType(funcDef, DataTypeConflictHandler.REPLACE_HANDLER);
         if (addedFuncDef == null) {
@@ -628,30 +569,27 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             int valueCount = 0;
 
             if (dataType instanceof Structure struct) {
-                components = new ArrayList<>();
-                for (DataTypeComponent comp : struct.getComponents()) {
-                    components.add(new DataTypeComponentDetail(
-                        comp.getFieldName() != null ? comp.getFieldName() : "",
+                components = Arrays.stream(struct.getComponents())
+                    .map(comp -> new DataTypeComponentDetail(
+                        Optional.ofNullable(comp.getFieldName()).orElse(""),
                         comp.getDataType().getName(),
                         comp.getOffset(),
-                        comp.getLength()));
-                }
+                        comp.getLength()))
+                    .collect(Collectors.toList());
                 componentCount = struct.getNumComponents();
             } else if (dataType instanceof ghidra.program.model.data.Enum enumType) {
-                enumValues = new ArrayList<>();
-                for (String valueName : enumType.getNames()) {
-                    enumValues.add(new DataTypeEnumValue(valueName, enumType.getValue(valueName)));
-                }
+                enumValues = Arrays.stream(enumType.getNames())
+                    .map(valueName -> new DataTypeEnumValue(valueName, enumType.getValue(valueName)))
+                    .collect(Collectors.toList());
                 valueCount = enumType.getCount();
             } else if (dataType instanceof Union union) {
-                components = new ArrayList<>();
-                for (DataTypeComponent comp : union.getComponents()) {
-                    components.add(new DataTypeComponentDetail(
-                        comp.getFieldName() != null ? comp.getFieldName() : "",
+                components = Arrays.stream(union.getComponents())
+                    .map(comp -> new DataTypeComponentDetail(
+                        Optional.ofNullable(comp.getFieldName()).orElse(""),
                         comp.getDataType().getName(),
                         null,
-                        comp.getLength()));
-                }
+                        comp.getLength()))
+                    .collect(Collectors.toList());
                 componentCount = union.getNumComponents();
             }
 
@@ -901,23 +839,20 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 DataTypeListEntry::getPath,
                 Comparator.nullsLast(String::compareTo)));
 
-            int startIndex = 0;
-            if (cursorOpt.isPresent()) {
-                String cursor = cursorOpt.get();
-                startIndex = dataTypeList.size();
-                for (int i = 0; i < dataTypeList.size(); i++) {
-                    String path = dataTypeList.get(i).getPath();
-                    if (path != null && path.compareTo(cursor) > 0) {
-                        startIndex = i;
-                        break;
-                    }
-                }
-            }
+            int startIndex = cursorOpt
+                .map(cursor -> IntStream.range(0, dataTypeList.size())
+                    .filter(i -> {
+                        String path = dataTypeList.get(i).getPath();
+                        return path != null && path.compareTo(cursor) > 0;
+                    })
+                    .findFirst()
+                    .orElse(dataTypeList.size()))
+                .orElse(0);
 
-            List<DataTypeListEntry> pageBuffer = new ArrayList<>();
-            for (int i = startIndex; i < dataTypeList.size() && pageBuffer.size() < pageSize + 1; i++) {
-                pageBuffer.add(dataTypeList.get(i));
-            }
+            List<DataTypeListEntry> pageBuffer = dataTypeList.stream()
+                .skip(startIndex)
+                .limit(pageSize + 1L)
+                .collect(Collectors.toList());
 
             String nextCursor = null;
             if (pageBuffer.size() > pageSize) {
@@ -946,35 +881,28 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
     private void collectDataTypesAsEntries(Category category, List<DataTypeListEntry> dataTypes, String kindFilter,
                                       Optional<String> nameFilter, boolean includeBuiltin) {
-        // Collect from current category
-        for (DataType dt : category.getDataTypes()) {
-            if (!includeBuiltin && dt.getDataTypeManager() != category.getDataTypeManager()) {
-                continue; // Skip built-in types
-            }
-
-            String dtKind = getDataTypeKind(dt);
-            if (!kindFilter.equals("all") && !kindFilter.equals(dtKind)) {
-                continue;
-            }
-
-            if (nameFilter.isPresent() && !dt.getName().toLowerCase(Locale.ROOT).contains(nameFilter.get().toLowerCase(Locale.ROOT))) {
-                continue;
-            }
-
-            dataTypes.add(new DataTypeListEntry(
+        // Collect from current category using streams
+        Arrays.stream(category.getDataTypes())
+            .filter(dt -> includeBuiltin || dt.getDataTypeManager() == category.getDataTypeManager())
+            .filter(dt -> {
+                String dtKind = getDataTypeKind(dt);
+                return kindFilter.equals("all") || kindFilter.equals(dtKind);
+            })
+            .filter(dt -> nameFilter
+                .map(filter -> dt.getName().toLowerCase(Locale.ROOT).contains(filter.toLowerCase(Locale.ROOT)))
+                .orElse(true))
+            .map(dt -> new DataTypeListEntry(
                 dt.getName(),
                 dt.getPathName(),
-                dtKind,
+                getDataTypeKind(dt),
                 dt.getLength(),
-                dt.getDescription() != null ? dt.getDescription() : "",
-                dt.getCategoryPath().toString()
-            ));
-        }
+                Optional.ofNullable(dt.getDescription()).orElse(""),
+                dt.getCategoryPath().toString()))
+            .forEach(dataTypes::add);
 
         // Recursively collect from subcategories
-        for (Category subCategory : category.getCategories()) {
-            collectDataTypesAsEntries(subCategory, dataTypes, kindFilter, nameFilter, includeBuiltin);
-        }
+        Arrays.stream(category.getCategories())
+            .forEach(subCategory -> collectDataTypesAsEntries(subCategory, dataTypes, kindFilter, nameFilter, includeBuiltin));
     }
 
     private String getDataTypeKind(DataType dt) {
@@ -1002,35 +930,38 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private OperationResult updateStruct(DataTypeManager dtm,
                                          Structure existing,
                                          Map<String, Object> args,
-                                         GhidraMcpTool annotation) throws GhidraMcpException {
+                                         GhidraMcpTool annotation) {
         Structure struct = existing;
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(struct::setDescription);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
-        if (members != null) {
-            struct.deleteAll();
-            for (Map<String, Object> member : members) {
-                String memberName = (String) member.get(ARG_NAME);
-                String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
-                Integer offset = (Integer) member.get(ARG_OFFSET);
-                String memberComment = (String) member.get(ARG_COMMENT);
+        Optional.ofNullable(members)
+            .ifPresent(memberList -> {
+                struct.deleteAll();
+                memberList.forEach(member -> {
+                    String memberName = (String) member.get(ARG_NAME);
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    Integer offset = (Integer) member.get(ARG_OFFSET);
+                    String memberComment = (String) member.get(ARG_COMMENT);
 
-                DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
-                if (memberDataType == null) {
-                    throw new GhidraMcpException(GhidraMcpError.execution()
-                        .message("Could not resolve data type: " + dataTypePath)
-                        .build());
-                }
+                    try {
+                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        if (memberDataType == null) {
+                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                        }
 
-                if (offset == null || offset == -1) {
-                    struct.add(memberDataType, memberName, memberComment);
-                } else {
-                    struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
-                }
-            }
-        }
+                        if (offset == null || offset == -1) {
+                            struct.add(memberDataType, memberName, memberComment);
+                        } else {
+                            struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
+                    }
+                });
+            });
 
         return OperationResult.success(
             "update_data_type",
@@ -1041,7 +972,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private OperationResult updateEnum(DataTypeManager dtm,
                                        ghidra.program.model.data.Enum existing,
                                        Map<String, Object> args,
-                                       GhidraMcpTool annotation) throws GhidraMcpException {
+                                       GhidraMcpTool annotation) {
         ghidra.program.model.data.Enum enumType = existing;
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(enumType::setDescription);
@@ -1056,38 +987,39 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             try {
                 dtm.replaceDataType(enumType, resized, true);
             } catch (DataTypeDependencyException e) {
-                throw new GhidraMcpException(GhidraMcpError.execution()
-                    .message("Failed to resize enum: " + e.getMessage())
-                    .build());
+                throw new RuntimeException("Failed to resize enum: " + e.getMessage());
             }
             enumType = resized;
         }
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> entries = (List<Map<String, Object>>) args.get(ARG_ENTRIES);
-        if (entries != null) {
-            ghidra.program.model.data.EnumDataType updated = new ghidra.program.model.data.EnumDataType(
-                enumType.getCategoryPath(), enumType.getName(), enumType.getLength(), dtm);
-            for (Map<String, Object> entry : entries) {
-                String entryName = (String) entry.get(ARG_NAME);
-                Number value = (Number) entry.get(ARG_VALUE);
-                String comment = (String) entry.get(ARG_COMMENT);
-                if (entryName != null && value != null) {
-                    if (comment != null) {
-                        updated.add(entryName, value.longValue(), comment);
-                    } else {
-                        updated.add(entryName, value.longValue());
-                    }
+        final ghidra.program.model.data.Enum finalEnumType = enumType;
+        Optional.ofNullable(entries)
+            .ifPresent(entryList -> {
+                ghidra.program.model.data.EnumDataType updated = new ghidra.program.model.data.EnumDataType(
+                    finalEnumType.getCategoryPath(), finalEnumType.getName(), finalEnumType.getLength(), dtm);
+                
+                entryList.stream()
+                    .filter(entry -> entry.get(ARG_NAME) != null && entry.get(ARG_VALUE) != null)
+                    .forEach(entry -> {
+                        String entryName = (String) entry.get(ARG_NAME);
+                        Number value = (Number) entry.get(ARG_VALUE);
+                        String comment = (String) entry.get(ARG_COMMENT);
+                        
+                        if (comment != null) {
+                            updated.add(entryName, value.longValue(), comment);
+                        } else {
+                            updated.add(entryName, value.longValue());
+                        }
+                    });
+                
+                try {
+                    dtm.replaceDataType(finalEnumType, updated, true);
+                } catch (DataTypeDependencyException e) {
+                    throw new RuntimeException("Failed to update enum entries: " + e.getMessage());
                 }
-            }
-            try {
-                dtm.replaceDataType(enumType, updated, true);
-            } catch (DataTypeDependencyException e) {
-                throw new GhidraMcpException(GhidraMcpError.execution()
-                    .message("Failed to update enum entries: " + e.getMessage())
-                    .build());
-            }
-        }
+            });
 
         return OperationResult.success(
             "update_data_type",
@@ -1098,37 +1030,36 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private OperationResult updateUnion(DataTypeManager dtm,
                                         Union existing,
                                         Map<String, Object> args,
-                                        GhidraMcpTool annotation) throws GhidraMcpException {
+                                        GhidraMcpTool annotation) {
         Union union = existing;
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(union::setDescription);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
-        if (members != null) {
-            UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
-            for (Map<String, Object> member : members) {
-                String memberName = (String) member.get(ARG_NAME);
-                String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
-                String memberComment = (String) member.get(ARG_COMMENT);
+        Optional.ofNullable(members)
+            .ifPresent(memberList -> {
+                UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
+                
+                memberList.forEach(member -> {
+                    String memberName = (String) member.get(ARG_NAME);
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    String memberComment = (String) member.get(ARG_COMMENT);
 
-                DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
-                if (memberDataType == null) {
-                    throw new GhidraMcpException(GhidraMcpError.execution()
-                        .message("Could not resolve data type: " + dataTypePath)
-                        .build());
+                    DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                    if (memberDataType == null) {
+                        throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                    }
+
+                    updated.add(memberDataType, memberName, memberComment);
+                });
+                
+                try {
+                    dtm.replaceDataType(union, updated, true);
+                } catch (DataTypeDependencyException e) {
+                    throw new RuntimeException("Failed to update union members: " + e.getMessage());
                 }
-
-                updated.add(memberDataType, memberName, memberComment);
-            }
-            try {
-                dtm.replaceDataType(union, updated, true);
-            } catch (DataTypeDependencyException e) {
-                throw new GhidraMcpException(GhidraMcpError.execution()
-                    .message("Failed to update union members: " + e.getMessage())
-                    .build());
-            }
-        }
+            });
 
         return OperationResult.success(
             "update_data_type",
@@ -1220,28 +1151,32 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> parameters = (List<Map<String, Object>>) args.get(ARG_PARAMETERS);
-        if (parameters != null) {
-            List<ParameterDefinition> defs = new ArrayList<>();
-            for (int i = 0; i < parameters.size(); i++) {
-                Map<String, Object> param = parameters.get(i);
-                String paramName = (String) param.get(ARG_NAME);
-                String paramTypeName = (String) param.get(ARG_TYPE);
-                if (paramTypeName == null) {
-                    continue;
-                }
-                DataType paramType = DataTypeUtils.resolveDataType(dtm, paramTypeName);
-                if (paramType == null) {
-                    throw new GhidraMcpException(GhidraMcpError.execution()
-                        .message("Could not resolve parameter type: " + paramTypeName)
-                        .build());
-                }
-                if (paramName == null || paramName.isBlank()) {
-                    paramName = "param" + (i + 1);
-                }
-                defs.add(new ParameterDefinitionImpl(paramName, paramType, null));
-            }
-            existing.setArguments(defs.toArray(new ParameterDefinition[0]));
-        }
+        Optional.ofNullable(parameters)
+            .ifPresent(paramList -> {
+                List<ParameterDefinition> defs = IntStream.range(0, paramList.size())
+                    .mapToObj(i -> {
+                        Map<String, Object> param = paramList.get(i);
+                        String paramTypeName = (String) param.get(ARG_TYPE);
+                        if (paramTypeName == null) {
+                            return null;
+                        }
+                        
+                        DataType paramType = DataTypeUtils.resolveDataType(dtm, paramTypeName);
+                        if (paramType == null) {
+                            throw new RuntimeException("Could not resolve parameter type: " + paramTypeName);
+                        }
+                        
+                        String paramName = Optional.ofNullable((String) param.get(ARG_NAME))
+                            .filter(name -> !name.isBlank())
+                            .orElse("param" + (i + 1));
+                        
+                        return new ParameterDefinitionImpl(paramName, paramType, null);
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+                
+                existing.setArguments(defs.toArray(new ParameterDefinition[0]));
+            });
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(existing::setDescription);
 
@@ -1357,5 +1292,80 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             return safeParent;
         }
         return new CategoryPath(safeParent, name);
+    }
+
+    /**
+     * Helper method to validate enum size
+     */
+    private static void validateEnumSize(int size) {
+        if (size != 1 && size != 2 && size != 4 && size != 8) {
+            throw new RuntimeException("Invalid enum size: " + size + ". Must be 1, 2, 4, or 8 bytes.");
+        }
+    }
+
+    /**
+     * Helper method to check if data type already exists
+     */
+    private static void checkDataTypeExists(DataTypeManager dtm, CategoryPath categoryPath, String name) {
+        if (dtm.getDataType(categoryPath, name) != null) {
+            throw new RuntimeException("Data type already exists: " + categoryPath.getPath() + "/" + name);
+        }
+    }
+
+    /**
+     * Helper method to process struct/union members with consistent error handling
+     */
+    private void processStructMembers(List<Map<String, Object>> members, DataTypeManager dtm, Structure struct) {
+        Optional.ofNullable(members)
+            .filter(list -> !list.isEmpty())
+            .ifPresent(memberList -> 
+                memberList.forEach(member -> {
+                    String memberName = (String) member.get("name");
+                    String dataTypePath = (String) member.get("data_type_path");
+                    String memberComment = (String) member.get("comment");
+                    Integer offset = (Integer) member.get("offset");
+
+                    try {
+                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        if (memberDataType == null) {
+                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                        }
+
+                        if (offset == null || offset == -1) {
+                            struct.add(memberDataType, memberName, memberComment);
+                        } else if (offset == 0) {
+                            struct.insertAtOffset(0, memberDataType, memberDataType.getLength(), memberName, memberComment);
+                        } else {
+                            struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
+                    }
+                })
+            );
+    }
+
+    /**
+     * Helper method to process union members
+     */
+    private void processUnionMembers(List<Map<String, Object>> members, DataTypeManager dtm, UnionDataType union) {
+        Optional.ofNullable(members)
+            .ifPresent(memberList -> 
+                memberList.forEach(member -> {
+                    String memberName = (String) member.get("name");
+                    String dataTypePath = (String) member.get("data_type_path");
+                    String memberComment = (String) member.get("comment");
+
+                    try {
+                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        if (memberDataType == null) {
+                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                        }
+                        union.add(memberDataType, memberName, memberComment);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
+                    }
+                })
+            );
     }
 }

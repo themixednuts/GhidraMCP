@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @GhidraMcpTool(
     name = "Manage Project",
@@ -163,6 +164,8 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
     private Mono<? extends Object> handleGetProgramInfo(Program program) {
         return Mono.fromCallable(() -> new ProgramInfo(program));
     }
+
+
 
     private Mono<? extends Object> handleListAnalysisOptions(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
