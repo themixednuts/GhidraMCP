@@ -27,11 +27,10 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import java.util.Comparator;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -453,55 +452,367 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     }
 
     private Mono<? extends Object> handleUpdate(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        String currentName = getRequiredStringArgument(args, ARG_CURRENT_NAME);
-        String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
+        Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
+        Optional<String> currentNameOpt = getOptionalStringArgument(args, ARG_CURRENT_NAME);
+        Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
         Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
+        String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
 
-        return executeInTransaction(program, "MCP - Rename Symbol " + currentName + " to " + newName, () -> {
+        boolean hasSymbolId = symbolIdOpt.isPresent();
+        boolean hasCurrentName = currentNameOpt.filter(name -> !name.isBlank()).isPresent();
+        boolean hasAddress = addressOpt.filter(addr -> !addr.isBlank()).isPresent();
+
+        // Count provided identifiers
+        int identifierCount = (hasSymbolId ? 1 : 0) + (hasCurrentName ? 1 : 0) + (hasAddress ? 1 : 0);
+        
+        if (identifierCount > 1) {
+            return Mono.error(multipleIdentifierError(args, symbolIdOpt, currentNameOpt, addressOpt));
+        }
+
+        if (identifierCount == 0) {
+            return Mono.error(missingIdentifierError(args));
+        }
+
+        return executeInTransaction(program, "MCP - Rename Symbol", () -> {
             SymbolTable symbolTable = program.getSymbolTable();
+            SymbolResolveResult resolveResult = resolveSymbolForRename(symbolTable, program, args, symbolIdOpt, currentNameOpt, addressOpt, namespaceOpt);
 
-            // Find symbol by name
-            SymbolIterator symbolIter = symbolTable.getSymbolIterator(currentName, true);
-            if (!symbolIter.hasNext()) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-                    .message("Symbol not found: " + currentName)
+            // Check if the new name already exists in the target namespace
+            SymbolIterator existingSymbolIterator = symbolTable.getSymbolIterator(newName, true);
+            List<Symbol> existingSymbols = new ArrayList<>();
+            while (existingSymbolIterator.hasNext()) {
+                Symbol existingSymbol = existingSymbolIterator.next();
+                if (existingSymbol.getParentNamespace().equals(resolveResult.targetNamespace())) {
+                    existingSymbols.add(existingSymbol);
+                }
+            }
+            
+            // If there's already a symbol with the same name in the target namespace, provide detailed info
+            if (!existingSymbols.isEmpty()) {
+                Map<String, Object> conflictInfo = new HashMap<>();
+                List<Map<String, Object>> conflictingSymbols = existingSymbols.stream()
+                    .map(symbol -> {
+                        Map<String, Object> symbolInfo = new HashMap<>();
+                        symbolInfo.put("id", symbol.getID());
+                        symbolInfo.put("name", symbol.getName());
+                        symbolInfo.put("address", symbol.getAddress().toString());
+                        symbolInfo.put("type", symbol.getSymbolType().toString());
+                        symbolInfo.put("namespace", symbol.getParentNamespace().getName(false));
+                        symbolInfo.put("source", symbol.getSource().toString());
+                        return symbolInfo;
+                    })
+                    .collect(Collectors.toList());
+                
+                conflictInfo.put("conflictingSymbols", conflictingSymbols);
+                conflictInfo.put("targetNamespace", resolveResult.targetNamespace().getName(false));
+                
+                GhidraMcpError error = GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Symbol already exists: " + newName)
+                    .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "rename symbol conflict",
+                        args,
+                        Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName),
+                        conflictInfo
+                    ))
+                    .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Choose a different name",
+                        "Provide a unique name that doesn't conflict with existing symbols",
+                        List.of("CanvasAsset::s_typeId_v2", "CanvasAsset_s_typeId_new"),
+                        null)))
                     .build();
                 throw new GhidraMcpException(error);
             }
 
-            Symbol symbol = symbolIter.next();
-            if (symbolIter.hasNext()) {
-                GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-                    .message("Multiple symbols found with name: " + currentName)
-                    .build();
-                throw new GhidraMcpException(error);
-            }
-
-            // Determine target namespace
-            Namespace targetNamespace = program.getGlobalNamespace();
-            if (namespaceOpt.isPresent() && !namespaceOpt.get().isBlank() &&
-                !namespaceOpt.get().equalsIgnoreCase("global")) {
-                targetNamespace = symbolTable.getNamespace(namespaceOpt.get(), null);
-            }
-
-            RenameLabelCmd cmd = new RenameLabelCmd(symbol, newName, targetNamespace, SourceType.USER_DEFINED);
+            RenameLabelCmd cmd = new RenameLabelCmd(resolveResult.symbol(), newName, resolveResult.targetNamespace(), SourceType.USER_DEFINED);
             if (!cmd.applyTo(program)) {
                 GhidraMcpError error = GhidraMcpError.execution()
                     .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
                     .message("Failed to rename symbol: " + cmd.getStatusMsg())
+                    .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "rename symbol",
+                        args,
+                        Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName, "targetNamespace", resolveResult.targetNamespace().getName(false)),
+                        Map.of("commandStatus", cmd.getStatusMsg())
+                    ))
                     .build();
                 throw new GhidraMcpException(error);
             }
 
             return new SymbolRenameResult(true,
-                    currentName,
+                    resolveResult.originalDisplayName(),
                     newName,
-                    symbol.getAddress().toString(),
-                    targetNamespace.getName(true));
+                    resolveResult.symbol().getAddress().toString(),
+                    resolveResult.targetNamespace().getName(false));
         });
     }
+
+    private SymbolResolveResult resolveSymbolForRename(SymbolTable symbolTable,
+            Program program,
+            Map<String, Object> args,
+            Optional<Long> symbolIdOpt,
+            Optional<String> currentNameOpt,
+            Optional<String> addressOpt,
+            Optional<String> namespaceOpt) throws GhidraMcpException {
+
+        if (symbolIdOpt.isPresent()) {
+            Symbol symbol = symbolTable.getSymbol(symbolIdOpt.get());
+            if (symbol == null) {
+                throw symbolNotFoundById(symbolIdOpt.get(), args);
+            }
+
+            Namespace targetNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+            return new SymbolResolveResult(symbol, symbol.getName(false), targetNamespace);
+        }
+
+        if (addressOpt.isPresent()) {
+            try {
+                Address address = program.getAddressFactory().getAddress(addressOpt.get());
+                if (address == null) {
+                    throw new IllegalArgumentException("Invalid address format: " + addressOpt.get());
+                }
+                
+                Symbol primarySymbol = symbolTable.getPrimarySymbol(address);
+                if (primarySymbol == null) {
+                    throw symbolNotFoundByAddress(addressOpt.get(), args);
+                }
+                
+                Namespace targetNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+                return new SymbolResolveResult(primarySymbol, primarySymbol.getName(false), targetNamespace);
+            } catch (Exception e) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                    .message("Failed to parse address: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "address parsing",
+                        args,
+                        Map.of(ARG_ADDRESS, addressOpt.get()),
+                        Map.of("parseError", e.getMessage())))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+        }
+
+        String currentName = currentNameOpt.map(String::trim).orElse("");
+
+        List<Symbol> matchingSymbols = findSymbolsByName(symbolTable, currentName);
+
+        if (matchingSymbols.isEmpty()) {
+            throw symbolNotFoundByName(currentName, namespaceOpt, args);
+        }
+
+        Namespace targetNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+        Symbol selectedSymbol = selectSymbolWithinNamespace(matchingSymbols, targetNamespace, args);
+
+        return new SymbolResolveResult(selectedSymbol, currentName, targetNamespace);
+    }
+
+    private Namespace resolveTargetNamespace(SymbolTable symbolTable, Program program, Optional<String> namespaceOpt) throws GhidraMcpException {
+        if (namespaceOpt.isEmpty() || namespaceOpt.get().isBlank() || namespaceOpt.get().equalsIgnoreCase("global")) {
+            return program.getGlobalNamespace();
+        }
+
+        Namespace namespace = symbolTable.getNamespace(namespaceOpt.get(), null);
+        if (namespace == null) {
+            throw namespaceNotFound(namespaceOpt.get());
+        }
+        return namespace;
+    }
+
+    private List<Symbol> findSymbolsByName(SymbolTable symbolTable, String currentName) {
+        List<Symbol> matches = new ArrayList<>();
+        SymbolIterator iterator = symbolTable.getSymbolIterator(currentName, true);
+        while (iterator.hasNext()) {
+            matches.add(iterator.next());
+        }
+        return matches;
+    }
+
+    private Symbol selectSymbolWithinNamespace(List<Symbol> symbols, Namespace targetNamespace, Map<String, Object> args) throws GhidraMcpException {
+        List<Symbol> scopedMatches = symbols.stream()
+            .filter(symbol -> symbol.getParentNamespace().equals(targetNamespace))
+            .collect(Collectors.toList());
+
+        if (scopedMatches.size() == 1) {
+            return scopedMatches.get(0);
+        }
+
+        if (scopedMatches.isEmpty() && symbols.size() == 1) {
+            return symbols.get(0);
+        }
+
+        List<String> conflicting = symbols.stream()
+            .map(symbol -> symbol.getName(false) + " (ID=" + symbol.getID() + ")")
+            .collect(Collectors.toList());
+
+        throw ambiguousSymbolError(args, conflicting);
+    }
+
+    private GhidraMcpException multipleIdentifierError(Map<String, Object> args, Optional<Long> symbolIdOpt, Optional<String> currentNameOpt, Optional<String> addressOpt) {
+        List<String> providedIdentifiers = new ArrayList<>();
+        Map<String, Object> providedValues = new HashMap<>();
+        
+        if (symbolIdOpt.isPresent()) {
+            providedIdentifiers.add(ARG_SYMBOL_ID);
+            providedValues.put(ARG_SYMBOL_ID, symbolIdOpt.get());
+        }
+        if (currentNameOpt.filter(name -> !name.isBlank()).isPresent()) {
+            providedIdentifiers.add(ARG_CURRENT_NAME);
+            providedValues.put(ARG_CURRENT_NAME, currentNameOpt.get());
+        }
+        if (addressOpt.filter(addr -> !addr.isBlank()).isPresent()) {
+            providedIdentifiers.add(ARG_ADDRESS);
+            providedValues.put(ARG_ADDRESS, addressOpt.get());
+        }
+        
+        GhidraMcpError error = GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+            .message("Provide only one identifier: " + String.join(", ", providedIdentifiers))
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol rename identifier selection",
+                args,
+                providedValues,
+                Map.of("identifiersProvided", providedIdentifiers.size())))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Choose a single identifier",
+                "Use only one of: " + String.join(", ", providedIdentifiers),
+                List.of(
+                    "\"" + ARG_SYMBOL_ID + "\": 12345",
+                    "\"" + ARG_CURRENT_NAME + "\": \"MySymbol\"",
+                    "\"" + ARG_ADDRESS + "\": \"0x401000\""),
+                null)))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException missingIdentifierError(Map<String, Object> args) {
+        Map<String, Object> providedIdentifiers = Map.of(
+            ARG_SYMBOL_ID, args.getOrDefault(ARG_SYMBOL_ID, "not provided"),
+            ARG_CURRENT_NAME, args.getOrDefault(ARG_CURRENT_NAME, "not provided"),
+            ARG_ADDRESS, args.getOrDefault(ARG_ADDRESS, "not provided")
+        );
+
+        GhidraMcpError error = GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+            .message("Provide either '" + ARG_SYMBOL_ID + "', '" + ARG_CURRENT_NAME + "', or '" + ARG_ADDRESS + "' to identify the symbol")
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol rename identifiers",
+                args,
+                providedIdentifiers,
+                Map.of("identifiersProvided", 0, "minimumRequired", 1)
+            ))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Include at least one identifier",
+                "Provide one of: " + ARG_SYMBOL_ID + ", " + ARG_CURRENT_NAME + ", or " + ARG_ADDRESS,
+                List.of("\"" + ARG_SYMBOL_ID + "\": 12345", "\"" + ARG_CURRENT_NAME + "\": \"FunctionName\"", "\"" + ARG_ADDRESS + "\": \"0x401000\""),
+                null)))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException symbolNotFoundById(long symbolId, Map<String, Object> args) {
+        GhidraMcpError error = GhidraMcpError.resourceNotFound()
+            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+            .message("Symbol not found for ID: " + symbolId)
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol lookup",
+                args,
+                Map.of(ARG_SYMBOL_ID, symbolId),
+                Map.of("matched", false)))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException symbolNotFoundByName(String currentName, Optional<String> namespaceOpt, Map<String, Object> args) {
+        GhidraMcpError error = GhidraMcpError.resourceNotFound()
+            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+            .message("Symbol not found: " + currentName)
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol lookup",
+                args,
+                Map.of(ARG_CURRENT_NAME, currentName, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                Map.of("matchesFound", 0)))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                "List symbols",
+                "Use the 'manage_symbols' tool with action 'list' to inspect available symbols",
+                null,
+                List.of("manage_symbols"))))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException namespaceNotFound(String namespaceName) {
+        GhidraMcpError error = GhidraMcpError.resourceNotFound()
+            .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
+            .message("Namespace not found: " + namespaceName)
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "namespace lookup",
+                Map.of(ARG_NAMESPACE, namespaceName),
+                Map.of(ARG_NAMESPACE, namespaceName),
+                Map.of("namespaceExists", false)))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                "List namespaces",
+                "Use symbol listing or program tree to confirm the namespace name",
+                null,
+                List.of("manage_symbols"))))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException symbolNotFoundByAddress(String address, Map<String, Object> args) {
+        GhidraMcpError error = GhidraMcpError.resourceNotFound()
+            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+            .message("No symbol found at address: " + address)
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol lookup by address",
+                args,
+                Map.of(ARG_ADDRESS, address),
+                Map.of("symbolFound", false)))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                "Verify the address has symbols",
+                "Check if the address contains any symbols or data",
+                null,
+                List.of("manage_symbols"))))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private GhidraMcpException ambiguousSymbolError(Map<String, Object> args, List<String> candidates) {
+        GhidraMcpError error = GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+            .message("Multiple symbols matched the provided criteria")
+            .context(new GhidraMcpError.ErrorContext(
+                this.getMcpName(),
+                "symbol disambiguation",
+                args,
+                Map.of("candidates", candidates),
+                Map.of("matchCount", candidates.size())))
+            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Disambiguate the symbol",
+                "Provide the 'symbolId' or a fully qualified name via 'namespace'",
+                List.of("\"symbolId\": 12345", "\"namespace\": \"MyNamespace\""),
+                null)))
+            .build();
+        return new GhidraMcpException(error);
+    }
+
+    private record SymbolResolveResult(Symbol symbol, String originalDisplayName, Namespace targetNamespace) {}
 
     private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         return executeInTransaction(program, "MCP - Delete Symbol", () -> {
@@ -589,7 +900,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
                         .message("Invalid name_pattern regex: " + e.getMessage())
                         .context(new GhidraMcpError.ErrorContext(
-                                annotation.mcpName(),
+                                this.getMcpName(),
                                 "pattern compilation",
                                 args,
                                 Map.of(ARG_NAME_PATTERN, namePattern),
@@ -606,42 +917,54 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             }
 
             SymbolTable symbolTable = program.getSymbolTable();
-
-            SymbolIterator baseIterator = symbolTable.getSymbolIterator(namePattern, caseSensitive);
-
-
+            SymbolIterator symbolIter = symbolTable.getAllSymbols(true);
+            
+            // Convert iterator to stream for safe iteration (like the old working implementation)
+            Stream<Symbol> symbolStream = StreamSupport.stream(symbolIter.spliterator(), false);
+            
             long cursorId = cursorOpt.map(Long::parseLong).orElse(0L);
-            int maxResults = getOptionalIntArgument(args, ARG_MAX_RESULTS).orElse(Integer.MAX_VALUE);
 
-            AtomicInteger matchCounter = new AtomicInteger();
+            // Apply cursor filtering first (skip symbols before cursor)
+            symbolStream = symbolStream.filter(symbol -> symbol.getID() > cursorId);
 
-            List<Symbol> filteredPage = StreamSupport.stream(
-                            Spliterators.spliteratorUnknownSize(baseIterator, Spliterator.ORDERED), false)
-                    .filter(symbol -> symbol.getID() > cursorId)
-                    .filter(symbol -> compiledPattern.matcher(symbol.getName()).matches())
-                    .filter(symbol -> typeFilterOpt.map(filter -> {
-                        SymbolType symbolType = symbol.getSymbolType();
-                        return symbolType != null && symbolType.toString().equalsIgnoreCase(filter);
-                    }).orElse(true))
-                    .filter(symbol -> matchCounter.incrementAndGet() <= maxResults)
-                    .limit((long) pageSize + 1)
-                    .collect(Collectors.toList());
+            // Apply name pattern filtering
+            symbolStream = symbolStream.filter(symbol -> {
+                String symbolName = symbol.getName();
+                return symbolName != null && compiledPattern.matcher(symbolName).matches();
+            });
 
-            boolean hasMore = filteredPage.size() > pageSize;
-            String nextCursor = null;
-            if (hasMore) {
-                Symbol lastSymbol = filteredPage.get(pageSize);
-                nextCursor = String.valueOf(lastSymbol.getID());
+            // Apply type filtering if specified
+            if (typeFilterOpt.isPresent()) {
+                final String typeFilter = typeFilterOpt.get();
+                symbolStream = symbolStream.filter(symbol -> {
+                    SymbolType symbolType = symbol.getSymbolType();
+                    return symbolType != null && symbolType.toString().equalsIgnoreCase(typeFilter);
+                });
             }
 
-            List<SymbolListItem> results = filteredPage.stream()
-                    .limit(hasMore ? pageSize : filteredPage.size())
+            // Sort by ID for consistent pagination
+            symbolStream = symbolStream.sorted(Comparator.comparingLong(Symbol::getID));
+
+            // Limit to page size + 1 to detect if there are more results
+            List<Symbol> limitedSymbols = symbolStream
+                    .limit(pageSize + 1)
+                    .collect(Collectors.toList());
+
+            boolean hasMore = limitedSymbols.size() > pageSize;
+            List<Symbol> pageSymbols = limitedSymbols.subList(0, Math.min(limitedSymbols.size(), pageSize));
+
+            String nextCursor = null;
+            if (hasMore && !pageSymbols.isEmpty()) {
+                nextCursor = String.valueOf(pageSymbols.get(pageSymbols.size() - 1).getID());
+            }
+
+            List<SymbolListItem> results = pageSymbols.stream()
                     .map(symbol -> new SymbolListItem(
                             symbol.getID(),
                             symbol.getName(),
                             symbol.getAddress().toString(),
                             symbol.getSymbolType().toString(),
-                            symbol.getParentNamespace().getName(true),
+                            symbol.getParentNamespace().getName(false),
                             symbol.getSource().toString(),
                             symbol.isPrimary()))
                     .collect(Collectors.toList());
@@ -653,8 +976,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     caseSensitive,
                     typeFilterOpt.orElse("all"),
                     paginated,
-                    matchCounter.get(),
-                    results.size(),
+                    results.size(), // Total found for this page
+                    results.size(), // Returned count
                     pageSize);
         });
     }
@@ -700,7 +1023,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     symbol.getName(),
                     symbol.getAddress().toString(),
                     symbol.getSymbolType().toString(),
-                    symbol.getParentNamespace().getName(true),
+                    symbol.getParentNamespace().getName(false),
                     symbol.getSource().toString(),
                     symbol.isPrimary()))
                 .collect(Collectors.toList());
@@ -733,7 +1056,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 symbolTypeCounts.merge(symbolType, 1L, Long::sum);
 
                 // Count by namespace
-                String namespaceName = symbol.getParentNamespace().getName(true);
+                String namespaceName = symbol.getParentNamespace().getName(false);
                 if (namespaceName.isEmpty()) namespaceName = "Global";
                 namespaceCounts.merge(namespaceName, 1L, Long::sum);
 
