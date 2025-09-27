@@ -21,6 +21,7 @@ import ghidra.features.base.memsearch.gui.SearchSettings;
 import ghidra.features.base.memsearch.matcher.ByteMatcher;
 import ghidra.features.base.memsearch.searcher.MemoryMatch;
 import ghidra.features.base.memsearch.searcher.MemorySearcher;
+import ghidra.util.task.TaskMonitor;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
@@ -47,13 +48,13 @@ import ghidra.program.model.symbol.ReferenceIterator;
 
 @GhidraMcpTool(
     name = "Manage Memory",
-    description = "Comprehensive memory management including reading, writing, searching, analyzing memory segments, and inspecting cross-references.",
+    description = "Comprehensive memory management including reading, writing, undefining code units, searching, analyzing memory segments, and inspecting cross-references.",
     mcpName = "manage_memory",
     mcpDescription = """
     <use_case>
-    Comprehensive memory operations for reverse engineering. Read and write bytes, search for patterns,
-    analyze memory layout, manage memory segments, and inspect cross-references at specific addresses.
-    Essential for understanding program structure, patching code, and analyzing data structures.
+    Comprehensive memory operations for reverse engineering. Read and write bytes, undefine code units,
+    search for patterns, analyze memory layout, manage memory segments, and inspect cross-references at specific addresses.
+    Essential for understanding program structure, patching code, clearing incorrect disassembly, and analyzing data structures.
     </use_case>
 
     <important_notes>
@@ -82,6 +83,13 @@ import ghidra.program.model.symbol.ReferenceIterator;
       "max_results": 10
     }
 
+    Undefine code unit at address:
+    {
+      "fileName": "program.exe",
+      "action": "undefine",
+      "address": "0x401000"
+    }
+
     List incoming cross-references:
     {
       "fileName": "program.exe",
@@ -104,6 +112,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
 
     private static final String ACTION_READ = "read";
     private static final String ACTION_WRITE = "write";
+    private static final String ACTION_UNDEFINE = "undefine";
     private static final String ACTION_SEARCH = "search";
     private static final String ACTION_LIST_SEGMENTS = "list_segments";
     private static final String ACTION_ANALYZE_SEGMENT = "analyze_segment";
@@ -152,6 +161,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 .enumValues(
                         ACTION_READ,
                         ACTION_WRITE,
+                        ACTION_UNDEFINE,
                         ACTION_SEARCH,
                         ACTION_LIST_SEGMENTS,
                         ACTION_ANALYZE_SEGMENT,
@@ -211,6 +221,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             return switch (action.toLowerCase()) {
                 case ACTION_READ -> handleRead(program, args, annotation);
                 case ACTION_WRITE -> handleWrite(program, args, annotation);
+                case ACTION_UNDEFINE -> handleUndefine(program, args, annotation);
                 case ACTION_SEARCH -> handleSearch(program, args, annotation);
                 case ACTION_LIST_SEGMENTS -> handleListSegments(program, args, annotation);
                 case ACTION_ANALYZE_SEGMENT -> handleAnalyzeSegment(program, args, annotation);
@@ -228,6 +239,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                             Map.of("validActions", List.of(
                                     ACTION_READ,
                                     ACTION_WRITE,
+                                    ACTION_UNDEFINE,
                                     ACTION_SEARCH,
                                     ACTION_LIST_SEGMENTS,
                                     ACTION_ANALYZE_SEGMENT,
@@ -237,10 +249,11 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
-                                "Choose from: read, write, search, list_segments, analyze_segment, get_xrefs_to, get_xrefs_from",
+                                "Choose from: read, write, undefine, search, list_segments, analyze_segment, get_xrefs_to, get_xrefs_from",
                                 List.of(
                                         ACTION_READ,
                                         ACTION_WRITE,
+                                        ACTION_UNDEFINE,
                                         ACTION_SEARCH,
                                         ACTION_LIST_SEGMENTS,
                                         ACTION_ANALYZE_SEGMENT,
@@ -403,6 +416,65 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         });
     }
 
+    private Mono<? extends Object> handleUndefine(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+        String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+
+        return executeInTransaction(program, "MCP - Undefine at " + addressStr, () -> {
+            // Parse address
+            Address address;
+            try {
+                address = program.getAddressFactory().getAddress(addressStr);
+                if (address == null) {
+                    throw new IllegalArgumentException("Invalid address format");
+                }
+            } catch (Exception e) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                    .message("Failed to parse address: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "address parsing",
+                        args,
+                        Map.of(ARG_ADDRESS, addressStr),
+                        Map.of("parseError", e.getMessage())))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                            "Use valid address format",
+                            "Provide address in hexadecimal format",
+                            List.of("0x401000", "0x00401000", "401000"),
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+
+            // Clear code units at the address
+            try {
+                program.getListing().clearCodeUnits(address, address, false);
+                return "Successfully cleared code unit definition at address " + address.toString();
+            } catch (Exception e) {
+                GhidraMcpError error = GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to clear code units: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "undefine operation",
+                        args,
+                        Map.of(ARG_ADDRESS, addressStr),
+                        Map.of("operationError", e.getMessage())))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                            "Verify address is valid",
+                            "Ensure the address is within a valid memory range",
+                            null,
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+        });
+    }
+
     private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         String searchTypeStr = getRequiredStringArgument(args, ARG_SEARCH_TYPE);
         String searchValue = getRequiredStringArgument(args, ARG_SEARCH_VALUE);
@@ -451,7 +523,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
             MemorySearcher searcher = new MemorySearcher(byteSource, matcher, addressSet, pageSize);
 
             ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-            searcher.findAll(accumulator, null);
+            searcher.findAll(accumulator, TaskMonitor.DUMMY);
 
             List<MemoryMatch> matches = accumulator.stream().collect(Collectors.toList());
             matches.sort(Comparator.comparing(match -> match.getAddress()));
