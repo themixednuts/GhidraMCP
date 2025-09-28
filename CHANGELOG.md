@@ -7,6 +7,36 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-09-28
+
+### Added
+- **DemanglerTool** - Comprehensive C++ symbol demangling using Ghidra's DemanglerUtil API
+  - Support for various mangling formats (GCC, MSVC, Borland, etc.)
+  - Multiple fallback demangling approaches for better compatibility
+  - Detailed symbol analysis and format detection
+  - Structured error handling with helpful suggestions
+- **FindReferencesTool** - Find code and data references to addresses or symbols
+- **ListAnalysisOptionsTool** - List available analysis options for programs
+- **ListDataTypesTool** - List program data types with pagination support
+- **ListFunctionsTool** - List program functions with comprehensive information
+- **ListMemoryBlocksTool** - List memory blocks and segments
+- **ListSymbolsTool** - List program symbols with detailed metadata
+- **FunctionVariableInfo** model - Enhanced function variable information
+
+### Changed
+- **SearchMemoryTool** - Major improvements to hex format validation and error handling
+  - Fixed NullPointerException with TaskMonitor usage
+  - Added comprehensive hex format validation with helpful suggestions
+  - Improved error messages for common format mistakes (0x prefix, continuous hex)
+  - Enhanced schema descriptions for better user guidance
+- Enhanced error handling across all tools with structured GhidraMcpError responses
+- Improved tool descriptions with detailed usage guidance for AI agents
+
+### Fixed
+- Fixed SearchMemoryTool NullPointerException when using GhidraMcpTaskMonitor
+- Improved DemanglerTool compatibility with various mangling formats
+- Enhanced error reporting and debugging information across tools
+
 ## [0.2.3] - 2025-09-26
 
 ### Changed
