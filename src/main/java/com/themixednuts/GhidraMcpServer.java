@@ -10,6 +10,7 @@ import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecif
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
@@ -132,7 +133,16 @@ public class GhidraMcpServer {
 
         // Get available tools
         List<Pair<String, AsyncToolSpecification>> toolSpecs = toolProvider.getAvailableToolSpecifications();
-        Msg.info(GhidraMcpServer.class, "Loaded " + toolSpecs.size() + " MCP tools");
+        List<AsyncToolSpecification> activeToolSpecs = toolSpecs.stream()
+            .map(spec -> spec.second)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+
+        Msg.info(GhidraMcpServer.class,
+            "Loaded " + toolSpecs.size() + " MCP tools; " + activeToolSpecs.size() + " enabled");
+        if (activeToolSpecs.isEmpty()) {
+            Msg.warn(GhidraMcpServer.class, "No MCP tools enabled; server will start without tool endpoints");
+        }
 
         // Create transport provider
         transportProvider = HttpServletStatelessServerTransport.builder()
@@ -142,14 +152,16 @@ public class GhidraMcpServer {
         mcpServer = McpServer.async(transportProvider)
             .serverInfo("ghidra-mcp", "0.3.0")
             .capabilities(ServerCapabilities.builder().tools(true).build())
-            .tools(toolSpecs.stream().map(spec -> spec.second).collect(Collectors.toList()))
+            .tools(activeToolSpecs)
             .build();
 
-        Msg.info(GhidraMcpServer.class, "Initialized stateless MCP server with " + toolSpecs.size() + " tools");
+        Msg.info(GhidraMcpServer.class,
+            "Initialized stateless MCP server with " + activeToolSpecs.size() + " tool endpoint(s)");
 
         // Create and configure Jetty server
         jettyServer = new Server();
         ServerConnector connector = new ServerConnector(jettyServer);
+        connector.setHost("127.0.0.1");
         connector.setPort(port);
         jettyServer.addConnector(connector);
 
@@ -230,3 +242,4 @@ public class GhidraMcpServer {
         return refCount.get();
     }
 }
+

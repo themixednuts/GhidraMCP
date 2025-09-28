@@ -79,8 +79,22 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 				.map(provider -> {
 					try {
 						IGhidraMcpSpecification toolInstance = provider.get();
-						String toolName = toolInstance.getClass().getAnnotation(GhidraMcpTool.class).mcpName();
-						return new Pair<String, AsyncToolSpecification>(toolName, toolInstance.specification(this.tool));
+						GhidraMcpTool annotation = toolInstance.getClass().getAnnotation(GhidraMcpTool.class);
+						if (annotation == null) {
+							Msg.warn(GhidraMcpTools.class,
+								"Tool instance " + toolInstance.getClass().getSimpleName() +
+									" is missing @GhidraMcpTool annotation. Skipping inclusion.");
+							return null;
+						}
+
+						AsyncToolSpecification specification = toolInstance.specification(this.tool);
+						if (specification == null) {
+							Msg.warn(GhidraMcpTools.class,
+								"Tool '" + annotation.mcpName() + "' returned null specification. Skipping inclusion.");
+							return null;
+						}
+
+						return new Pair<String, AsyncToolSpecification>(annotation.mcpName(), specification);
 					} catch (Exception e) {
 						String className = provider.type().getSimpleName();
 						Msg.error(GhidraMcpTools.class,
@@ -141,3 +155,4 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	}
 
 }
+

@@ -70,8 +70,7 @@ public class GhidraMcpPlugin extends Plugin {
         // Read current values
         currentPort = options.getInt(PORT_OPTION_NAME, DEFAULT_PORT);
 
-        // Return options change listener
-        return (options1, name, oldValue, newValue) -> {
+        OptionsChangeListener listener = (options1, name, oldValue, newValue) -> {
             if (name.equals(PORT_OPTION_NAME)) {
                 int newPort = (Integer) newValue;
                 if (newPort != this.currentPort) {
@@ -84,6 +83,9 @@ public class GhidraMcpPlugin extends Plugin {
                 scheduleServerRestart();
             }
         };
+
+        options.addOptionsChangeListener(listener);
+        return listener;
     }
 
     private void scheduleServerRestart() {
