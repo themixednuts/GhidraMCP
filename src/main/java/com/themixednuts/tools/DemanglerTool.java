@@ -106,10 +106,20 @@ public class DemanglerTool implements IGhidraMcpSpecification {
         private final String className;
         private final String functionName;
         private final List<String> parameters;
+        private final String errorMessage;
+        private final String symbolAnalysis;
 
         public DemangleResult(String originalSymbol, String demangledSymbol, String demanglerUsed, 
                             boolean isValid, String demangledType, String namespace, 
                             String className, String functionName, List<String> parameters) {
+            this(originalSymbol, demangledSymbol, demanglerUsed, isValid, demangledType, 
+                 namespace, className, functionName, parameters, null, null);
+        }
+
+        public DemangleResult(String originalSymbol, String demangledSymbol, String demanglerUsed, 
+                            boolean isValid, String demangledType, String namespace, 
+                            String className, String functionName, List<String> parameters,
+                            String errorMessage, String symbolAnalysis) {
             this.originalSymbol = originalSymbol;
             this.demangledSymbol = demangledSymbol;
             this.demanglerUsed = demanglerUsed;
@@ -119,6 +129,8 @@ public class DemanglerTool implements IGhidraMcpSpecification {
             this.className = className;
             this.functionName = functionName;
             this.parameters = parameters;
+            this.errorMessage = errorMessage;
+            this.symbolAnalysis = symbolAnalysis;
         }
 
         public String getOriginalSymbol() { return originalSymbol; }
@@ -130,6 +142,8 @@ public class DemanglerTool implements IGhidraMcpSpecification {
         public String getClassName() { return className; }
         public String getFunctionName() { return functionName; }
         public List<String> getParameters() { return parameters; }
+        public String getErrorMessage() { return errorMessage; }
+        public String getSymbolAnalysis() { return symbolAnalysis; }
     }
 
     @Override
@@ -199,34 +213,27 @@ public class DemanglerTool implements IGhidraMcpSpecification {
             }
             
             if (demangled == null) {
-                // Provide detailed information about why demangling failed
+                // Analyze the symbol to provide helpful suggestions
+                String symbolAnalysis = analyzeSymbol(mangledSymbol);
                 String errorMessage = "No demangler could process this symbol";
                 if (lastException != null) {
                     errorMessage += ": " + lastException.getMessage();
                 }
                 
-                // Analyze the symbol to provide helpful suggestions
-                String symbolAnalysis = analyzeSymbol(mangledSymbol);
-                
-                throw new GhidraMcpException(GhidraMcpError.searchNoResults()
-                        .errorCode(GhidraMcpError.ErrorCode.NO_SEARCH_RESULTS)
-                        .message(errorMessage)
-                        .context(new GhidraMcpError.ErrorContext(
-                                getMcpName(),
-                                "demangling execution",
-                                Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
-                                Map.of("demanglerName", demanglerNameOpt.orElse("auto"), "symbolAnalysis", symbolAnalysis),
-                                Map.of("programName", program.getName(), "lastException", lastException != null ? lastException.getClass().getSimpleName() : "none")))
-                        .suggestions(List.of(
-                                new GhidraMcpError.ErrorSuggestion(
-                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                        "Symbol Analysis: " + symbolAnalysis,
-                                        "This symbol may not be a standard mangled symbol or may use an unsupported mangling format",
-                                        List.of("Try different demangling tools", "Check if this is a custom symbol format", "Verify the symbol is complete"),
-                                        null
-                                )
-                        ))
-                        .build());
+                // Return a detailed result with analysis
+                return new DemangleResult(
+                    mangledSymbol,
+                    null,
+                    "No demangler available",
+                    false,
+                    "Failed to demangle",
+                    null,
+                    null,
+                    null,
+                    null,
+                    errorMessage,
+                    symbolAnalysis
+                );
             }
 
             // Extract information from the demangled result
@@ -247,7 +254,9 @@ public class DemanglerTool implements IGhidraMcpSpecification {
                 namespace,
                 className,
                 functionName,
-                parameters
+                parameters,
+                null, // No error message for successful demangling
+                analyzeSymbol(mangledSymbol) // Include symbol analysis for context
             );
 
         } catch (Exception e) {
