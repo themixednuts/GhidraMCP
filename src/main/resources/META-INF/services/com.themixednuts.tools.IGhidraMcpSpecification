@@ -5,3 +5,11 @@ com.themixednuts.tools.ManageMemoryTool
 com.themixednuts.tools.ManageSymbolsTool
 com.themixednuts.tools.ListFilesTool
 com.themixednuts.tools.ManageProjectTool
+com.themixednuts.tools.ListSymbolsTool
+com.themixednuts.tools.SearchMemoryTool
+com.themixednuts.tools.ListAnalysisOptionsTool
+com.themixednuts.tools.FindReferencesTool
+com.themixednuts.tools.ListMemoryBlocksTool
+com.themixednuts.tools.ListDataTypesTool
+com.themixednuts.tools.ListFunctionsTool
+com.themixednuts.tools.DemanglerTool

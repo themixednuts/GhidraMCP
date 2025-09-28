@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(mvn compile:*)",
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:ghidra.re)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

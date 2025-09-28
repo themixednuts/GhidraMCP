@@ -158,59 +158,80 @@ public class DemanglerTool implements IGhidraMcpSpecification {
 
     private DemangleResult performDemangling(Program program, String mangledSymbol, Optional<String> demanglerNameOpt) throws GhidraMcpException {
         try {
-            // Note: DemanglerOptions and specific demangler selection
-            // are typically handled by DemanglerUtil automatically
-
-            // Use DemanglerUtil to demangle the symbol
-            // According to the API docs, the correct method is demangle(Program, String, Address)
-            // which returns List<DemangledObject>
+            // Try multiple demangling approaches
             Demangled demangled = null;
+            String demanglerUsed = "Unknown";
+            Exception lastException = null;
+
+            // Approach 1: Try with program and null address
             try {
-                // Use the current API method - address can be null for symbol-only demangling
                 var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
                 if (demangledList != null && !demangledList.isEmpty()) {
                     demangled = demangledList.get(0);
+                    demanglerUsed = "Ghidra Demangler (with program)";
                 }
             } catch (Exception e) {
-                // If demangling fails, provide helpful error information
-                throw new GhidraMcpException(GhidraMcpError.execution()
-                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                        .message("Failed to demangle symbol: " + e.getMessage())
+                lastException = e;
+            }
+
+            // Approach 2: If that failed, try the deprecated method as fallback
+            if (demangled == null) {
+                try {
+                    demangled = DemanglerUtil.demangle(program, mangledSymbol);
+                    if (demangled != null) {
+                        demanglerUsed = "Ghidra Demangler (deprecated method)";
+                    }
+                } catch (Exception e) {
+                    lastException = e;
+                }
+            }
+
+            // Approach 3: Try without program context (for standalone demangling)
+            if (demangled == null) {
+                try {
+                    demangled = DemanglerUtil.demangle(mangledSymbol);
+                    if (demangled != null) {
+                        demanglerUsed = "Ghidra Demangler (standalone)";
+                    }
+                } catch (Exception e) {
+                    lastException = e;
+                }
+            }
+            
+            if (demangled == null) {
+                // Provide detailed information about why demangling failed
+                String errorMessage = "No demangler could process this symbol";
+                if (lastException != null) {
+                    errorMessage += ": " + lastException.getMessage();
+                }
+                
+                // Analyze the symbol to provide helpful suggestions
+                String symbolAnalysis = analyzeSymbol(mangledSymbol);
+                
+                throw new GhidraMcpException(GhidraMcpError.searchNoResults()
+                        .errorCode(GhidraMcpError.ErrorCode.NO_SEARCH_RESULTS)
+                        .message(errorMessage)
                         .context(new GhidraMcpError.ErrorContext(
                                 getMcpName(),
                                 "demangling execution",
                                 Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
-                                Map.of("demanglerName", demanglerNameOpt.orElse("auto")),
-                                Map.of("programName", program.getName())))
+                                Map.of("demanglerName", demanglerNameOpt.orElse("auto"), "symbolAnalysis", symbolAnalysis),
+                                Map.of("programName", program.getName(), "lastException", lastException != null ? lastException.getClass().getSimpleName() : "none")))
                         .suggestions(List.of(
                                 new GhidraMcpError.ErrorSuggestion(
                                         GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                        "Verify symbol format",
-                                        "Ensure the symbol is properly mangled and supported by available demanglers",
-                                        List.of("Check if symbol starts with common mangling prefixes like '_Z' or '?'"),
+                                        "Symbol Analysis: " + symbolAnalysis,
+                                        "This symbol may not be a standard mangled symbol or may use an unsupported mangling format",
+                                        List.of("Try different demangling tools", "Check if this is a custom symbol format", "Verify the symbol is complete"),
                                         null
                                 )
                         ))
                         .build());
             }
-            
-            if (demangled == null) {
-                return new DemangleResult(
-                    mangledSymbol,
-                    null,
-                    "Unknown",
-                    false,
-                    "Unknown",
-                    null,
-                    null,
-                    null,
-                    null
-                );
-            }
 
             // Extract information from the demangled result
             String demangledString = demangled.toString();
-            String demanglerUsed = getDemanglerName(demangled);
+            String actualDemanglerUsed = getDemanglerName(demangled, demanglerUsed);
             String demangledType = getDemangledType(demangled);
             String namespace = extractNamespace(demangled);
             String className = extractClassName(demangled);
@@ -220,7 +241,7 @@ public class DemanglerTool implements IGhidraMcpSpecification {
             return new DemangleResult(
                 mangledSymbol,
                 demangledString,
-                demanglerUsed,
+                actualDemanglerUsed,
                 true,
                 demangledType,
                 namespace,
@@ -243,11 +264,11 @@ public class DemanglerTool implements IGhidraMcpSpecification {
         }
     }
 
-    private String getDemanglerName(Demangled demangled) {
+    private String getDemanglerName(Demangled demangled, String fallbackName) {
         // Try to determine which demangler was used
         // This is a simplified approach - in practice, you might need to check
         // the specific demangler that was successful
-        return "Ghidra Demangler";
+        return fallbackName != null ? fallbackName : "Ghidra Demangler";
     }
 
     private String getDemangledType(Demangled demangled) {
@@ -281,5 +302,33 @@ public class DemanglerTool implements IGhidraMcpSpecification {
     private List<String> extractParameters(Demangled demangled) {
         // Extract function parameters if available
         return null; // Placeholder - implement based on Demangled object structure
+    }
+
+    /**
+     * Analyzes a symbol to provide helpful information about its format and potential issues.
+     */
+    private String analyzeSymbol(String symbol) {
+        if (symbol == null || symbol.trim().isEmpty()) {
+            return "Empty or null symbol";
+        }
+
+        String trimmed = symbol.trim();
+        
+        // Check for common mangling patterns
+        if (trimmed.startsWith("_Z")) {
+            return "GCC/Itanium C++ ABI mangling detected";
+        } else if (trimmed.startsWith("?")) {
+            return "Microsoft Visual C++ mangling detected";
+        } else if (trimmed.startsWith("__")) {
+            return "Possible GCC/Clang internal symbol";
+        } else if (trimmed.contains("@")) {
+            return "Symbol contains @ characters (possible MSVC or custom mangling)";
+        } else if (trimmed.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            return "Plain symbol (not mangled)";
+        } else if (trimmed.matches("^[0-9a-fA-F]+$")) {
+            return "Hexadecimal string (possible address or hash)";
+        } else {
+            return "Unknown or custom symbol format";
+        }
     }
 }

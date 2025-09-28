@@ -2,7 +2,6 @@ package com.themixednuts.tools;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
-import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.ProgramInfo;
@@ -11,8 +10,6 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.services.GoToService;
-import ghidra.framework.options.OptionType;
-import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Bookmark;
@@ -21,14 +18,11 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 @GhidraMcpTool(
     name = "Manage Project",
@@ -69,7 +63,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
     public static final String ARG_COMMENT_CONTAINS = "comment_contains";
 
     private static final String ACTION_GET_PROGRAM_INFO = "get_program_info";
-    private static final String ACTION_LIST_ANALYSIS_OPTIONS = "list_analysis_options";
     private static final String ACTION_CREATE_BOOKMARK = "create_bookmark";
     private static final String ACTION_DELETE_BOOKMARK = "delete_bookmark";
     private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
@@ -85,7 +78,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
                 .enumValues(
                         ACTION_GET_PROGRAM_INFO,
-                        ACTION_LIST_ANALYSIS_OPTIONS,
                         ACTION_CREATE_BOOKMARK,
                         ACTION_DELETE_BOOKMARK,
                         ACTION_GO_TO_ADDRESS)
@@ -123,7 +115,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
 
             return switch (normalizedAction) {
                 case ACTION_GET_PROGRAM_INFO -> handleGetProgramInfo(program);
-                case ACTION_LIST_ANALYSIS_OPTIONS -> handleListAnalysisOptions(program, args, annotation);
                 case ACTION_CREATE_BOOKMARK -> handleCreateBookmark(program, args, annotation);
                 case ACTION_DELETE_BOOKMARK -> handleDeleteBookmark(program, args, annotation);
                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool, annotation);
@@ -138,7 +129,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                     Map.of(ARG_ACTION, action),
                                     Map.of("validActions", List.of(
                                             ACTION_GET_PROGRAM_INFO,
-                                            ACTION_LIST_ANALYSIS_OPTIONS,
                                             ACTION_CREATE_BOOKMARK,
                                             ACTION_DELETE_BOOKMARK,
                                             ACTION_GO_TO_ADDRESS))))
@@ -149,7 +139,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                             "Choose one of the supported manage_project actions",
                                             List.of(
                                                     ACTION_GET_PROGRAM_INFO,
-                                                    ACTION_LIST_ANALYSIS_OPTIONS,
                                                     ACTION_CREATE_BOOKMARK,
                                                     ACTION_DELETE_BOOKMARK,
                                                     ACTION_GO_TO_ADDRESS),
@@ -167,46 +156,6 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
 
 
 
-    private Mono<? extends Object> handleListAnalysisOptions(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return Mono.fromCallable(() -> {
-            Options analysisOptions = program.getOptions(Program.ANALYSIS_PROPERTIES);
-            if (analysisOptions == null) {
-                GhidraMcpError error = GhidraMcpError.execution()
-                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                        .message("Analysis options are not available for program: " + program.getName())
-                        .context(new GhidraMcpError.ErrorContext(
-                                annotation.mcpName(),
-                                ACTION_LIST_ANALYSIS_OPTIONS,
-                                args,
-                                Map.of("fileName", program.getName()),
-                                Map.of("analysisOptionsAvailable", false)))
-                        .build();
-                throw new GhidraMcpException(error);
-            }
-
-            List<String> optionNames = analysisOptions.getOptionNames();
-            List<AnalysisOptionInfo> results = new ArrayList<>(optionNames.size());
-
-            for (String optionName : optionNames) {
-                OptionType optionType = analysisOptions.getType(optionName);
-                Object valueObj = analysisOptions.getObject(optionName, null);
-                String value = valueObj != null ? valueObj.toString() : "null";
-                boolean usingDefault = analysisOptions.isDefaultValue(optionName);
-
-                String description = analysisOptions.getDescription(optionName);
-
-                results.add(new AnalysisOptionInfo(
-                        optionName,
-                        description,
-                        optionType != null ? optionType.toString() : "unknown",
-                        value,
-                        usingDefault));
-            }
-
-            results.sort(Comparator.comparing(AnalysisOptionInfo::getName, String.CASE_INSENSITIVE_ORDER));
-            return results;
-        });
-    }
 
     private Mono<? extends Object> handleCreateBookmark(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
         String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
@@ -214,15 +163,18 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
         String bookmarkCategory = getRequiredStringArgument(args, ARG_BOOKMARK_CATEGORY);
         String comment = getRequiredStringArgument(args, ARG_COMMENT);
 
+        // Validate arguments with early returns
         if (bookmarkType.isBlank()) {
-            return buildBlankArgumentError(annotation, args, ARG_BOOKMARK_TYPE, ACTION_CREATE_BOOKMARK, "Bookmark type must not be blank");
+            return buildBlankArgumentError(annotation, args, ARG_BOOKMARK_TYPE, ACTION_CREATE_BOOKMARK,
+                ARG_BOOKMARK_TYPE + " must not be blank");
         }
         if (bookmarkCategory.isBlank()) {
-            return buildBlankArgumentError(annotation, args, ARG_BOOKMARK_CATEGORY, ACTION_CREATE_BOOKMARK, "Bookmark category must not be blank");
+            return buildBlankArgumentError(annotation, args, ARG_BOOKMARK_CATEGORY, ACTION_CREATE_BOOKMARK,
+                ARG_BOOKMARK_CATEGORY + " must not be blank");
         }
 
         return parseAddress(program, args, addressStr, ACTION_CREATE_BOOKMARK, annotation)
-                .flatMap(addressResult -> executeInTransaction(program, "MCP - Create Bookmark", () -> {
+            .flatMap(addressResult -> executeInTransaction(program, "MCP - Create Bookmark", () -> {
             Address address = addressResult.getAddress();
             String normalizedAddress = addressResult.getAddressString();
             try {
@@ -303,10 +255,9 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                 .map(category -> category.equals(bookmark.getCategory()))
                                 .orElse(true))
                         .filter(bookmark -> commentContainsOpt
-                                .map(filter -> {
-                                    String comment = bookmark.getComment();
-                                    return comment != null && comment.contains(filter);
-                                })
+                                .map(filter -> Optional.ofNullable(bookmark.getComment())
+                                        .map(comment -> comment.contains(filter))
+                                        .orElse(false))
                                 .orElse(true))
                         .collect(Collectors.toList());
 

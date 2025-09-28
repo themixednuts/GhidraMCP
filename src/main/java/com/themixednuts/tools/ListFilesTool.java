@@ -59,9 +59,9 @@ public class ListFilesTool implements IGhidraMcpSpecification {
     }
 
     private List<OpenFileInfo> listFiles(PluginTool tool) throws GhidraMcpException {
-        Project project = tool != null ? tool.getProject() : null;
-        if (project == null) {
-            GhidraMcpError error = GhidraMcpError.execution()
+        Project project = java.util.Optional.ofNullable(tool)
+            .map(PluginTool::getProject)
+            .orElseThrow(() -> new GhidraMcpException(GhidraMcpError.execution()
                 .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
                 .message("No active project found in the current tool context")
                 .context(new GhidraMcpError.ErrorContext(
@@ -80,9 +80,7 @@ public class ListFilesTool implements IGhidraMcpSpecification {
                         null
                     )
                 ))
-                .build();
-            throw new GhidraMcpException(error);
-        }
+                .build()));
 
         return project
             .getOpenData()

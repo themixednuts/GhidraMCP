@@ -28,6 +28,8 @@ import reactor.core.publisher.Mono;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.Spliterator;
+import java.util.Spliterators;
 
 @GhidraMcpTool(
     name = "Decompile Code",
@@ -125,7 +127,6 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
             boolean includePcode = getOptionalBooleanArgument(args, ARG_INCLUDE_PCODE).orElse(false);
             boolean includeAst = getOptionalBooleanArgument(args, ARG_INCLUDE_AST).orElse(false);
             int timeout = getOptionalIntArgument(args, ARG_TIMEOUT).orElse(30);
-            // String analysisLevel = getOptionalStringArgument(args, ARG_ANALYSIS_LEVEL).orElse("standard"); // TODO: Use for future enhancement
 
             return switch (targetType.toLowerCase()) {
                 case "function" -> decompileFunction(program, targetValue, includePcode, includeAst, timeout, annotation);
@@ -161,11 +162,10 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                                      int timeout, GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
             if (functionName.isEmpty()) {
-                GhidraMcpError error = GhidraMcpError.validation()
+                throw new GhidraMcpException(GhidraMcpError.validation()
                     .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
                     .message("Function name is required for function decompilation")
-                    .build();
-                throw new GhidraMcpException(error);
+                    .build());
             }
 
             FunctionManager functionManager = program.getFunctionManager();
@@ -183,7 +183,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                     .limit(20)
                     .collect(Collectors.toList());
 
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                throw new GhidraMcpException(GhidraMcpError.resourceNotFound()
                     .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
                     .message("Function not found: " + functionName)
                     .context(new GhidraMcpError.ErrorContext(
@@ -199,8 +199,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                             "Use analyze_functions with list action to see all functions",
                             availableFunctions.subList(0, Math.min(10, availableFunctions.size())),
                             List.of("analyze_functions"))))
-                    .build();
-                throw new GhidraMcpException(error);
+                    .build());
             }
 
             return performDecompilation(program, targetFunction, includePcode, includeAst, timeout, annotation);
@@ -210,43 +209,28 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
     private Mono<? extends Object> decompileAtAddress(Program program, String addressStr,
                                                       boolean includePcode, boolean includeAst,
                                                       int timeout, GhidraMcpTool annotation) {
-        return Mono.fromCallable(() -> {
-            Address address;
-            try {
-                address = program.getAddressFactory().getAddress(addressStr);
-                if (address == null) {
-                    throw new IllegalArgumentException("Invalid address format");
+        return parseAddress(program, Map.of(ARG_ADDRESS, addressStr), addressStr, "decompile_at_address", annotation)
+            .flatMap(addressResult -> Mono.fromCallable(() -> {
+                Address address = addressResult.getAddress();
+                FunctionManager functionManager = program.getFunctionManager();
+                Function function = functionManager.getFunctionContaining(address);
+
+                if (function == null) {
+                    Listing listing = program.getListing();
+                    Instruction instruction = listing.getInstructionAt(address);
+
+                    if (instruction != null) {
+                        return analyzeInstructionPcode(instruction, address);
+                    } else {
+                        throw new GhidraMcpException(GhidraMcpError.resourceNotFound()
+                            .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
+                            .message("No function or instruction found at address: " + addressStr)
+                            .build());
+                    }
                 }
-            } catch (Exception e) {
-                GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                    .message("Failed to parse address: " + e.getMessage())
-                    .build();
-                throw new GhidraMcpException(error);
-            }
 
-            FunctionManager functionManager = program.getFunctionManager();
-            Function function = functionManager.getFunctionContaining(address);
-
-            if (function == null) {
-                // Check if there's an instruction at the address
-                Listing listing = program.getListing();
-                Instruction instruction = listing.getInstructionAt(address);
-
-                if (instruction != null) {
-                    // Return instruction-level P-code analysis
-                    return analyzeInstructionPcode(instruction, address);
-                } else {
-                    GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                        .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                        .message("No function or instruction found at address: " + addressStr)
-                        .build();
-                    throw new GhidraMcpException(error);
-                }
-            }
-
-            return performDecompilation(program, function, includePcode, includeAst, timeout, annotation);
-        });
+                return performDecompilation(program, function, includePcode, includeAst, timeout, annotation);
+            }));
     }
 
     private Map<String, Object> analyzeInstructionPcode(Instruction instruction, Address address) {
@@ -275,91 +259,95 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
 
     private DecompilationResult performDecompilation(Program program, Function function,
                                                     boolean includePcode, boolean includeAst,
-                                                    int timeout, GhidraMcpTool annotation) {
+                                                    int timeout, GhidraMcpTool annotation) throws GhidraMcpException {
         DecompInterface decomp = new DecompInterface();
-
         try {
             decomp.openProgram(program);
             GhidraMcpTaskMonitor monitor = new GhidraMcpTaskMonitor(null, "Decompiling " + function.getName());
 
             DecompileResults decompResult = decomp.decompileFunction(function, timeout, monitor);
 
-            if (decompResult != null && decompResult.decompileCompleted()) {
-                String code = decompResult.getDecompiledFunction().getC();
-                DecompilationResult result = new DecompilationResult(
-                    "function",
-                    function.getName(),
-                    function.getEntryPoint().toString(),
-                    true,
-                    code != null ? code : "// Decompilation produced no output",
-                    null
-                );
-
-                // Set basic function info
-                result.setParameterCount(function.getParameterCount());
-                result.setReturnType(function.getReturnType().getName());
-                result.setBodySize((int) function.getBody().getNumAddresses());
-
-                // Add P-code analysis if requested
-                if (includePcode) {
-                    HighFunction highFunc = decompResult.getHighFunction();
-                    if (highFunc != null) {
-                        List<Map<String, Object>> pcodeOps = new ArrayList<>();
-                        Iterator<PcodeOpAST> ops = highFunc.getPcodeOps();
-
-                        while (ops.hasNext() && pcodeOps.size() < 100) { // Limit to prevent huge responses
-                            PcodeOpAST op = ops.next();
-                            pcodeOps.add(Map.of(
-                                "opcode", op.getOpcode(),
-                                "mnemonic", op.getMnemonic(),
-                                "sequence", op.getSeqnum().getTime(),
-                                "address", op.getSeqnum().getTarget().toString(),
-                                "operation", op.toString()
-                            ));
-                        }
-                        result.setPcodeOperations(pcodeOps);
-                    }
-                }
-
-                // Add AST information if requested
-                if (includeAst) {
-                    HighFunction highFunc = decompResult.getHighFunction();
-                    if (highFunc != null) {
-                        result.setAstInfo(Map.of(
-                            "has_local_symbols", highFunc.getLocalSymbolMap() != null,
-                            "has_global_symbols", highFunc.getGlobalSymbolMap() != null,
-                            "basic_blocks", highFunc.getBasicBlocks().size()
-                        ));
-                    }
-                }
-
-                return result;
-            } else {
-                String errorMsg = decompResult != null ? decompResult.getErrorMessage() : "Unknown decompilation error";
-                return new DecompilationResult(
-                    "function",
-                    function.getName(),
-                    function.getEntryPoint().toString(),
-                    false,
-                    "// Decompilation failed: " + errorMsg,
-                    errorMsg
-                );
-            }
+            return Optional.ofNullable(decompResult)
+                .filter(DecompileResults::decompileCompleted)
+                .map(result -> createSuccessfulDecompilation(function, result, includePcode, includeAst))
+                .orElseGet(() -> createFailedDecompilation(function, decompResult));
 
         } catch (Exception e) {
-            return new DecompilationResult(
-                "function",
-                function.getName(),
-                function.getEntryPoint().toString(),
-                false,
-                "// Decompilation error: " + e.getMessage(),
-                e.getMessage()
-            );
+            throw new GhidraMcpException(GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                .message("Decompilation error: " + e.getMessage())
+                .build());
         } finally {
-            if (decomp != null) {
-                decomp.dispose();
-            }
+            decomp.dispose();
         }
+    }
+
+    private DecompilationResult createSuccessfulDecompilation(Function function, DecompileResults decompResult,
+                                                            boolean includePcode, boolean includeAst) {
+        String code = Optional.ofNullable(decompResult.getDecompiledFunction())
+            .map(df -> df.getC())
+            .orElse("// Decompilation produced no output");
+
+        DecompilationResult result = new DecompilationResult(
+            "function",
+            function.getName(),
+            function.getEntryPoint().toString(),
+            true,
+            code,
+            null
+        );
+
+        result.setParameterCount(function.getParameterCount());
+        result.setReturnType(function.getReturnType().getName());
+        result.setBodySize((int) function.getBody().getNumAddresses());
+
+        Optional.of(decompResult.getHighFunction())
+            .filter(hf -> includePcode)
+            .ifPresent(hf -> addPcodeOperations(result, hf));
+
+        Optional.of(decompResult.getHighFunction())
+            .filter(hf -> includeAst)
+            .ifPresent(hf -> addAstInformation(result, hf));
+
+        return result;
+    }
+
+    private DecompilationResult createFailedDecompilation(Function function, DecompileResults decompResult) {
+        String errorMsg = Optional.ofNullable(decompResult)
+            .map(DecompileResults::getErrorMessage)
+            .orElse("Unknown decompilation error");
+
+        return new DecompilationResult(
+            "function",
+            function.getName(),
+            function.getEntryPoint().toString(),
+            false,
+            "// Decompilation failed: " + errorMsg,
+            errorMsg
+        );
+    }
+
+    private void addPcodeOperations(DecompilationResult result, HighFunction highFunc) {
+        List<Map<String, Object>> pcodeOps = StreamSupport
+            .stream(Spliterators.spliteratorUnknownSize(highFunc.getPcodeOps(), Spliterator.ORDERED), false)
+            .limit(100)
+            .map(op -> Map.<String, Object>of(
+                "opcode", op.getOpcode(),
+                "mnemonic", op.getMnemonic(),
+                "sequence", op.getSeqnum().getTime(),
+                "address", op.getSeqnum().getTarget().toString(),
+                "operation", op.toString()
+            ))
+            .collect(Collectors.toList());
+        result.setPcodeOperations(pcodeOps);
+    }
+
+    private void addAstInformation(DecompilationResult result, HighFunction highFunc) {
+        result.setAstInfo(Map.of(
+            "has_local_symbols", highFunc.getLocalSymbolMap() != null,
+            "has_global_symbols", highFunc.getGlobalSymbolMap() != null,
+            "basic_blocks", highFunc.getBasicBlocks().size()
+        ));
     }
 
     private Mono<? extends Object> decompileAddressRange(Program program, String addressRange,
@@ -373,20 +361,19 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                                          int timeout, GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
             FunctionManager functionManager = program.getFunctionManager();
-            List<DecompilationResult> results = new ArrayList<>();
-
-            // Limit to prevent overwhelming responses
             int maxFunctions = 20;
-            int count = 0;
 
-            FunctionIterator functions = functionManager.getFunctions(true);
-            while (functions.hasNext() && count < maxFunctions) {
-                Function function = functions.next();
-                DecompilationResult functionResult = performDecompilation(
-                    program, function, includePcode, includeAst, timeout, annotation);
-                results.add(functionResult);
-                count++;
-            }
+            List<DecompilationResult> results = StreamSupport
+                .stream(functionManager.getFunctions(true).spliterator(), false)
+                .limit(maxFunctions)
+                .map(function -> {
+                    try {
+                        return performDecompilation(program, function, includePcode, includeAst, timeout, annotation);
+                    } catch (GhidraMcpException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .collect(Collectors.toList());
 
             return Map.of(
                 "functions", results,
