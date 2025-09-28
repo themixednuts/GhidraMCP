@@ -35,7 +35,7 @@ import reactor.core.publisher.Mono;
     - Works with the currently active program's demangler configuration
     - Can demangle function names, class methods, templates, and other complex symbols
     - Returns the first successful demangling result from the list of possible results
-    - Note: The older DemanglerUtil methods are deprecated as of Ghidra 11.3
+    - Uses only the current, non-deprecated API methods
     </ghidra_specific_notes>
 
     <parameters_summary>
@@ -172,55 +172,15 @@ public class DemanglerTool implements IGhidraMcpSpecification {
 
     private DemangleResult performDemangling(Program program, String mangledSymbol, Optional<String> demanglerNameOpt) throws GhidraMcpException {
         try {
-            // Try multiple demangling approaches
-            Demangled demangled = null;
-            String demanglerUsed = "Unknown";
-            Exception lastException = null;
-
-            // Approach 1: Try with program and null address
-            try {
-                var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
-                if (demangledList != null && !demangledList.isEmpty()) {
-                    demangled = demangledList.get(0);
-                    demanglerUsed = "Ghidra Demangler (with program)";
-                }
-            } catch (Exception e) {
-                lastException = e;
-            }
-
-            // Approach 2: If that failed, try the deprecated method as fallback
-            if (demangled == null) {
-                try {
-                    demangled = DemanglerUtil.demangle(program, mangledSymbol);
-                    if (demangled != null) {
-                        demanglerUsed = "Ghidra Demangler (deprecated method)";
-                    }
-                } catch (Exception e) {
-                    lastException = e;
-                }
-            }
-
-            // Approach 3: Try without program context (for standalone demangling)
-            if (demangled == null) {
-                try {
-                    demangled = DemanglerUtil.demangle(mangledSymbol);
-                    if (demangled != null) {
-                        demanglerUsed = "Ghidra Demangler (standalone)";
-                    }
-                } catch (Exception e) {
-                    lastException = e;
-                }
-            }
+            // Use the correct, non-deprecated method: demangle(Program, String, Address)
+            // According to the API docs, this returns List<DemangledObject> of successful demanglings
+            var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
             
-            if (demangled == null) {
-                // Analyze the symbol to provide helpful suggestions
+            if (demangledList == null || demangledList.isEmpty()) {
+                // No demangler could process this symbol
                 String symbolAnalysis = analyzeSymbol(mangledSymbol);
                 String errorMessage = "No demangler could process this symbol";
-                if (lastException != null) {
-                    errorMessage += ": " + lastException.getMessage();
-                }
                 
-                // Return a detailed result with analysis
                 return new DemangleResult(
                     mangledSymbol,
                     null,
@@ -235,10 +195,13 @@ public class DemanglerTool implements IGhidraMcpSpecification {
                     symbolAnalysis
                 );
             }
+            
+            // Take the first successful demangling result
+            Demangled demangled = demangledList.get(0);
 
             // Extract information from the demangled result
             String demangledString = demangled.toString();
-            String actualDemanglerUsed = getDemanglerName(demangled, demanglerUsed);
+            String actualDemanglerUsed = getDemanglerName(demangled, "Ghidra Demangler");
             String demangledType = getDemangledType(demangled);
             String namespace = extractNamespace(demangled);
             String className = extractClassName(demangled);
