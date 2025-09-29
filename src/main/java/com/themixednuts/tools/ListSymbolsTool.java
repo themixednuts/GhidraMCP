@@ -68,6 +68,11 @@ public class ListSymbolsTool implements IGhidraMcpSpecification {
 
     private static final int DEFAULT_PAGE_LIMIT = 50;
 
+    /**
+     * Defines the JSON input schema for listing symbols.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -101,6 +106,14 @@ public class ListSymbolsTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the symbol listing operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName and optional filters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a PaginatedResult containing SymbolInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {
@@ -108,6 +121,14 @@ public class ListSymbolsTool implements IGhidraMcpSpecification {
         });
     }
 
+    /**
+     * Lists symbols in the program with optional filtering and pagination.
+     * 
+     * @param program The Ghidra program to list symbols from
+     * @param args The arguments containing optional filters and cursor
+     * @return A PaginatedResult containing SymbolInfo objects
+     * @throws GhidraMcpException If there's an error processing the symbols
+     */
     private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args) throws GhidraMcpException {
         SymbolTable symbolTable = program.getSymbolTable();
 

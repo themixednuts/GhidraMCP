@@ -60,6 +60,11 @@ public class ExecuteScriptTool implements IGhidraMcpSpecification {
     public static final String ARG_SCRIPT_NAME = "scriptName";
     public static final String ARG_GUIDANCE_TYPE = "guidanceType";
 
+    /**
+     * Defines the JSON input schema for script guidance.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -105,6 +110,14 @@ public class ExecuteScriptTool implements IGhidraMcpSpecification {
         public String getTroubleshooting() { return troubleshooting; }
     }
 
+    /**
+     * Executes the script guidance operation.
+     * 
+     * @param ex The MCP transport context
+     * @param args The tool arguments containing fileName, scriptName, and guidanceType
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a ScriptGuidance object
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext ex, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool)

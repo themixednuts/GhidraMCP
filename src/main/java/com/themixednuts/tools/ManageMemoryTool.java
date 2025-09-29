@@ -92,6 +92,11 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
     private static final String ACTION_ANALYZE_SEGMENT = "analyze_segment";
 
 
+    /**
+     * Defines the JSON input schema for memory management operations.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -128,6 +133,14 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the memory management operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName, action, and action-specific parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting the result of the memory operation
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);

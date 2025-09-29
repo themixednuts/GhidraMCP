@@ -124,7 +124,7 @@ public class GhidraMcpServer {
     private static boolean startServer(int port, PluginTool tool) throws Exception {
         Msg.info(GhidraMcpServer.class, "Starting MCP server on port " + port);
 
-        // Get the tool provider service
+        // Get the tool provider service from the application
         IGhidraMcpToolProvider toolProvider = tool.getService(IGhidraMcpToolProvider.class);
         if (toolProvider == null) {
             throw new IllegalStateException("IGhidraMcpToolProvider service not available");

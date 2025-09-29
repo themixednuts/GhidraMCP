@@ -13,7 +13,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * A type-safe builder for creating JSON Schema objects following the Google AI
@@ -89,6 +88,12 @@ public class JsonSchemaBuilder {
 	private final ObjectNode schema;
 	private final JsonSchemaType type;
 
+	/**
+	 * Private constructor for creating a JsonSchemaBuilder instance.
+	 * Only called by the static factory methods and BuilderStateImpl.
+	 *
+	 * @param type The JSON schema type for this builder instance.
+	 */
 	private JsonSchemaBuilder(JsonSchemaType type) {
 		this.schema = DEFAULT_MAPPER.createObjectNode();
 		this.type = Objects.requireNonNull(type, "Schema type cannot be null");
@@ -154,6 +159,18 @@ public class JsonSchemaBuilder {
 		IStringSchemaBuilder defaultValue(Object value);
 
 		/**
+		 * Sets the default value for this string schema.
+		 * Corresponds to the "default" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param value The default string value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (default)</a>
+		 */
+		IStringSchemaBuilder defaultValue(String value);
+
+		/**
 		 * Sets an example value for this schema.
 		 * Corresponds to the "example" keyword in the JSON Schema specification,
 		 * as used by the Google AI API.
@@ -164,6 +181,18 @@ public class JsonSchemaBuilder {
 		 *      (example)</a>
 		 */
 		IStringSchemaBuilder example(Object value);
+
+		/**
+		 * Sets an example value for this string schema.
+		 * Corresponds to the "example" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param value The example string value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (example)</a>
+		 */
+		IStringSchemaBuilder example(String value);
 
 		/**
 		 * Sets the minimum length for a string type.
@@ -338,6 +367,18 @@ public class JsonSchemaBuilder {
 		INumberSchemaBuilder defaultValue(Object value);
 
 		/**
+		 * Sets the default value for this number schema.
+		 * Corresponds to the "default" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param value The default numeric value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (default)</a>
+		 */
+		INumberSchemaBuilder defaultValue(Number value);
+
+		/**
 		 * Sets an example value for this schema.
 		 * Corresponds to the "example" keyword in the JSON Schema specification,
 		 * as used by the Google AI API.
@@ -386,6 +427,19 @@ public class JsonSchemaBuilder {
 		INumberSchemaBuilder minimum(double minimum);
 
 		/**
+		 * Sets the minimum value for a number type.
+		 * Corresponds to the "minimum" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param minimum The minimum value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (minimum)</a>
+		 */
+		INumberSchemaBuilder minimum(float minimum);
+
+
+		/**
 		 * Sets the maximum value for a number type.
 		 * Corresponds to the "maximum" keyword in the JSON Schema specification,
 		 * as used by the Google AI API.
@@ -396,6 +450,19 @@ public class JsonSchemaBuilder {
 		 *      (maximum)</a>
 		 */
 		INumberSchemaBuilder maximum(double maximum);
+
+		/**
+		 * Sets the maximum value for a number type.
+		 * Corresponds to the "maximum" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param maximum The maximum value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (maximum)</a>
+		 */
+		INumberSchemaBuilder maximum(float maximum);
+
 
 		/**
 		 * Sets the format for a number type.
@@ -535,6 +602,30 @@ public class JsonSchemaBuilder {
 		 *      (maximum)</a>
 		 */
 		IIntegerSchemaBuilder maximum(long maximum);
+
+		/**
+		 * Sets the minimum value for an integer type.
+		 * Corresponds to the "minimum" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param minimum The minimum value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (minimum)</a>
+		 */
+		IIntegerSchemaBuilder minimum(int minimum);
+
+		/**
+		 * Sets the maximum value for an integer type.
+		 * Corresponds to the "maximum" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param maximum The maximum value.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (maximum)</a>
+		 */
+		IIntegerSchemaBuilder maximum(int maximum);
 
 		/**
 		 * Sets the format for an integer type.
@@ -1049,7 +1140,17 @@ public class JsonSchemaBuilder {
 		 */
 		IObjectSchemaBuilder property(String name, ObjectNode propertySchema, boolean required);
 
-		IObjectSchemaBuilder requiredProperty(String name);
+		/**
+	 * Marks a property as required for this object schema.
+	 * Corresponds to the "required" keyword in the JSON Schema specification,
+	 * as used by the Google AI API.
+	 *
+	 * @param name The name of the property to mark as required.
+	 * @return This builder instance for chaining.
+	 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+	 *      (required)</a>
+	 */
+	IObjectSchemaBuilder requiredProperty(String name);
 
 		/**
 		 * Sets the minimum number of properties for an object type.
@@ -1377,6 +1478,13 @@ public class JsonSchemaBuilder {
 		private List<String> requiredPropertiesList = null;
 		private final ObjectMapper mapper;
 
+		/**
+		 * Package-private constructor for creating a BuilderStateImpl instance.
+		 * Called by the static factory methods in JsonSchemaBuilder.
+		 *
+		 * @param type The JSON schema type for this builder instance.
+		 * @param mapper The ObjectMapper to use for value conversions.
+		 */
 		BuilderStateImpl(JsonSchemaType type, ObjectMapper mapper) {
 			this.builder = new JsonSchemaBuilder(type);
 			this.mapper = mapper;
@@ -1401,6 +1509,12 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
+		/**
+		 * Converts an Object to a JsonNode using the configured ObjectMapper.
+		 *
+		 * @param value The value to convert to a JsonNode.
+		 * @return The JsonNode representation of the value.
+		 */
 		private JsonNode toJsonNode(Object value) {
 			return this.mapper.valueToTree(value);
 		}
@@ -1417,11 +1531,31 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
+		@Override
+		public IStringSchemaBuilder defaultValue(String value) {
+			return defaultValue((Object) value);
+		}
+
+		@Override
+		public IStringSchemaBuilder example(String value) {
+			return example((Object) value);
+		}
+
+		@Override
+		public INumberSchemaBuilder defaultValue(Number value) {
+			return defaultValue((Object) value);
+		}
+
 
 		@Override
 		public BuilderStateImpl enumValues(List<String> values) {
 			assertType(JsonSchemaType.STRING);
 			Objects.requireNonNull(values, "Enum values list cannot be null");
+			if (values.isEmpty()) {
+				throw new IllegalArgumentException("Enum values list cannot be empty");
+			}
+			// Set format to "enum" as per Google AI API specification
+			builder.schema.put(FORMAT, "enum");
 			ArrayNode enumNode = builder.schema.putArray(ENUM);
 			values.forEach(v -> enumNode.add(Objects.requireNonNull(v, "Enum value cannot be null")));
 			return this;
@@ -1430,7 +1564,17 @@ public class JsonSchemaBuilder {
 		@Override
 		public BuilderStateImpl enumValues(String... values) {
 			assertType(JsonSchemaType.STRING);
-			return enumValues(Arrays.asList(values));
+			Objects.requireNonNull(values, "Enum values array cannot be null");
+			if (values.length == 0) {
+				throw new IllegalArgumentException("Enum values array cannot be empty");
+			}
+			// Set format to "enum" as per Google AI API specification
+			builder.schema.put(FORMAT, "enum");
+			ArrayNode enumNode = builder.schema.putArray(ENUM);
+			for (String value : values) {
+				enumNode.add(Objects.requireNonNull(value, "Enum value cannot be null"));
+			}
+			return this;
 		}
 
 		@Override
@@ -1441,16 +1585,26 @@ public class JsonSchemaBuilder {
 			if (constants == null) {
 				throw new IllegalArgumentException(enumClass.getName() + " is not an enum type or has no constants.");
 			}
-			List<String> stringValues = Arrays.stream(constants)
-					.map(Enum::name)
-					.collect(Collectors.toList());
-			return enumValues(stringValues);
+			if (constants.length == 0) {
+				throw new IllegalArgumentException(enumClass.getName() + " has no enum constants.");
+			}
+			// Set format to "enum" as per Google AI API specification
+			builder.schema.put(FORMAT, "enum");
+			// Direct implementation without intermediate collection for better performance
+			ArrayNode enumNode = builder.schema.putArray(ENUM);
+			for (Enum<?> constant : constants) {
+				enumNode.add(constant.name());
+			}
+			return this;
 		}
 
 
 		@Override
 		public IStringSchemaBuilder minLength(int minLength) {
 			assertType(JsonSchemaType.STRING);
+			if (minLength < 0) {
+				throw new IllegalArgumentException("minLength cannot be negative: " + minLength);
+			}
 			builder.schema.put(MIN_LENGTH, minLength);
 			return this;
 		}
@@ -1458,6 +1612,9 @@ public class JsonSchemaBuilder {
 		@Override
 		public IStringSchemaBuilder maxLength(int maxLength) {
 			assertType(JsonSchemaType.STRING);
+			if (maxLength < 0) {
+				throw new IllegalArgumentException("maxLength cannot be negative: " + maxLength);
+			}
 			builder.schema.put(MAX_LENGTH, maxLength);
 			return this;
 		}
@@ -1494,6 +1651,17 @@ public class JsonSchemaBuilder {
 			return maximum(BigDecimal.valueOf(maximum));
 		}
 
+		@Override
+		public INumberSchemaBuilder minimum(float minimum) {
+			return minimum(BigDecimal.valueOf(minimum));
+		}
+
+		@Override
+		public INumberSchemaBuilder maximum(float maximum) {
+			return maximum(BigDecimal.valueOf(maximum));
+		}
+
+
 
 		@Override
 		public IIntegerSchemaBuilder minimum(long minimum) {
@@ -1507,6 +1675,16 @@ public class JsonSchemaBuilder {
 			assertType(JsonSchemaType.INTEGER);
 			builder.schema.put(MAXIMUM, maximum);
 			return this;
+		}
+
+		@Override
+		public IIntegerSchemaBuilder minimum(int minimum) {
+			return minimum((long) minimum);
+		}
+
+		@Override
+		public IIntegerSchemaBuilder maximum(int maximum) {
+			return maximum((long) maximum);
 		}
 
 		@Override
@@ -1548,6 +1726,9 @@ public class JsonSchemaBuilder {
 		@Override
 		public IArraySchemaBuilder minItems(int minItems) {
 			assertType(JsonSchemaType.ARRAY);
+			if (minItems < 0) {
+				throw new IllegalArgumentException("minItems cannot be negative: " + minItems);
+			}
 			builder.schema.put(MIN_ITEMS, minItems);
 			return this;
 		}
@@ -1555,6 +1736,9 @@ public class JsonSchemaBuilder {
 		@Override
 		public IArraySchemaBuilder maxItems(int maxItems) {
 			assertType(JsonSchemaType.ARRAY);
+			if (maxItems < 0) {
+				throw new IllegalArgumentException("maxItems cannot be negative: " + maxItems);
+			}
 			builder.schema.put(MAX_ITEMS, maxItems);
 			return this;
 		}
@@ -1638,6 +1822,9 @@ public class JsonSchemaBuilder {
 		@Override
 		public IObjectSchemaBuilder minProperties(int minProperties) {
 			assertType(JsonSchemaType.OBJECT);
+			if (minProperties < 0) {
+				throw new IllegalArgumentException("minProperties cannot be negative: " + minProperties);
+			}
 			builder.schema.put(MIN_PROPERTIES, minProperties);
 			return this;
 		}
@@ -1645,6 +1832,9 @@ public class JsonSchemaBuilder {
 		@Override
 		public IObjectSchemaBuilder maxProperties(int maxProperties) {
 			assertType(JsonSchemaType.OBJECT);
+			if (maxProperties < 0) {
+				throw new IllegalArgumentException("maxProperties cannot be negative: " + maxProperties);
+			}
 			builder.schema.put(MAX_PROPERTIES, maxProperties);
 			return this;
 		}
@@ -1740,6 +1930,13 @@ public class JsonSchemaBuilder {
 			return new JsonSchema(builder.schema);
 		}
 
+		/**
+		 * Validates that the current builder type matches the expected type.
+		 * Throws IllegalStateException if the types don't match.
+		 *
+		 * @param expectedType The expected schema type for the current operation.
+		 * @throws IllegalStateException if the builder type doesn't match the expected type.
+		 */
 		private void assertType(JsonSchemaType expectedType) {
 			if (builder.type != expectedType) {
 				throw new IllegalStateException(

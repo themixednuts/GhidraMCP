@@ -91,6 +91,11 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private static final String ACTION_UPDATE = "update";
     private static final String ACTION_DELETE = "delete";
 
+    /**
+     * Defines the JSON input schema for data type management operations.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -173,6 +178,14 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the data type management operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName, action, and action-specific parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting the result of the data type operation
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);

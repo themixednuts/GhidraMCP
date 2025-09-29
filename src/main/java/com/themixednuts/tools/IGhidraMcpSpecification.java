@@ -39,11 +39,9 @@ import ghidra.program.model.address.Address;
 
 /**
  * Base interface for all Ghidra MCP tool specifications.
- * Defines the core methods required for tool registration and execution,
- * along with helper methods for common Ghidra operations and argument parsing.
+ * Provides core methods for tool registration, execution, and common Ghidra operations.
  */
 public interface IGhidraMcpSpecification {
-    // Helper method to create and configure the ObjectMapper instance.
     private static ObjectMapper createAndConfigureMapper() {
         ObjectMapper configuredMapper = new ObjectMapper();
         configuredMapper
@@ -52,8 +50,6 @@ public interface IGhidraMcpSpecification {
         return configuredMapper;
     }
 
-    /** Shared Jackson ObjectMapper instance for JSON processing. */
-    // Initialize the static final mapper by calling the configuration method.
     static final ObjectMapper mapper = createAndConfigureMapper();
 
     /** Default page size for paginated results */
@@ -117,38 +113,35 @@ public interface IGhidraMcpSpecification {
      *         (e.g., missing annotation or schema error).
      */
     default AsyncToolSpecification specification(PluginTool tool) {
-        GhidraMcpTool annotation = this.getClass().getAnnotation(
-            GhidraMcpTool.class
-        );
-        if (annotation == null) {
-            Msg.error(
-                this,
-                "Missing @GhidraMcpTool annotation on " +
-                this.getClass().getSimpleName()
-            );
-            return null;
-        }
-        JsonSchema customSchemaObject = schema();
-        Optional<McpSchema.JsonSchema> mcpSchemaOpt = convertToMcpSchema(
-            customSchemaObject,
-            annotation
-        );
-        if (mcpSchemaOpt.isEmpty()) {
-            return null;
-        }
-        McpSchema.JsonSchema mcpSchemaObject = mcpSchemaOpt.get();
+        return Optional.ofNullable(this.getClass().getAnnotation(GhidraMcpTool.class))
+            .map(annotation -> createToolSpecification(annotation, tool))
+            .orElseGet(() -> {
+                Msg.error(this, "Missing @GhidraMcpTool annotation on " + this.getClass().getSimpleName());
+                return null;
+            });
+    }
 
-        return new AsyncToolSpecification(
-            Tool.builder()
-                .name(annotation.mcpName())
-                .description(annotation.mcpDescription())
-                .inputSchema(mcpSchemaObject)
-                .build(),
-            (ex, request) ->
-                execute(ex, request.arguments(), tool)
-                    .flatMap(this::createSuccessResult)
-                    .onErrorResume(this::createErrorResult)
-        );
+    /**
+     * Creates an AsyncToolSpecification from the annotation and tool context.
+     * 
+     * @param annotation The GhidraMcpTool annotation containing tool metadata
+     * @param tool The PluginTool context
+     * @return The AsyncToolSpecification or null if schema conversion fails
+     */
+    private AsyncToolSpecification createToolSpecification(GhidraMcpTool annotation, PluginTool tool) {
+        return convertToMcpSchema(schema(), annotation)
+            .map(mcpSchema -> new AsyncToolSpecification(
+                Tool.builder()
+                    .name(annotation.mcpName())
+                    .description(annotation.mcpDescription())
+                    .inputSchema(mcpSchema)
+                    .build(),
+                (ex, request) ->
+                    execute(ex, request.arguments(), tool)
+                        .flatMap(this::createSuccessResult)
+                        .onErrorResume(this::createErrorResult)
+            ))
+            .orElse(null);
     }
 
     /**
@@ -312,7 +305,7 @@ public interface IGhidraMcpSpecification {
 
     /**
      * Gets the currently active {@link Program} associated with the given
-     * arguments and {@link PluginTool} context.
+     * arguments and PluginTool context.
      * Typically extracts a file name from arguments and finds the corresponding
      * open DomainFile in the tool's project.
      *
@@ -330,8 +323,8 @@ public interface IGhidraMcpSpecification {
         PluginTool tool
     ) {
         return Mono.fromCallable(() -> {
-            DomainFile domainFile = getDomainFile(args, tool); // Pass tool here
-            return getProgramFromDomainFile(domainFile, this); // 'this' is the consumer
+            DomainFile domainFile = getDomainFile(args, tool);
+            return getProgramFromDomainFile(domainFile, this);
         });
     }
 
@@ -355,44 +348,52 @@ public interface IGhidraMcpSpecification {
         if (tool == null) {
             throw new NullPointerException("PluginTool cannot be null.");
         }
-        ghidra.framework.model.Project project = tool.getProject(); // Get project from tool
+        ghidra.framework.model.Project project = tool.getProject();
         if (project == null) {
-            throw new NullPointerException(
-                "No active project found in the provided PluginTool."
-            );
+            throw new NullPointerException("No active project found in the provided PluginTool.");
         }
+        return findDomainFile(project, getRequiredStringArgument(args, "fileName"));
+    }
 
-        // Use helper to get required string argument, handling null/blank/type checks
-        String fileNameStr = getRequiredStringArgument(args, "fileName");
-
-        // Use project obtained from tool
-        DomainFile domainFile = project
-            .getOpenData()
-            .stream()
+    /**
+     * Finds a domain file by name within the project's open data.
+     * 
+     * @param project The Ghidra project to search in
+     * @param fileNameStr The name of the file to find
+     * @return The DomainFile if found
+     * @throws Exception If the file is not found or an error occurs
+     */
+    private DomainFile findDomainFile(ghidra.framework.model.Project project, String fileNameStr) throws Exception {
+        return project.getOpenData().stream()
             .filter(f -> f.getName().equals(fileNameStr))
             .findFirst()
-            .orElse(null);
+            .orElseThrow(() -> createFileNotFoundError(project, fileNameStr));
+    }
 
-        if (domainFile == null) {
-            // Throw specific exception type if file not found/open
-            List<String> openFiles = project
-                .getOpenData()
-                .stream()
-                .map(DomainFile::getName)
-                .collect(Collectors.toList());
-            String availableFiles = openFiles.isEmpty()
-                ? "No files are open."
-                : "Open files: " + String.join(", ", openFiles);
-            throw new IllegalArgumentException(
-                "File not found or not open: " +
-                fileNameStr +
-                ". " +
-                "Use the 'list_files' tool to see available files. " +
-                availableFiles
-            );
-        }
-
-        return domainFile;
+    /**
+     * Creates a detailed file not found error with available files information.
+     * 
+     * @param project The Ghidra project containing the open files
+     * @param fileNameStr The name of the file that was not found
+     * @return An IllegalArgumentException with detailed error message
+     */
+    private IllegalArgumentException createFileNotFoundError(ghidra.framework.model.Project project, String fileNameStr) {
+        List<String> openFiles = project.getOpenData().stream()
+            .map(DomainFile::getName)
+            .collect(Collectors.toList());
+        
+        String availableFiles = Optional.of(openFiles)
+            .filter(files -> !files.isEmpty())
+            .map(files -> "Open files: " + String.join(", ", files))
+            .orElse("No files are open.");
+            
+        return new IllegalArgumentException(
+            "File not found or not open: " +
+            fileNameStr +
+            ". " +
+            "Use the 'list_programs' tool to see available programs. " +
+            availableFiles
+        );
     }
 
     /**
@@ -413,35 +414,37 @@ public interface IGhidraMcpSpecification {
         DomainFile domainFile,
         Object consumer
     ) throws Exception {
-        // The 'restore' parameter is true, meaning Ghidra *should* handle
-        // restoring the object state, implying we don't need explicit release *if
-        // successful*.
-        DomainObject domainObj = domainFile.getDomainObject(
-            consumer,
-            true,
-            false,
-            null
-        );
+        return Optional.ofNullable(domainFile.getDomainObject(consumer, true, false, null))
+            .filter(Program.class::isInstance)
+            .map(Program.class::cast)
+            .orElseThrow(() -> handleNonProgramObject(domainFile, consumer));
+    }
 
-        if (domainObj instanceof Program) {
-            return (Program) domainObj;
-        } else {
-            // If it's not a program, we *must* release the object we acquired.
-            String actualType = (domainObj != null)
-                ? domainObj.getClass().getName()
-                : "null";
-            if (domainObj != null) {
-                // Avoid NullPointerException if getDomainObject returned null
-                domainObj.release(consumer); // Release the non-program object
-            }
-            // Throw a specific exception
-            throw new IllegalArgumentException(
-                "File '" +
-                domainFile.getName() +
-                "' does not contain a Program. Found: " +
-                actualType
-            );
+    /**
+     * Handles the case where a DomainFile does not contain a Program object.
+     * 
+     * @param domainFile The DomainFile that was expected to contain a Program
+     * @param consumer The object requesting access (for resource cleanup)
+     * @return An IllegalArgumentException with details about the actual object type
+     */
+    private IllegalArgumentException handleNonProgramObject(DomainFile domainFile, Object consumer) {
+        DomainObject domainObj = null;
+        try {
+            domainObj = domainFile.getDomainObject(consumer, true, false, null);
+        } catch (Exception e) {
+            // Ignore - we'll handle it below
         }
+        
+        String actualType = Optional.ofNullable(domainObj)
+            .map(obj -> obj.getClass().getName())
+            .orElse("null");
+            
+        Optional.ofNullable(domainObj)
+            .ifPresent(obj -> obj.release(consumer));
+            
+        return new IllegalArgumentException(
+            "File '" + domainFile.getName() + "' does not contain a Program. Found: " + actualType
+        );
     }
 
     // ===================================================================================
@@ -461,13 +464,10 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode == null || !(valueNode instanceof String)) {
-            return Optional.empty();
-        }
-        String value = (String) valueNode;
-        // Return empty if blank, otherwise return the value
-        return value.isBlank() ? Optional.empty() : Optional.of(value);
+        return Optional.ofNullable(args.get(argumentName))
+            .filter(String.class::isInstance)
+            .map(String.class::cast)
+            .filter(value -> !value.isBlank());
     }
 
     /**
@@ -506,27 +506,23 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode == null) {
-            return Optional.empty();
-        }
-        // Handle both Number types (like Integer, Long from JSON) and String types
-        if (valueNode instanceof Number) {
-            return Optional.of(((Number) valueNode).intValue());
-        } else if (valueNode instanceof String) {
-            String value = (String) valueNode;
-            if (value.isBlank()) {
+        return Optional.ofNullable(args.get(argumentName))
+            .flatMap(valueNode -> {
+                if (valueNode instanceof Number) {
+                    return Optional.of(((Number) valueNode).intValue());
+                } else if (valueNode instanceof String) {
+                    String value = (String) valueNode;
+                    if (value.isBlank()) {
+                        return Optional.empty();
+                    }
+                    try {
+                        return Optional.of(Integer.parseInt(value));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                }
                 return Optional.empty();
-            }
-            try {
-                return Optional.of(Integer.parseInt(value));
-            } catch (NumberFormatException e) {
-                // Log potentially? For now, just return empty for invalid format.
-                return Optional.empty(); // Not a valid integer string
-            }
-        } else {
-            return Optional.empty(); // Invalid type
-        }
+            });
     }
 
     /**
@@ -566,26 +562,23 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode == null) {
-            return Optional.empty();
-        }
-        if (valueNode instanceof Number) {
-            // Handle potential Integer, Long, etc.
-            return Optional.of(((Number) valueNode).longValue());
-        } else if (valueNode instanceof String) {
-            String value = (String) valueNode;
-            if (value.isBlank()) {
+        return Optional.ofNullable(args.get(argumentName))
+            .flatMap(valueNode -> {
+                if (valueNode instanceof Number) {
+                    return Optional.of(((Number) valueNode).longValue());
+                } else if (valueNode instanceof String) {
+                    String value = (String) valueNode;
+                    if (value.isBlank()) {
+                        return Optional.empty();
+                    }
+                    try {
+                        return Optional.of(Long.parseLong(value));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                }
                 return Optional.empty();
-            }
-            try {
-                return Optional.of(Long.parseLong(value));
-            } catch (NumberFormatException e) {
-                return Optional.empty(); // Not a valid long string
-            }
-        } else {
-            return Optional.empty(); // Invalid type
-        }
+            });
     }
 
     /**
@@ -627,19 +620,20 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode instanceof Boolean) {
-            return Optional.of((Boolean) valueNode);
-        } else if (valueNode instanceof String) {
-            // Allow "true" or "false" strings (case-insensitive)
-            String value = ((String) valueNode).trim();
-            if ("true".equalsIgnoreCase(value)) {
-                return Optional.of(true);
-            } else if ("false".equalsIgnoreCase(value)) {
-                return Optional.of(false);
-            }
-        }
-        return Optional.empty(); // Missing or invalid type/value
+        return Optional.ofNullable(args.get(argumentName))
+            .flatMap(valueNode -> {
+                if (valueNode instanceof Boolean) {
+                    return Optional.of((Boolean) valueNode);
+                } else if (valueNode instanceof String) {
+                    String value = ((String) valueNode).trim();
+                    if ("true".equalsIgnoreCase(value)) {
+                        return Optional.of(true);
+                    } else if ("false".equalsIgnoreCase(value)) {
+                        return Optional.of(false);
+                    }
+                }
+                return Optional.empty();
+            });
     }
 
     /**
@@ -681,13 +675,9 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        // Check specifically for ObjectNode, as Map might be used for other things
-        if (valueNode instanceof ObjectNode) {
-            return Optional.of((ObjectNode) valueNode);
-        } else {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(args.get(argumentName))
+            .filter(ObjectNode.class::isInstance)
+            .map(ObjectNode.class::cast);
     }
 
     /**
@@ -728,13 +718,9 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        // Check specifically for ArrayNode
-        if (valueNode instanceof ArrayNode) {
-            return Optional.of((ArrayNode) valueNode);
-        } else {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(args.get(argumentName))
+            .filter(ArrayNode.class::isInstance)
+            .map(ArrayNode.class::cast);
     }
 
     /**
@@ -776,29 +762,21 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode == null || !(valueNode instanceof List)) {
-            return Optional.empty();
-        }
-        try {
-            // Perform a cast and basic check - assumes the List contains Maps
-            List<Map<String, Object>> list = (List<
-                Map<String, Object>
-            >) valueNode;
-            // Could add further validation here if needed (e.g., check if all elements are
-            // Maps)
-            return Optional.of(list);
-        } catch (ClassCastException e) {
-            // If the cast fails (e.g., List contains Strings instead of Maps)
-            Msg.warn(
-                this,
-                "Argument '" +
-                argumentName +
-                "' is a List, but contains unexpected types.",
-                e
-            );
-            return Optional.empty();
-        }
+        return Optional.ofNullable(args.get(argumentName))
+            .filter(List.class::isInstance)
+            .map(List.class::cast)
+            .flatMap(list -> {
+                try {
+                    return Optional.of((List<Map<String, Object>>) list);
+                } catch (ClassCastException e) {
+                    Msg.warn(
+                        this,
+                        "Argument '" + argumentName + "' is a List, but contains unexpected types.",
+                        e
+                    );
+                    return Optional.empty();
+                }
+            });
     }
 
     // --- Map<String, Object> ---
@@ -816,24 +794,21 @@ public interface IGhidraMcpSpecification {
         Map<String, Object> args,
         String argumentName
     ) {
-        Object valueNode = args.get(argumentName);
-        if (valueNode == null || !(valueNode instanceof Map)) {
-            return Optional.empty();
-        }
-        try {
-            // Perform the cast
-            return Optional.of((Map<String, Object>) valueNode);
-        } catch (ClassCastException e) {
-            // Should not happen if instanceof check passes, but include for safety
-            Msg.warn(
-                this,
-                "Argument '" +
-                argumentName +
-                "' failed cast to Map<String, Object> unexpectedly.",
-                e
-            );
-            return Optional.empty();
-        }
+        return Optional.ofNullable(args.get(argumentName))
+            .filter(Map.class::isInstance)
+            .map(Map.class::cast)
+            .flatMap(map -> {
+                try {
+                    return Optional.of((Map<String, Object>) map);
+                } catch (ClassCastException e) {
+                    Msg.warn(
+                        this,
+                        "Argument '" + argumentName + "' failed cast to Map<String, Object> unexpectedly.",
+                        e
+                    );
+                    return Optional.empty();
+                }
+            });
     }
 
     // ===================================================================================
@@ -853,17 +828,10 @@ public interface IGhidraMcpSpecification {
         JsonNode node,
         String argumentName
     ) {
-        JsonNode valueNode = node.path(argumentName); // Use path to avoid nulls
-        if (
-            valueNode.isMissingNode() ||
-            valueNode.isNull() ||
-            !valueNode.isTextual()
-        ) {
-            return Optional.empty();
-        }
-        String value = valueNode.asText();
-        // Return empty if blank, otherwise return the value
-        return value.isBlank() ? Optional.empty() : Optional.of(value);
+        return Optional.ofNullable(node.path(argumentName))
+            .filter(valueNode -> !valueNode.isMissingNode() && !valueNode.isNull() && valueNode.isTextual())
+            .map(JsonNode::asText)
+            .filter(value -> !value.isBlank());
     }
 
     /**
@@ -901,25 +869,24 @@ public interface IGhidraMcpSpecification {
         JsonNode node,
         String argumentName
     ) {
-        JsonNode valueNode = node.path(argumentName);
-        if (valueNode.isMissingNode() || valueNode.isNull()) {
-            return Optional.empty();
-        }
-        if (valueNode.isInt()) {
-            return Optional.of(valueNode.asInt());
-        } else if (valueNode.isTextual()) {
-            String textValue = valueNode.asText();
-            if (textValue.isBlank()) {
+        return Optional.ofNullable(node.path(argumentName))
+            .filter(valueNode -> !valueNode.isMissingNode() && !valueNode.isNull())
+            .flatMap(valueNode -> {
+                if (valueNode.isInt()) {
+                    return Optional.of(valueNode.asInt());
+                } else if (valueNode.isTextual()) {
+                    String textValue = valueNode.asText();
+                    if (textValue.isBlank()) {
+                        return Optional.empty();
+                    }
+                    try {
+                        return Optional.of(Integer.parseInt(textValue));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                }
                 return Optional.empty();
-            }
-            try {
-                return Optional.of(Integer.parseInt(textValue));
-            } catch (NumberFormatException e) {
-                return Optional.empty(); // Not a valid integer string
-            }
-        } else {
-            return Optional.empty(); // Not an integer or a string representation
-        }
+            });
     }
 
     /**
@@ -958,26 +925,24 @@ public interface IGhidraMcpSpecification {
         JsonNode node,
         String argumentName
     ) {
-        JsonNode valueNode = node.path(argumentName);
-        if (valueNode.isMissingNode() || valueNode.isNull()) {
-            return Optional.empty();
-        }
-        // Check if it's an integral number representable as long
-        if (valueNode.isIntegralNumber() && valueNode.canConvertToLong()) {
-            return Optional.of(valueNode.asLong());
-        } else if (valueNode.isTextual()) {
-            String textValue = valueNode.asText();
-            if (textValue.isBlank()) {
+        return Optional.ofNullable(node.path(argumentName))
+            .filter(valueNode -> !valueNode.isMissingNode() && !valueNode.isNull())
+            .flatMap(valueNode -> {
+                if (valueNode.isIntegralNumber() && valueNode.canConvertToLong()) {
+                    return Optional.of(valueNode.asLong());
+                } else if (valueNode.isTextual()) {
+                    String textValue = valueNode.asText();
+                    if (textValue.isBlank()) {
+                        return Optional.empty();
+                    }
+                    try {
+                        return Optional.of(Long.parseLong(textValue));
+                    } catch (NumberFormatException e) {
+                        return Optional.empty();
+                    }
+                }
                 return Optional.empty();
-            }
-            try {
-                return Optional.of(Long.parseLong(textValue));
-            } catch (NumberFormatException e) {
-                return Optional.empty(); // Not a valid long string
-            }
-        } else {
-            return Optional.empty(); // Invalid type
-        }
+            });
     }
 
     /**
@@ -1059,61 +1024,67 @@ public interface IGhidraMcpSpecification {
      *         message or structured error information.
      */
     default Mono<CallToolResult> createErrorResult(Throwable t) {
-        if (t == null) {
-            String errorMessage = "An unknown error occurred.";
-            Msg.error(this, errorMessage);
-            TextContent errorContent = new TextContent(errorMessage);
-            return Mono.just(buildErrorResult(errorContent));
-        }
+        return Optional.ofNullable(t)
+            .map(this::handleStructuredError)
+            .orElseGet(() -> createSimpleErrorResult("An unknown error occurred."));
+    }
 
-        // Check if this is a structured GhidraMcpException
-        if (t instanceof GhidraMcpException) {
-            GhidraMcpException mcpException = (GhidraMcpException) t;
-            try {
-                // Serialize the structured error as JSON
-                String structuredErrorJson =
-                    IGhidraMcpSpecification.mapper.writeValueAsString(
-                        mcpException.getErr()
-                    );
-                Msg.error(
-                    this,
-                    "Structured error - " +
-                    mcpException.getErrorType() +
-                    " [" +
-                    mcpException.getErrorCode() +
-                    "]: " +
-                    mcpException.getMessage()
-                );
-                TextContent errorContent = new TextContent(structuredErrorJson);
-                return Mono.just(buildErrorResult(errorContent));
-            } catch (JsonProcessingException e) {
-                // If we can't serialize the structured error, fall back to simple message
-                Msg.error(
-                    this,
-                    "Failed to serialize structured error, falling back to simple message: " +
-                    e.getMessage()
-                );
-                String fallbackMessage =
-                    "Structured error serialization failed: " +
-                    mcpException.getMessage();
-                TextContent errorContent = new TextContent(fallbackMessage);
-                return Mono.just(buildErrorResult(errorContent));
-            }
-        }
+    /**
+     * Handles structured error processing for GhidraMcpException instances.
+     * 
+     * @param t The throwable to process
+     * @return A Mono containing the appropriate error CallToolResult
+     */
+    private Mono<CallToolResult> handleStructuredError(Throwable t) {
+        return Optional.of(t)
+            .filter(GhidraMcpException.class::isInstance)
+            .map(GhidraMcpException.class::cast)
+            .map(this::serializeStructuredError)
+            .orElseGet(() -> createSimpleErrorResult(t));
+    }
 
-        // Handle regular exceptions
+    /**
+     * Serializes a GhidraMcpException to JSON format for error reporting.
+     * 
+     * @param mcpException The structured exception to serialize
+     * @return A Mono containing the serialized error result
+     */
+    private Mono<CallToolResult> serializeStructuredError(GhidraMcpException mcpException) {
+        try {
+            String structuredErrorJson = IGhidraMcpSpecification.mapper.writeValueAsString(mcpException.getErr());
+            Msg.error(this, "Structured error - " + mcpException.getErrorType() + 
+                " [" + mcpException.getErrorCode() + "]: " + mcpException.getMessage());
+            return Mono.just(buildErrorResult(new TextContent(structuredErrorJson)));
+        } catch (JsonProcessingException e) {
+            Msg.error(this, "Failed to serialize structured error, falling back to simple message: " + e.getMessage());
+            return createSimpleErrorResult("Structured error serialization failed: " + mcpException.getMessage());
+        }
+    }
+
+    /**
+     * Creates a simple error result from a Throwable.
+     * 
+     * @param t The throwable to convert to an error result
+     * @return A Mono containing the error CallToolResult
+     */
+    private Mono<CallToolResult> createSimpleErrorResult(Throwable t) {
         String throwableType = t.getClass().getSimpleName();
-        String throwableMessage = t.getMessage();
-        String errorMessage =
-            throwableType +
-            (throwableMessage != null && !throwableMessage.isBlank()
-                    ? ": " + throwableMessage
-                    : "");
-        // Log the error with the throwable for stack trace
+        String errorMessage = Optional.ofNullable(t.getMessage())
+            .filter(message -> !message.isBlank())
+            .map(message -> throwableType + ": " + message)
+            .orElse(throwableType);
+        return createSimpleErrorResult(errorMessage);
+    }
+
+    /**
+     * Creates a simple error result from an error message string.
+     * 
+     * @param errorMessage The error message to include in the result
+     * @return A Mono containing the error CallToolResult
+     */
+    private Mono<CallToolResult> createSimpleErrorResult(String errorMessage) {
         Msg.error(this, errorMessage);
-        // Create TextContent containing the generated error message
-        TextContent errorContent = new TextContent(errorMessage);
-        return Mono.just(buildErrorResult(errorContent));
+        return Mono.just(buildErrorResult(new TextContent(errorMessage)));
     }
 
     /**
@@ -1130,26 +1101,19 @@ public interface IGhidraMcpSpecification {
         String baseMessage,
         Object dataToAppend
     ) {
-        String finalErrorMessage;
-        try {
-            // Attempt to serialize the data
-            String jsonData = IGhidraMcpSpecification.mapper.writeValueAsString(
-                dataToAppend
-            );
-            finalErrorMessage =
-                (baseMessage != null ? baseMessage : "Error") + ": " + jsonData;
-        } catch (JsonProcessingException e) {
-            // If serialization fails, log the *serialization* error specifically
-            String serializationErrorMsg =
-                "Failed to serialize data for error message: " + e.getMessage();
-            Msg.error(this, serializationErrorMsg);
-            // Construct a final message indicating the failure
-            finalErrorMessage =
-                (baseMessage != null ? baseMessage : "Error") +
-                " (Failed to serialize details: " +
-                e.getMessage() +
-                ")";
-        }
+        String finalErrorMessage = Optional.ofNullable(dataToAppend)
+            .flatMap(data -> {
+                try {
+                    String jsonData = IGhidraMcpSpecification.mapper.writeValueAsString(data);
+                    return Optional.of((baseMessage != null ? baseMessage : "Error") + ": " + jsonData);
+                } catch (JsonProcessingException e) {
+                    String serializationErrorMsg = "Failed to serialize data for error message: " + e.getMessage();
+                    Msg.error(this, serializationErrorMsg);
+                    return Optional.of((baseMessage != null ? baseMessage : "Error") + 
+                        " (Failed to serialize details: " + e.getMessage() + ")");
+                }
+            })
+            .orElse(baseMessage != null ? baseMessage : "Error");
         // Use the existing String helper (which now logs) to create the final error
         // result
         return createErrorResult(finalErrorMessage); // Calls the String overload
@@ -1163,16 +1127,20 @@ public interface IGhidraMcpSpecification {
      * @return An error {@code CallToolResult} containing the error message.
      */
     default Mono<CallToolResult> createErrorResult(String errorMessage) {
-        String finalMessage = errorMessage != null
-            ? errorMessage
-            : "An unspecified error occurred.";
-        // Log the error message
+        String finalMessage = Optional.ofNullable(errorMessage)
+            .orElse("An unspecified error occurred.");
+        
         Msg.error(this, finalMessage);
-        // Create TextContent containing the error message
         TextContent errorContent = new TextContent(finalMessage);
         return Mono.just(buildErrorResult(errorContent));
     }
 
+    /**
+     * Builds a CallToolResult with error content.
+     * 
+     * @param errorContent The TextContent containing the error message
+     * @return A CallToolResult marked as an error
+     */
     private CallToolResult buildErrorResult(TextContent errorContent) {
         return CallToolResult
             .builder()
@@ -1245,55 +1213,54 @@ public interface IGhidraMcpSpecification {
      * @return An {@link Optional} containing the converted schema, or empty if conversion fails.
      */
     default Optional<McpSchema.JsonSchema> convertToMcpSchema(JsonSchema schema, GhidraMcpTool annotation) {
-        if (schema == null) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(schema)
+            .flatMap(this::parseSchema)
+            .flatMap(schemaString -> convertSchemaString(schemaString, annotation))
+            .or(() -> {
+                Msg.error(this, "Failed to generate schema for tool '" + annotation.mcpName() + "'. Tool will be disabled.");
+                return Optional.empty();
+            });
+    }
 
-        Optional<String> schemaStringOpt = parseSchema(schema);
-        if (schemaStringOpt.isEmpty()) {
-            Msg.error(
-                this,
-                "Failed to generate schema for tool '" +
-                annotation.mcpName() +
-                "'. Tool will be disabled."
-            );
-            return Optional.empty();
-        }
-
+    /**
+     * Converts a JSON schema string to MCP JsonSchema format.
+     * 
+     * @param schemaString The JSON schema as a string
+     * @param annotation The tool annotation for error context
+     * @return An Optional containing the converted schema or empty if conversion fails
+     */
+    private Optional<McpSchema.JsonSchema> convertSchemaString(String schemaString, GhidraMcpTool annotation) {
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            Map<String, Object> schemaMap = mapper.readValue(
-                schemaStringOpt.get(),
-                new TypeReference<Map<String, Object>>() {}
-            );
-
-            String type = (String) schemaMap.get("type");
-            Map<String, Object> properties = (Map<String, Object>) schemaMap.get("properties");
-            List<String> required = (List<String>) schemaMap.get("required");
-            Boolean additionalProperties = (Boolean) schemaMap.get("additionalProperties");
-            Map<String, Object> defs = (Map<String, Object>) schemaMap.get("$defs");
-            Map<String, Object> definitions = (Map<String, Object>) schemaMap.get("definitions");
-
-            return Optional.of(
-                new McpSchema.JsonSchema(
-                    type,
-                    properties,
-                    required,
-                    additionalProperties,
-                    defs,
-                    definitions
-                )
-            );
+            return Optional.of(parseSchemaMap(schemaString));
         } catch (IOException e) {
-            Msg.error(
-                this,
-                "Failed to convert schema to MCP format for tool '" +
-                annotation.mcpName() +
-                "': " + e.getMessage(),
-                e
-            );
+            Msg.error(this, "Failed to convert schema to MCP format for tool '" + annotation.mcpName() + "': " + e.getMessage(), e);
             return Optional.empty();
         }
+    }
+
+    /**
+     * Parses a JSON schema string into a Map and creates an MCP JsonSchema.
+     * 
+     * @param schemaString The JSON schema as a string
+     * @return The parsed MCP JsonSchema
+     * @throws IOException If JSON parsing fails
+     */
+    private McpSchema.JsonSchema parseSchemaMap(String schemaString) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        Map<String, Object> schemaMap = mapper.readValue(schemaString, new TypeReference<Map<String, Object>>() {});
+
+        String type = (String) schemaMap.get("type");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schemaMap.get("properties");
+        @SuppressWarnings("unchecked")
+        List<String> required = (List<String>) schemaMap.get("required");
+        Boolean additionalProperties = (Boolean) schemaMap.get("additionalProperties");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> defs = (Map<String, Object>) schemaMap.get("$defs");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> definitions = (Map<String, Object>) schemaMap.get("definitions");
+
+        return new McpSchema.JsonSchema(type, properties, required, additionalProperties, defs, definitions);
     }
 
     /**
@@ -1308,58 +1275,105 @@ public interface IGhidraMcpSpecification {
      *         is null, has no content list, or contains no {@code TextContent}.
      */
     default String getTextFromCallToolResult(CallToolResult result) {
-        if (
-            result == null ||
-            result.content() == null ||
-            result.content().isEmpty()
-        ) {
-            return ""; // Return empty string for null/empty results
-        }
+        return Optional.ofNullable(result)
+            .map(CallToolResult::content)
+            .filter(content -> content != null && !content.isEmpty())
+            .map(content -> content
+                .stream()
+                .filter(TextContent.class::isInstance)
+                .map(TextContent.class::cast)
+                .map(TextContent::text)
+                .filter(text -> text != null)
+                .collect(Collectors.joining("\n")))
+            .orElse("");
 
-        // Filter for TextContent, extract text, and join with newlines.
-        return result
-            .content()
-            .stream()
-            .filter(c -> c instanceof TextContent)
-            .map(c -> ((TextContent) c).text())
-            .filter(text -> text != null) // Ensure text is not null
-            .collect(Collectors.joining("\n")); // Join with newline
     }
 
+    /**
+     * Result object containing a parsed address and its original string representation.
+     */
     class AddressResult {
         private final Address address;
         private final String addressString;
 
+        /**
+         * Creates an AddressResult with the parsed address and original string.
+         * 
+         * @param address The parsed Ghidra Address object
+         * @param addressString The original address string that was parsed
+         */
         AddressResult(Address address, String addressString) {
             this.address = address;
             this.addressString = addressString;
         }
 
+        /**
+         * Gets the parsed Ghidra Address object.
+         * 
+         * @return The Address object
+         */
         public Address getAddress() {
             return address;
         }
 
+        /**
+         * Gets the original address string that was parsed.
+         * 
+         * @return The original address string
+         */
         public String getAddressString() {
             return addressString;
         }
     }
 
-    default Mono<AddressResult> parseAddress(Program program, Map<String, Object> args, String addressStr, String operation, GhidraMcpTool annotation) {
-        return Mono.fromCallable(() -> {
-            Address address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-                throw new GhidraMcpException(buildAddressError(addressStr, operation, annotation, args, null));
-            }
-            return new AddressResult(address, addressStr);
-        }).onErrorMap(throwable -> {
-            if (throwable instanceof GhidraMcpException) {
-                return throwable;
-            }
-            GhidraMcpError error = buildAddressError(addressStr, operation, annotation, args, throwable);
-            return new GhidraMcpException(error);
-        });
+    default Mono<AddressResult> parseAddress(Program program, Map<String, Object> args, String addressStr, String operation, GhidraMcpTool annotation) throws GhidraMcpException {
+        return Mono.fromCallable(() -> createAddressResult(program, addressStr, operation, annotation, args))
+            .onErrorMap(throwable -> mapToGhidraMcpException(throwable, addressStr, operation, annotation, args));
     }
 
+    /**
+     * Creates an AddressResult by parsing an address string using the program's address factory.
+     * 
+     * @param program The Ghidra program containing the address factory
+     * @param addressStr The address string to parse
+     * @param operation The operation being performed (for error context)
+     * @param annotation The tool annotation (for error context)
+     * @param args The tool arguments (for error context)
+     * @return An AddressResult containing the parsed address
+     * @throws GhidraMcpException If the address cannot be parsed
+     */
+    private AddressResult createAddressResult(Program program, String addressStr, String operation, GhidraMcpTool annotation, Map<String, Object> args) throws GhidraMcpException {
+        return Optional.ofNullable(program.getAddressFactory().getAddress(addressStr))
+            .map(address -> new AddressResult(address, addressStr))
+            .orElseThrow(() -> new GhidraMcpException(buildAddressError(addressStr, operation, annotation, args, null)));
+    }
+
+    /**
+     * Maps a throwable to a GhidraMcpException if it isn't already one.
+     * 
+     * @param throwable The original throwable
+     * @param addressStr The address string (for error context)
+     * @param operation The operation being performed (for error context)
+     * @param annotation The tool annotation (for error context)
+     * @param args The tool arguments (for error context)
+     * @return The original throwable if it's already a GhidraMcpException, otherwise a new GhidraMcpException
+     */
+    private Throwable mapToGhidraMcpException(Throwable throwable, String addressStr, String operation, GhidraMcpTool annotation, Map<String, Object> args) {
+        return Optional.of(throwable)
+            .filter(GhidraMcpException.class::isInstance)
+            .orElseGet(() -> new GhidraMcpException(buildAddressError(addressStr, operation, annotation, args, throwable)));
+    }
+
+    /**
+     * Builds a structured error for address parsing failures.
+     * 
+     * @param addressStr The address string that failed to parse
+     * @param operation The operation being performed
+     * @param annotation The tool annotation
+     * @param args The tool arguments
+     * @param cause The underlying cause of the parsing failure
+     * @return A GhidraMcpError with structured error information
+     */
     private GhidraMcpError buildAddressError(String addressStr, String operation, GhidraMcpTool annotation, Map<String, Object> args, Throwable cause) {
         return GhidraMcpError.execution()
                 .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)

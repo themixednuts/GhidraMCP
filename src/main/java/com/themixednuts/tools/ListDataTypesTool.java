@@ -77,6 +77,11 @@ public class ListDataTypesTool implements IGhidraMcpSpecification {
 
     private static final int DEFAULT_PAGE_LIMIT = 50;
 
+    /**
+     * Defines the JSON input schema for listing data types.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -106,6 +111,14 @@ public class ListDataTypesTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the data type listing operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName and optional filters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a PaginatedResult containing DataTypeInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {
@@ -113,6 +126,14 @@ public class ListDataTypesTool implements IGhidraMcpSpecification {
         });
     }
 
+    /**
+     * Lists data types in the program with optional filtering and pagination.
+     * 
+     * @param program The Ghidra program to list data types from
+     * @param args The arguments containing optional filters and cursor
+     * @return A PaginatedResult containing DataTypeInfo objects
+     * @throws GhidraMcpException If there's an error processing the data types
+     */
     private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args) throws GhidraMcpException {
         DataTypeManager dataTypeManager = program.getDataTypeManager();
 

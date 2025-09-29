@@ -62,6 +62,9 @@ import reactor.core.publisher.Mono;
 )
 public class SearchMemoryTool implements IGhidraMcpSpecification {
 
+    /**
+     * Enumeration of supported memory search types.
+     */
     public enum SearchType {
         STRING("string", "Text string search"),
         HEX("hex", "Hexadecimal byte pattern search"),
@@ -121,6 +124,11 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
     public static final String ARG_CASE_SENSITIVE = "caseSensitive";
     public static final String ARG_MAX_RESULTS = "maxResults";
 
+    /**
+     * Defines the JSON input schema for memory searching.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -201,6 +209,14 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
             int maxResults) {
     }
 
+    /**
+     * Executes the memory search operation.
+     * 
+     * @param ex The MCP transport context
+     * @param args The tool arguments containing fileName, searchType, searchValue, and optional parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a SearchResult object
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext ex, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool)

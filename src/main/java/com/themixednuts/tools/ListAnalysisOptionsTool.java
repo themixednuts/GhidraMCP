@@ -49,6 +49,11 @@ public class ListAnalysisOptionsTool implements IGhidraMcpSpecification {
     public static final String ARG_OPTION_TYPE = "optionType";
     public static final String ARG_DEFAULTS_ONLY = "defaultsOnly";
 
+    /**
+     * Defines the JSON input schema for listing analysis options.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -74,6 +79,14 @@ public class ListAnalysisOptionsTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the analysis options listing operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName and optional filters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a list of AnalysisOptionInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {

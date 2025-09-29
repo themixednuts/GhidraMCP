@@ -76,6 +76,11 @@ public class ListMemoryBlocksTool implements IGhidraMcpSpecification {
 
     private static final int DEFAULT_PAGE_LIMIT = 50;
 
+    /**
+     * Defines the JSON input schema for listing memory blocks.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -117,6 +122,14 @@ public class ListMemoryBlocksTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the memory block listing operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName and optional filters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a PaginatedResult containing MemoryBlockInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {
@@ -124,6 +137,14 @@ public class ListMemoryBlocksTool implements IGhidraMcpSpecification {
         });
     }
 
+    /**
+     * Lists memory blocks in the program with optional filtering and pagination.
+     * 
+     * @param program The Ghidra program to list memory blocks from
+     * @param args The arguments containing optional filters and cursor
+     * @return A PaginatedResult containing MemoryBlockInfo objects
+     * @throws GhidraMcpException If there's an error processing the memory blocks
+     */
     private PaginatedResult<MemoryBlockInfo> listMemoryBlocks(Program program, Map<String, Object> args) throws GhidraMcpException {
         Memory memory = program.getMemory();
 

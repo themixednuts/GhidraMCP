@@ -67,6 +67,11 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
     private static final String ACTION_DELETE_BOOKMARK = "delete_bookmark";
     private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
 
+    /**
+     * Defines the JSON input schema for project management operations.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -105,6 +110,14 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the project management operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName, action, and action-specific parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting the result of the project operation
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
@@ -173,8 +186,9 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                 ARG_BOOKMARK_CATEGORY + " must not be blank");
         }
 
-        return parseAddress(program, args, addressStr, ACTION_CREATE_BOOKMARK, annotation)
-            .flatMap(addressResult -> executeInTransaction(program, "MCP - Create Bookmark", () -> {
+        try {
+            return parseAddress(program, args, addressStr, ACTION_CREATE_BOOKMARK, annotation)
+                .flatMap(addressResult -> executeInTransaction(program, "MCP - Create Bookmark", () -> {
             Address address = addressResult.getAddress();
             String normalizedAddress = addressResult.getAddressString();
             try {
@@ -210,6 +224,9 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error, e);
             }
         }));
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
     }
 
     private Mono<? extends Object> handleDeleteBookmark(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
@@ -218,7 +235,8 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
         Optional<String> bookmarkCategoryOpt = getOptionalStringArgument(args, ARG_BOOKMARK_CATEGORY);
         Optional<String> commentContainsOpt = getOptionalStringArgument(args, ARG_COMMENT_CONTAINS);
 
-        return parseAddress(program, args, addressStr, ACTION_DELETE_BOOKMARK, annotation)
+        try {
+            return parseAddress(program, args, addressStr, ACTION_DELETE_BOOKMARK, annotation)
                 .flatMap(addressResult -> executeInTransaction(program, "MCP - Delete Bookmark", () -> {
             Address address = addressResult.getAddress();
             String normalizedAddress = addressResult.getAddressString();
@@ -315,11 +333,15 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                 throw new GhidraMcpException(error, e);
             }
         }));
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
     }
 
     private Mono<? extends Object> handleGoToAddress(Program program, Map<String, Object> args, PluginTool tool, GhidraMcpTool annotation) {
         String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-        return parseAddress(program, args, addressStr, ACTION_GO_TO_ADDRESS, annotation)
+        try {
+            return parseAddress(program, args, addressStr, ACTION_GO_TO_ADDRESS, annotation)
                 .flatMap(addressResult -> Mono.fromCallable(() -> {
             Address address = addressResult.getAddress();
             String normalizedAddress = addressResult.getAddressString();
@@ -363,6 +385,9 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
             return OperationResult.success(ACTION_GO_TO_ADDRESS, address.toString(),
                     "Navigation completed successfully.");
         }));
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
     }
 
     private Mono<? extends Object> buildBlankArgumentError(GhidraMcpTool annotation, Map<String, Object> args, String argumentName, String operation, String message) {

@@ -35,7 +35,6 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -124,6 +123,11 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
     private static final String ACTION_LIST_VARIABLES = "list_variables";
 
 
+    /**
+     * Defines the JSON input schema for function management operations.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -156,6 +160,14 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the function management operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName, action, and action-specific parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting the result of the function operation
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
@@ -174,7 +186,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
             return switch (action.toLowerCase(Locale.ROOT)) {
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
                 case ACTION_READ -> handleRead(program, args, annotation);
-                case ACTION_DELETE -> handleDelete(program, args, annotation);
+                case ACTION_DELETE -> {
+                    try {
+                        yield handleDelete(program, args, annotation);
+                    } catch (GhidraMcpException e) {
+                        yield Mono.error(e);
+                    }
+                }
                 case ACTION_UPDATE_PROTOTYPE -> handleUpdatePrototype(program, tool, args, annotation);
                 case ACTION_LIST_VARIABLES -> handleListVariables(program, args, annotation);
                 default -> {
@@ -354,7 +372,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         });
     }
 
-    private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) throws GhidraMcpException {
         String toolOperation = annotation.mcpName() + ".delete";
 
         // Apply precedence: symbol_id > address > name
@@ -418,7 +436,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         }).flatMap(function -> deleteFunction(program, function, toolOperation));
     }
 
-    private Mono<? extends Object> deleteByAddress(Program program, String addressStr, String toolOperation, Map<String, Object> args, GhidraMcpTool annotation) {
+    private Mono<? extends Object> deleteByAddress(Program program, String addressStr, String toolOperation, Map<String, Object> args, GhidraMcpTool annotation) throws GhidraMcpException {
         return parseAddress(program, args, addressStr, toolOperation, annotation)
             .flatMap(addressResult -> {
                 Function function = program.getFunctionManager().getFunctionAt(addressResult.getAddress());

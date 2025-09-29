@@ -14,14 +14,12 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOp;
-import ghidra.program.model.pcode.PcodeOpAST;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
@@ -77,6 +75,11 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
     public static final String ARG_TIMEOUT = "timeout";
     public static final String ARG_ANALYSIS_LEVEL = "analysis_level";
 
+    /**
+     * Defines the JSON input schema for decompiling code.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -117,6 +120,14 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the code decompilation operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName, target_type, target_value, and optional parameters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a DecompileResult object
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
@@ -209,8 +220,9 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
     private Mono<? extends Object> decompileAtAddress(Program program, String addressStr,
                                                       boolean includePcode, boolean includeAst,
                                                       int timeout, GhidraMcpTool annotation) {
-        return parseAddress(program, Map.of(ARG_ADDRESS, addressStr), addressStr, "decompile_at_address", annotation)
-            .flatMap(addressResult -> Mono.fromCallable(() -> {
+        try {
+            return parseAddress(program, Map.of(ARG_ADDRESS, addressStr), addressStr, "decompile_at_address", annotation)
+                .flatMap(addressResult -> Mono.fromCallable(() -> {
                 Address address = addressResult.getAddress();
                 FunctionManager functionManager = program.getFunctionManager();
                 Function function = functionManager.getFunctionContaining(address);
@@ -231,6 +243,9 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
 
                 return performDecompilation(program, function, includePcode, includeAst, timeout, annotation);
             }));
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
     }
 
     private Map<String, Object> analyzeInstructionPcode(Instruction instruction, Address address) {

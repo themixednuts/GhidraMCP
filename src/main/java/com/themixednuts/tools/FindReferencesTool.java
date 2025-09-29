@@ -51,7 +51,10 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
     public static final String ARG_DIRECTION = "direction";
     public static final String ARG_REFERENCE_TYPE = "referenceType";
 
-    public enum Direction {
+    /**
+     * Enumeration of reference search directions.
+     */
+    enum Direction {
         TO("to", "Find references TO the specified address"),
         FROM("from", "Find references FROM the specified address");
 
@@ -85,6 +88,11 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
         }
     }
 
+    /**
+     * Defines the JSON input schema for finding references.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -114,6 +122,14 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the reference finding operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing address, direction, and optional reference type
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a list of ReferenceInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
@@ -125,8 +141,9 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
 
             Direction direction = Direction.fromValue(directionStr);
 
-            return parseAddress(program, args, addressStr, "find_references", annotation)
-                .flatMap(addressResult -> {
+            try {
+                return parseAddress(program, args, addressStr, "find_references", annotation)
+                    .flatMap(addressResult -> {
                     switch (direction) {
                         case TO -> {
                             return findReferencesTo(program, addressResult.getAddress(), referenceType, args, annotation);
@@ -142,6 +159,9 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
                         }
                     }
                 });
+            } catch (GhidraMcpException e) {
+                return Mono.error(e);
+            }
         });
     }
 

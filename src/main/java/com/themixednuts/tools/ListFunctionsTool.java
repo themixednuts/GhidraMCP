@@ -65,6 +65,11 @@ public class ListFunctionsTool implements IGhidraMcpSpecification {
 
     private static final int DEFAULT_PAGE_LIMIT = 50;
 
+    /**
+     * Defines the JSON input schema for listing functions.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -86,6 +91,14 @@ public class ListFunctionsTool implements IGhidraMcpSpecification {
         return schemaRoot.build();
     }
 
+    /**
+     * Executes the function listing operation.
+     * 
+     * @param context The MCP transport context
+     * @param args The tool arguments containing fileName and optional filters
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a PaginatedResult containing FunctionInfo objects
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {
@@ -93,6 +106,14 @@ public class ListFunctionsTool implements IGhidraMcpSpecification {
         });
     }
 
+    /**
+     * Lists functions in the program with optional filtering and pagination.
+     * 
+     * @param program The Ghidra program to list functions from
+     * @param args The arguments containing optional name pattern and cursor
+     * @return A PaginatedResult containing FunctionInfo objects
+     * @throws GhidraMcpException If there's an error processing the functions
+     */
     private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) throws GhidraMcpException {
         FunctionManager functionManager = program.getFunctionManager();
 

@@ -27,7 +27,7 @@ import generic.stl.Pair;
  * and is registered by {@link GhidraMcpPlugin}.
  */
 public class GhidraMcpTools implements IGhidraMcpToolProvider {
-	/** The Ghidra PluginTool context used to access options and pass to tools. */
+	/** The Ghidra PluginTool context for accessing tool-level options. */
 	private final PluginTool tool;
 	/** ToolOptions instance for checking if tools are enabled. */
 	private final ToolOptions options;
@@ -37,7 +37,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
 	/**
 	 * Constructs a GhidraMcpTools instance.
 	 *
-	 * @param tool The active {@link PluginTool} instance, providing context.
+	 * @param tool The active {@link PluginTool} instance, providing tool-level context.
 	 */
 	public GhidraMcpTools(PluginTool tool) {
 		this.tool = tool;

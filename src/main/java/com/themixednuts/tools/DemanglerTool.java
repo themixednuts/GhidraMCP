@@ -74,6 +74,11 @@ public class DemanglerTool implements IGhidraMcpSpecification {
     public static final String ARG_MANGLED_SYMBOL = "mangledSymbol";
     public static final String ARG_DEMANGLER_NAME = "demanglerName";
 
+    /**
+     * Defines the JSON input schema for demangling symbols.
+     * 
+     * @return The JsonSchema defining the expected input arguments
+     */
     @Override
     public JsonSchema schema() {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
@@ -146,6 +151,14 @@ public class DemanglerTool implements IGhidraMcpSpecification {
         public String getSymbolAnalysis() { return symbolAnalysis; }
     }
 
+    /**
+     * Executes the symbol demangling operation.
+     * 
+     * @param ex The MCP transport context
+     * @param args The tool arguments containing fileName, mangledSymbol, and optional demanglerName
+     * @param tool The Ghidra PluginTool context
+     * @return A Mono emitting a DemangleResult object
+     */
     @Override
     public Mono<? extends Object> execute(McpTransportContext ex, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool)

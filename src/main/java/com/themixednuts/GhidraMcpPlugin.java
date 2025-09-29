@@ -6,6 +6,9 @@ import ghidra.framework.options.OptionType;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.main.ApplicationLevelPlugin;
+import ghidra.app.services.ProgramManager;
+import ghidra.program.model.listing.Program;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.util.PluginStatus;
@@ -20,11 +23,16 @@ import javax.swing.Timer;
     packageName = ghidra.app.DeveloperPluginPackage.NAME,
     category = PluginCategoryNames.ANALYSIS,
     shortDescription = "MCP Server Plugin",
-    description = "Starts an embedded HTTP MCP server to expose program data using stateless streamable transport. Port configurable via Tool Options.",
+    description = "Exposes program data via MCP (Model Context Protocol) HTTP API for AI-assisted reverse engineering. Server runs with middleware support across multiple tools.",
     servicesRequired = {},
     servicesProvided = { IGhidraMcpToolProvider.class }
 )
-public class GhidraMcpPlugin extends Plugin {
+public class GhidraMcpPlugin extends Plugin implements ApplicationLevelPlugin {
+    /**
+     * Map to track active plugin instances by port, similar to GhydraMCP reference.
+     */
+    public static final java.util.Map<Integer, GhidraMcpPlugin> activeInstances = new java.util.concurrent.ConcurrentHashMap<>();
+    
     /**
      * The category name used for registering Ghidra Tool Options for this plugin suite.
      */
@@ -38,22 +46,26 @@ public class GhidraMcpPlugin extends Plugin {
     private int currentPort = DEFAULT_PORT;
     private final OptionsChangeListener mcpOptionsListener;
     private Timer restartDebounceTimer;
+    private GhidraMcpTools toolsProvider;
 
     public GhidraMcpPlugin(PluginTool tool) {
         super(tool);
 
-        Msg.info(this, "GhidraMCP Plugin loading for tool: " + tool.getToolName());
+        Msg.info(this, "GhidraMCP Plugin loading with ApplicationLevelPlugin support on port " + currentPort);
+
+        // Track this instance
+        activeInstances.put(currentPort, this);
 
         this.mcpOptionsListener = setupOptions();
 
         // Create and register the tool provider service
-        GhidraMcpTools localToolsProvider = new GhidraMcpTools(this.tool);
-        registerServiceProvided(IGhidraMcpToolProvider.class, localToolsProvider);
+        toolsProvider = new GhidraMcpTools(tool);
+        registerServiceProvided(IGhidraMcpToolProvider.class, toolsProvider);
 
         // Start the MCP server
-        Swing.runLater(() -> GhidraMcpServer.start(currentPort, this.tool));
+        Swing.runLater(() -> GhidraMcpServer.start(currentPort, tool));
 
-        Msg.info(this, "GhidraMCP Plugin loaded with stateless HTTP transport!");
+        Msg.info(this, "GhidraMCP Plugin loaded with MCP transport on port " + currentPort);
     }
 
     private OptionsChangeListener setupOptions() {
@@ -110,8 +122,36 @@ public class GhidraMcpPlugin extends Plugin {
             restartDebounceTimer.stop();
         }
 
+        // Stop the MCP server (reference counted - will stop only when last tool closes)
         GhidraMcpServer.stop();
-        Msg.info(this, "GhidraMCP Plugin disposed");
+        
+        // Remove this instance from tracking
+        activeInstances.remove(currentPort);
+        
+        Msg.info(this, "GhidraMCP Plugin disposed on port " + currentPort);
         super.dispose();
+    }
+
+    /**
+     * Get the port this plugin instance is running on
+     * @return The HTTP server port
+     */
+    public int getPort() {
+        return currentPort;
+    }
+    
+    /**
+     * Get the current program from the tool context.
+     * @return The current program or null if no program is loaded
+     */
+    public Program getCurrentProgram() {
+        if (tool == null) {
+            return null;
+        }
+        ProgramManager pm = tool.getService(ProgramManager.class);
+        if (pm == null) {
+            return null;
+        }
+        return pm.getCurrentProgram();
     }
 }
