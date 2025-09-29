@@ -19,6 +19,7 @@ public class ProgramFileInfo {
     private final String architecture;
     private final String imageBase;
     private final Long programSize;
+    private final String executableFormat;
 
     public ProgramFileInfo(
         String name,
@@ -30,7 +31,8 @@ public class ProgramFileInfo {
         boolean isReadOnly,
         String architecture,
         String imageBase,
-        Long programSize
+        Long programSize,
+        String executableFormat
     ) {
         this.name = name;
         this.path = path;
@@ -42,6 +44,7 @@ public class ProgramFileInfo {
         this.architecture = architecture;
         this.imageBase = imageBase;
         this.programSize = programSize;
+        this.executableFormat = executableFormat;
     }
 
     public String getName() {
@@ -82,5 +85,9 @@ public class ProgramFileInfo {
 
     public Long getProgramSize() {
         return programSize;
+    }
+
+    public String getExecutableFormat() {
+        return executableFormat;
     }
 }
