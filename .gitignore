@@ -58,3 +58,6 @@ bin
 !/lib/
 !/lib/**/
 
+# Claude local settings (should not be shared)
+.claude/settings.local.json
+
