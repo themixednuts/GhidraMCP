@@ -1,7 +1,6 @@
 package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,42 +20,36 @@ class JsonSchemaTest {
     @BeforeEach
     void setUp() {
         mapper = new ObjectMapper();
-        ObjectNode schemaNode = mapper.createObjectNode();
-        schemaNode.put("type", "string");
-        schemaNode.put("minLength", 1);
-        schemaNode.put("maxLength", 10);
-        schema = new JsonSchema(schemaNode);
+        schema = JsonSchemaBuilder
+            .string()
+            .minLength(1)
+            .maxLength(10)
+            .build();
     }
 
     @Test
-    void testConstructorWithValidNode() {
-        ObjectNode testNode = mapper.createObjectNode();
-        testNode.put("type", "integer");
-        testNode.put("minimum", 0);
-
-        JsonSchema testSchema = new JsonSchema(testNode);
+    void testBuildIntegerSchemaWithMinimum() {
+        JsonSchema testSchema = JsonSchemaBuilder
+            .integer()
+            .minimum(0)
+            .build();
         ObjectNode result = testSchema.getNode();
-
         assertEquals("integer", result.get("type").asText());
         assertEquals(0, result.get("minimum").asInt());
     }
 
     @Test
-    void testConstructorWithNullNode() {
-        JsonSchema testSchema = new JsonSchema(null);
+    void testDefaultConstructorProducesEmptyNode() {
+        JsonSchema testSchema = new JsonSchema();
         ObjectNode result = testSchema.getNode();
-
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void testConstructorWithEmptyNode() {
-        JsonSchema testSchema = new JsonSchema();
-        ObjectNode result = testSchema.getNode();
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
+    void testBuilderProducesObjectSchema() {
+        JsonSchema obj = JsonSchemaBuilder.object().build();
+        assertEquals("object", obj.getNode().get("type").asText());
     }
 
     @Test
@@ -110,24 +103,18 @@ class JsonSchemaTest {
 
     @Test
     void testToJsonStringWithComplexData() {
-        // Create a schema with complex nested data
-        ObjectNode complexNode = mapper.createObjectNode();
-        complexNode.put("type", "object");
-        complexNode.put("title", "Complex Schema");
-        
-        ObjectNode properties = mapper.createObjectNode();
-        ObjectNode nameProp = mapper.createObjectNode();
-        nameProp.put("type", "string");
-        nameProp.put("minLength", 1);
-        properties.set("name", nameProp);
-        complexNode.set("properties", properties);
-        
-        JsonSchema complexSchema = new JsonSchema(complexNode);
+        JsonSchema complexSchema = JsonSchemaBuilder
+            .object()
+            .title("Complex Schema")
+            .property("name", JsonSchemaBuilder.string().minLength(1))
+            .requiredProperty("name")
+            .build();
         Optional<String> jsonString = complexSchema.toJsonString();
-        
-        // Should work with complex but valid JSON structures
         assertTrue(jsonString.isPresent());
-        assertTrue(jsonString.get().contains("Complex Schema"));
+        String json = jsonString.get();
+        assertTrue(json.contains("\"title\":\"Complex Schema\""));
+        assertTrue(json.contains("\"properties\""));
+        assertTrue(json.contains("\"name\""));
     }
 
     @Test
@@ -158,31 +145,15 @@ class JsonSchemaTest {
 
     @Test
     void testEqualsWithEqualSchemas() {
-        ObjectNode node1 = mapper.createObjectNode();
-        node1.put("type", "string");
-        node1.put("minLength", 1);
-        
-        ObjectNode node2 = mapper.createObjectNode();
-        node2.put("type", "string");
-        node2.put("minLength", 1);
-
-        JsonSchema schema1 = new JsonSchema(node1);
-        JsonSchema schema2 = new JsonSchema(node2);
-
+        JsonSchema schema1 = JsonSchemaBuilder.string().minLength(1).build();
+        JsonSchema schema2 = JsonSchemaBuilder.string().minLength(1).build();
         assertEquals(schema1, schema2);
     }
 
     @Test
     void testEqualsWithDifferentSchemas() {
-        ObjectNode node1 = mapper.createObjectNode();
-        node1.put("type", "string");
-        
-        ObjectNode node2 = mapper.createObjectNode();
-        node2.put("type", "integer");
-
-        JsonSchema schema1 = new JsonSchema(node1);
-        JsonSchema schema2 = new JsonSchema(node2);
-
+        JsonSchema schema1 = JsonSchemaBuilder.string().build();
+        JsonSchema schema2 = JsonSchemaBuilder.integer().build();
         assertNotEquals(schema1, schema2);
     }
 
@@ -206,43 +177,21 @@ class JsonSchemaTest {
 
     @Test
     void testHashCodeWithEqualObjects() {
-        ObjectNode node1 = mapper.createObjectNode();
-        node1.put("type", "string");
-        
-        ObjectNode node2 = mapper.createObjectNode();
-        node2.put("type", "string");
-
-        JsonSchema schema1 = new JsonSchema(node1);
-        JsonSchema schema2 = new JsonSchema(node2);
-
+        JsonSchema schema1 = JsonSchemaBuilder.string().build();
+        JsonSchema schema2 = JsonSchemaBuilder.string().build();
         assertEquals(schema1.hashCode(), schema2.hashCode());
     }
 
     @Test
     void testComplexSchemaSerialization() {
-        ObjectNode complexNode = mapper.createObjectNode();
-        complexNode.put("type", "object");
-        complexNode.put("title", "User Profile");
-        complexNode.put("description", "A complex user profile");
-        
-        ObjectNode properties = mapper.createObjectNode();
-        ObjectNode nameProperty = mapper.createObjectNode();
-        nameProperty.put("type", "string");
-        nameProperty.put("minLength", 1);
-        nameProperty.put("maxLength", 50);
-        properties.set("name", nameProperty);
-        
-        ObjectNode ageProperty = mapper.createObjectNode();
-        ageProperty.put("type", "integer");
-        ageProperty.put("minimum", 0);
-        ageProperty.put("maximum", 150);
-        properties.set("age", ageProperty);
-        
-        complexNode.set("properties", properties);
-        
-        JsonSchema complexSchema = new JsonSchema(complexNode);
+        JsonSchema complexSchema = JsonSchemaBuilder
+            .object()
+            .title("User Profile")
+            .description("A complex user profile")
+            .property("name", JsonSchemaBuilder.string().minLength(1).maxLength(50))
+            .property("age", JsonSchemaBuilder.integer().minimum(0).maximum(150))
+            .build();
         Optional<String> jsonString = complexSchema.toJsonString();
-        
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
         assertTrue(json.contains("\"type\":\"object\""));
@@ -266,14 +215,14 @@ class JsonSchemaTest {
 
     @Test
     void testSchemaWithSpecialCharacters() {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("type", "string");
-        node.put("pattern", "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-        node.put("description", "Email with special chars: @#$%^&*()");
-        
-        JsonSchema testSchema = new JsonSchema(node);
+        JsonSchema testSchema = JsonSchemaBuilder
+            .string()
+            .pattern("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
+            .description("Email with special chars: @#$%^&*()")
+            .build();
+
         Optional<String> jsonString = testSchema.toJsonString();
-        
+
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
         assertTrue(json.contains("special chars"));
@@ -282,13 +231,13 @@ class JsonSchemaTest {
 
     @Test
     void testSchemaWithUnicodeCharacters() {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("type", "string");
-        node.put("description", "Unicode test: 你好世界 🌍");
-        
-        JsonSchema testSchema = new JsonSchema(node);
+        JsonSchema testSchema = JsonSchemaBuilder
+            .string()
+            .description("Unicode test: 你好世界 🌍")
+            .build();
+
         Optional<String> jsonString = testSchema.toJsonString();
-        
+
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
         assertTrue(json.contains("你好世界"));
