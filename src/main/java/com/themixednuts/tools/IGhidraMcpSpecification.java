@@ -15,6 +15,7 @@ import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 import io.modelcontextprotocol.spec.McpSchema;
 import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
@@ -26,6 +27,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -330,44 +332,66 @@ public interface IGhidraMcpSpecification {
 
     /**
      * Retrieves an open {@link DomainFile} based on the "fileName" argument
-     * within the provided {@link PluginTool}'s project context.
+     * within the application's active project context.
      *
      * @param args The tool arguments map, expected to contain a non-blank
      *             String entry for "fileName".
-     * @param tool The current Ghidra {@link PluginTool} providing project context.
+     * @param tool The current Ghidra {@link PluginTool} (may be null in headless mode).
      * @return The matching open {@link DomainFile}.
      * @throws IllegalArgumentException if the "fileName" argument is missing,
      *                                  not a non-blank String, or does not match
      *                                  any open DomainFile in the project.
-     * @throws NullPointerException     if tool or tool.getProject() is null.
+     * @throws NullPointerException     if no active project is found.
      * @throws Exception                Potentially other exceptions from project
      *                                  access.
      */
     default DomainFile getDomainFile(Map<String, Object> args, PluginTool tool)
         throws Exception {
-        if (tool == null) {
-            throw new NullPointerException("PluginTool cannot be null.");
-        }
-        ghidra.framework.model.Project project = tool.getProject();
+        // Use AppInfo.getActiveProject() for headless mode compatibility
+        ghidra.framework.model.Project project = ghidra.framework.main.AppInfo.getActiveProject();
         if (project == null) {
-            throw new NullPointerException("No active project found in the provided PluginTool.");
+            throw new NullPointerException("No active project found in the application.");
         }
         return findDomainFile(project, getRequiredStringArgument(args, "fileName"));
     }
 
     /**
-     * Finds a domain file by name within the project's open data.
-     * 
+     * Finds a domain file by name within the project (searches both open and closed files).
+     * Searches the entire project recursively to support headless mode.
+     *
      * @param project The Ghidra project to search in
      * @param fileNameStr The name of the file to find
      * @return The DomainFile if found
      * @throws Exception If the file is not found or an error occurs
      */
     private DomainFile findDomainFile(ghidra.framework.model.Project project, String fileNameStr) throws Exception {
-        return project.getOpenData().stream()
+        // First check if the file is already open (fast path)
+        Optional<DomainFile> openFile = project.getOpenData().stream()
+            .filter(f -> f.getName().equals(fileNameStr))
+            .findFirst();
+
+        if (openFile.isPresent()) {
+            return openFile.get();
+        }
+
+        // If not open, search the entire project recursively
+        List<DomainFile> allFiles = new ArrayList<>();
+        collectDomainFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
+
+        return allFiles.stream()
             .filter(f -> f.getName().equals(fileNameStr))
             .findFirst()
             .orElseThrow(() -> createFileNotFoundError(project, fileNameStr));
+    }
+
+    /**
+     * Recursively collect all domain files from a folder and its subfolders.
+     */
+    private void collectDomainFilesRecursive(DomainFolder folder, List<DomainFile> files) {
+        files.addAll(List.of(folder.getFiles()));
+        for (DomainFolder subfolder : folder.getFolders()) {
+            collectDomainFilesRecursive(subfolder, files);
+        }
     }
 
     /**
