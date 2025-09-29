@@ -24,20 +24,36 @@ import java.util.stream.Collectors;
  * </p>
  * 
  * <pre>{@code
- * ObjectNode userSchema = JsonSchemaBuilder.object()
+ * JsonSchema userSchema = JsonSchemaBuilder.object()
  * 		.title("User")
  * 		.description("Represents a user in the system")
- * 		.property("id", JsonSchemaBuilder.integer().format("int64").description("Unique identifier"), true)
+ * 		.property("id", JsonSchemaBuilder.integer().format(IntegerFormatType.INT64).description("Unique identifier"), true)
  * 		.property("name", JsonSchemaBuilder.string().minLength(1).description("User's full name"), true)
- * 		.property("email", JsonSchemaBuilder.string().format("email").description("User's email address"))
+ * 		.property("email", JsonSchemaBuilder.string().format(StringFormatType.EMAIL).description("User's email address"))
  * 		.property("tags", JsonSchemaBuilder.array()
  * 				.items(JsonSchemaBuilder.string().description("A tag string"))
  * 				.description("Optional tags for the user")
  * 				.minItems(1)
  * 				.nullable(true))
- * 		.requiredProperty("status") // Can mark required even if property not defined yet
+ * 		.requiredProperty("status")
  * 		.property("status", JsonSchemaBuilder.string().enumValues("active", "inactive", "pending"))
  * 		.build();
+ * }</pre>
+ * 
+ * <p>
+ * Validation Example:
+ * </p>
+ * 
+ * <pre>{@code
+ * // Create schema
+ * JsonSchema schema = JsonSchemaBuilder.string()
+ *     .minLength(5)
+ *     .maxLength(20)
+ *     .pattern("^[a-zA-Z]+$")
+ *     .build();
+ * 
+ * // Use schema for API definitions or external validation
+ * String schemaJson = schema.toJsonString().orElse("{}");
  * }</pre>
  *
  * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API
@@ -46,7 +62,6 @@ import java.util.stream.Collectors;
  *      Data Types</a>
  */
 public class JsonSchemaBuilder {
-	// Reusable ObjectMapper instance for value conversions. Used as default.
 	static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
 	private static final String TYPE = "type";
 	private static final String FORMAT = "format";
@@ -74,15 +89,12 @@ public class JsonSchemaBuilder {
 	private final ObjectNode schema;
 	private final JsonSchemaType type;
 
-	// Private constructor enforces use of static factory methods to start the build
-	// process.
 	private JsonSchemaBuilder(JsonSchemaType type) {
 		this.schema = DEFAULT_MAPPER.createObjectNode();
 		this.type = Objects.requireNonNull(type, "Schema type cannot be null");
 		this.schema.put(TYPE, type.toString());
 	}
 
-	// +++ NEW Base Buildable Interface +++
 	/**
 	 * A base interface for any builder state that can produce a final ObjectNode
 	 * schema.
@@ -90,8 +102,6 @@ public class JsonSchemaBuilder {
 	public interface IBuildableSchemaType {
 		JsonSchema build();
 	}
-
-	// --- State Interfaces --- //
 
 	/** State interface for building a 'string' schema. */
 	public interface IStringSchemaBuilder extends IBuildableSchemaType {
@@ -1195,7 +1205,6 @@ public class JsonSchemaBuilder {
 		IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder, boolean required);
 	}
 
-	// --- Static Factory Methods (Entry Points) --- //
 
 	/**
 	 * Starts building a 'string' type JSON schema using the default ObjectMapper.
@@ -1274,7 +1283,6 @@ public class JsonSchemaBuilder {
 		return new BuilderStateImpl(JsonSchemaType.NULL, DEFAULT_MAPPER);
 	}
 
-	// NEW Overloads using custom mapper
 	/**
 	 * Starts building a 'string' type JSON schema using a custom ObjectMapper.
 	 *
@@ -1359,7 +1367,6 @@ public class JsonSchemaBuilder {
 		return new BuilderStateImpl(JsonSchemaType.NULL, customMapper);
 	}
 
-	// --- Implementation Class (Handles State Transitions) --- //
 
 	private static class BuilderStateImpl implements
 			IStringSchemaBuilder, INumberSchemaBuilder, IIntegerSchemaBuilder, IBooleanSchemaBuilder,
@@ -1368,7 +1375,6 @@ public class JsonSchemaBuilder {
 		private final JsonSchemaBuilder builder;
 		private Map<String, ObjectNode> propertiesMap = null;
 		private List<String> requiredPropertiesList = null;
-		// Field to hold the mapper for this instance
 		private final ObjectMapper mapper;
 
 		BuilderStateImpl(JsonSchemaType type, ObjectMapper mapper) {
@@ -1376,7 +1382,6 @@ public class JsonSchemaBuilder {
 			this.mapper = mapper;
 		}
 
-		// --- Common Methods --- //
 
 		@Override
 		public BuilderStateImpl title(String title) {
@@ -1397,7 +1402,6 @@ public class JsonSchemaBuilder {
 		}
 
 		private JsonNode toJsonNode(Object value) {
-			// Use the instance mapper field
 			return this.mapper.valueToTree(value);
 		}
 
@@ -1413,7 +1417,6 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// --- Enum Methods (Now String Specific) --- //
 
 		@Override
 		public BuilderStateImpl enumValues(List<String> values) {
@@ -1444,7 +1447,6 @@ public class JsonSchemaBuilder {
 			return enumValues(stringValues);
 		}
 
-		// --- String Methods --- //
 
 		@Override
 		public IStringSchemaBuilder minLength(int minLength) {
@@ -1467,7 +1469,6 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// --- Number Methods --- //
 
 		@Override
 		public INumberSchemaBuilder minimum(BigDecimal minimum) {
@@ -1493,7 +1494,6 @@ public class JsonSchemaBuilder {
 			return maximum(BigDecimal.valueOf(maximum));
 		}
 
-		// --- Integer Methods --- //
 
 		@Override
 		public IIntegerSchemaBuilder minimum(long minimum) {
@@ -1509,7 +1509,6 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// +++ NEW format implementations +++
 		@Override
 		public IStringSchemaBuilder format(StringFormatType format) {
 			assertType(JsonSchemaType.STRING);
@@ -1531,7 +1530,6 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// --- Array Methods --- //
 
 		@Override
 		public IArraySchemaBuilder items(ObjectNode itemSchema) {
@@ -1544,7 +1542,6 @@ public class JsonSchemaBuilder {
 		@Override
 		public IArraySchemaBuilder items(IBuildableSchemaType itemSchemaBuilder) {
 			Objects.requireNonNull(itemSchemaBuilder, "Item schema builder cannot be null");
-			// Build the schema and delegate to the original items method
 			return items(itemSchemaBuilder.build().getNode());
 		}
 
@@ -1564,37 +1561,29 @@ public class JsonSchemaBuilder {
 
 		@Override
 		public IArraySchemaBuilder itemsAnyOf(List<? extends IBuildableSchemaType> schemas) {
-			assertType(JsonSchemaType.ARRAY); // Ensures 'this.builder' is for an array schema
+			assertType(JsonSchemaType.ARRAY);
 			Objects.requireNonNull(schemas, "itemsAnyOf schemas list cannot be null");
 			if (schemas.isEmpty()) {
 				throw new IllegalArgumentException("itemsAnyOf schemas list cannot be empty.");
 			}
 
-			// Collect the ObjectNode schemas for the anyOf array
 			List<ObjectNode> subSchemaNodes = new ArrayList<>();
 			for (IBuildableSchemaType schemaBuilder : schemas) {
 				Objects.requireNonNull(schemaBuilder, "Schema builder in itemsAnyOf list cannot be null");
-				// It's assumed that schemaBuilder.build().getNode() will produce an object
-				// schema
 				subSchemaNodes.add(schemaBuilder.build().getNode());
 			}
 
-			// Create the items schema: {"type": "object", "anyOf": [subSchemaNodes...]}
-			// We use JsonSchemaBuilder.object() to ensure "type":"object" is set,
-			// and then call its anyOf method that takes pre-built ObjectNodes.
 			IObjectSchemaBuilder itemsObjectSchemaBuilder = JsonSchemaBuilder.object(this.mapper);
-			itemsObjectSchemaBuilder.anyOf(subSchemaNodes.toArray(new ObjectNode[0])); // Pass the already built ObjectNodes
+			itemsObjectSchemaBuilder.anyOf(subSchemaNodes.toArray(new ObjectNode[0]));
 
-			// Set this composite object schema as the "items" for the current array schema
 			builder.schema.set(ITEMS, itemsObjectSchemaBuilder.build().getNode());
 			return this;
 		}
 
-		// --- Object Methods --- //
 
 		@Override
 		public IObjectSchemaBuilder property(String name, ObjectNode propertySchema) {
-			return property(name, propertySchema, false); // Default to not required
+			return property(name, propertySchema, false);
 		}
 
 		@Override
@@ -1609,13 +1598,11 @@ public class JsonSchemaBuilder {
 			Objects.requireNonNull(name, "Property name cannot be null");
 			Objects.requireNonNull(propertySchema, "Property schema cannot be null");
 
-			// Initialize properties structure if first property
 			if (propertiesMap == null) {
 				propertiesMap = new LinkedHashMap<>();
 				builder.schema.set(PROPERTIES, JsonNodeFactory.instance.objectNode());
 			}
 
-			// Add/replace property in map and node
 			propertiesMap.put(name, propertySchema);
 			((ObjectNode) builder.schema.get(PROPERTIES)).set(name, propertySchema);
 
@@ -1636,13 +1623,11 @@ public class JsonSchemaBuilder {
 			assertType(JsonSchemaType.OBJECT);
 			Objects.requireNonNull(name, "Required property name cannot be null");
 
-			// Initialize required structure if first required property
 			if (requiredPropertiesList == null) {
 				requiredPropertiesList = new ArrayList<>();
 				builder.schema.set(REQUIRED, JsonNodeFactory.instance.arrayNode());
 			}
 
-			// Add to list and node if not already present
 			if (!requiredPropertiesList.contains(name)) {
 				requiredPropertiesList.add(name);
 				((ArrayNode) builder.schema.get(REQUIRED)).add(name);
@@ -1678,13 +1663,11 @@ public class JsonSchemaBuilder {
 			return propertyOrdering(Arrays.asList(names));
 		}
 
-		// Add the implementation for the new properties map method
 		@Override
 		public IObjectSchemaBuilder properties(Map<String, ObjectNode> propertiesMap) {
 			assertType(JsonSchemaType.OBJECT);
 			Objects.requireNonNull(propertiesMap, "Properties map cannot be null");
 
-			// Initialize properties structure if necessary
 			if (this.propertiesMap == null) {
 				this.propertiesMap = new LinkedHashMap<>();
 				builder.schema.set(PROPERTIES, JsonNodeFactory.instance.objectNode());
@@ -1703,23 +1686,19 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// +++ NEW Implementation for propertiesBuilders +++
 		@Override
 		public IObjectSchemaBuilder propertiesBuilders(Map<String, IBuildableSchemaType> propertiesSchemaBuilders) {
 			assertType(JsonSchemaType.OBJECT);
 			Objects.requireNonNull(propertiesSchemaBuilders, "Properties builders map cannot be null");
-			// Build each schema in the map
 			Map<String, ObjectNode> builtProperties = new LinkedHashMap<>();
 			for (Map.Entry<String, IBuildableSchemaType> entry : propertiesSchemaBuilders.entrySet()) {
 				Objects.requireNonNull(entry.getValue(),
 						"Property schema builder for key '" + entry.getKey() + "' cannot be null");
 				builtProperties.put(entry.getKey(), entry.getValue().build().getNode());
 			}
-			// Delegate to the original properties method
 			return properties(builtProperties);
 		}
 
-		// --- anyOf Implementation --- //
 
 		@Override
 		public BuilderStateImpl anyOf(IBuildableSchemaType... schemas) {
@@ -1747,28 +1726,19 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-		// Corrected implementation for List variant, now matching the interface
-		// signature
 		@Override
-		public BuilderStateImpl anyOf(List<? extends IBuildableSchemaType> schemas) { // Matches interface
+		public BuilderStateImpl anyOf(List<? extends IBuildableSchemaType> schemas) {
 			Objects.requireNonNull(schemas, "anyOf schemas list cannot be null");
 			if (schemas.isEmpty()) {
 				throw new IllegalArgumentException("anyOf list cannot be empty.");
 			}
-			// Convert the list to an array of IBuildableSchemaType and delegate to varargs
-			// version
 			return anyOf(schemas.toArray(new IBuildableSchemaType[0]));
 		}
 
-		// --- Build Method --- //
-
 		@Override
 		public JsonSchema build() {
-			// Return a new JsonSchema instance, which handles defensive copying internally.
 			return new JsonSchema(builder.schema);
 		}
-
-		// --- Helper Methods --- //
 
 		private void assertType(JsonSchemaType expectedType) {
 			if (builder.type != expectedType) {

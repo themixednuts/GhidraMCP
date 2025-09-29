@@ -2,11 +2,8 @@ package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-// import ghidra.util.Msg; // Removed Ghidra dependency
 
 import java.util.Optional;
-// import java.util.logging.Level; // Removed logging dependency
-// import java.util.logging.Logger; // Removed logging dependency
 
 /**
  * An immutable representation of a JSON Schema, built using
@@ -16,25 +13,16 @@ import java.util.Optional;
  */
 public final class JsonSchema {
 
-	// Add a logger instance
-	// private static final Logger LOGGER =
-	// Logger.getLogger(JsonSchema.class.getName()); // Removed logger
-
 	private final ObjectNode schemaNode;
 
 	/**
 	 * Package-private constructor to be called by {@link JsonSchemaBuilder}.
-	 * Creates an immutable instance by deep copying the provided node.
+	 * Creates an instance by directly using the provided node for maximum efficiency.
 	 *
-	 * @param schemaNode The schema node constructed by the builder. Must not be
-	 *                   null.
+	 * @param schemaNode The schema node constructed by the builder. Must not be null.
 	 */
 	JsonSchema(ObjectNode schemaNode) {
-		if (schemaNode == null) {
-			this.schemaNode = JsonSchemaBuilder.DEFAULT_MAPPER.createObjectNode();
-		} else {
-			this.schemaNode = schemaNode.deepCopy();
-		}
+		this.schemaNode = schemaNode != null ? schemaNode : JsonSchemaBuilder.DEFAULT_MAPPER.createObjectNode();
 	}
 
 	JsonSchema() {
@@ -42,15 +30,14 @@ public final class JsonSchema {
 	}
 
 	/**
-	 * Returns a deep copy of the underlying JSON schema {@link ObjectNode}.
-	 * Modifications to the returned node will not affect this {@code JsonSchema}
-	 * instance.
+	 * Returns the underlying JSON schema {@link ObjectNode}.
+	 * For maximum efficiency, this returns the actual node without copying.
+	 * Modifications to the returned node will affect this {@code JsonSchema} instance.
 	 *
-	 * @return A non-null, deep copy of the schema node.
+	 * @return The underlying schema node.
 	 */
 	public ObjectNode getNode() {
-		// Return a deep copy to maintain immutability of the internal node
-		return schemaNode.deepCopy();
+		return schemaNode;
 	}
 
 	/**
@@ -76,29 +63,17 @@ public final class JsonSchema {
 
 	/**
 	 * Serializes the JSON schema to a string representation using the default
-	 * {@link ObjectMapper}
-	 * defined in {@link JsonSchemaBuilder}.
-	 * <p>
-	 * Note: This uses the static default mapper, which might not have the same
-	 * configuration
-	 * as a custom mapper potentially used during the build process for
-	 * default/example values.
-	 * For serialization controlled by the consumer (recommended), use
-	 * {@link #toJsonString(ObjectMapper)}.
+	 * {@link ObjectMapper} defined in {@link JsonSchemaBuilder}.
 	 *
 	 * @return An {@link Optional} containing the JSON string if serialization is
-	 *         successful,
-	 *         otherwise {@link Optional#empty()}.
+	 *         successful, otherwise {@link Optional#empty()}.
 	 */
 	public Optional<String> toJsonString() {
-		// Use the default mapper from JsonSchemaBuilder (assuming package-private
-		// access or make it accessible)
 		return toJsonString(JsonSchemaBuilder.DEFAULT_MAPPER);
 	}
 
 	@Override
 	public String toString() {
-		// Provide a basic string representation, might be the JSON itself or a summary
 		return toJsonString().orElse("JsonSchema{ serialization_error }");
 	}
 
@@ -109,13 +84,11 @@ public final class JsonSchema {
 		if (o == null || getClass() != o.getClass())
 			return false;
 		JsonSchema that = (JsonSchema) o;
-		// Equality based on the content of the schema node
 		return schemaNode.equals(that.schemaNode);
 	}
 
 	@Override
 	public int hashCode() {
-		// Hash code based on the content of the schema node
 		return schemaNode.hashCode();
 	}
 }
