@@ -9,6 +9,7 @@ import com.themixednuts.models.DataTypeReadResult.DataTypeComponentDetail;
 import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.models.RTTIAnalysisResult;
 import com.themixednuts.utils.DataTypeUtils;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -21,6 +22,12 @@ import ghidra.program.model.data.DataTypeDependencyException;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.InvalidNameException;
 import ghidra.util.task.TaskMonitor;
+import ghidra.app.util.datatype.microsoft.RTTI0DataType;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemBuffer;
+import ghidra.program.model.mem.MemoryBufferImpl;
+import ghidra.program.model.address.Address;
+import ghidra.app.util.demangler.DemanglerUtil;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
@@ -101,7 +108,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 .description("Action to perform on data types"));
 
         schemaRoot.property(ARG_DATA_TYPE_KIND, JsonSchemaBuilder.string(mapper)
-                .enumValues("struct", "enum", "union", "typedef", "pointer", "function_definition", "category")
+                .enumValues("struct", "enum", "union", "typedef", "pointer", "function_definition", "category", "rtti0")
                 .description("Type of data type to work with"));
 
         schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
@@ -154,6 +161,9 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         schemaRoot.property(ARG_NEW_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
                 .description("Destination parent path when moving a category"));
+
+        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+                .description("Optional: Address to analyze for RTTI structure information"));
 
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
@@ -221,6 +231,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             case "pointer" -> updatePointer(dtm, (TypeDef) existing, args, annotation);
             case "function_definition" -> updateFunctionDefinition(dtm, (FunctionDefinition) existing, args, annotation);
             case "category" -> updateCategory(dtm, args, annotation);
+            case "rtti" -> updateRTTI(dtm, (RTTI0DataType) existing, args, annotation);
             default -> OperationResult.failure(
                 "update_data_type",
                 dataTypeKind,
@@ -242,6 +253,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     case "pointer" -> createPointer(args, program, name);
                     case "function_definition" -> createFunctionDefinition(args, program, name);
                     case "category" -> createCategory(args, program, name);
+                    case "rtti0" -> createRTTI0(args, program, name);
                     default -> throw new IllegalArgumentException("Unsupported data type kind for creation: " + dataTypeKind);
                 };
                 return createResult;
@@ -575,8 +587,47 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             Map.of());
     }
 
+    private CreateDataTypeResult createRTTI0(Map<String, Object> args, Program program, String name) throws GhidraMcpException {
+        DataTypeManager dtm = program.getDataTypeManager();
+        CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
+            .map(CategoryPath::new).orElse(CategoryPath.ROOT);
+
+        ensureCategoryExists(dtm, categoryPath);
+        checkDataTypeExists(dtm, categoryPath, name);
+
+        // Create RTTI0DataType
+        RTTI0DataType rttiType = new RTTI0DataType(dtm);
+        
+        // Add to data type manager
+        DataType addedRTTI = dtm.addDataType(rttiType, DataTypeConflictHandler.REPLACE_HANDLER);
+        if (addedRTTI == null) {
+            throw new GhidraMcpException(GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                .message("Failed to add RTTI0 data type to data type manager")
+                .build());
+        }
+
+        // Set comment if provided
+        getOptionalStringArgument(args, "comment").ifPresent(addedRTTI::setDescription);
+
+        return new CreateDataTypeResult(
+            "rtti0",
+            addedRTTI.getName(),
+            addedRTTI.getPathName(),
+            "Successfully created RTTI0 data type",
+            Map.of(
+                "component_count", 3, // RTTI0DataType has 3 components: vfTablePointer, dataPointer, name
+                "size", addedRTTI.getLength()));
+    }
+
     private Mono<? extends Object> handleRead(Program program, Map<String, Object> args, GhidraMcpTool annotation, String dataTypeKind) {
         return Mono.fromCallable(() -> {
+            // Check if this is an RTTI analysis request
+            Optional<String> analyzeAddressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+            if (analyzeAddressOpt.isPresent()) {
+                return analyzeRTTIAtAddress(program, analyzeAddressOpt.get(), dataTypeKind);
+            }
+
             String name = getRequiredStringArgument(args, ARG_NAME);
             CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
                 .map(CategoryPath::new).orElse(CategoryPath.ROOT);
@@ -620,6 +671,15 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                         comp.getLength()))
                     .collect(Collectors.toList());
                 componentCount = union.getNumComponents();
+            } else if (dataType instanceof RTTI0DataType) {
+                // For RTTI types, we'll provide special handling
+                // RTTI0DataType has 3 components: vfTablePointer, dataPointer, name
+                components = List.of(
+                    new DataTypeComponentDetail("vfTablePointer", "Pointer", 0, 8),
+                    new DataTypeComponentDetail("dataPointer", "Pointer", 8, 8),
+                    new DataTypeComponentDetail("name", "NullTerminatedString", 16, -1)
+                );
+                componentCount = 3;
             }
 
             return new DataTypeReadResult(
@@ -1209,6 +1269,20 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             "Category updated successfully");
     }
 
+    private OperationResult updateRTTI(DataTypeManager dtm,
+                                      RTTI0DataType existing,
+                                      Map<String, Object> args,
+                                      GhidraMcpTool annotation) throws GhidraMcpException {
+        // RTTI data types are typically read-only in terms of structure
+        // We can only update the description/comment
+        getOptionalStringArgument(args, ARG_COMMENT).ifPresent(existing::setDescription);
+
+        return OperationResult.success(
+            "update_data_type",
+            "rtti",
+            "RTTI data type updated successfully");
+    }
+
     private static CategoryPath normalizeParentPath(String path) {
         if (path == null) {
             return CategoryPath.ROOT;
@@ -1311,5 +1385,129 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     }
                 })
             );
+    }
+
+
+    private RTTIAnalysisResult analyzeRTTIAtAddress(Program program, String addressStr, String dataTypeKind) throws GhidraMcpException {
+        try {
+            Address address = program.getAddressFactory().getAddress(addressStr);
+            if (address == null) {
+                throw new GhidraMcpException(GhidraMcpError.validation()
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message("Invalid address: " + addressStr)
+                        .build());
+            }
+
+            Memory memory = program.getMemory();
+            DataTypeManager dtm = program.getDataTypeManager();
+            
+            // Test RTTI0DataType
+            RTTI0DataType rtti0 = new RTTI0DataType(dtm);
+            boolean isValid = rtti0.isValid(program, address, null);
+
+            if (!isValid) {
+                return new RTTIAnalysisResult(
+                    "RTTI0DataType",
+                    addressStr,
+                    Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
+                    false,
+                    Optional.of("No valid RTTI0 structure found at address"),
+                    false,
+                    Optional.of("Address does not contain valid RTTI0 structure"),
+                    0,
+                    rtti0.getDescription(),
+                    rtti0.getMnemonic(null),
+                    rtti0.getDefaultLabelPrefix(),
+                    Map.of("attemptedType", "RTTI0DataType")
+                );
+            }
+
+            // Extract RTTI information
+            Optional<String> vtableAddress = Optional.empty();
+            Optional<String> spareDataAddress = Optional.empty();
+            Optional<String> mangledName = Optional.empty();
+            Optional<String> demangledName = Optional.empty();
+            boolean demanglingSuccessful = false;
+            Optional<String> demanglingError = Optional.empty();
+            int length = 0;
+
+            try {
+                // Get length using the proper method signature
+                length = rtti0.getLength(memory, address);
+                
+                // Get vtable address using the public method
+                vtableAddress = Optional.ofNullable(rtti0.getVFTableAddress(memory, address))
+                    .map(Address::toString);
+                
+                // Get spare data address using the public method
+                spareDataAddress = Optional.ofNullable(rtti0.getSpareDataAddress(memory, address))
+                    .map(Address::toString);
+                
+                // Get mangled name using the proper method from RTTI0DataType
+                try {
+                    // Create MemBuffer using MemoryBufferImpl
+                    MemBuffer memBuffer = new MemoryBufferImpl(memory, address);
+                    String name = rtti0.getVFTableName(memBuffer);
+                    mangledName = Optional.ofNullable(name);
+                } catch (Exception e) {
+                    mangledName = Optional.empty();
+                }
+
+                // Attempt to demangle if we have a mangled name
+                if (mangledName.isPresent()) {
+                    try {
+                        var demangledList = DemanglerUtil.demangle(program, mangledName.get(), null);
+                        demangledName = Optional.ofNullable(demangledList)
+                            .filter(list -> !list.isEmpty())
+                            .map(list -> list.get(0).toString());
+                        demanglingSuccessful = demangledName.isPresent();
+                        if (!demanglingSuccessful) {
+                            demanglingError = Optional.of("No demangler could process this symbol");
+                        }
+                    } catch (Exception e) {
+                        demanglingError = Optional.of("Demangling failed: " + e.getMessage());
+                    }
+                } else {
+                    demanglingError = Optional.of("No mangled name found in RTTI structure");
+                }
+
+            } catch (Exception e) {
+                demanglingError = Optional.of("Failed to extract RTTI information: " + e.getMessage());
+            }
+
+            Map<String, Object> additionalInfo = Map.of(
+                "rttiTypeName", "RTTI0DataType",
+                "length", length,
+                "hasVtable", vtableAddress.isPresent(),
+                "hasSpareData", spareDataAddress.isPresent()
+            );
+
+            return new RTTIAnalysisResult(
+                "RTTI0DataType",
+                addressStr,
+                vtableAddress,
+                spareDataAddress,
+                mangledName,
+                demangledName,
+                demanglingSuccessful,
+                demanglingError,
+                isValid,
+                Optional.empty(),
+                length,
+                rtti0.getDescription(),
+                rtti0.getMnemonic(null),
+                rtti0.getDefaultLabelPrefix(),
+                additionalInfo
+            );
+
+        } catch (Exception e) {
+            throw new GhidraMcpException(GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to analyze RTTI at address: " + e.getMessage())
+                    .build());
+        }
     }
 }
