@@ -114,6 +114,27 @@
       <scope>system</scope>
       <systemPath>${project.basedir}/lib/Gui.jar</systemPath>
     </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>MicrosoftCodeAnalyzer</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/MicrosoftCodeAnalyzer.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>MicrosoftDemangler</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/MicrosoftDemangler.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>MicrosoftDmang</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/MicrosoftDmang.jar</systemPath>
+    </dependency>
 
 
     <!-- Add the jakarta.servlet-api dependency -->

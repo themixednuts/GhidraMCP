@@ -16,6 +16,9 @@ jobs:
       GHIDRA_LIBS: >-
         Features/Base/lib/Base.jar
         Features/Decompiler/lib/Decompiler.jar
+        Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar
+        Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar
+        Features/MicrosoftDmang/lib/MicrosoftDmang.jar
         Framework/Docking/lib/Docking.jar
         Framework/Generic/lib/Generic.jar
         Framework/Project/lib/Project.jar
