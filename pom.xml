@@ -56,11 +56,6 @@
       <artifactId>mcp</artifactId>
     </dependency>
 
-    <dependency>
-      <groupId>com.networknt</groupId>
-      <artifactId>json-schema-validator</artifactId>
-      <version>1.5.6</version>
-    </dependency>
 
     <!-- Ghidra JARs using file repository -->
     <dependency>
@@ -146,6 +141,14 @@
       <groupId>org.reflections</groupId>
       <artifactId>reflections</artifactId>
       <version>0.10.2</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- NetworkNT JSON Schema Validator for testing schema validation -->
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>1.5.6</version>
       <scope>test</scope>
     </dependency>
 
