@@ -63,11 +63,25 @@ Comprehensive symbol management including creating, renaming, deleting, searchin
 ## ▶️ Usage
 
 1.  Ensure Ghidra is running with the GhidraMCP extension active.
-2.  Ensure your MCP Client is configured to connect to the GhidraMCP server (see 'Configuring an MCP Client' below).
+2.  Configure the MCP server settings (see 'Configuration' below).
+3.  Ensure your MCP Client is configured to connect to the GhidraMCP server (see 'Configuring an MCP Client' below).
 
 > [!WARNING] > **Script Error Dialogs:** Some tools that execute Ghidra scripts may trigger GUI error dialogs via `Msg.showError`. These dialogs **must** be manually closed, or the server will hang and become unresponsive.
 
 > [!TIP] > **Missing fileName Parameter:** When tools request a `fileName` parameter, use the `list_open_files` tool to see available programs. Most tools provide this context automatically on failed calls.
+
+## ⚙️ Configuration
+
+The GhidraMCP server can be configured through Ghidra's application-level settings:
+
+1.  In Ghidra, go to **Browser** → **Edit** → **Tool Options**.
+2.  In the left panel, expand **Miscellaneous** and select **GhidraMCP HTTP Server**.
+3.  Configure the following options:
+    - **Server Port**: The port number for the MCP server (default: 8080)
+    - **Auto-start Server**: Whether to automatically start the server when Ghidra launches
+4.  Click **OK** to save your settings.
+
+> [!NOTE] > **Port Configuration:** If you change the default port (8080), you must update your MCP client configuration accordingly (see 'Configuring an MCP Client' below).
 
 ## 🛠️ Building from Source
 
@@ -121,7 +135,7 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 ---
 
 > [!IMPORTANT]
-> **Port:** The default port is `8080`. This is configurable within Ghidra under the Tool Options for the GhidraMCP extension. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+> **Port:** The default port is `8080`. This is configurable within Ghidra under **Browser** → **Edit** → **Tool Options** → **Miscellaneous** → **GhidraMCP HTTP Server**. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
 
 > [!IMPORTANT]
 > **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
