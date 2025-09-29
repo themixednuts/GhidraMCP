@@ -140,7 +140,7 @@ public class GhidraMcpServer {
 
         // Create MCP server
         mcpServer = McpServer.async(transportProvider)
-            .serverInfo("ghidra-mcp", "0.3.0")
+            .serverInfo("ghidra-mcp", "0.4.0")
             .capabilities(ServerCapabilities.builder().tools(true).build())
             .tools(toolSpecs.stream().map(spec -> spec.second).collect(Collectors.toList()))
             .build();

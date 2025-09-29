@@ -7,6 +7,42 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-09-29
+
+### Added
+- **UndoRedoTool** - Comprehensive undo/redo operations for Ghidra programs
+  - Support for undo, redo, and info actions
+  - Transaction-based operations with proper error handling
+  - Detailed operation status and program state information
+  - Structured error handling following established patterns
+- **Enhanced ListProgramsTool** - Major improvements to program listing capabilities
+  - Added pagination support with cursor-based navigation
+  - Added format filtering (PE, ELF, MACH_O, COFF, RAW)
+  - Added name filtering for program search
+  - Enhanced ProgramFileInfo with additional metadata
+  - Support for both open and closed program discovery
+
+### Changed
+- **Core Infrastructure** - Enhanced IGhidraMcpSpecification for headless mode support
+  - Use AppInfo.getActiveProject() instead of tool.getProject() for headless compatibility
+  - Added recursive project file search to find closed programs
+  - Improved error messages with better context
+  - Support both open and closed program access across entire project
+- **Plugin Configuration** - Improved GhidraMcpPlugin initialization and configuration
+  - Changed to ApplicationLevelOnlyPlugin for better integration
+  - Updated package name and category for proper plugin registration
+  - Improved server startup timing with SwingUtilities.invokeLater
+  - Fix options change listener registration
+- **Documentation** - Updated README with application-level configuration instructions
+  - Added new Configuration section with step-by-step navigation
+  - Updated configuration path to Browser → Edit → Tool Options → Miscellaneous
+  - Clarified that settings are now at application level, not tool-specific
+
+### Fixed
+- Improved plugin initialization timing to prevent service registration issues
+- Enhanced error handling and user guidance for server configuration
+- Better integration with Ghidra's application-level plugin system
+
 ## [0.3.0] - 2025-09-28
 
 ### Added
