@@ -144,8 +144,6 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- Removed NetworkNT JSON Schema Validator (temporary) -->
-
     <!-- Add JUnit 5 dependencies (version/scope managed) -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
