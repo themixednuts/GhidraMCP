@@ -18,7 +18,6 @@ import com.themixednuts.utils.PaginatedResult;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.Project;
-import ghidra.framework.model.ProjectManager;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
