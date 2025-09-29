@@ -7,6 +7,21 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.4.1] - 2025-09-29
+
+### Added
+- **Microsoft Ghidra Feature Support** - Added support for Microsoft-specific Ghidra features
+  - MicrosoftCodeAnalyzer.jar for enhanced RTTI analysis capabilities
+  - MicrosoftDemangler.jar for improved Microsoft symbol demangling
+  - MicrosoftDmang.jar for additional Microsoft-specific demangling support
+  - Access to Rtti4Model and other Microsoft RTTI analysis tools
+
+### Changed
+- **GitHub Actions CI/CD** - Updated build pipeline for latest Ghidra version
+  - Updated to Ghidra 11.4.2 (20250826) for latest features and compatibility
+  - Enhanced JAR dependency management for Microsoft features
+  - Improved build consistency across development and CI environments
+
 ## [0.4.0] - 2025-09-29
 
 ### Added
