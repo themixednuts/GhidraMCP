@@ -14,3 +14,4 @@ com.themixednuts.tools.ListDataTypesTool
 com.themixednuts.tools.ListFunctionsTool
 com.themixednuts.tools.DemanglerTool
 com.themixednuts.tools.ExecuteScriptTool
+com.themixednuts.tools.AnalyzeRttiTool
