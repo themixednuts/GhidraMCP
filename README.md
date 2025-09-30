@@ -103,6 +103,9 @@ The GhidraMCP server can be configured through Ghidra's application-level settin
     - `Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar`
     - `Ghidra/Framework/Utility/lib/Utility.jar`
     - `Ghidra/Framework/Gui/lib/Gui.jar`
+    - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
+    - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
+    - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
       > [!NOTE]
       > Paths are relative to your Ghidra installation folder. Exact paths might vary slightly based on Ghidra version and OS.
 5.  Build the project using Maven:
