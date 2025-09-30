@@ -23,11 +23,7 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.InvalidNameException;
 import ghidra.util.task.TaskMonitor;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
-import ghidra.program.model.mem.Memory;
-import ghidra.program.model.mem.MemBuffer;
-import ghidra.program.model.mem.MemoryBufferImpl;
 import ghidra.program.model.address.Address;
-import ghidra.app.util.demangler.DemanglerUtil;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
@@ -1411,110 +1407,18 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                         .build());
             }
 
-            Memory memory = program.getMemory();
             DataTypeManager dtm = program.getDataTypeManager();
-            
-            // Test RTTI0DataType
             RTTI0DataType rtti0 = new RTTI0DataType(dtm);
-            boolean isValid = rtti0.isValid(program, address, null);
-
-            if (!isValid) {
-                return new RTTIAnalysisResult(
-                    "RTTI0DataType",
+            
+            if (!rtti0.isValid(program, address, null)) {
+                return RTTIAnalysisResult.invalid(
+                    RTTIAnalysisResult.RttiType.RTTI0,
                     addressStr,
-                    Optional.empty(),
-                    Optional.empty(),
-                    Optional.empty(),
-                    Optional.empty(),
-                    false,
-                    Optional.of("No valid RTTI0 structure found at address"),
-                    false,
-                    Optional.of("Address does not contain valid RTTI0 structure"),
-                    0,
-                    rtti0.getDescription(),
-                    rtti0.getMnemonic(null),
-                    rtti0.getDefaultLabelPrefix(),
-                    Map.of("attemptedType", "RTTI0DataType")
+                    "No valid RTTI0 structure found at address"
                 );
             }
 
-            // Extract RTTI information
-            Optional<String> vtableAddress = Optional.empty();
-            Optional<String> spareDataAddress = Optional.empty();
-            Optional<String> mangledName = Optional.empty();
-            Optional<String> demangledName = Optional.empty();
-            boolean demanglingSuccessful = false;
-            Optional<String> demanglingError = Optional.empty();
-            int length = 0;
-
-            try {
-                // Get length using the proper method signature
-                length = rtti0.getLength(memory, address);
-                
-                // Get vtable address using the public method
-                vtableAddress = Optional.ofNullable(rtti0.getVFTableAddress(memory, address))
-                    .map(Address::toString);
-                
-                // Get spare data address using the public method
-                spareDataAddress = Optional.ofNullable(rtti0.getSpareDataAddress(memory, address))
-                    .map(Address::toString);
-                
-                // Get mangled name using the proper method from RTTI0DataType
-                try {
-                    // Create MemBuffer using MemoryBufferImpl
-                    MemBuffer memBuffer = new MemoryBufferImpl(memory, address);
-                    String name = rtti0.getVFTableName(memBuffer);
-                    mangledName = Optional.ofNullable(name);
-                } catch (Exception e) {
-                    mangledName = Optional.empty();
-                }
-
-                // Attempt to demangle if we have a mangled name
-                if (mangledName.isPresent()) {
-                    try {
-                        var demangledList = DemanglerUtil.demangle(program, mangledName.get(), null);
-                        demangledName = Optional.ofNullable(demangledList)
-                            .filter(list -> !list.isEmpty())
-                            .map(list -> list.get(0).toString());
-                        demanglingSuccessful = demangledName.isPresent();
-                        if (!demanglingSuccessful) {
-                            demanglingError = Optional.of("No demangler could process this symbol");
-                        }
-                    } catch (Exception e) {
-                        demanglingError = Optional.of("Demangling failed: " + e.getMessage());
-                    }
-                } else {
-                    demanglingError = Optional.of("No mangled name found in RTTI structure");
-                }
-
-            } catch (Exception e) {
-                demanglingError = Optional.of("Failed to extract RTTI information: " + e.getMessage());
-            }
-
-            Map<String, Object> additionalInfo = Map.of(
-                "rttiTypeName", "RTTI0DataType",
-                "length", length,
-                "hasVtable", vtableAddress.isPresent(),
-                "hasSpareData", spareDataAddress.isPresent()
-            );
-
-            return new RTTIAnalysisResult(
-                "RTTI0DataType",
-                addressStr,
-                vtableAddress,
-                spareDataAddress,
-                mangledName,
-                demangledName,
-                demanglingSuccessful,
-                demanglingError,
-                isValid,
-                Optional.empty(),
-                length,
-                rtti0.getDescription(),
-                rtti0.getMnemonic(null),
-                rtti0.getDefaultLabelPrefix(),
-                additionalInfo
-            );
+            return RTTIAnalysisResult.from(rtti0, program, address);
 
         } catch (Exception e) {
             throw new GhidraMcpException(GhidraMcpError.execution()
