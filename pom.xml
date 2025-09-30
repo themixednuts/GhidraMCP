@@ -5,7 +5,7 @@
   <groupId>com.themixednuts</groupId>
   <artifactId>GhidraMCP</artifactId>
   <packaging>jar</packaging>
-  <version>0.4.1</version>
+  <version>0.4.2</version>
   <name>GhidraMCP</name>
   <description>A Ghidra extension implementing the Model Context Protocol (MCP) by running an embedded MCP server.</description>
   <url>https://github.com/themixednuts/GhidraMCP</url>

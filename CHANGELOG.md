@@ -7,6 +7,25 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.4.2] - 2025-09-30
+
+### Changed
+- **RTTIAnalysisResult Model** - Simplified sealed interface implementation
+  - Removed redundant `additionalInfo` field from all record variants
+  - Removed `rttiTypeName` tracking (redundant with `rttiType()` method)
+  - Factory methods now throw `InvalidDataTypeException` instead of catching internally
+  - Cleaner exception propagation to calling code
+- **Model Enhancements** - Enhanced metadata in core model classes
+  - Added `signature` and `callingConvention` fields to `FunctionInfo`
+  - Added additional symbol metadata to `SymbolInfo`
+- **Tool Improvements** - Better performance and error handling
+  - Refactored `ListSymbolsTool` for improved performance
+  - Updated RTTI tools for simplified `RTTIAnalysisResult` structure
+  - Improved symbol and function management tool implementations
+
+### Added
+- Jackson JDK8 module dependency for proper `Optional` serialization support
+
 ## [0.4.1] - 2025-09-29
 
 ### Added
