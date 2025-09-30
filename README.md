@@ -25,27 +25,33 @@ A Ghidra extension that runs an embedded MCP server to expose Ghidra program dat
 
 ## ✨ Features
 
-This extension exposes Ghidra functionalities to MCP clients through semantic tools designed for reverse engineering workflows. Each tool provides comprehensive operations tailored to specific analysis tasks.
+GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 
-### [`Function Analysis`](src/main/java/com/themixednuts/tools/AnalyzeFunctionsTool.java)
+### Core Analysis
+- **Analyze RTTI** - Microsoft RTTI structure analysis with type detection and demangling
+- **Decompile Code** - Function decompilation to C-like pseudocode with P-code analysis
+- **Demangle Symbols** - C++ symbol demangling with multiple format support
+- **Execute Scripts** - Run Ghidra scripts within the analysis environment
 
-Comprehensive function analysis including creation, inspection, decompilation, and prototype management. Supports multiple identification methods (name, address, symbol ID, regex) and provides detailed function information including parameters, return types, and call sites.
+### Management Operations
+- **Data Types** - CRUD operations for structures, enums, unions, typedefs, and categories
+- **Functions** - Create, update, and manage function definitions and prototypes
+- **Memory** - Read/write bytes, manage segments, and analyze memory layout
+- **Project** - Navigate addresses, manage bookmarks, and control project settings
+- **Symbols** - Create, rename, delete, and organize symbols with namespace support
 
-### [`Code Decompilation`](src/main/java/com/themixednuts/tools/DecompileCodeTool.java)
+### Discovery & Search
+- **List Analysis Options** - View available analysis options and settings
+- **List Data Types** - Browse program data types with filtering
+- **List Functions** - Enumerate functions with detailed metadata
+- **List Memory Blocks** - View memory segments and permissions
+- **List Programs** - Discover open and closed programs in the project
+- **List Symbols** - Browse symbols with type and namespace filtering
+- **Find References** - Locate code and data references
+- **Search Memory** - Pattern search with hex, string, binary, and regex support
 
-Advanced decompilation and P-code analysis for functions and code regions. Decompiles functions to C-like pseudocode, analyzes P-code operations, and supports configurable timeout and analysis depth for complex control structures.
-
-### [`Data Type Management`](src/main/java/com/themixednuts/tools/ManageDataTypesTool.java)
-
-Comprehensive management of all data types in Ghidra programs. Create, read, update, delete, and list structures, enums, unions, typedefs, pointers, function definitions, and categories with automatic type resolution and validation.
-
-### [`Memory Operations`](src/main/java/com/themixednuts/tools/ManageMemoryTool.java)
-
-Comprehensive memory operations for reverse engineering. Read and write bytes, search for patterns, analyze memory layout, and manage memory segments. Supports multiple search formats including hex, string, binary, and regex patterns.
-
-### [`Symbol Management`](src/main/java/com/themixednuts/tools/ManageSymbolsTool.java)
-
-Comprehensive symbol management including creating, renaming, deleting, searching, and analyzing symbols. Supports multiple symbol identification methods, namespace organization, and symbol scoping with validation according to Ghidra rules.
+### Utilities
+- **Undo/Redo** - Transaction-based undo/redo operations
 
 ---
 
