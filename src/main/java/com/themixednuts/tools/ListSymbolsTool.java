@@ -8,6 +8,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
 
+import generic.FilteredIterator;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.*;
@@ -138,42 +139,61 @@ public class ListSymbolsTool implements IGhidraMcpSpecification {
         Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
         Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-        // Get all symbols and apply filters
-        List<SymbolInfo> allSymbols = StreamSupport.stream(
-            Spliterators.spliteratorUnknownSize(symbolTable.getAllSymbols(true), Spliterator.ORDERED), false)
-            .filter(symbol -> {
-                // Apply name filter
-                if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-                    if (!symbol.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
-                        return false;
-                    }
-                }
+        // Map symbol type string to SymbolType enum by direct comparison
+        Optional<SymbolType> symbolTypeEnumOpt = symbolTypeOpt.map(typeStr -> {
+            String upperType = typeStr.toUpperCase();
+            if (upperType.equals("NAMESPACE")) return SymbolType.NAMESPACE;
+            if (upperType.equals("CLASS")) return SymbolType.CLASS;
+            if (upperType.equals("FUNCTION")) return SymbolType.FUNCTION;
+            if (upperType.equals("LABEL")) return SymbolType.LABEL;
+            if (upperType.equals("PARAMETER")) return SymbolType.PARAMETER;
+            if (upperType.equals("LOCAL_VAR")) return SymbolType.LOCAL_VAR;
+            if (upperType.equals("GLOBAL_VAR")) return SymbolType.GLOBAL_VAR;
+            if (upperType.equals("GLOBAL")) return SymbolType.GLOBAL;
+            if (upperType.equals("LIBRARY")) return SymbolType.LIBRARY;
+            return null;
+        });
 
-                // Apply symbol type filter
-                if (symbolTypeOpt.isPresent() && !symbolTypeOpt.get().isEmpty()) {
-                    if (!symbol.getSymbolType().toString().equalsIgnoreCase(symbolTypeOpt.get())) {
-                        return false;
-                    }
-                }
+        // Use FilteredIterator to apply all filters efficiently
+        SymbolIterator allSymbolsIterator = symbolTable.getAllSymbols(false);
 
-                // Apply source type filter
-                if (sourceTypeOpt.isPresent() && !sourceTypeOpt.get().isEmpty()) {
-                    if (!symbol.getSource().toString().equalsIgnoreCase(sourceTypeOpt.get())) {
-                        return false;
-                    }
+        FilteredIterator<Symbol> filteredIterator = new FilteredIterator<>(allSymbolsIterator, symbol -> {
+            // Apply name filter
+            if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
+                if (!symbol.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
+                    return false;
                 }
+            }
 
-                // Apply namespace filter
-                if (namespaceOpt.isPresent() && !namespaceOpt.get().isEmpty()) {
-                    if (!symbol.getParentNamespace().getName(false).equalsIgnoreCase(namespaceOpt.get())) {
-                        return false;
-                    }
+            // Apply symbol type filter using enum comparison
+            if (symbolTypeEnumOpt.isPresent()) {
+                if (symbolTypeEnumOpt.get() == null || symbol.getSymbolType() != symbolTypeEnumOpt.get()) {
+                    return false;
                 }
+            }
 
-                return true;
-            })
-            .sorted((s1, s2) -> s1.getName().compareToIgnoreCase(s2.getName()))
+            // Apply source type filter
+            if (sourceTypeOpt.isPresent() && !sourceTypeOpt.get().isEmpty()) {
+                if (!symbol.getSource().toString().equalsIgnoreCase(sourceTypeOpt.get())) {
+                    return false;
+                }
+            }
+
+            // Apply namespace filter
+            if (namespaceOpt.isPresent() && !namespaceOpt.get().isEmpty()) {
+                if (!symbol.getParentNamespace().getName(false).equalsIgnoreCase(namespaceOpt.get())) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Convert filtered iterator to stream for processing
+        List<SymbolInfo> allSymbols = StreamSupport
+            .stream(Spliterators.spliteratorUnknownSize(filteredIterator, Spliterator.ORDERED), false)
             .map(SymbolInfo::new)
+            .sorted((s1, s2) -> s1.getName().compareToIgnoreCase(s2.getName()))
             .collect(Collectors.toList());
 
         // Apply cursor-based pagination

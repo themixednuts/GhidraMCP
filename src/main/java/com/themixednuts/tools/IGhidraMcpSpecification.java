@@ -49,6 +49,8 @@ public interface IGhidraMcpSpecification {
         configuredMapper
             .getFactory()
             .configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
+        // Register Jdk8Module for Optional support
+        configuredMapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
         return configuredMapper;
     }
 

@@ -2,6 +2,7 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.Symbol;
@@ -16,6 +17,7 @@ import ghidra.program.model.symbol.SourceType;
 public class SymbolInfo {
 
 	private final String name;
+	private final String qualifiedName;
 	private final String address;
 	private final String symbolType;
 	private final String sourceType;
@@ -39,6 +41,11 @@ public class SymbolInfo {
 		Namespace parentNs = symbol.getParentNamespace();
 		this.namespace = (parentNs != null) ? parentNs.getName(true) : null;
 
+		// Get fully qualified name using NamespaceUtils
+		this.qualifiedName = (parentNs != null)
+			? NamespaceUtils.getNamespaceQualifiedName(parentNs, symbol.getName(), false)
+			: symbol.getName();
+
 		this.isPrimary = symbol.isPrimary();
 		this.isGlobal = symbol.isGlobal();
 		this.isExternal = symbol.isExternal();
@@ -47,6 +54,11 @@ public class SymbolInfo {
 	@JsonProperty("name")
 	public String getName() {
 		return name;
+	}
+
+	@JsonProperty("qualified_name")
+	public String getQualifiedName() {
+		return qualifiedName;
 	}
 
 	@JsonProperty("address")

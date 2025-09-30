@@ -2,12 +2,14 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionInfo {
 	private final String name;
+	private final String qualifiedName;
 	private final String address;
 	private final String signature;
 	private final String callingConvention;
@@ -30,8 +32,15 @@ public class FunctionInfo {
 		Namespace parentNs = function.getParentNamespace();
 		if (parentNs != null) {
 			this.namespace = parentNs.getName(true);
+			// Get fully qualified name using NamespaceUtils
+			this.qualifiedName = NamespaceUtils.getNamespaceQualifiedName(
+				parentNs,
+				function.getName(),
+				false
+			);
 		} else {
 			this.namespace = null;
+			this.qualifiedName = function.getName();
 		}
 
 		if (function.getBody() != null) {
@@ -54,6 +63,11 @@ public class FunctionInfo {
 	@JsonProperty("name")
 	public String getName() {
 		return name;
+	}
+
+	@JsonProperty("qualified_name")
+	public String getQualifiedName() {
+		return qualifiedName;
 	}
 
 	@JsonProperty("address")

@@ -18,12 +18,14 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.cmd.function.DeleteFunctionCmd;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
@@ -684,10 +686,27 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
         if (function == null && identifiers.name().isPresent()) {
             String functionName = identifiers.name().get();
+
+            // Try exact name match first
             function = StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
                 .filter(f -> f.getName(true).equals(functionName))
                 .findFirst()
                 .orElse(null);
+
+            // If not found and name contains "::", try qualified name search
+            if (function == null && functionName.contains("::")) {
+                function = StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
+                    .filter(f -> {
+                        String qualifiedName = NamespaceUtils.getNamespaceQualifiedName(
+                            f.getParentNamespace(),
+                            f.getName(),
+                            false
+                        );
+                        return qualifiedName.equals(functionName);
+                    })
+                    .findFirst()
+                    .orElse(null);
+            }
         }
 
         if (function == null) {

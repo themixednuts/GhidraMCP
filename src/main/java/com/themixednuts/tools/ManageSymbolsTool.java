@@ -12,6 +12,7 @@ import com.themixednuts.models.OperationResult;
 import ghidra.app.cmd.label.AddLabelCmd;
 import ghidra.app.cmd.label.DeleteLabelCmd;
 import ghidra.app.cmd.label.RenameLabelCmd;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -345,9 +346,29 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                               GhidraMcpTool annotation) throws GhidraMcpException {
         SymbolTable symbolTable = program.getSymbolTable();
 
-        // Validate class name
+        // Support hierarchical class creation with namespace path
         try {
-            SymbolUtilities.validateName(name);
+            Namespace parentNamespace;
+            if (namespaceOpt.isPresent()) {
+                parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+            } else {
+                parentNamespace = program.getGlobalNamespace();
+            }
+
+            // Use NamespaceUtils for clean hierarchical class creation:
+            // 1. Create full namespace hierarchy (even for simple names)
+            // 2. Convert the final namespace to a class
+            Namespace namespace = NamespaceUtils.createNamespaceHierarchy(
+                name,
+                parentNamespace,
+                program,
+                SourceType.USER_DEFINED
+            );
+
+            // Convert the namespace to a class
+            Namespace classNamespace = NamespaceUtils.convertNamespaceToClass(namespace);
+            Symbol classSymbol = classNamespace.getSymbol();
+            return new SymbolInfo(classSymbol);
         } catch (InvalidInputException e) {
             GhidraMcpError error = GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -362,26 +383,11 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     new GhidraMcpError.ErrorSuggestion(
                         GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                         "Use a valid class name",
-                        "Class names must follow Ghidra symbol naming conventions",
-                        List.of("Use alphanumeric characters and underscores", "Avoid reserved keywords"),
+                        "Class names must follow Ghidra symbol naming conventions. Use '::' to create nested classes.",
+                        List.of("MyClass", "Outer::Inner", "Game::Player"),
                         null)))
                 .build();
             throw new GhidraMcpException(error);
-        }
-
-        // Resolve parent namespace
-        Namespace parentNamespace;
-        if (namespaceOpt.isPresent()) {
-            parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
-        } else {
-            parentNamespace = program.getGlobalNamespace();
-        }
-
-        // Create class namespace
-        try {
-            Namespace classNamespace = symbolTable.createClass(parentNamespace, name, SourceType.USER_DEFINED);
-            Symbol classSymbol = classNamespace.getSymbol();
-            return new SymbolInfo(classSymbol);
         } catch (Exception e) {
             GhidraMcpError error = GhidraMcpError.execution()
                 .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
@@ -408,9 +414,25 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                                   GhidraMcpTool annotation) throws GhidraMcpException {
         SymbolTable symbolTable = program.getSymbolTable();
 
-        // Validate namespace name
+        // Support hierarchical namespace creation (e.g., "Outer::Middle::Inner")
         try {
-            SymbolUtilities.validateName(name);
+            Namespace parentNamespace;
+            if (namespaceOpt.isPresent()) {
+                parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+            } else {
+                parentNamespace = program.getGlobalNamespace();
+            }
+
+            // Use NamespaceUtils to create namespace hierarchy if needed
+            Namespace namespace = NamespaceUtils.createNamespaceHierarchy(
+                name,
+                parentNamespace,
+                program,
+                SourceType.USER_DEFINED
+            );
+
+            Symbol namespaceSymbol = namespace.getSymbol();
+            return new SymbolInfo(namespaceSymbol);
         } catch (InvalidInputException e) {
             GhidraMcpError error = GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -425,26 +447,11 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     new GhidraMcpError.ErrorSuggestion(
                         GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                         "Use a valid namespace name",
-                        "Namespace names must follow Ghidra symbol naming conventions",
-                        List.of("Use alphanumeric characters and underscores", "Avoid reserved keywords"),
+                        "Namespace names must follow Ghidra symbol naming conventions. Use '::' to create nested namespaces.",
+                        List.of("MyNamespace", "Outer::Inner", "Game::Engine::Graphics"),
                         null)))
                 .build();
             throw new GhidraMcpException(error);
-        }
-
-        // Resolve parent namespace
-        Namespace parentNamespace;
-        if (namespaceOpt.isPresent()) {
-            parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
-        } else {
-            parentNamespace = program.getGlobalNamespace();
-        }
-
-        // Create namespace
-        try {
-            Namespace namespace = symbolTable.createNameSpace(parentNamespace, name, SourceType.USER_DEFINED);
-            Symbol namespaceSymbol = namespace.getSymbol();
-            return new SymbolInfo(namespaceSymbol);
         } catch (Exception e) {
             GhidraMcpError error = GhidraMcpError.execution()
                 .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
@@ -691,11 +698,25 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             return program.getGlobalNamespace();
         }
 
-        Namespace namespace = symbolTable.getNamespace(namespaceOpt.get(), null);
-        if (namespace == null) {
-            throw namespaceNotFound(namespaceOpt.get());
+        String namespacePath = namespaceOpt.get();
+
+        // Try to resolve namespace by path (supports hierarchical paths like "Outer::Inner")
+        try {
+            List<Namespace> namespaces = NamespaceUtils.getNamespaceByPath(
+                program,
+                program.getGlobalNamespace(),
+                namespacePath
+            );
+
+            if (namespaces != null && !namespaces.isEmpty()) {
+                // If multiple namespaces match, return the first one
+                return namespaces.get(0);
+            }
+        } catch (Exception e) {
+            // Fall through to error
         }
-        return namespace;
+
+        throw namespaceNotFound(namespacePath);
     }
 
     private List<Symbol> findSymbolsByName(SymbolTable symbolTable, String currentName) {
