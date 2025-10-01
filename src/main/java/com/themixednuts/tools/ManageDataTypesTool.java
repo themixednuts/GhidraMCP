@@ -10,7 +10,7 @@ import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.RTTIAnalysisResult;
-import com.themixednuts.utils.DataTypeUtils;
+import ghidra.program.database.data.DataTypeUtilities;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -81,6 +81,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     public static final String ARG_TYPE = "type";
     public static final String ARG_NEW_CATEGORY_PATH = "new_category_path";
     public static final String ARG_NEW_NAME = "new_name";
+    public static final String ARG_DATA_TYPE_ID = "data_type_id";
 
     private static final String ACTION_CREATE = "create";
     private static final String ACTION_READ = "read";
@@ -165,6 +166,9 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
                 .description("Optional: Address to analyze for RTTI structure information"));
+
+        schemaRoot.property(ARG_DATA_TYPE_ID, JsonSchemaBuilder.integer(mapper)
+                .description("Optional: Data type ID for direct lookup by internal ID"));
 
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
@@ -428,7 +432,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         ensureCategoryExists(dtm, categoryPath);
 
         String baseType = getRequiredStringArgument(args, "base_type");
-        DataType baseDataType = DataTypeUtils.resolveDataType(dtm, baseType);
+        DataType baseDataType = resolveDataTypeWithFallback(dtm, baseType);
         if (baseDataType == null) {
             throw new GhidraMcpException(GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
@@ -463,7 +467,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         ensureCategoryExists(dtm, categoryPath);
 
         String baseType = getRequiredStringArgument(args, "base_type");
-        DataType baseDataType = DataTypeUtils.resolveDataType(dtm, baseType);
+        DataType baseDataType = resolveDataTypeWithFallback(dtm, baseType);
         if (baseDataType == null) {
             throw new GhidraMcpException(GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
@@ -500,7 +504,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         ensureCategoryExists(dtm, categoryPath);
 
         String returnType = getOptionalStringArgument(args, "return_type").orElse("void");
-        DataType returnDataType = DataTypeUtils.resolveDataType(dtm, returnType);
+        DataType returnDataType = resolveDataTypeWithFallback(dtm, returnType);
         if (returnDataType == null) {
             throw new GhidraMcpException(GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
@@ -521,7 +525,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     // Pre-validate all parameter types first to avoid partial state
                     paramList.forEach(param -> {
                         String paramType = (String) param.get("type");
-                        if (DataTypeUtils.resolveDataType(dtm, paramType) == null) {
+                        if (resolveDataTypeWithFallback(dtm, paramType) == null) {
                             throw new RuntimeException(new GhidraMcpException(GhidraMcpError.validation()
                                 .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
                                 .message("Could not resolve parameter type: " + paramType)
@@ -538,7 +542,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                             String paramType = (String) param.get("type");
 
                             // This should not fail since we pre-validated
-                            DataType paramDataType = DataTypeUtils.resolveDataType(dtm, paramType);
+                            DataType paramDataType = resolveDataTypeWithFallback(dtm, paramType);
                             return new ParameterDefinitionImpl(paramName, paramDataType, null);
                         })
                         .collect(Collectors.toList());
@@ -637,19 +641,33 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 return analyzeRTTIAtAddress(program, analyzeAddressOpt.get(), dataTypeKind);
             }
 
-            String name = getRequiredStringArgument(args, ARG_NAME);
-            CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
-                .map(CategoryPath::new).orElse(CategoryPath.ROOT);
-
             DataTypeManager dtm = program.getDataTypeManager();
-            DataType dataType = dtm.getDataType(categoryPath, name);
+            DataType dataType = null;
+
+            // Try data type ID lookup first (most direct)
+            Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
+            if (dataTypeIdOpt.isPresent()) {
+                dataType = dtm.getDataType(dataTypeIdOpt.get());
+            }
+
+            // Fallback to name-based lookup
+            if (dataType == null) {
+                String name = getRequiredStringArgument(args, ARG_NAME);
+                CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
+                    .map(CategoryPath::new).orElse(CategoryPath.ROOT);
+                dataType = dtm.getDataType(categoryPath, name);
+            }
 
             if (dataType == null) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
-                    .message("Data type not found: " + name)
-                    .build();
-                throw new GhidraMcpException(error);
+                String typeName = getOptionalStringArgument(args, ARG_NAME).orElse("unknown");
+                throw new GhidraMcpException(createDataTypeError(
+                    GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
+                    "Data type not found: " + typeName,
+                    "Reading data type",
+                    args,
+                    typeName,
+                    dtm
+                ));
             }
 
             List<DataTypeComponentDetail> components = null;
@@ -694,7 +712,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             return new DataTypeReadResult(
                 dataType.getName(),
                 dataType.getPathName(),
-                DataTypeUtils.getDataTypeKind(dataType),
+                getDataTypeKind(dataType),
                 dataType.getLength(),
                 dataType.getDescription(),
                 components,
@@ -764,20 +782,28 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 return updateCategory(dtm, args, annotation);
             }
 
-            DataType existing = dtm.getDataType(categoryPath, name);
+            DataType existing = null;
+
+            // Try data type ID lookup first (most direct)
+            Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
+            if (dataTypeIdOpt.isPresent()) {
+                existing = dtm.getDataType(dataTypeIdOpt.get());
+            }
+
+            // Fallback to name-based lookup
+            if (existing == null) {
+                existing = dtm.getDataType(categoryPath, name);
+            }
 
             if (existing == null) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
-                    .message("Data type not found: " + name)
-                    .context(new GhidraMcpError.ErrorContext(
-                        annotation.mcpName(),
-                        "update lookup",
-                        args,
-                        Map.of("category_path", categoryPath.getPath(), "name", name),
-                        Map.of("dataTypeKind", dataTypeKind)))
-                    .build();
-                throw new GhidraMcpException(error);
+                throw new GhidraMcpException(createDataTypeError(
+                    GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
+                    "Data type not found: " + name,
+                    "Updating data type",
+                    args,
+                    name,
+                    dtm
+                ));
             }
 
             return buildUpdateResult(dataTypeKind, existing, dtm, args, annotation);
@@ -801,14 +827,28 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     throw new RuntimeException(e);
                 }
             }
-            DataType dataType = dtm.getDataType(categoryPath, name);
+            DataType dataType = null;
+
+            // Try data type ID lookup first (most direct)
+            Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
+            if (dataTypeIdOpt.isPresent()) {
+                dataType = dtm.getDataType(dataTypeIdOpt.get());
+            }
+
+            // Fallback to name-based lookup
+            if (dataType == null) {
+                dataType = dtm.getDataType(categoryPath, name);
+            }
 
             if (dataType == null) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
-                    .message("Data type not found: " + name)
-                    .build();
-                throw new GhidraMcpException(error);
+                throw new GhidraMcpException(createDataTypeError(
+                    GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
+                    "Data type not found: " + name,
+                    "Deleting data type",
+                    args,
+                    name,
+                    dtm
+                ));
             }
 
             boolean removed = dtm.remove(dataType, null);
@@ -947,14 +987,13 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 struct.deleteAll();
                 memberList.forEach(member -> {
                     String memberName = (String) member.get(ARG_NAME);
-                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
                     Integer offset = (Integer) member.get(ARG_OFFSET);
                     String memberComment = (String) member.get(ARG_COMMENT);
 
                     try {
-                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
                         if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
                         }
 
                         if (offset == null || offset == -1) {
@@ -1052,12 +1091,11 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                 
                 memberList.forEach(member -> {
                     String memberName = (String) member.get(ARG_NAME);
-                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
                     String memberComment = (String) member.get(ARG_COMMENT);
 
-                    DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                    DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
                     if (memberDataType == null) {
-                        throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                        throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
                     }
 
                     updated.add(memberDataType, memberName, memberComment);
@@ -1084,7 +1122,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         TypeDef typedef = existing;
 
         if (baseTypeName != null) {
-            DataType baseType = DataTypeUtils.resolveDataType(dtm, baseTypeName);
+            DataType baseType = resolveDataTypeWithFallback(dtm, baseTypeName);
             if (baseType == null) {
                 throw new GhidraMcpException(GhidraMcpError.execution()
                     .message("Could not resolve base type: " + baseTypeName)
@@ -1117,7 +1155,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         TypeDef pointerTypedef = existing;
 
         if (baseTypeName != null) {
-            DataType baseType = DataTypeUtils.resolveDataType(dtm, baseTypeName);
+            DataType baseType = resolveDataTypeWithFallback(dtm, baseTypeName);
             if (baseType == null) {
                 throw new GhidraMcpException(GhidraMcpError.execution()
                     .message("Could not resolve base type: " + baseTypeName)
@@ -1149,7 +1187,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                                                      GhidraMcpTool annotation) throws GhidraMcpException {
         String returnTypeName = getOptionalStringArgument(args, ARG_RETURN_TYPE).orElse(null);
         if (returnTypeName != null) {
-            DataType returnType = DataTypeUtils.resolveDataType(dtm, returnTypeName);
+            DataType returnType = resolveDataTypeWithFallback(dtm, returnTypeName);
             if (returnType == null) {
                 throw new GhidraMcpException(GhidraMcpError.execution()
                     .message("Could not resolve return type: " + returnTypeName)
@@ -1170,7 +1208,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                             return null;
                         }
                         
-                        DataType paramType = DataTypeUtils.resolveDataType(dtm, paramTypeName);
+                        DataType paramType = resolveDataTypeWithFallback(dtm, paramTypeName);
                         if (paramType == null) {
                             throw new RuntimeException("Could not resolve parameter type: " + paramTypeName);
                         }
@@ -1342,7 +1380,8 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     }
 
     /**
-     * Helper method to process struct/union members with consistent error handling
+     * Helper method to process struct/union members with enhanced data type resolution.
+     * Resolution priority: dataTypeId > dataTypePath > categoryPath + name
      */
     private void processStructMembers(List<Map<String, Object>> members, DataTypeManager dtm, Structure struct) {
         Optional.ofNullable(members)
@@ -1350,14 +1389,13 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             .ifPresent(memberList -> 
                 memberList.forEach(member -> {
                     String memberName = (String) member.get("name");
-                    String dataTypePath = (String) member.get("data_type_path");
                     String memberComment = (String) member.get("comment");
                     Integer offset = (Integer) member.get("offset");
 
                     try {
-                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
                         if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
                         }
 
                         if (offset == null || offset == -1) {
@@ -1373,20 +1411,20 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     }
 
     /**
-     * Helper method to process union members
+     * Helper method to process union members with enhanced data type resolution.
+     * Resolution priority: dataTypeId > dataTypePath > categoryPath + name
      */
     private void processUnionMembers(List<Map<String, Object>> members, DataTypeManager dtm, UnionDataType union) {
         Optional.ofNullable(members)
             .ifPresent(memberList -> 
                 memberList.forEach(member -> {
                     String memberName = (String) member.get("name");
-                    String dataTypePath = (String) member.get("data_type_path");
                     String memberComment = (String) member.get("comment");
 
                     try {
-                        DataType memberDataType = DataTypeUtils.resolveDataType(dtm, dataTypePath);
+                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
                         if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type: " + dataTypePath);
+                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
                         }
                         union.add(memberDataType, memberName, memberComment);
                     } catch (Exception e) {
@@ -1396,6 +1434,52 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             );
     }
 
+    /**
+     * Enhanced member data type resolution with priority: dataTypeId > dataTypePath > categoryPath + name
+     * Supports multiple ways to specify member data types for maximum flexibility.
+     */
+    private DataType resolveMemberDataType(DataTypeManager dtm, Map<String, Object> member, String memberName) {
+        // 1. PRIMARY: Try data type ID lookup (most direct)
+        Object dataTypeIdObj = member.get(ARG_DATA_TYPE_ID);
+        if (dataTypeIdObj instanceof Number) {
+            try {
+                long dataTypeId = ((Number) dataTypeIdObj).longValue();
+                DataType result = dtm.getDataType(dataTypeId);
+                if (result != null) {
+                    return result;
+                }
+            } catch (Exception e) {
+                // Continue to next method
+            }
+        }
+
+        // 2. PRIMARY: Try data type path (string-based resolution)
+        String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+        if (dataTypePath != null && !dataTypePath.trim().isEmpty()) {
+            DataType result = resolveDataTypeWithFallback(dtm, dataTypePath);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        // 3. FALLBACK: Try category path + name combination
+        String categoryPathStr = (String) member.get(ARG_CATEGORY_PATH);
+        String typeName = (String) member.get(ARG_NAME);
+        
+        if (categoryPathStr != null && typeName != null) {
+            try {
+                CategoryPath categoryPath = new CategoryPath(categoryPathStr);
+                DataType result = dtm.getDataType(categoryPath, typeName);
+                if (result != null) {
+                    return result;
+                }
+            } catch (Exception e) {
+                // Continue
+            }
+        }
+
+        return null;
+    }
 
     private RTTIAnalysisResult analyzeRTTIAtAddress(Program program, String addressStr, String dataTypeKind) throws GhidraMcpException {
         try {
@@ -1427,4 +1511,261 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     .build());
         }
     }
+
+    /**
+     * Resolves a data type using DataTypeManager as primary resolver with DataTypeUtilities fallback.
+     * DataTypeManager handles most resolution scenarios, with DataTypeUtilities for specific cases.
+     */
+    private DataType resolveDataTypeWithFallback(DataTypeManager dtm, String typeName) {
+        if (dtm == null || typeName == null || typeName.trim().isEmpty()) {
+            return null;
+        }
+
+        String trimmedName = typeName.trim();
+        
+        // 1. PRIMARY: Use DataTypeManager.getDataType() - handles most resolution scenarios
+        // This method supports various path formats including absolute paths, category paths, etc.
+        try {
+            DataType result = dtm.getDataType(trimmedName);
+            if (result != null) {
+                return result;
+            }
+        } catch (Exception e) {
+            // Continue to next method
+        }
+
+        // 2. PRIMARY: Try with leading slash for relative paths
+        if (!trimmedName.startsWith("/")) {
+            try {
+                DataType result = dtm.getDataType("/" + trimmedName);
+                if (result != null) {
+                    return result;
+                }
+            } catch (Exception e) {
+                // Continue
+            }
+        }
+
+        // 3. PRIMARY: Handle category path + name format (e.g., "/Category/TypeName")
+        if (trimmedName.contains("/") && !trimmedName.startsWith("/")) {
+            try {
+                // Parse as category path + name
+                int lastSlash = trimmedName.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    String categoryPathStr = trimmedName.substring(0, lastSlash);
+                    String typeNameOnly = trimmedName.substring(lastSlash + 1);
+                    CategoryPath categoryPath = new CategoryPath(categoryPathStr);
+                    DataType result = dtm.getDataType(categoryPath, typeNameOnly);
+                    if (result != null) {
+                        return result;
+                    }
+                }
+            } catch (Exception e) {
+                // Continue
+            }
+        }
+
+        // 4. FALLBACK: Use DataTypeUtilities for specific primitive types
+        // Only when DataTypeManager can't resolve C primitive names like "unsigned int"
+        DataType result = DataTypeUtilities.getCPrimitiveDataType(trimmedName);
+        if (result != null) {
+            return result;
+        }
+
+        // 5. FALLBACK: Use DataTypeUtilities for namespace-qualified types (e.g., "ns1::ns2::type")
+        if (trimmedName.contains("::")) {
+            result = DataTypeUtilities.findNamespaceQualifiedDataType(dtm, trimmedName, null);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        // 6. FALLBACK: Use DataTypeUtilities for general lookup with no namespace constraint
+        result = DataTypeUtilities.findDataType(dtm, null, trimmedName, null);
+        if (result != null) {
+            return result;
+        }
+
+        return null;
+    }
+
+    /**
+     * Creates a comprehensive data type error with rich context and suggestions.
+     * Provides actionable guidance for resolving data type issues.
+     */
+    private GhidraMcpError createDataTypeError(GhidraMcpError.ErrorCode errorCode, String message, 
+                                              String context, Map<String, Object> args, 
+                                              String failedTypeName, DataTypeManager dtm) {
+        GhidraMcpError.Builder errorBuilder = GhidraMcpError.dataTypeParsing()
+            .errorCode(errorCode)
+            .message(message);
+
+        // Add context information
+        GhidraMcpError.ErrorContext errorContext = new GhidraMcpError.ErrorContext(
+            this.getMcpName(),
+            context,
+            args,
+            Map.of("failedTypeName", failedTypeName),
+            Map.of("availableTypes", getAvailableTypeCount(dtm))
+        );
+        errorBuilder.context(errorContext);
+
+        // Add suggestions based on the failed type name
+        List<GhidraMcpError.ErrorSuggestion> suggestions = generateDataTypeSuggestions(failedTypeName, dtm);
+        errorBuilder.suggestions(suggestions);
+
+        return errorBuilder.build();
+    }
+
+    /**
+     * Generates contextual suggestions for data type resolution failures.
+     */
+    private List<GhidraMcpError.ErrorSuggestion> generateDataTypeSuggestions(String failedTypeName, DataTypeManager dtm) {
+        List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
+        String lowerName = failedTypeName.toLowerCase();
+
+        // Path-based suggestions
+        if (failedTypeName.startsWith("/")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Check absolute path",
+                "Ensure the full path exists in the program",
+                List.of("Use 'list_data_types' to see available paths"),
+                List.of("list_data_types")
+            ));
+        } else if (failedTypeName.contains("/")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Try with leading slash",
+                "Add leading slash for absolute path",
+                List.of("/" + failedTypeName),
+                null
+            ));
+        } else {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Try with leading slash",
+                "Add leading slash for built-in types",
+                List.of("/" + failedTypeName),
+                null
+            ));
+        }
+
+        // Type-specific suggestions
+        if (lowerName.contains("ulonglong") || lowerName.contains("unsigned_long_long")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 64-bit unsigned type",
+                "For 64-bit unsigned integers",
+                List.of("/ulonglong", "unsigned long long"),
+                null
+            ));
+        } else if (lowerName.contains("ulong") || lowerName.contains("unsigned_long")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Specify bit width for unsigned long",
+                "Choose appropriate size",
+                List.of("/ulonglong (64-bit)", "/uint (32-bit)"),
+                null
+            ));
+        } else if (lowerName.contains("uint") || lowerName.contains("unsigned_int")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 32-bit unsigned type",
+                "For 32-bit unsigned integers",
+                List.of("/uint", "unsigned int"),
+                null
+            ));
+        } else if (lowerName.contains("ushort") || lowerName.contains("unsigned_short")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 16-bit unsigned type",
+                "For 16-bit unsigned integers",
+                List.of("/ushort", "unsigned short"),
+                null
+            ));
+        } else if (lowerName.contains("ubyte") || lowerName.contains("unsigned_byte")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 8-bit unsigned type",
+                "For 8-bit unsigned integers",
+                List.of("/ubyte", "/uchar", "unsigned char"),
+                null
+            ));
+        }
+
+        // General suggestions
+        suggestions.add(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+            "Browse available data types",
+            "Use list_data_types to see what's available",
+            null,
+            List.of("list_data_types")
+        ));
+
+        suggestions.add(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+            "Try common built-in types",
+            "Use standard Ghidra built-in types",
+            List.of("/int", "/uint", "/long", "/ulonglong", "/float", "/double", "/void"),
+            null
+        ));
+
+        return suggestions;
+    }
+
+    /**
+     * Gets count of available data types for context.
+     */
+    private int getAvailableTypeCount(DataTypeManager dtm) {
+        try {
+            Iterator<DataType> iterator = dtm.getAllDataTypes();
+            int count = 0;
+            while (iterator.hasNext()) {
+                iterator.next();
+                count++;
+            }
+            return count;
+        } catch (Exception e) {
+            return -1; // Unknown count
+        }
+    }
+
+    /**
+     * Gets a human-readable description of the data type kind.
+     * Uses DataTypeUtilities for enhanced type analysis.
+     */
+    private String getDataTypeKind(DataType dataType) {
+        if (dataType == null) {
+            return "unknown";
+        }
+
+        // Use DataTypeUtilities to get base type for better classification
+        DataType baseType = DataTypeUtilities.getBaseDataType(dataType);
+        DataType typeToAnalyze = baseType != null ? baseType : dataType;
+
+        if (typeToAnalyze instanceof Structure) return "struct";
+        if (typeToAnalyze instanceof ghidra.program.model.data.Enum) return "enum";
+        if (typeToAnalyze instanceof Union) return "union";
+        if (typeToAnalyze instanceof TypeDef) return "typedef";
+        if (typeToAnalyze instanceof Pointer) return "pointer";
+        if (typeToAnalyze instanceof FunctionDefinitionDataType) return "function_definition";
+        if (typeToAnalyze instanceof Array) return "array";
+
+        // Check if it's a conflict data type
+        if (DataTypeUtilities.isConflictDataType(typeToAnalyze)) {
+            return "conflict_" + getBaseDataTypeKind(typeToAnalyze);
+        }
+
+        return getBaseDataTypeKind(typeToAnalyze);
+    }
+
+    /**
+     * Gets the base data type kind without conflict information.
+     */
+    private String getBaseDataTypeKind(DataType dataType) {
+        String className = dataType.getClass().getSimpleName();
+        return className.toLowerCase().replace("datatype", "").replace("db", "");
+    }
+
 }
