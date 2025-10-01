@@ -6,8 +6,11 @@ import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.models.FunctionGraph;
+import com.themixednuts.models.FunctionGraphNode;
+import com.themixednuts.models.FunctionGraphEdge;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
-import com.themixednuts.utils.DataTypeUtils;
+import ghidra.program.database.data.DataTypeUtilities;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
@@ -25,7 +28,6 @@ import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
@@ -33,11 +35,21 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
+import ghidra.program.model.block.BasicBlockModel;
+import ghidra.program.model.block.CodeBlock;
+import ghidra.program.model.block.CodeBlockIterator;
+import ghidra.program.model.block.CodeBlockReference;
+import ghidra.program.model.block.CodeBlockReferenceIterator;
+import ghidra.program.model.block.CodeBlockModel;
+import ghidra.program.model.address.AddressSetView;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,24 +65,24 @@ import ghidra.program.model.data.DataTypeManager;
 import ghidra.app.services.DataTypeQueryService;
 import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.program.model.data.FunctionDefinitionDataType;
-import ghidra.program.model.data.InvalidDataTypeException;
-import ghidra.util.exception.CancelledException;
 import ghidra.util.task.ConsoleTaskMonitor;
+import ghidra.util.task.TaskMonitor;
 
 @GhidraMcpTool(
     name = "Manage Functions",
-    description = "Function CRUD operations: create, delete, update prototypes, and list variables.",
+    description = "Function CRUD operations: create, delete, update prototypes, list variables, and get function graphs.",
     mcpName = "manage_functions",
     mcpDescription = """
     <use_case>
     Function operations for reverse engineering workflows. Create, delete, update
-    function prototypes, and list function variables to understand program structure, control flow, and calling conventions.
+    function prototypes, list function variables, and get function control-flow graphs to understand program structure, control flow, and calling conventions.
     </use_case>
 
     <important_notes>
     - Supports multiple function identification methods (name, address, symbol ID, regex)
     - Handles function creation with automatic boundary detection
     - Lists both listing variables and decompiler-generated variables with detailed categorization
+    - Generates control-flow graphs showing basic blocks and their connections
     - Use ListFunctionsTool for browsing functions with filtering
     - Use FindFunctionTool for searching functions by name, address, or patterns
     - Use DecompileCodeTool for decompilation analysis
@@ -106,6 +118,13 @@ import ghidra.util.task.ConsoleTaskMonitor;
       "target_type": "name",
       "target_value": "main"
     }
+
+    Get function control-flow graph:
+    {
+      "fileName": "program.exe",
+      "action": "get_graph",
+      "name": "main"
+    }
     </examples>
     """
 )
@@ -123,6 +142,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
     private static final String ACTION_DELETE = "delete";
     private static final String ACTION_UPDATE_PROTOTYPE = "update_prototype";
     private static final String ACTION_LIST_VARIABLES = "list_variables";
+    private static final String ACTION_GET_GRAPH = "get_graph";
 
 
     /**
@@ -139,7 +159,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
-                .enumValues(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES)
+                .enumValues(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES, ACTION_GET_GRAPH)
                 .description("Action to perform on functions"));
 
         schemaRoot.property(ARG_SYMBOL_ID, JsonSchemaBuilder.integer(mapper)
@@ -197,6 +217,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 }
                 case ACTION_UPDATE_PROTOTYPE -> handleUpdatePrototype(program, tool, args, annotation);
                 case ACTION_LIST_VARIABLES -> handleListVariables(program, args, annotation);
+                case ACTION_GET_GRAPH -> handleGetGraph(program, args, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -206,13 +227,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                             "action validation",
                             args,
                             Map.of(ARG_ACTION, action),
-                            Map.of("validActions", List.of(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES))))
+                            Map.of("validActions", List.of(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES, ACTION_GET_GRAPH))))
                         .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
-                                "Choose from: create, read, delete, update_prototype, list_variables",
-                                List.of(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES),
+                                "Choose from: create, read, delete, update_prototype, list_variables, get_graph",
+                                List.of(ACTION_CREATE, ACTION_READ, ACTION_DELETE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES, ACTION_GET_GRAPH),
                                 null)))
                         .build();
                     yield Mono.error(new GhidraMcpException(error));
@@ -743,21 +764,15 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                         Map<String, Object> args) throws GhidraMcpException {
         StringBuilder prototype = new StringBuilder();
 
-        DataType returnType;
-        try {
-            returnType = DataTypeUtils.parseDataTypeString(program, returnTypeName, tool);
-        } catch (InvalidDataTypeException | CancelledException e) {
-            GhidraMcpError error = GhidraMcpError.dataTypeParsing()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
-                .message("Invalid return type: " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "return type parsing",
-                    args,
-                    Map.of("returnType", returnTypeName),
-                    Map.of("parseError", e.getMessage())))
-                .build();
-            throw new GhidraMcpException(error);
+        DataType returnType = DataTypeUtilities.getCPrimitiveDataType(returnTypeName);
+        if (returnType == null) {
+            throw new GhidraMcpException(createDataTypeError(
+                GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                "Invalid return type: " + returnTypeName,
+                "Creating function",
+                args,
+                returnTypeName
+            ));
         }
 
         prototype.append(returnType.getName());
@@ -765,9 +780,10 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         prototype.append(" ").append(functionName).append("(");
 
         if (parametersOpt.isPresent() && !parametersOpt.get().isEmpty()) {
-            List<String> params = parametersOpt.get().stream()
-                .map(param -> parameterToString(program, tool, param, annotation, args))
-                .collect(Collectors.toList());
+            List<String> params = new ArrayList<>();
+            for (Map<String, Object> param : parametersOpt.get()) {
+                params.add(parameterToString(program, tool, param, annotation, args));
+            }
             prototype.append(String.join(", ", params));
         }
 
@@ -783,7 +799,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                      PluginTool tool,
                                      Map<String, Object> paramMap,
                                      GhidraMcpTool annotation,
-                                     Map<String, Object> args) {
+                                     Map<String, Object> args) throws GhidraMcpException {
         String name = (String) paramMap.get("name");
         String dataType = (String) paramMap.get("dataType");
 
@@ -805,22 +821,17 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
             return "...";
         }
 
-        try {
-            DataType resolved = DataTypeUtils.parseDataTypeString(program, dataType, tool);
-            return resolved.getName() + " " + name;
-        } catch (Exception e) {
-            GhidraMcpError error = GhidraMcpError.dataTypeParsing()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_TYPE_PATH)
-                .message("Invalid parameter data type '" + dataType + "': " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "parameter data type parsing",
-                    args,
-                    paramMap,
-                    Map.of("parseError", e.getMessage())))
-                .build();
-            throw new RuntimeException(error.getMessage());
+        DataType resolved = DataTypeUtilities.getCPrimitiveDataType(dataType);
+        if (resolved == null) {
+            throw new GhidraMcpException(createDataTypeError(
+                GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                "Invalid parameter data type: " + dataType,
+                "Parsing function parameter",
+                args,
+                dataType
+            ));
         }
+        return resolved.getName() + " " + name;
     }
 
     private record UpdatePrototypeContext(Program program, Function function, String prototypeString) {}
@@ -1144,5 +1155,153 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                     ),
                     null)))
             .build();
+    }
+
+    private Mono<? extends Object> handleGetGraph(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+        String toolOperation = annotation.mcpName() + ".get_graph";
+        
+        // Extract function identifiers from both direct arguments and target_type/target_value
+        FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
+        
+        if (identifiers.isEmpty()) {
+            return Mono.error(new GhidraMcpException(createMissingIdentifierError(annotation, args)));
+        }
+
+        return Mono.fromCallable(() -> {
+            Function function = resolveFunctionByIdentifiers(program, identifiers, annotation, args, toolOperation);
+            return buildFunctionGraph(program, function);
+        });
+    }
+
+    private FunctionGraph buildFunctionGraph(Program program, Function function) throws GhidraMcpException {
+        CodeBlockModel model = new BasicBlockModel(program);
+        AddressSetView body = function.getBody();
+
+        Map<String, FunctionGraphNode> idToNode = new LinkedHashMap<>();
+        List<FunctionGraphEdge> edges = new ArrayList<>();
+
+        try {
+            // Use TaskMonitor.DUMMY instead of null
+            TaskMonitor monitor = TaskMonitor.DUMMY;
+            CodeBlockIterator blocks = model.getCodeBlocksContaining(body, monitor);
+            int index = 0;
+            Map<Address, String> startToId = new HashMap<>();
+            List<CodeBlock> blockList = new ArrayList<>();
+            
+            while (blocks.hasNext()) {
+                CodeBlock b = blocks.next();
+                blockList.add(b);
+                String nodeId = "B" + index++;
+                startToId.put(b.getFirstStartAddress(), nodeId);
+                String range = b.getMinAddress() + "-" + b.getMaxAddress();
+                String label = b.getFirstStartAddress().toString();
+                idToNode.put(nodeId, new FunctionGraphNode(nodeId, range, label));
+            }
+
+            for (CodeBlock b : blockList) {
+                String srcId = startToId.get(b.getFirstStartAddress());
+                CodeBlockReferenceIterator dests = b.getDestinations(monitor);
+                while (dests.hasNext()) {
+                    CodeBlockReference ref = dests.next();
+                    CodeBlock dest = ref.getDestinationBlock();
+                    String dstId = startToId.get(dest.getFirstStartAddress());
+                    if (dstId != null) {
+                        String type = ref.getFlowType().toString();
+                        edges.add(new FunctionGraphEdge(srcId, dstId, type));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            GhidraMcpError error = GhidraMcpError.internal()
+                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                .message("Failed to build function graph: " + e.getMessage())
+                .context(new GhidraMcpError.ErrorContext(
+                    this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
+                    "function graph construction",
+                    Map.of("functionName", function.getName()),
+                    Map.of("error", e.getMessage()),
+                    Map.of("graphBuildFailed", true)))
+                .build();
+            throw new GhidraMcpException(error);
+        }
+
+        List<FunctionGraphNode> nodes = new ArrayList<>(idToNode.values());
+        String funcName = function.getName(true);
+        String funcAddr = function.getEntryPoint() != null ? function.getEntryPoint().toString() : null;
+        return new FunctionGraph(funcName, funcAddr, nodes, edges);
+    }
+
+    /**
+     * Creates a comprehensive data type error with rich context and suggestions.
+     * Provides actionable guidance for resolving data type issues.
+     */
+    private GhidraMcpError createDataTypeError(GhidraMcpError.ErrorCode errorCode, String message, 
+                                              String context, Map<String, Object> args, 
+                                              String failedTypeName) {
+        GhidraMcpError.Builder errorBuilder = GhidraMcpError.dataTypeParsing()
+            .errorCode(errorCode)
+            .message(message);
+
+        // Add context information
+        GhidraMcpError.ErrorContext errorContext = new GhidraMcpError.ErrorContext(
+            this.getMcpName(),
+            context,
+            args,
+            Map.of("failedTypeName", failedTypeName),
+            Map.of()
+        );
+        errorBuilder.context(errorContext);
+
+        // Add suggestions based on the failed type name
+        List<GhidraMcpError.ErrorSuggestion> suggestions = generateDataTypeSuggestions(failedTypeName);
+        errorBuilder.suggestions(suggestions);
+
+        return errorBuilder.build();
+    }
+
+    /**
+     * Generates contextual suggestions for data type resolution failures.
+     */
+    private List<GhidraMcpError.ErrorSuggestion> generateDataTypeSuggestions(String failedTypeName) {
+        List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
+        String lowerName = failedTypeName.toLowerCase();
+
+        // Type-specific suggestions
+        if (lowerName.contains("ulonglong") || lowerName.contains("unsigned_long_long")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 64-bit unsigned type",
+                "For 64-bit unsigned integers",
+                List.of("ulonglong", "unsigned long long"),
+                null
+            ));
+        } else if (lowerName.contains("ulong") || lowerName.contains("unsigned_long")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Specify bit width for unsigned long",
+                "Choose appropriate size",
+                List.of("ulonglong (64-bit)", "uint (32-bit)"),
+                null
+            ));
+        } else if (lowerName.contains("uint") || lowerName.contains("unsigned_int")) {
+            suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                "Use correct 32-bit unsigned type",
+                "For 32-bit unsigned integers",
+                List.of("uint", "unsigned int"),
+                null
+            ));
+        }
+
+        // General suggestions
+        suggestions.add(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+            "Try common built-in types",
+            "Use standard C primitive types",
+            List.of("int", "uint", "long", "ulonglong", "float", "double", "void", "char", "uchar"),
+            null
+        ));
+
+        return suggestions;
     }
 }
