@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
 import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
@@ -399,27 +400,25 @@ public interface IGhidraMcpSpecification {
     /**
      * Creates a detailed file not found error with available files information.
      * 
-     * @param project The Ghidra project containing the open files
+     * @param project The Ghidra project containing the open and closed files
      * @param fileNameStr The name of the file that was not found
-     * @return An IllegalArgumentException with detailed error message
+     * @return A GhidraMcpException with structured error and list of open programs
      */
-    private IllegalArgumentException createFileNotFoundError(ghidra.framework.model.Project project, String fileNameStr) {
+    private GhidraMcpException createFileNotFoundError(ghidra.framework.model.Project project, String fileNameStr) {
+        // Get list of all open programs
         List<String> openFiles = project.getOpenData().stream()
             .map(DomainFile::getName)
+            .sorted()
             .collect(Collectors.toList());
         
-        String availableFiles = Optional.of(openFiles)
-            .filter(files -> !files.isEmpty())
-            .map(files -> "Open files: " + String.join(", ", files))
-            .orElse("No files are open.");
-            
-        return new IllegalArgumentException(
-            "File not found or not open: " +
-            fileNameStr +
-            ". " +
-            "Use the 'list_programs' tool to see available programs. " +
-            availableFiles
+        // Use the structured error utility
+        GhidraMcpError error = GhidraMcpErrorUtils.fileNotFound(
+            fileNameStr,
+            openFiles,
+            "program_access"
         );
+        
+        return new GhidraMcpException(error);
     }
 
     /**

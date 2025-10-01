@@ -48,6 +48,8 @@ import java.util.Spliterators;
         - Handles namespace organization and symbol scoping
         - Validates symbol names according to Ghidra rules
         - Provides detailed symbol information including type and context
+        - Can convert existing namespaces to classes using the convert_to_class action
+        - Namespace to class conversion requires the namespace to not be within a function
         - Use ListSymbolsTool for browsing symbols with filtering
         - Use FindSymbolTool for finding specific symbols
         - Use SearchMemoryTool for pattern-based symbol searching
@@ -62,6 +64,14 @@ import java.util.Spliterators;
           "symbol_type": "label",
           "address": "0x401000",
           "name": "main_entry"
+        }
+
+        Convert a namespace to a class:
+        {
+          "fileName": "program.exe",
+          "action": "convert_to_class",
+          "name": "AutoClass3",
+          "namespace": "optional::parent::namespace"
         }
 
         Search for symbols containing specific text:
@@ -102,6 +112,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     private static final String ACTION_READ = "read";
     private static final String ACTION_UPDATE = "update";
     private static final String ACTION_DELETE = "delete";
+    private static final String ACTION_CONVERT_TO_CLASS = "convert_to_class";
 
     /**
      * Defines the JSON input schema for symbol management operations.
@@ -121,7 +132,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                         ACTION_CREATE,
                         ACTION_READ,
                         ACTION_UPDATE,
-                        ACTION_DELETE)
+                        ACTION_DELETE,
+                        ACTION_CONVERT_TO_CLASS)
                 .description("Action to perform on symbols"));
 
         schemaRoot.property(ARG_SYMBOL_TYPE, JsonSchemaBuilder.string(mapper)
@@ -196,6 +208,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 case ACTION_READ -> handleRead(program, args, annotation);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation);
                 case ACTION_DELETE -> handleDelete(program, args, annotation);
+                case ACTION_CONVERT_TO_CLASS -> handleConvertToClass(program, args, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -209,17 +222,19 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                                     ACTION_CREATE,
                                     ACTION_READ,
                                     ACTION_UPDATE,
-                                    ACTION_DELETE))))
+                                    ACTION_DELETE,
+                                    ACTION_CONVERT_TO_CLASS))))
                         .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                 GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                 "Use a valid action",
-                                "Choose from: create, read, update, delete",
+                                "Choose from: create, read, update, delete, convert_to_class",
                                 List.of(
                                         ACTION_CREATE,
                                         ACTION_READ,
                                         ACTION_UPDATE,
-                                        ACTION_DELETE),
+                                        ACTION_DELETE,
+                                        ACTION_CONVERT_TO_CLASS),
                                 null)))
                         .build();
                     yield Mono.error(new GhidraMcpException(error));
@@ -1066,5 +1081,78 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     ),
                     null)))
             .build();
+    }
+
+    private Mono<? extends Object> handleConvertToClass(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+        String toolOperation = annotation.mcpName() + ".convert_to_class";
+        String name = getRequiredStringArgument(args, ARG_NAME);
+        Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
+
+        return executeInTransaction(program, "MCP - Convert Namespace to Class: " + name, () -> {
+            SymbolTable symbolTable = program.getSymbolTable();
+            
+            Namespace parentNamespace;
+            try {
+                if (namespaceOpt.isPresent()) {
+                    parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+                } else {
+                    parentNamespace = program.getGlobalNamespace();
+                }
+            } catch (GhidraMcpException e) {
+                throw e;
+            }
+
+            Namespace namespaceToConvert = NamespaceUtils.getFirstNonFunctionNamespace(
+                parentNamespace, 
+                name, 
+                program
+            );
+
+            if (namespaceToConvert == null) {
+                GhidraMcpError error = GhidraMcpError.resourceNotFound()
+                    .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
+                    .message("Namespace not found: " + name)
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "namespace lookup",
+                        Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                        Map.of("parentNamespace", parentNamespace.getName()),
+                        Map.of("namespaceFound", false)))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                            "Verify the namespace exists",
+                            "Check that the namespace name is correct and exists in the specified parent namespace",
+                            null,
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+
+            try {
+                Namespace classNamespace = NamespaceUtils.convertNamespaceToClass(namespaceToConvert);
+                Symbol classSymbol = classNamespace.getSymbol();
+                return new SymbolInfo(classSymbol);
+            } catch (InvalidInputException e) {
+                GhidraMcpError error = GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                    .message("Cannot convert namespace to class: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "namespace to class conversion",
+                        Map.of(ARG_NAME, name),
+                        Map.of("validationError", e.getMessage()),
+                        Map.of("conversionValid", false)))
+                    .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                            "Check namespace requirements",
+                            "Namespace cannot be converted if it is within a function. Move it to a different parent namespace.",
+                            null,
+                            null)))
+                    .build();
+                throw new GhidraMcpException(error);
+            }
+        });
     }
 }
