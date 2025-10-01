@@ -187,7 +187,12 @@ public class ListDataTypesTool implements IGhidraMcpSpecification {
                 return true;
             })
             .sorted((dt1, dt2) -> dt1.getPathName().compareToIgnoreCase(dt2.getPathName()))
-            .map(DataTypeInfo::new)
+            .map(dataType -> {
+                DataTypeInfo info = new DataTypeInfo(dataType);
+                // Add data type ID to the details for easier reference
+                info.getDetails().setDataTypeId(dataTypeManager.getID(dataType));
+                return info;
+            })
             .collect(Collectors.toList());
 
         // Apply cursor-based pagination

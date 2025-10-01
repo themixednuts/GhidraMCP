@@ -17,6 +17,7 @@ public abstract class BaseDataTypeDetails {
 	private final int length;
 	private final int alignment;
 	private final String description;
+	private Long dataTypeId;
 
 	protected BaseDataTypeDetails(
 			DataTypeKind kind,
@@ -68,5 +69,14 @@ public abstract class BaseDataTypeDetails {
 	@JsonProperty("description")
 	public String getDescription() {
 		return description;
+	}
+
+	@JsonProperty("data_type_id")
+	public Long getDataTypeId() {
+		return dataTypeId;
+	}
+
+	public void setDataTypeId(Long dataTypeId) {
+		this.dataTypeId = dataTypeId;
 	}
 }
