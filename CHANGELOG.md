@@ -7,6 +7,44 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.4.3] - 2025-01-27
+
+### Added
+- **Function Graph Models** - New models for control flow analysis
+  - `FunctionGraph` model for representing function control flow
+  - `FunctionGraphNode` model for basic blocks and control flow nodes  
+  - `FunctionGraphEdge` model for control flow connections
+  - Support for structured function analysis and visualization
+- **Data Type ID Support** - Enhanced data type identification and cross-referencing
+  - Added `dataTypeId` field to `BaseDataTypeDetails` with JSON serialization
+  - Include data type IDs in `ListDataTypesTool` output for easier reference
+  - Enable direct ID-based lookups using `DataTypeManager.getDataType(long)`
+
+### Changed
+- **Data Type Resolution** - Major refactoring to use Ghidra's official APIs
+  - Replaced custom `DataTypeUtils.java` with Ghidra's `DataTypeUtilities`
+  - Use `DataTypeManager` as primary resolver with `DataTypeUtilities` as fallback
+  - Support category path resolution with `DataTypeManager.getDataType(CategoryPath, String)`
+  - Consolidated resolution logic into single `resolveDataTypeWithFallback` method
+- **Enhanced Error Handling** - Rich, contextual error messages with actionable guidance
+  - Added comprehensive `createDataTypeError()` method with smart type suggestions
+  - Enhanced `ManageDataTypesTool` with contextual suggestions for failed type names
+  - Improved `ManageFunctionsTool` error handling for return types and parameter types
+  - Smart suggestions for unsigned types (`ulonglong`, `uint`, `ushort`, `ubyte`)
+  - Path-based suggestions for absolute paths, category paths, and relative paths
+  - Actionable guidance pointing users to `list_data_types` for discovery
+
+### Removed
+- **Custom Data Type Utilities** - Removed custom implementation in favor of official APIs
+  - Deleted `DataTypeUtils.java` (187 lines) - replaced with Ghidra's built-in utilities
+  - Removed redundant try-catch blocks and simplified error handling
+  - Eliminated custom data type resolution in favor of official `DataTypeUtilities`
+
+### Fixed
+- Improved data type resolution reliability by using Ghidra's official APIs
+- Enhanced user experience with detailed error context and resolution hints
+- Better maintainability by leveraging Ghidra's built-in capabilities
+
 ## [0.4.2] - 2025-09-30
 
 ### Changed
