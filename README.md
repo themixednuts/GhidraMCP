@@ -128,7 +128,12 @@ To allow an MCP client (like Claude Desktop or a custom client) to interact with
 
 The GhidraMCP server runs within Ghidra itself when the extension is active. It exposes an HTTP endpoint for stateless MCP communication.
 
-Add the following configuration to your MCP client's settings (e.g., `claude_desktop_config.json` for Claude Desktop). Adjust the key (`"ghidra"` in this example) as needed:
+### Agent-Specific Setup Instructions
+
+<details>
+<summary><strong>🤖 Claude Desktop</strong></summary>
+
+For Claude Desktop, add the following configuration to your `claude_desktop_config.json` file. Adjust the key (`"ghidra"` in this example) as needed:
 
 ```json
 {
@@ -140,6 +145,68 @@ Add the following configuration to your MCP client's settings (e.g., `claude_des
 	}
 }
 ```
+
+**Configuration file location:**
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+After updating the configuration, restart Claude Desktop to apply the changes.
+
+</details>
+
+<details>
+<summary><strong>🔧 Claude Code (CLI)</strong></summary>
+
+For Claude Code, use the following command to add the GhidraMCP server:
+
+```bash
+claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
+```
+
+This will automatically configure the MCP server connection for Claude Code.
+
+</details>
+
+<details>
+<summary><strong>⚡ Cursor</strong></summary>
+
+For Cursor, you can use the one-click installation button above, or manually add to your MCP configuration:
+
+```json
+{
+	"mcpServers": {
+		"ghidra": {
+			"url": "http://127.0.0.1:8080/mcp"
+		}
+	}
+}
+```
+
+**Configuration file location:**
+- `~/.cursor/mcp_settings.json` (or your Cursor configuration directory)
+
+</details>
+
+<details>
+<summary><strong>🛠️ Custom MCP Client</strong></summary>
+
+For custom MCP clients or other implementations, use the standard MCP configuration format:
+
+```json
+{
+	"mcpServers": {
+		"ghidra": {
+			"url": "http://127.0.0.1:8080/mcp",
+			"transport": "http"
+		}
+	}
+}
+```
+
+The server supports standard MCP over HTTP protocol.
+
+</details>
 
 ---
 
