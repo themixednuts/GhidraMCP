@@ -975,37 +975,54 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private OperationResult updateStruct(DataTypeManager dtm,
                                          Structure existing,
                                          Map<String, Object> args,
-                                         GhidraMcpTool annotation) {
+                                         GhidraMcpTool annotation) throws GhidraMcpException {
         Structure struct = existing;
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(struct::setDescription);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
-        Optional.ofNullable(members)
-            .ifPresent(memberList -> {
-                struct.deleteAll();
-                memberList.forEach(member -> {
-                    String memberName = (String) member.get(ARG_NAME);
-                    Integer offset = (Integer) member.get(ARG_OFFSET);
-                    String memberComment = (String) member.get(ARG_COMMENT);
+        if (members != null && !members.isEmpty()) {
+            struct.deleteAll();
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get(ARG_NAME);
+                Integer offset = (Integer) member.get(ARG_OFFSET);
+                String memberComment = (String) member.get(ARG_COMMENT);
 
-                    try {
-                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-                        if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
-                        }
+                DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+                if (memberDataType == null) {
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    throw new GhidraMcpException(createMemberDataTypeError(
+                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                        "Could not resolve data type for member '" + memberName + "'",
+                        "Updating struct member",
+                        args,
+                        memberName,
+                        dataTypePath,
+                        dtm
+                    ));
+                }
 
-                        if (offset == null || offset == -1) {
-                            struct.add(memberDataType, memberName, memberComment);
-                        } else {
-                            struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
-                        }
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
+                try {
+                    if (offset == null || offset == -1) {
+                        struct.add(memberDataType, memberName, memberComment);
+                    } else {
+                        struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
                     }
-                });
-            });
+                } catch (Exception e) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Failed to add member '" + memberName + "': " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                            this.getMcpName(),
+                            "struct member addition",
+                            args,
+                            Map.of("memberName", memberName, "member", member),
+                            Map.of("error", e.getMessage())))
+                        .build());
+                }
+            }
+        }
 
         return OperationResult.success(
             "update_data_type",
@@ -1078,35 +1095,46 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     private OperationResult updateUnion(DataTypeManager dtm,
                                         Union existing,
                                         Map<String, Object> args,
-                                        GhidraMcpTool annotation) {
+                                        GhidraMcpTool annotation) throws GhidraMcpException {
         Union union = existing;
 
         getOptionalStringArgument(args, ARG_COMMENT).ifPresent(union::setDescription);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> members = (List<Map<String, Object>>) args.get(ARG_MEMBERS);
-        Optional.ofNullable(members)
-            .ifPresent(memberList -> {
-                UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
-                
-                memberList.forEach(member -> {
-                    String memberName = (String) member.get(ARG_NAME);
-                    String memberComment = (String) member.get(ARG_COMMENT);
+        if (members != null && !members.isEmpty()) {
+            UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
+            
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get(ARG_NAME);
+                String memberComment = (String) member.get(ARG_COMMENT);
 
-                    DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-                    if (memberDataType == null) {
-                        throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
-                    }
-
-                    updated.add(memberDataType, memberName, memberComment);
-                });
-                
-                try {
-                    dtm.replaceDataType(union, updated, true);
-                } catch (DataTypeDependencyException e) {
-                    throw new RuntimeException("Failed to update union members: " + e.getMessage());
+                DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+                if (memberDataType == null) {
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    throw new GhidraMcpException(createMemberDataTypeError(
+                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                        "Could not resolve data type for member '" + memberName + "'",
+                        "Updating union member",
+                        args,
+                        memberName,
+                        dataTypePath,
+                        dtm
+                    ));
                 }
-            });
+
+                updated.add(memberDataType, memberName, memberComment);
+            }
+            
+            try {
+                dtm.replaceDataType(union, updated, true);
+            } catch (DataTypeDependencyException e) {
+                throw new GhidraMcpException(GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to update union members: " + e.getMessage())
+                    .build());
+            }
+        }
 
         return OperationResult.success(
             "update_data_type",
@@ -1383,55 +1411,89 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
      * Helper method to process struct/union members with enhanced data type resolution.
      * Resolution priority: dataTypeId > dataTypePath > categoryPath + name
      */
-    private void processStructMembers(List<Map<String, Object>> members, DataTypeManager dtm, Structure struct) {
-        Optional.ofNullable(members)
-            .filter(list -> !list.isEmpty())
-            .ifPresent(memberList -> 
-                memberList.forEach(member -> {
-                    String memberName = (String) member.get("name");
-                    String memberComment = (String) member.get("comment");
-                    Integer offset = (Integer) member.get("offset");
+    private void processStructMembers(List<Map<String, Object>> members, DataTypeManager dtm, Structure struct) throws GhidraMcpException {
+        if (members != null && !members.isEmpty()) {
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get("name");
+                String memberComment = (String) member.get("comment");
+                Integer offset = (Integer) member.get("offset");
 
-                    try {
-                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-                        if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
-                        }
+                DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+                if (memberDataType == null) {
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    throw new GhidraMcpException(createMemberDataTypeError(
+                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                        "Could not resolve data type for member '" + memberName + "'",
+                        "Creating struct member",
+                        Map.of("members", members),
+                        memberName,
+                        dataTypePath,
+                        dtm
+                    ));
+                }
 
-                        if (offset == null || offset == -1) {
-                            struct.add(memberDataType, memberName, memberComment);
-                        } else {
-                            struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
-                        }
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
+                try {
+                    if (offset == null || offset == -1) {
+                        struct.add(memberDataType, memberName, memberComment);
+                    } else {
+                        struct.insertAtOffset(offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
                     }
-                })
-            );
+                } catch (Exception e) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Failed to add member '" + memberName + "': " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                            this.getMcpName(),
+                            "struct member creation",
+                            Map.of("members", members),
+                            Map.of("memberName", memberName, "member", member),
+                            Map.of("error", e.getMessage())))
+                        .build());
+                }
+            }
+        }
     }
 
     /**
      * Helper method to process union members with enhanced data type resolution.
      * Resolution priority: dataTypeId > dataTypePath > categoryPath + name
      */
-    private void processUnionMembers(List<Map<String, Object>> members, DataTypeManager dtm, UnionDataType union) {
-        Optional.ofNullable(members)
-            .ifPresent(memberList -> 
-                memberList.forEach(member -> {
-                    String memberName = (String) member.get("name");
-                    String memberComment = (String) member.get("comment");
+    private void processUnionMembers(List<Map<String, Object>> members, DataTypeManager dtm, UnionDataType union) throws GhidraMcpException {
+        if (members != null && !members.isEmpty()) {
+            for (Map<String, Object> member : members) {
+                String memberName = (String) member.get("name");
+                String memberComment = (String) member.get("comment");
 
-                    try {
-                        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-                        if (memberDataType == null) {
-                            throw new RuntimeException("Could not resolve data type for member '" + memberName + "'");
-                        }
-                        union.add(memberDataType, memberName, memberComment);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to add member '" + memberName + "': " + e.getMessage());
-                    }
-                })
-            );
+                DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+                if (memberDataType == null) {
+                    String dataTypePath = (String) member.get(ARG_DATA_TYPE_PATH);
+                    throw new GhidraMcpException(createMemberDataTypeError(
+                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
+                        "Could not resolve data type for member '" + memberName + "'",
+                        "Creating union member",
+                        Map.of("members", members),
+                        memberName,
+                        dataTypePath,
+                        dtm
+                    ));
+                }
+
+                try {
+                    union.add(memberDataType, memberName, memberComment);
+                } catch (Exception e) {
+                    throw new GhidraMcpException(GhidraMcpError.execution()
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Failed to add member '" + memberName + "': " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                            this.getMcpName(),
+                            "union member creation",
+                            Map.of("members", members),
+                            Map.of("memberName", memberName, "member", member),
+                            Map.of("error", e.getMessage())))
+                        .build());
+                }
+            }
+        }
     }
 
     /**
@@ -1515,6 +1577,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     /**
      * Resolves a data type using DataTypeManager as primary resolver with DataTypeUtilities fallback.
      * DataTypeManager handles most resolution scenarios, with DataTypeUtilities for specific cases.
+     * Supports pointer types ending with '*' by creating pointers to the base type.
      */
     private DataType resolveDataTypeWithFallback(DataTypeManager dtm, String typeName) {
         if (dtm == null || typeName == null || typeName.trim().isEmpty()) {
@@ -1532,6 +1595,16 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             }
         } catch (Exception e) {
             // Continue to next method
+        }
+        
+        // Handle pointer types (ending with '*')
+        if (trimmedName.endsWith("*")) {
+            String baseTypeName = trimmedName.substring(0, trimmedName.length() - 1).trim();
+            DataType baseType = resolveDataTypeWithFallback(dtm, baseTypeName);
+            if (baseType != null) {
+                return PointerDataType.getPointer(baseType, dtm);
+            }
+            return null;
         }
 
         // 2. PRIMARY: Try with leading slash for relative paths
@@ -1590,6 +1663,34 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     }
 
     /**
+     * Creates a comprehensive member data type error with rich context and suggestions.
+     * Provides actionable guidance for resolving member data type issues.
+     */
+    private GhidraMcpError createMemberDataTypeError(GhidraMcpError.ErrorCode errorCode, String message, 
+                                                    String context, Map<String, Object> args, 
+                                                    String memberName, String dataTypePath, DataTypeManager dtm) {
+        GhidraMcpError.Builder errorBuilder = GhidraMcpError.dataTypeParsing()
+            .errorCode(errorCode)
+            .message(message);
+
+        // Add context information
+        GhidraMcpError.ErrorContext errorContext = new GhidraMcpError.ErrorContext(
+            this.getMcpName(),
+            context,
+            args,
+            Map.of("memberName", memberName, "dataTypePath", dataTypePath != null ? dataTypePath : "null"),
+            Map.of("availableTypes", getAvailableTypeCount(dtm))
+        );
+        errorBuilder.context(errorContext);
+
+        // Add suggestions based on the failed type name
+        List<GhidraMcpError.ErrorSuggestion> suggestions = generateMemberDataTypeSuggestions(memberName, dataTypePath, dtm);
+        errorBuilder.suggestions(suggestions);
+
+        return errorBuilder.build();
+    }
+
+    /**
      * Creates a comprehensive data type error with rich context and suggestions.
      * Provides actionable guidance for resolving data type issues.
      */
@@ -1615,6 +1716,74 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         errorBuilder.suggestions(suggestions);
 
         return errorBuilder.build();
+    }
+
+    /**
+     * Generates contextual suggestions for member data type resolution failures.
+     */
+    private List<GhidraMcpError.ErrorSuggestion> generateMemberDataTypeSuggestions(String memberName, String dataTypePath, DataTypeManager dtm) {
+        List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
+        
+        if (dataTypePath != null && !dataTypePath.trim().isEmpty()) {
+            
+            // Pointer-specific suggestions
+            if (dataTypePath.endsWith("*")) {
+                String baseType = dataTypePath.substring(0, dataTypePath.length() - 1).trim();
+                suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Check base type for pointer",
+                    "Ensure the base type exists before creating pointer",
+                    List.of("Verify '" + baseType + "' exists", "Use 'list_data_types' to find available types"),
+                    List.of("list_data_types")
+                ));
+            }
+            
+            // Path-based suggestions
+            if (dataTypePath.startsWith("/")) {
+                suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Check absolute path",
+                    "Ensure the full path exists in the program",
+                    List.of("Use 'list_data_types' to see available paths"),
+                    List.of("list_data_types")
+                ));
+            } else if (dataTypePath.contains("/")) {
+                suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Try with leading slash",
+                    "Add leading slash for absolute path",
+                    List.of("/" + dataTypePath),
+                    null
+                ));
+            } else {
+                suggestions.add(new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Try with leading slash",
+                    "Add leading slash for built-in types",
+                    List.of("/" + dataTypePath),
+                    null
+                ));
+            }
+        }
+        
+        // General suggestions
+        suggestions.add(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+            "Browse available data types",
+            "Use list_data_types to see what's available",
+            null,
+            List.of("list_data_types")
+        ));
+
+        suggestions.add(new GhidraMcpError.ErrorSuggestion(
+            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+            "Try common built-in types",
+            "Use standard Ghidra built-in types",
+            List.of("/int", "/uint", "/long", "/ulonglong", "/float", "/double", "/void"),
+            null
+        ));
+
+        return suggestions;
     }
 
     /**
