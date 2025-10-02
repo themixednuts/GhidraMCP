@@ -33,7 +33,7 @@ import java.util.stream.IntStream;
 
 @GhidraMcpTool(
     name = "Manage Data Types",
-    description = "Data type CRUD operations: create, read, update, and delete structs, enums, unions, typedefs, and categories.",
+    description = "Data type CRUD operations: create, read, update, and delete structs, enums, unions, typedefs, and categories. Use 'update' to preserve existing references.",
     mcpName = "manage_data_types",
     mcpDescription = """
     <use_case>
@@ -48,6 +48,7 @@ import java.util.stream.IntStream;
     - Validates data types and provides detailed error messages
     - Uses transactions for safe modifications
     - Use ListDataTypesTool for browsing data types with filtering
+    - CRITICAL: Use 'update' action instead of 'delete' + 'create' to preserve existing references
     </important_notes>
 
     <examples>
@@ -60,6 +61,19 @@ import java.util.stream.IntStream;
       "members": [
         {"name": "field1", "data_type_path": "int"},
         {"name": "field2", "data_type_path": "char *"}
+      ]
+    }
+    
+    Update an existing struct (RECOMMENDED over delete+create):
+    {
+      "fileName": "program.exe",
+      "action": "update",
+      "data_type_kind": "struct",
+      "name": "MyStruct",
+      "members": [
+        {"name": "field1", "data_type_path": "int"},
+        {"name": "field2", "data_type_path": "char *"},
+        {"name": "field3", "data_type_path": "float"}
       ]
     }
     </examples>
