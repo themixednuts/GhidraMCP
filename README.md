@@ -173,7 +173,7 @@ This will automatically configure the MCP server connection for Claude Code.
 <details>
 <summary><strong>⚡ Cursor</strong></summary>
 
-For Cursor, you can install using this <a href="cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D">deeplink URL</a>.
+For Cursor, you can [install via this link](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D).
 
 Or manually add to your MCP configuration:
 
