@@ -193,7 +193,10 @@ Use [`GhidraMcpErrorUtils`](mdc:src/main/java/com/themixednuts/utils/GhidraMcpEr
 - `GhidraMcpErrorUtils.searchNoResults()`
 - `GhidraMcpErrorUtils.fileNotFound()`
 
-**Reference Implementation:** See [`GhidraGetFunctionTool`](mdc:src/main/java/com/themixednuts/tools/functions/GhidraGetFunctionTool.java) for a complete example of structured error handling with proper constant usage.
+**Reference Implementations:**
+- [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) - Comprehensive error handling with swap detection and actionable suggestions
+- [`ManageSymbolsTool`](mdc:src/main/java/com/themixednuts/tools/ManageSymbolsTool.java) - Clean error context and proper resource suggestions
+- [`ManageFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) - Multiple error types with clear guidance
 
 ---
 
@@ -433,51 +436,79 @@ Use helpers from [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/
 *   For purely synchronous, project-level logic (no `Program` needed initially), use `Mono.fromCallable(() -> { /* sync logic */ })`.
 
 **Type-Safe Context Passing:** When passing multiple values from a setup step (e.g., inside `.map`) to a subsequent step (e.g., inside `.flatMap`), **avoid using `Map<String, Object>`**. Instead, use a type-safe approach:
-*   **Nested `private static record**:** Preferred for clarity when passing more than 2-3 items. Define the record within the tool class.
+*   **Nested `private static record`** (PREFERRED): Best for clarity when passing more than 2-3 items. Define the record within the tool class. Records are immutable, self-documenting, and type-safe.
 *   **Reactor Tuples:** Use `reactor.util.function.Tuples.of(...)` for 2-8 items if a dedicated record feels excessive.
+
+**Examples of Context Records:**
+```java
+// Simple context for rename operations
+private static record RenameContext(Program program, Function function, String newName) {}
+
+// Complex context for search operations
+private static record SearchContext(
+    Program program,
+    SearchType searchType,
+    String searchValue,
+    boolean caseSensitive,
+    int maxResults
+) {}
+
+// Function identifier context
+private static record FunctionIdentifiers(
+    Optional<Long> symbolId,
+    Optional<String> address,
+    Optional<String> name
+) {}
+```
+
+**Reference Implementations:**
+- [`ManageFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) - UpdatePrototypeContext, FunctionIdentifiers records
+- [`SearchMemoryTool`](mdc:src/main/java/com/themixednuts/tools/SearchMemoryTool.java) - SearchContext record
+- [`ManageSymbolsTool`](mdc:src/main/java/com/themixednuts/tools/ManageSymbolsTool.java) - SymbolSearchContext record
 
 **1. Program-Based Tool (Read-Only / Pagination / Synchronous Logic)**
 
 *   Needs `Program` access.
-*   Uses `getProgram(...).map(...)`.
+*   Uses `getProgram(...).flatMap(program -> Mono.fromCallable(...))` or `getProgram(...).map(...)` for simple synchronous operations.
 *   Returns `Mono<Object>` containing a [`PaginatedResult<Pojo>`](mdc:src/main/java/com/themixednuts/utils/PaginatedResult.java) (or similar POJO/Map structure with `results` and `nextCursor`).
-*   Reference: [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java)
+*   **Reference Implementations:**
+    - [`ListFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ListFunctionsTool.java) - Best pagination example with clean cursor logic
+    - [`ListDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ListDataTypesTool.java) - Efficient pagination with filtering
+    - [`ManageFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) - listVariables method (lines 934-1016)
 
 ```java
 import com.themixednuts.utils.PaginatedResult; // Add import
 
 @Override
 public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
-    return getProgram(args, tool) // Returns Mono<Program>
-        .map(program -> { // Use .map for synchronous logic
-            // --- Setup Phase (Inside .map) ---
-            String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
-            final String finalCursor = cursor; // For use in lambda
-            final int limit = DEFAULT_PAGE_LIMIT;
+    return getProgram(args, tool)
+        .flatMap(program -> Mono.fromCallable(() -> listItems(program, args)));
+}
 
-            List<Item> allItems = program.getListing().getAllItems()
-                .stream()
-                .sorted(Comparator.comparing(Item::getKey))
-                .collect(Collectors.toList());
+private PaginatedResult<ResultPojo> listItems(Program program, Map<String, Object> args) {
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-            // --- Data Retrieval & Processing (Apply Pagination) ---
-            List<ResultPojo> pageItems = allItems.stream()
-                .dropWhile(item -> finalCursor != null && item.getKey().compareTo(finalCursor) <= 0)
-                .limit((long) limit + 1)
-                .map(item -> new ResultPojo(item))
-                .collect(Collectors.toList());
+    List<Item> allItems = program.getListing().getAllItems().stream()
+        .sorted(Comparator.comparing(Item::getKey))
+        .collect(Collectors.toList());
 
-            boolean hasMore = pageItems.size() > limit;
-            List<ResultPojo> pageResults = pageItems.subList(0, Math.min(pageItems.size(), limit));
+    List<ResultPojo> pageItems = allItems.stream()
+        .dropWhile(item -> {
+            if (cursorOpt.isEmpty()) return false;
+            return item.getKey().compareTo(cursorOpt.get()) <= 0;
+        })
+        .limit((long) DEFAULT_PAGE_LIMIT + 1)
+        .map(ResultPojo::new)
+        .collect(Collectors.toList());
 
-            String nextCursor = null;
-            if (hasMore && !pageResults.isEmpty()) {
-                nextCursor = pageResults.get(pageResults.size() - 1).getCursorKey();
-            }
+    boolean hasMore = pageItems.size() > DEFAULT_PAGE_LIMIT;
+    List<ResultPojo> results = pageItems.subList(0, Math.min(pageItems.size(), DEFAULT_PAGE_LIMIT));
 
-            // --- Return Raw Result Object (PaginatedResult) ---
-            return new PaginatedResult<>(pageResults, nextCursor);
-        });
+    String nextCursor = hasMore && !results.isEmpty()
+        ? results.get(results.size() - 1).getCursorKey()
+        : null;
+
+    return new PaginatedResult<>(results, nextCursor);
 }
 ```
 
@@ -542,8 +573,10 @@ public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Obj
 *   Needs `Project` access, not specific `Program`.
 *   Schema does NOT need `fileName`.
 *   Uses `Mono.fromCallable(() -> { ... })` to wrap synchronous logic.
-*   Returns `Mono<Object>` (e.g., `List<String>`).
-*   Reference: [`GhidraListFilesTool`](mdc:src/main/java/com/themixednuts/tools/projectmanagement/GhidraListFilesTool.java)
+*   Returns `Mono<Object>` (e.g., `List<String>`, `ProgramFileInfo`).
+*   **Reference Implementations:**
+    - [`ListProgramsTool`](mdc:src/main/java/com/themixednuts/tools/ListProgramsTool.java) - Enum-based filtering with pagination
+    - [`UndoRedoTool`](mdc:src/main/java/com/themixednuts/tools/UndoRedoTool.java) - Simple project-level operations
 
 ```java
 @Override // No ARG_FILE_NAME needed
@@ -568,6 +601,179 @@ public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Obj
 
 ---
 
+## Advanced Patterns
+
+### 1. Enum-Based Parameter Validation
+
+For tools with multiple related string values that have associated behavior, use an enum with validation:
+
+```java
+public enum SearchType {
+    STRING("string", "Text string search"),
+    HEX("hex", "Hexadecimal byte pattern search"),
+    BINARY("binary", "Binary byte pattern search"),
+    DECIMAL("decimal", "Decimal number search");
+
+    private final String value;
+    private final String description;
+
+    SearchType(String value, String description) {
+        this.value = value;
+        this.description = description;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public static SearchType fromValue(String value) throws GhidraMcpException {
+        for (SearchType type : values()) {
+            if (type.value.equalsIgnoreCase(value)) {
+                return type;
+            }
+        }
+        GhidraMcpError error = GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+            .message("Invalid search type: " + value)
+            .suggestions(List.of(
+                new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Use a valid search type",
+                    "Valid types: " + String.join(", ", Arrays.stream(values())
+                        .map(SearchType::getValue).toArray(String[]::new)),
+                    null, null
+                )
+            ))
+            .build();
+        throw new GhidraMcpException(error);
+    }
+}
+```
+
+**Reference Implementation:** [`SearchMemoryTool`](mdc:src/main/java/com/themixednuts/tools/SearchMemoryTool.java) (lines 68-120)
+
+### 2. Smart Error Detection
+
+Detect common user mistakes and provide helpful corrections:
+
+```java
+// Detect parameter swap (e.g., user provided data_type_id in name field)
+if (nameOpt.isPresent()) {
+    String providedName = nameOpt.get();
+    if (providedName.matches("\\d+")) {
+        // Suggest they may have swapped parameters
+        GhidraMcpError error = GhidraMcpError.validation()
+            .message("Parameter 'name' appears to be a numeric ID. Did you mean to use 'data_type_id'?")
+            .suggestions(List.of(
+                new GhidraMcpError.ErrorSuggestion(
+                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                    "Check parameter names",
+                    "Use 'data_type_id' for numeric IDs, 'name' for type names",
+                    null, null
+                )
+            ))
+            .build();
+        throw new GhidraMcpException(error);
+    }
+}
+```
+
+**Reference Implementation:** [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) (lines 782-809)
+
+### 3. Address Parsing Helper Pattern
+
+Use the standardized `parseAddress()` helper from `IGhidraMcpSpecification`:
+
+```java
+return getProgram(args, tool)
+    .flatMap(program -> {
+        String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+        GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+        return parseAddress(program, args, addressStr, "operation name", annotation);
+    })
+    .flatMap(addressResult -> {
+        Address address = addressResult.address();
+        // Use the parsed address
+        return executeInTransaction(addressResult.program(), "Description", () -> {
+            // Transaction work with address
+            return result;
+        });
+    });
+```
+
+**Benefits:**
+- Consistent error messages across tools
+- Automatic validation and error handling
+- Returns both `Address` object and `Program` for convenience
+
+**Reference:** [`IGhidraMcpSpecification`](mdc:src/main/java/com/themixednuts/tools/IGhidraMcpSpecification.java) (lines 1320-1420)
+
+### 4. FunctionalInterface for Repeated Try-Catch
+
+For tools with multiple similar operations that need exception handling:
+
+```java
+@FunctionalInterface
+private interface RttiAnalyzer {
+    RTTIAnalysisResult analyze() throws Exception;
+}
+
+private RTTIAnalysisResult tryAnalyze(RttiAnalyzer analyzer, String analyzerType) {
+    try {
+        return analyzer.analyze();
+    } catch (Exception e) {
+        return RTTIAnalysisResult.invalid(
+            "Failed to analyze as " + analyzerType + ": " + e.getMessage()
+        );
+    }
+}
+
+// Usage:
+RTTIAnalysisResult result = tryAnalyze(
+    () -> analyzeRtti0(program, address),
+    "RTTI0"
+);
+```
+
+**Reference Implementation:** [`AnalyzeRttiTool`](mdc:src/main/java/com/themixednuts/tools/AnalyzeRttiTool.java) (lines 160-175)
+
+### 5. Action-Based Routing with Switch Expressions
+
+For grouped tools or tools with multiple operations, use modern switch expressions:
+
+```java
+@Override
+public Mono<? extends Object> execute(McpAsyncServerExchange ex, Map<String, Object> args, PluginTool tool) {
+    return getProgram(args, tool).flatMap(program -> {
+        String action = getRequiredStringArgument(args, ARG_ACTION);
+        GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
+        return switch (action) {
+            case ACTION_CREATE -> handleCreate(program, args, ex, annotation);
+            case ACTION_READ -> handleRead(program, args, annotation);
+            case ACTION_UPDATE -> handleUpdate(program, args, ex, annotation);
+            case ACTION_DELETE -> handleDelete(program, args, ex, annotation);
+            default -> Mono.error(createInvalidActionError(action, annotation));
+        };
+    });
+}
+
+private Mono<? extends Object> handleCreate(Program program, Map<String, Object> args,
+                                             McpAsyncServerExchange ex, GhidraMcpTool annotation) {
+    // Implementation
+}
+```
+
+**Benefits:**
+- Clean separation of concerns
+- Easy to test individual actions
+- Better code organization
+- Exhaustive checking by compiler
+
+**Reference Implementation:** [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) (lines 203-242)
+
+---
+
 ## Pagination Pattern (Cursor-Based)
 
 For tools implementing cursor-based pagination via `tools/call`:
@@ -582,7 +788,16 @@ For tools implementing cursor-based pagination via `tools/call`:
     // Return the PaginatedResult object directly
     return new PaginatedResult<>(pageResults, nextCursor);
     ```
-4.  **Reference:** See [`GhidraListCategoriesTool`](mdc:src/main/java/com/themixednuts/tools/datatypes/GhidraListCategoriesTool.java) for an example implementation (note: while this specific example might have been refactored historically, the use of `PaginatedResult` as described here is the current best practice).
+4.  **Cursor Format Standards:** Use consistent, sortable cursor formats:
+    - `"address:name"` - For function listings (e.g., `"0x401000:main"`)
+    - `"name:path"` - For data type listings (e.g., `"MyStruct:/custom/types"`)
+    - `"storage:name"` - For variable listings (e.g., `"Stack[0x8]:localVar"`)
+    - Choose a format that makes comparison logic straightforward
+
+5.  **Reference Implementations:**
+    - [`ListFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ListFunctionsTool.java) (lines 117-170) - Best pagination example
+    - [`ListDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ListDataTypesTool.java) (lines 137-231) - Category-based pagination
+    - [`ManageFunctionsTool.listVariables`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) (lines 934-1016) - Complex cursor logic
 
 ---
 
@@ -592,7 +807,11 @@ For tools implementing cursor-based pagination via `tools/call`:
 *   Implement `getToolClassMap()` to return discovered granular tool classes.
 *   **Omit** `schema()` override (default provided by `IGroupedTool`).
 *   Implement `execute()` to call the default `executeGroupedOperations()`.
-*   Reference: [`GroupedFunctionOperationsTool`](mdc:src/main/java/com/themixednuts/tools/grouped/GroupedFunctionOperationsTool.java)
+*   Returns `GroupedOperationResult` containing list of `OperationResult` objects.
+*   **Reference Implementations:**
+    - [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) - Best example of action routing with comprehensive CRUD
+    - [`ManageSymbolsTool`](mdc:src/main/java/com/themixednuts/tools/ManageSymbolsTool.java) - Clean action handlers with proper error context
+    - [`ManageFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) - Complex operations including prototype updates
 
 ```java
 @GhidraMcpTool(name = "Grouped Function Ops", ... category = ToolCategory.GROUPED, ...)
@@ -655,4 +874,65 @@ public class GroupedFunctionOperationsTool implements IGhidraMcpSpecification, I
 *   [`HighSymbol`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighSymbol.html)
 *   [`FunctionManager`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/listing/FunctionManager.html)
 *   [`HighVariable`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighVariable.html)
-*   [](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighFunction.html)
+*   [`HighFunction`](mdc:https:/ghidra.re/ghidra_docs/api/ghidra/program/model/pcode/HighFunction.html)
+
+---
+
+## Best Practices Summary
+
+### DO:
+✅ **Always use structured error handling** with `GhidraMcpException` and `GhidraMcpError`
+✅ **Use constants** from `IGhidraMcpSpecification` or define tool-specific constants - NO magic strings
+✅ **Prefer `private static record`** for context passing between reactive steps
+✅ **Use `Mono.fromCallable()`** for wrapping synchronous, non-reactive code
+✅ **Use `getProgram().flatMap()`** for dependent operations that need Program context
+✅ **Use enums with validation** for parameter types with multiple related values
+✅ **Implement smart error detection** to catch common user mistakes (e.g., parameter swaps)
+✅ **Use helper methods** - define them at the bottom of the class with clear JavaDoc
+✅ **Return `PaginatedResult<T>`** for list operations with cursor-based pagination
+✅ **Use switch expressions** for action routing in multi-operation tools
+✅ **Test your tools** with `mvn test` before finalizing
+✅ **Reuse existing POJOs** from `com.themixednuts.models` when possible
+
+### DON'T:
+❌ **Don't use simple exceptions** like `IllegalArgumentException` - use `GhidraMcpException`
+❌ **Don't use magic strings** - always define and use constants
+❌ **Don't use `Map<String, Object>` for context** - use type-safe records or tuples
+❌ **Don't mix error handling styles** - be consistent within a tool
+❌ **Don't override `specification()`** - use the default from `IGhidraMcpSpecification`
+❌ **Don't use `.flatMap(Mono.fromCallable())` for simple sync logic** - use `.map()` instead
+❌ **Don't forget to register** new tools in `META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`
+❌ **Don't create new categories** in `ToolCategory` enum - use existing or `UNCATEGORIZED`
+❌ **Don't write poor mcpDescription** - follow the structured XML-style format for complex tools
+❌ **Don't add unnecessary comments** - avoid comments that restate the code
+
+### Key Reference Tools:
+| Pattern | Best Reference Tool |
+|---------|-------------------|
+| **Error Handling** | [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) |
+| **Pagination** | [`ListFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ListFunctionsTool.java) |
+| **Reactive Patterns** | [`ManageSymbolsTool`](mdc:src/main/java/com/themixednuts/tools/ManageSymbolsTool.java) |
+| **Context Records** | [`ManageFunctionsTool`](mdc:src/main/java/com/themixednuts/tools/ManageFunctionsTool.java) |
+| **Enum Validation** | [`SearchMemoryTool`](mdc:src/main/java/com/themixednuts/tools/SearchMemoryTool.java) |
+| **Action Routing** | [`ManageDataTypesTool`](mdc:src/main/java/com/themixednuts/tools/ManageDataTypesTool.java) |
+| **Project-Level** | [`ListProgramsTool`](mdc:src/main/java/com/themixednuts/tools/ListProgramsTool.java) |
+
+---
+
+## Quick Checklist for New Tools
+
+Before submitting a new tool, verify:
+
+- [ ] Tool class implements `IGhidraMcpSpecification`
+- [ ] `@GhidraMcpTool` annotation is complete with all fields
+- [ ] Tool is registered in `META-INF/services/com.themixednuts.tools.IGhidraMcpSpecification`
+- [ ] All constants are defined (no magic strings)
+- [ ] Structured error handling is used throughout (`GhidraMcpException`)
+- [ ] Context passing uses records or tuples (not `Map<String, Object>`)
+- [ ] Appropriate reactive patterns are used (`.map()` vs `.flatMap()`)
+- [ ] `mcpDescription` follows structured format for complex tools
+- [ ] Pagination uses `PaginatedResult<T>` if applicable
+- [ ] Helper methods are defined at the bottom with JavaDoc
+- [ ] No unnecessary comments or commented-out code
+- [ ] `mvn test` passes successfully
+- [ ] Code is well-formatted and imports are cleaned up
