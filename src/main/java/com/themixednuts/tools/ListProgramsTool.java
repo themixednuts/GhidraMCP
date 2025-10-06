@@ -264,8 +264,9 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         int startIndex = 0;
         if (cursor != null && !cursor.isEmpty()) {
             // Find the index after the cursor
+            // Cursor format: isOpen:lastModifiedTime:name:pathname
             for (int i = 0; i < programFiles.size(); i++) {
-                String fileCursor = programFiles.get(i).getName() + ":" + programFiles.get(i).getPathname();
+                String fileCursor = createCursor(programFiles.get(i));
                 if (fileCursor.equals(cursor)) {
                     startIndex = i + 1;
                     break;
@@ -286,12 +287,24 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         String nextCursor = null;
         if (endIndex < programFiles.size()) {
             DomainFile lastFile = programFiles.get(endIndex - 1);
-            nextCursor = lastFile.getName() + ":" + lastFile.getPathname();
+            nextCursor = createCursor(lastFile);
         }
 
         ghidra.util.Msg.info(this, "Returning page with " + programs.size() + " programs");
 
         return new PaginatedResult<>(programs, nextCursor);
+    }
+
+    /**
+     * Creates a pagination cursor that includes all sorting criteria.
+     * Format: isOpen:lastModifiedTime:name:pathname
+     * This ensures the cursor remains valid even if program states change between requests.
+     */
+    private String createCursor(DomainFile file) {
+        return file.isOpen() + ":" +
+               file.getLastModifiedTime() + ":" +
+               file.getName() + ":" +
+               file.getPathname();
     }
 
     /**
