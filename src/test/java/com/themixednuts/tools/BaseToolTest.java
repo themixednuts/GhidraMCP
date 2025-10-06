@@ -65,7 +65,7 @@ public abstract class BaseToolTest {
     protected FunctionManager mockFunctionManager;
     
     @Mock
-    protected DataTypeManager mockDataTypeManager;
+    protected ghidra.program.model.data.ProgramBasedDataTypeManager mockDataTypeManager;
     
     @Mock
     protected Memory mockMemory;
@@ -101,6 +101,7 @@ public abstract class BaseToolTest {
         when(mockProgram.getMemory()).thenReturn(mockMemory);
         when(mockProgram.getSymbolTable()).thenReturn(mockSymbolTable);
         when(mockProgram.getAddressFactory()).thenReturn(mockAddressFactory);
+        when(mockProgram.getDataTypeManager()).thenReturn(mockDataTypeManager);
         
         // Setup address mocks
         when(mockAddressFactory.getDefaultAddressSpace()).thenReturn(mockAddressSpace);

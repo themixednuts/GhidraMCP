@@ -22,8 +22,11 @@ import ghidra.program.model.data.DataTypeDependencyException;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.InvalidNameException;
 import ghidra.util.task.TaskMonitor;
+import ghidra.util.data.DataTypeParser;
+import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.program.model.address.Address;
+import ghidra.app.services.DataTypeManagerService;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
@@ -1642,11 +1645,16 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     }
 
     /**
-     * Resolves a data type using DataTypeManager as primary resolver with
-     * DataTypeUtilities fallback.
-     * DataTypeManager handles most resolution scenarios, with DataTypeUtilities for
-     * specific cases.
-     * Supports pointer types ending with '*' by creating pointers to the base type.
+     * Resolves a data type using Ghidra's DataTypeParser.
+     * Supports all standard Ghidra data type syntax including:
+     * - Basic types: byte, int, long, etc.
+     * - Pointers: byte*, byte**, pointer32*
+     * - Arrays: byte[5], byte[10][20]
+     * - Templated names: templated_name<int, void*, custom_type>
+     * - Namespaced types: A::B::C::typename
+     * - Category paths: /MyCategory/MyStruct (MCP client format)
+     *
+     * MCP clients may send paths starting with "/" which need special handling.
      */
     private DataType resolveDataTypeWithFallback(DataTypeManager dtm, String typeName) {
         if (dtm == null || typeName == null || typeName.trim().isEmpty()) {
@@ -1655,81 +1663,72 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         String trimmedName = typeName.trim();
 
-        // 1. PRIMARY: Use DataTypeManager.getDataType() - handles most resolution
-        // scenarios
-        // This method supports various path formats including absolute paths, category
-        // paths, etc.
-        try {
-            DataType result = dtm.getDataType(trimmedName);
-            if (result != null) {
-                return result;
-            }
-        } catch (Exception e) {
-            // Continue to next method
-        }
-
-        // Handle pointer types (ending with '*')
-        if (trimmedName.endsWith("*")) {
-            String baseTypeName = trimmedName.substring(0, trimmedName.length() - 1).trim();
-            DataType baseType = resolveDataTypeWithFallback(dtm, baseTypeName);
-            if (baseType != null) {
-                return PointerDataType.getPointer(baseType, dtm);
-            }
-            return null;
-        }
-
-        // 2. PRIMARY: Try with leading slash for relative paths
-        if (!trimmedName.startsWith("/")) {
+        // Handle MCP client category path format: /CategoryPath/TypeName
+        // DataTypeParser doesn't handle leading slashes, so we try direct resolution first
+        if (trimmedName.startsWith("/")) {
             try {
-                DataType result = dtm.getDataType("/" + trimmedName);
+                DataType result = dtm.getDataType(trimmedName);
                 if (result != null) {
                     return result;
                 }
-            } catch (Exception e) {
-                // Continue
-            }
-        }
 
-        // 3. PRIMARY: Handle category path + name format (e.g., "/Category/TypeName")
-        if (trimmedName.contains("/") && !trimmedName.startsWith("/")) {
-            try {
-                // Parse as category path + name
+                // Try parsing the category path + name format
                 int lastSlash = trimmedName.lastIndexOf('/');
                 if (lastSlash > 0) {
                     String categoryPathStr = trimmedName.substring(0, lastSlash);
                     String typeNameOnly = trimmedName.substring(lastSlash + 1);
                     CategoryPath categoryPath = new CategoryPath(categoryPathStr);
-                    DataType result = dtm.getDataType(categoryPath, typeNameOnly);
+                    result = dtm.getDataType(categoryPath, typeNameOnly);
                     if (result != null) {
                         return result;
                     }
                 }
             } catch (Exception e) {
-                // Continue
+                // Fall through to DataTypeParser
             }
         }
 
-        // 4. FALLBACK: Use DataTypeUtilities for specific primitive types
-        // Only when DataTypeManager can't resolve C primitive names like "unsigned int"
-        DataType result = DataTypeUtilities.getCPrimitiveDataType(trimmedName);
-        if (result != null) {
-            return result;
-        }
+        // Use Ghidra's DataTypeParser for standard type resolution
+        // This handles: pointers, arrays, templates, namespaces, primitives, etc.
+        try {
+            // Note: DataTypeParser requires both source and destination DTMs
+            // We use the same DTM for both since we're resolving within the same program
+            DataTypeParser parser = new DataTypeParser(
+                dtm,                    // Source DTM
+                dtm,                    // Destination DTM
+                null,                   // DataTypeManagerService (optional)
+                AllowedDataTypes.ALL    // Allow all data types
+            );
 
-        // 5. FALLBACK: Use DataTypeUtilities for namespace-qualified types (e.g.,
-        // "ns1::ns2::type")
-        if (trimmedName.contains("::")) {
-            result = DataTypeUtilities.findNamespaceQualifiedDataType(dtm, trimmedName, null);
+            DataType result = parser.parse(trimmedName);
             if (result != null) {
                 return result;
             }
+        } catch (Exception e) {
+            // If DataTypeParser fails, continue to fallback methods
         }
 
-        // 6. FALLBACK: Use DataTypeUtilities for general lookup with no namespace
-        // constraint
-        result = DataTypeUtilities.findDataType(dtm, null, trimmedName, null);
-        if (result != null) {
-            return result;
+        // Fallback: Try without leading slash if it was present
+        if (trimmedName.startsWith("/")) {
+            String nameWithoutSlash = trimmedName.substring(1);
+            try {
+                DataTypeParser parser = new DataTypeParser(dtm, dtm, null, AllowedDataTypes.ALL);
+                DataType result = parser.parse(nameWithoutSlash);
+                if (result != null) {
+                    return result;
+                }
+            } catch (Exception e) {
+                // Continue to final fallback
+            }
+        }
+
+        // Final fallback: Use DataTypeUtilities for namespace-qualified types
+        // This handles cases like "ns1::ns2::type" that might not be resolved above
+        if (trimmedName.contains("::")) {
+            DataType result = DataTypeUtilities.findNamespaceQualifiedDataType(dtm, trimmedName, null);
+            if (result != null) {
+                return result;
+            }
         }
 
         return null;
