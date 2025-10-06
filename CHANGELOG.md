@@ -7,6 +7,13 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+### Changed
+- **Data Type Resolution** - Refactored to use Ghidra's `DataTypeParser`
+  - Now uses Ghidra's standard `DataTypeParser` for consistent type resolution
+  - Supports all Ghidra data type syntax: pointers (`byte*`, `byte**`), arrays (`byte[5]`), templates, namespaces
+  - Maintains backward compatibility with MCP client path formats (paths starting with `/`)
+  - Follows patterns from Ghidra's `DataTypeParserTest` for maximum compatibility
+
 ## [0.4.3] - 2025-01-27
 
 ### Added
