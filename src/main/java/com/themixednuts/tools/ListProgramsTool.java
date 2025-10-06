@@ -37,7 +37,7 @@ import ghidra.framework.main.AppInfo;
 
     <return_value_summary>
     Returns an array of ProgramFileInfo objects, where each entry includes the program's name, project path,
-    version, open status, and metadata. Programs are sorted by name for consistent ordering.
+    version, open status, and metadata. Programs are sorted with open programs first, then by last modified time.
     </return_value_summary>
 
     <important_notes>
@@ -237,7 +237,7 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         collectDomainFiles(rootFolder, allFiles);
         ghidra.util.Msg.info(this, "Found " + allFiles.size() + " total domain files");
 
-        // Filter for program files
+        // Filter for program files and sort: open programs first, then by last modified (newest first)
         List<DomainFile> programFiles = allFiles.stream()
             .filter(file -> {
                 String contentType = file.getContentType();
@@ -249,7 +249,13 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
             })
             .filter(file -> matchesNameFilter(file.getName(), nameFilter))
             .filter(file -> !openOnly || file.isOpen())
-            .sorted(Comparator.comparing(DomainFile::getName, String.CASE_INSENSITIVE_ORDER))
+            .sorted(Comparator
+                // First: open programs come before closed programs
+                .comparing(DomainFile::isOpen, Comparator.reverseOrder())
+                // Then: sort by last modified time (newest first), null-safe (nulls last)
+                .thenComparing(DomainFile::getLastModifiedTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                // Finally: break ties with case-insensitive name
+                .thenComparing(DomainFile::getName, String.CASE_INSENSITIVE_ORDER))
             .collect(Collectors.toList());
 
         ghidra.util.Msg.info(this, "Found " + programFiles.size() + " programs after filtering");
@@ -258,8 +264,9 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         int startIndex = 0;
         if (cursor != null && !cursor.isEmpty()) {
             // Find the index after the cursor
+            // Cursor format: isOpen:lastModifiedTime:name:pathname
             for (int i = 0; i < programFiles.size(); i++) {
-                String fileCursor = programFiles.get(i).getName() + ":" + programFiles.get(i).getPathname();
+                String fileCursor = createCursor(programFiles.get(i));
                 if (fileCursor.equals(cursor)) {
                     startIndex = i + 1;
                     break;
@@ -280,12 +287,24 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         String nextCursor = null;
         if (endIndex < programFiles.size()) {
             DomainFile lastFile = programFiles.get(endIndex - 1);
-            nextCursor = lastFile.getName() + ":" + lastFile.getPathname();
+            nextCursor = createCursor(lastFile);
         }
 
         ghidra.util.Msg.info(this, "Returning page with " + programs.size() + " programs");
 
         return new PaginatedResult<>(programs, nextCursor);
+    }
+
+    /**
+     * Creates a pagination cursor that includes all sorting criteria.
+     * Format: isOpen:lastModifiedTime:name:pathname
+     * This ensures the cursor remains valid even if program states change between requests.
+     */
+    private String createCursor(DomainFile file) {
+        return file.isOpen() + ":" +
+               file.getLastModifiedTime() + ":" +
+               file.getName() + ":" +
+               file.getPathname();
     }
 
     /**
