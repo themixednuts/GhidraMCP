@@ -252,8 +252,8 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
             .sorted(Comparator
                 // First: open programs come before closed programs
                 .comparing(DomainFile::isOpen, Comparator.reverseOrder())
-                // Then: sort by last modified time (newest first)
-                .thenComparing(DomainFile::getLastModifiedTime, Comparator.reverseOrder())
+                // Then: sort by last modified time (newest first), null-safe (nulls last)
+                .thenComparing(DomainFile::getLastModifiedTime, Comparator.nullsLast(Comparator.reverseOrder()))
                 // Finally: break ties with case-insensitive name
                 .thenComparing(DomainFile::getName, String.CASE_INSENSITIVE_ORDER))
             .collect(Collectors.toList());
