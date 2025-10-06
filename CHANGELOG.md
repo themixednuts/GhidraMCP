@@ -13,6 +13,10 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
   - Supports all Ghidra data type syntax: pointers (`byte*`, `byte**`), arrays (`byte[5]`), templates, namespaces
   - Maintains backward compatibility with MCP client path formats (paths starting with `/`)
   - Follows patterns from Ghidra's `DataTypeParserTest` for maximum compatibility
+- **List Programs Sorting** - Improved program list ordering for better UX
+  - Open programs now appear first in the list
+  - Programs sorted by last modified time (newest first) after open status
+  - Makes frequently accessed programs easier to find with pagination
 
 ## [0.4.3] - 2025-01-27
 
