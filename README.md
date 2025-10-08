@@ -76,6 +76,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 
 ### Utilities
 
+- **Batch Operations** - Execute multiple tool operations in a single
+  transaction with automatic rollback on failure
 - **Undo/Redo** - Transaction-based undo/redo operations
 
 ---
