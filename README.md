@@ -14,14 +14,15 @@
 
 <div align="center">
 
-  [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
 
 </div>
 <h1 align="center">GhidraMCP</h1>
 
 > Ghidra integration for the Model Context Protocol (MCP)
 
-A Ghidra extension that runs an embedded MCP server to expose Ghidra program data and functionalities via tools.
+A Ghidra extension that runs an embedded MCP server to expose Ghidra program
+data and functionalities via tools.
 
 ---
 
@@ -30,133 +31,171 @@ A Ghidra extension that runs an embedded MCP server to expose Ghidra program dat
 GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 
 ### Core Analysis
-- **Analyze RTTI** - Microsoft RTTI structure analysis with type detection and demangling
-- **Decompile Code** - Function decompilation to C-like pseudocode with P-code analysis
+
+- **Analyze RTTI** - Microsoft RTTI structure analysis with type detection and
+  demangling
+- **Decompile Code** - Function decompilation to C-like pseudocode with P-code
+  analysis
 - **Demangle Symbols** - C++ symbol demangling with multiple format support
 - **Execute Scripts** - Run Ghidra scripts within the analysis environment
 
 ### Management Operations
-- **Manage Data Types** - Create and update structures, enums, unions, typedefs, and categories
-- **Manage Functions** - Create, update, and manage function definitions and prototypes
-- **Manage Memory** - Read/write bytes, manage segments, and analyze memory layout
-- **Manage Project** - Navigate addresses, manage bookmarks, and control project settings
-- **Manage Symbols** - Create, rename, and organize symbols with namespace support
+
+- **Manage Data Types** - Create and update structures, enums, unions, typedefs,
+  and categories
+- **Manage Functions** - Create, update, and manage function definitions and
+  prototypes
+- **Manage Memory** - Read/write bytes, manage segments, and analyze memory
+  layout
+- **Manage Project** - Navigate addresses, manage bookmarks, and control project
+  settings
+- **Manage Symbols** - Create, rename, and organize symbols with namespace
+  support
 
 ### Read Operations
-- **Read Data Types** - Browse and query program data types with filtering and pagination
+
+- **Read Data Types** - Browse and query program data types with filtering and
+  pagination
 - **Read Functions** - Enumerate functions with detailed metadata and filtering
 - **Read Memory Blocks** - View memory segments, permissions, and properties
 - **Read Symbols** - Browse symbols with type and namespace filtering
 
 ### Delete Operations
+
 - **Delete Bookmark** - Remove bookmarks by address or category
 - **Delete Data Type** - Remove data type definitions from the program
 - **Delete Function** - Remove function definitions and associated data
 - **Delete Symbol** - Remove symbols by name, ID, or address
 
 ### Discovery & Search
+
 - **List Analysis Options** - View available analysis options and settings
 - **List Programs** - Discover open and closed programs in the project
 - **Find References** - Locate code and data references
 - **Search Memory** - Pattern search with hex, string, binary, and regex support
 
 ### Utilities
+
 - **Undo/Redo** - Transaction-based undo/redo operations
 
 ---
 
 ## 🚀 Installation
 
-1.  Download the latest release `zip` file from the [Releases](https://github.com/themixednuts/GhidraMCP/releases) page.
-2.  In Ghidra, go to `File` -> `Install Extensions...`.
-3.  Click the `+` button (Add extension) in the top right corner.
-4.  Navigate to the downloaded `zip` file and select it.
-5.  Ensure the `GhidraMCP` extension is checked in the list and click `OK`.
-6.  Restart Ghidra.
+1. Download the latest release `zip` file from the
+   [Releases](https://github.com/themixednuts/GhidraMCP/releases) page.
+2. In Ghidra, go to `File` -> `Install Extensions...`.
+3. Click the `+` button (Add extension) in the top right corner.
+4. Navigate to the downloaded `zip` file and select it.
+5. Ensure the `GhidraMCP` extension is checked in the list and click `OK`.
+6. Restart Ghidra.
 
 ---
 
 ## ▶️ Usage
 
-1.  Ensure Ghidra is running with the GhidraMCP extension active.
-2.  Configure the MCP server settings (see 'Configuration' below).
-3.  Ensure your MCP Client is configured to connect to the GhidraMCP server (see 'Configuring an MCP Client' below).
+1. Ensure Ghidra is running with the GhidraMCP extension active.
+2. Configure the MCP server settings (see 'Configuration' below).
+3. Ensure your MCP Client is configured to connect to the GhidraMCP server (see
+   'Configuring an MCP Client' below).
 
-> [!WARNING] > **Script Error Dialogs:** Some tools that execute Ghidra scripts may trigger GUI error dialogs via `Msg.showError`. These dialogs **must** be manually closed, or the server will hang and become unresponsive.
+> [!WARNING] > **Script Error Dialogs:** Some tools that execute Ghidra scripts
+> may trigger GUI error dialogs via `Msg.showError`. These dialogs **must** be
+> manually closed, or the server will hang and become unresponsive.
 
-> [!TIP] > **Missing fileName Parameter:** When tools request a `fileName` parameter, use the `list_open_files` tool to see available programs. Most tools provide this context automatically on failed calls.
+> [!TIP] > **Missing fileName Parameter:** When tools request a `fileName`
+> parameter, use the `list_open_files` tool to see available programs. Most
+> tools provide this context automatically on failed calls.
 
 ## ⚙️ Configuration
 
-The GhidraMCP server can be configured through Ghidra's application-level settings:
+The GhidraMCP server can be configured through Ghidra's application-level
+settings:
 
-1.  In Ghidra, go to **Browser** → **Edit** → **Tool Options**.
-2.  In the left panel, expand **Miscellaneous** and select **GhidraMCP HTTP Server**.
-3.  Configure the following options:
-    - **Server Port**: The port number for the MCP server (default: 8080)
-    - **Auto-start Server**: Whether to automatically start the server when Ghidra launches
-4.  Click **OK** to save your settings.
+1. In Ghidra, go to **Browser** → **Edit** → **Tool Options**.
+2. In the left panel, expand **Miscellaneous** and select **GhidraMCP HTTP
+   Server**.
+3. Configure the following options:
+   - **Server Port**: The port number for the MCP server (default: 8080)
+   - **Auto-start Server**: Whether to automatically start the server when
+     Ghidra launches
+4. Click **OK** to save your settings.
 
-> [!NOTE] > **Port Configuration:** If you change the default port (8080), you must update your MCP client configuration accordingly (see 'Configuring an MCP Client' below).
+> [!NOTE] > **Port Configuration:** If you change the default port (8080), you
+> must update your MCP client configuration accordingly (see 'Configuring an MCP
+> Client' below).
 
 ## 🛠️ Building from Source
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/themixednuts/GhidraMCP.git
-    ```
-2.  Navigate to the project directory:
-    ```bash
-    cd GhidraMCP
-    ```
-3.  Ensure you have [Apache Maven](https://maven.apache.org/install.html) and a JDK (compatible version, e.g., JDK 21 or later recommended for modern Ghidra development) installed.
-4.  Copy the following required JAR files from your Ghidra installation directory into the `lib/` directory of this project. Create the `lib/` directory if it doesn't exist:
-    - `Ghidra/Features/Base/lib/Base.jar`
-    - `Ghidra/Features/Decompiler/lib/Decompiler.jar`
-    - `Ghidra/Framework/Docking/lib/Docking.jar`
-    - `Ghidra/Framework/Generic/lib/Generic.jar`
-    - `Ghidra/Framework/Project/lib/Project.jar`
-    - `Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar`
-    - `Ghidra/Framework/Utility/lib/Utility.jar`
-    - `Ghidra/Framework/Gui/lib/Gui.jar`
-    - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
-    - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
-    - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
-      > [!NOTE]
-      > Paths are relative to your Ghidra installation folder. Exact paths might vary slightly based on Ghidra version and OS.
-5.  Build the project using Maven:
-    ```bash
-    mvn clean package assembly:single
-    ```
-6.  The installable `zip` file will be located in the `target/` directory (e.g., `target/GhidraMCP-*-SNAPSHOT-ghidra.zip`). Follow the Installation steps above using this file.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/themixednuts/GhidraMCP.git
+   ```
+2. Navigate to the project directory:
+   ```bash
+   cd GhidraMCP
+   ```
+3. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and a
+   JDK (compatible version, e.g., JDK 21 or later recommended for modern Ghidra
+   development) installed.
+4. Copy the following required JAR files from your Ghidra installation directory
+   into the `lib/` directory of this project. Create the `lib/` directory if it
+   doesn't exist:
+   - `Ghidra/Features/Base/lib/Base.jar`
+   - `Ghidra/Features/Decompiler/lib/Decompiler.jar`
+   - `Ghidra/Framework/Docking/lib/Docking.jar`
+   - `Ghidra/Framework/Generic/lib/Generic.jar`
+   - `Ghidra/Framework/Project/lib/Project.jar`
+   - `Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar`
+   - `Ghidra/Framework/Utility/lib/Utility.jar`
+   - `Ghidra/Framework/Gui/lib/Gui.jar`
+   - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
+   - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
+   - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
+     > [!NOTE]
+     > Paths are relative to your Ghidra installation folder. Exact paths might
+     > vary slightly based on Ghidra version and OS.
+5. Build the project using Maven:
+   ```bash
+   mvn clean package assembly:single
+   ```
+6. The installable `zip` file will be located in the `target/` directory (e.g.,
+   `target/GhidraMCP-*-SNAPSHOT-ghidra.zip`). Follow the Installation steps
+   above using this file.
 
 ---
 
 ## 🔌 Configuring an MCP Client
 
-To allow an MCP client (like Claude Desktop or a custom client) to interact with Ghidra via this extension, you need to configure the client to connect to the server endpoint provided by GhidraMCP.
+To allow an MCP client (like Claude Desktop or a custom client) to interact with
+Ghidra via this extension, you need to configure the client to connect to the
+server endpoint provided by GhidraMCP.
 
-The GhidraMCP server runs within Ghidra itself when the extension is active. It exposes an HTTP endpoint for stateless MCP communication.
+The GhidraMCP server runs within Ghidra itself when the extension is active. It
+exposes an HTTP endpoint for stateless MCP communication.
 
 ### Agent-Specific Setup Instructions
 
 <details>
 <summary><strong>🤖 Claude Desktop</strong></summary>
 
-For Claude Desktop, add the following configuration to your `claude_desktop_config.json` file. Adjust the key (`"ghidra"` in this example) as needed:
+For Claude Desktop, add the following configuration to your
+`claude_desktop_config.json` file. Adjust the key (`"ghidra"` in this example)
+as needed:
 
 ```json
 {
-	"mcpServers": {
-		"ghidra": {
-			"url": "http://127.0.0.1:8080/mcp"
-		}
-		// Add other MCP server configurations here if needed
-	}
+  "mcpServers": {
+    "ghidra": {
+      "url": "http://127.0.0.1:8080/mcp"
+    }
+    // Add other MCP server configurations here if needed
+  }
 }
 ```
 
 **Configuration file location:**
+
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
@@ -181,21 +220,23 @@ This will automatically configure the MCP server connection for Claude Code.
 <details>
 <summary><strong>⚡ Cursor</strong></summary>
 
-For Cursor, you can [install via this link](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D).
+For Cursor, you can
+[install via this link](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D).
 
 Or manually add to your MCP configuration:
 
 ```json
 {
-	"mcpServers": {
-		"ghidra": {
-			"url": "http://127.0.0.1:8080/mcp"
-		}
-	}
+  "mcpServers": {
+    "ghidra": {
+      "url": "http://127.0.0.1:8080/mcp"
+    }
+  }
 }
 ```
 
 **Configuration file location:**
+
 - `~/.cursor/mcp_settings.json` (or your Cursor configuration directory)
 
 </details>
@@ -203,16 +244,17 @@ Or manually add to your MCP configuration:
 <details>
 <summary><strong>🛠️ Custom MCP Client</strong></summary>
 
-For custom MCP clients or other implementations, use the standard MCP configuration format:
+For custom MCP clients or other implementations, use the standard MCP
+configuration format:
 
 ```json
 {
-	"mcpServers": {
-		"ghidra": {
-			"url": "http://127.0.0.1:8080/mcp",
-			"transport": "http"
-		}
-	}
+  "mcpServers": {
+    "ghidra": {
+      "url": "http://127.0.0.1:8080/mcp",
+      "transport": "http"
+    }
+  }
 }
 ```
 
@@ -223,21 +265,30 @@ The server supports standard MCP over HTTP protocol.
 ---
 
 > [!IMPORTANT]
-> **Port:** The default port is `8080`. This is configurable within Ghidra under **Browser** → **Edit** → **Tool Options** → **Miscellaneous** → **GhidraMCP HTTP Server**. If you change the port in Ghidra, you **must** update the `url` in your client configuration accordingly.
+> **Port:** The default port is `8080`. This is configurable within Ghidra under
+> **Browser** → **Edit** → **Tool Options** → **Miscellaneous** → **GhidraMCP
+> HTTP Server**. If you change the port in Ghidra, you **must** update the `url`
+> in your client configuration accordingly.
 
 > [!IMPORTANT]
-> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled for the client to connect successfully.
+> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled
+> for the client to connect successfully.
 
 > [!NOTE]
-> **Timeout Issues:** If you encounter timeout problems, refer to the [Ghidra timeout configuration guide](https://github.com/NationalSecurityAgency/ghidra/issues/1613#issuecomment-597165377).
+> **Timeout Issues:** If you encounter timeout problems, refer to the
+> [Ghidra timeout configuration guide](https://github.com/NationalSecurityAgency/ghidra/issues/1613#issuecomment-597165377).
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues.
-AI agents are also welcome to contribute; please ensure agents refer to the project's contribution guidelines and development conventions (often found in `.cursor/rules/` or a `CONTRIBUTING.md` file if present).
+Contributions are welcome! Please feel free to submit pull requests or open
+issues. AI agents are also welcome to contribute; please ensure agents refer to
+the project's contribution guidelines and development conventions (often found
+in `.cursor/rules/` or a `CONTRIBUTING.md` file if present).
 
 ---
 
 ## Acknowledgements
 
-This project is heavily inspired by and based on the work of [LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this plugin directly embeds the server in the plugin.
+This project is heavily inspired by and based on the work of
+[LaurieWired](https://github.com/LaurieWired). Instead of using a bridge, this
+plugin directly embeds the server in the plugin.
