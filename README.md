@@ -36,19 +36,27 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 - **Execute Scripts** - Run Ghidra scripts within the analysis environment
 
 ### Management Operations
-- **Data Types** - CRUD operations for structures, enums, unions, typedefs, and categories
-- **Functions** - Create, update, and manage function definitions and prototypes
-- **Memory** - Read/write bytes, manage segments, and analyze memory layout
-- **Project** - Navigate addresses, manage bookmarks, and control project settings
-- **Symbols** - Create, rename, delete, and organize symbols with namespace support
+- **Manage Data Types** - Create and update structures, enums, unions, typedefs, and categories
+- **Manage Functions** - Create, update, and manage function definitions and prototypes
+- **Manage Memory** - Read/write bytes, manage segments, and analyze memory layout
+- **Manage Project** - Navigate addresses, manage bookmarks, and control project settings
+- **Manage Symbols** - Create, rename, and organize symbols with namespace support
+
+### Read Operations
+- **Read Data Types** - Browse and query program data types with filtering and pagination
+- **Read Functions** - Enumerate functions with detailed metadata and filtering
+- **Read Memory Blocks** - View memory segments, permissions, and properties
+- **Read Symbols** - Browse symbols with type and namespace filtering
+
+### Delete Operations
+- **Delete Bookmark** - Remove bookmarks by address or category
+- **Delete Data Type** - Remove data type definitions from the program
+- **Delete Function** - Remove function definitions and associated data
+- **Delete Symbol** - Remove symbols by name, ID, or address
 
 ### Discovery & Search
 - **List Analysis Options** - View available analysis options and settings
-- **List Data Types** - Browse program data types with filtering
-- **List Functions** - Enumerate functions with detailed metadata
-- **List Memory Blocks** - View memory segments and permissions
 - **List Programs** - Discover open and closed programs in the project
-- **List Symbols** - Browse symbols with type and namespace filtering
 - **Find References** - Locate code and data references
 - **Search Memory** - Pattern search with hex, string, binary, and regex support
 
