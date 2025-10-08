@@ -7,7 +7,8 @@ import java.util.List;
 
 /**
  * Result of a batch operation containing all individual operation results.
- * Used by BatchOperationsTool to return structured results for multiple tool executions.
+ * Used by BatchOperationsTool to return structured results for multiple tool
+ * executions.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class BatchOperationResult {
@@ -121,4 +122,3 @@ public class BatchOperationResult {
         }
     }
 }
-

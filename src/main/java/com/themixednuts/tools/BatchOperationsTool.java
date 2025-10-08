@@ -16,14 +16,12 @@ import reactor.core.publisher.Mono;
 import java.util.*;
 
 /**
- * Batch operations tool that executes multiple tool calls in sequence within a single transaction.
- * If any operation fails, the entire transaction is rolled back and the error is bubbled up.
+ * Batch operations tool that executes multiple tool calls in sequence within a
+ * single transaction.
+ * If any operation fails, the entire transaction is rolled back and the error
+ * is bubbled up.
  */
-@GhidraMcpTool(
-    name = "Batch Operations",
-    description = "Execute multiple tool operations in a single transaction. All operations succeed or all are reverted.",
-    mcpName = "batch_operations",
-    mcpDescription = """
+@GhidraMcpTool(name = "Batch Operations", description = "Execute multiple tool operations in a single transaction. All operations succeed or all are reverted.", mcpName = "batch_operations", mcpDescription = """
         <use_case>
         Executes multiple Ghidra tool operations in sequence within a single transaction.
         Useful for bulk operations like defining multiple symbols, creating multiple data types,
@@ -158,8 +156,7 @@ import java.util.*;
         - Propagates the original tool's error if an operation fails during execution
         - Transaction rollback is automatic on any failure
         </error_handling_summary>
-        """
-)
+        """)
 public class BatchOperationsTool implements IGhidraMcpSpecification {
 
     public static final String ARG_OPERATIONS = "operations";
@@ -235,7 +232,7 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
         for (int i = 0; i < operations.size(); i++) {
             Map<String, Object> operation = operations.get(i);
             String toolName = getRequiredStringArgument(operation, ARG_TOOL);
-            
+
             if (!toolCache.containsKey(toolName)) {
                 GhidraMcpError error = GhidraMcpError.validation()
                         .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -262,7 +259,7 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
         return getProgram(args, tool)
                 .flatMap(program -> executeInTransaction(program, "Batch Operations", () -> {
                     List<BatchOperationResult.IndividualOperationResult> results = new ArrayList<>();
-                    
+
                     for (int i = 0; i < operations.size(); i++) {
                         Map<String, Object> operation = operations.get(i);
                         String toolName = getRequiredStringArgument(operation, ARG_TOOL);
@@ -271,7 +268,7 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
                         toolArgs.put(ARG_FILE_NAME, args.get(ARG_FILE_NAME));
 
                         IGhidraMcpSpecification toolInstance = toolCache.get(toolName);
-                        
+
                         try {
                             Object result = toolInstance.execute(context, toolArgs, tool).block();
                             results.add(BatchOperationResult.IndividualOperationResult.success(i, toolName, result));
@@ -296,23 +293,23 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
                         }
                     }
 
-                    int successCount = (int) results.stream().filter(BatchOperationResult.IndividualOperationResult::isSuccess).count();
+                    int successCount = (int) results.stream()
+                            .filter(BatchOperationResult.IndividualOperationResult::isSuccess).count();
                     int failCount = results.size() - successCount;
-                    
+
                     return new BatchOperationResult(
                             failCount == 0,
                             results.size(),
                             successCount,
                             failCount,
                             results,
-                            failCount == 0 
-                                ? "All " + results.size() + " operations completed successfully"
-                                : "Batch operation failed at operation " + results.stream()
-                                    .filter(r -> !r.isSuccess())
-                                    .findFirst()
-                                    .map(BatchOperationResult.IndividualOperationResult::getOperationIndex)
-                                    .orElse(-1)
-                    );
+                            failCount == 0
+                                    ? "All " + results.size() + " operations completed successfully"
+                                    : "Batch operation failed at operation " + results.stream()
+                                            .filter(r -> !r.isSuccess())
+                                            .findFirst()
+                                            .map(BatchOperationResult.IndividualOperationResult::getOperationIndex)
+                                            .orElse(-1));
                 }));
     }
 
@@ -340,4 +337,3 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
         return (Map<String, Object>) value;
     }
 }
-
