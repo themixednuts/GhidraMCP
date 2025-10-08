@@ -32,29 +32,26 @@ import java.util.stream.StreamSupport;
 import java.util.Spliterator;
 import java.util.Spliterators;
 
-@GhidraMcpTool(
-    name = "Manage Symbols",
-    description = "Symbol CRUD operations: create, read, update, and delete symbols and labels.",
-    mcpName = "manage_symbols",
-    mcpDescription = """
-        <use_case>
-        Symbol CRUD operations for reverse engineering. Create labels, read symbol information,
-        rename functions and variables, update symbol properties, and delete symbols. Essential
-        for organizing analysis results and improving code readability.
-        </use_case>
+@GhidraMcpTool(name = "Manage Symbols", description = "Symbol operations: create, update, and convert symbols and labels.", mcpName = "manage_symbols", mcpDescription = """
+         <use_case>
+         Symbol operations for reverse engineering. Create labels,
+         rename functions and variables, update symbol properties. Essential
+         for organizing analysis results and improving code readability.
+         </use_case>
 
-        <important_notes>
-        - Supports multiple symbol identification methods (name, address, symbol ID)
-        - Handles namespace organization and symbol scoping
-        - Validates symbol names according to Ghidra rules
-        - Provides detailed symbol information including type and context
-        - Can convert existing namespaces to classes using the convert_to_class action
-        - Namespace to class conversion requires the namespace to not be within a function
-        - Use ListSymbolsTool for browsing symbols with filtering
-        - Use FindSymbolTool for finding specific symbols
-        - Use SearchMemoryTool for pattern-based symbol searching
-        - Use '.*' to match any characters, escape special regex characters if needed
-        </important_notes>
+         <important_notes>
+         - Supports multiple symbol identification methods (name, address, symbol ID)
+         - Handles namespace organization and symbol scoping
+         - Validates symbol names according to Ghidra rules
+         - Provides detailed symbol information including type and context
+         - Can convert existing namespaces to classes using the convert_to_class action
+         - Namespace to class conversion requires the namespace to not be within a function
+         - Use ReadSymbolsTool for reading/browsing symbols with filtering
+         - Use FindSymbolTool for finding specific symbols
+         - Use SearchMemoryTool for pattern-based symbol searching
+         - Use DeleteSymbolTool to delete symbols
+         - Use '.*' to match any characters, escape special regex characters if needed
+         </important_notes>
 
         <examples>
         Create a label:
@@ -90,11 +87,8 @@ import java.util.Spliterators;
           "max_results": 10
         }
         </examples>
-        """
-)
+        """)
 public class ManageSymbolsTool implements IGhidraMcpSpecification {
-
-
 
     public static final String ARG_ACTION = "action";
     public static final String ARG_SYMBOL_TYPE = "symbol_type";
@@ -109,9 +103,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     private static final int DEFAULT_PAGE_SIZE = 100;
 
     private static final String ACTION_CREATE = "create";
-    private static final String ACTION_READ = "read";
     private static final String ACTION_UPDATE = "update";
-    private static final String ACTION_DELETE = "delete";
     private static final String ACTION_CONVERT_TO_CLASS = "convert_to_class";
 
     /**
@@ -130,9 +122,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
                 .enumValues(
                         ACTION_CREATE,
-                        ACTION_READ,
                         ACTION_UPDATE,
-                        ACTION_DELETE,
                         ACTION_CONVERT_TO_CLASS)
                 .description("Action to perform on symbols"));
 
@@ -160,7 +150,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 .description("Unique symbol ID for precise identification"));
 
         schemaRoot.property(ARG_NAME_PATTERN, JsonSchemaBuilder.string(mapper)
-                .description("Regular expression pattern for symbol name matching. The entire symbol name must match the pattern. Examples: '.*s_typeId.*' matches any symbol containing 's_typeId', 'CanvasAsset.*s_typeId' matches symbols starting with 'CanvasAsset' and ending with 's_typeId', '.*' matches all symbols."));
+                .description(
+                        "Regular expression pattern for symbol name matching. The entire symbol name must match the pattern. Examples: '.*s_typeId.*' matches any symbol containing 's_typeId', 'CanvasAsset.*s_typeId' matches symbols starting with 'CanvasAsset' and ending with 's_typeId', '.*' matches all symbols."));
 
         schemaRoot.property(ARG_SYMBOL_TYPE_FILTER, JsonSchemaBuilder.string(mapper)
                 .enumValues("Function", "Label", "Parameter", "LocalVariable", "GlobalVariable", "Class", "Namespace")
@@ -192,8 +183,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
      * Executes the symbol management operation.
      * 
      * @param context The MCP transport context
-     * @param args The tool arguments containing fileName, action, and action-specific parameters
-     * @param tool The Ghidra PluginTool context
+     * @param args    The tool arguments containing fileName, action, and
+     *                action-specific parameters
+     * @param tool    The Ghidra PluginTool context
      * @return A Mono emitting the result of the symbol operation
      */
     @Override
@@ -205,38 +197,32 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
 
             return switch (action.toLowerCase()) {
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
-                case ACTION_READ -> handleRead(program, args, annotation);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation);
-                case ACTION_DELETE -> handleDelete(program, args, annotation);
                 case ACTION_CONVERT_TO_CLASS -> handleConvertToClass(program, args, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                        .message("Invalid action: " + action)
-                        .context(new GhidraMcpError.ErrorContext(
-                            annotation.mcpName(),
-                            "action validation",
-                            args,
-                            Map.of(ARG_ACTION, action),
-                            Map.of("validActions", List.of(
-                                    ACTION_CREATE,
-                                    ACTION_READ,
-                                    ACTION_UPDATE,
-                                    ACTION_DELETE,
-                                    ACTION_CONVERT_TO_CLASS))))
-                        .suggestions(List.of(
-                            new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Use a valid action",
-                                "Choose from: create, read, update, delete, convert_to_class",
-                                List.of(
-                                        ACTION_CREATE,
-                                        ACTION_READ,
-                                        ACTION_UPDATE,
-                                        ACTION_DELETE,
-                                        ACTION_CONVERT_TO_CLASS),
-                                null)))
-                        .build();
+                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                            .message("Invalid action: " + action)
+                            .context(new GhidraMcpError.ErrorContext(
+                                    annotation.mcpName(),
+                                    "action validation",
+                                    args,
+                                    Map.of(ARG_ACTION, action),
+                                    Map.of("validActions", List.of(
+                                            ACTION_CREATE,
+                                            ACTION_UPDATE,
+                                            ACTION_CONVERT_TO_CLASS))))
+                            .suggestions(List.of(
+                                    new GhidraMcpError.ErrorSuggestion(
+                                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                            "Use a valid action",
+                                            "Choose from: create, update, convert_to_class",
+                                            List.of(
+                                                    ACTION_CREATE,
+                                                    ACTION_UPDATE,
+                                                    ACTION_CONVERT_TO_CLASS),
+                                            null)))
+                            .build();
                     yield Mono.error(new GhidraMcpException(error));
                 }
             };
@@ -249,8 +235,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
 
         // Address is optional for class and namespace symbols (they use NO_ADDRESS)
-        String addressStr = (symbolType.equalsIgnoreCase("class") || symbolType.equalsIgnoreCase("namespace")) ?
-            null : getRequiredStringArgument(args, ARG_ADDRESS);
+        String addressStr = (symbolType.equalsIgnoreCase("class") || symbolType.equalsIgnoreCase("namespace")) ? null
+                : getRequiredStringArgument(args, ARG_ADDRESS);
 
         return executeInTransaction(program, "MCP - Create " + symbolType + " " + name, () -> {
             // Validate symbol name
@@ -258,22 +244,22 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 SymbolUtilities.validateName(name);
             } catch (InvalidInputException e) {
                 GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                    .message("Invalid symbol name: " + e.getMessage())
-                    .context(new GhidraMcpError.ErrorContext(
-                        annotation.mcpName(),
-                        "name validation",
-                        args,
-                        Map.of(ARG_NAME, name),
-                        Map.of("validationError", e.getMessage())))
-                    .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                            "Use valid symbol name format",
-                            "Symbol names must be valid identifiers",
-                            List.of("my_symbol", "Symbol_123", "importantFunction"),
-                            null)))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message("Invalid symbol name: " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                                annotation.mcpName(),
+                                "name validation",
+                                args,
+                                Map.of(ARG_NAME, name),
+                                Map.of("validationError", e.getMessage())))
+                        .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                        "Use valid symbol name format",
+                                        "Symbol names must be valid identifiers",
+                                        List.of("my_symbol", "Symbol_123", "importantFunction"),
+                                        null)))
+                        .build();
                 throw new GhidraMcpException(error);
             }
 
@@ -287,9 +273,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     }
                 } catch (Exception e) {
                     GhidraMcpError error = GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                        .message("Failed to parse address: " + e.getMessage())
-                        .build();
+                            .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                            .message("Failed to parse address: " + e.getMessage())
+                            .build();
                     throw new GhidraMcpException(error);
                 }
             }
@@ -301,9 +287,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 case "namespace" -> createNamespace(program, name, namespaceOpt, annotation);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                        .message("Unsupported symbol type for creation: " + symbolType)
-                        .build();
+                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                            .message("Unsupported symbol type for creation: " + symbolType)
+                            .build();
                     throw new GhidraMcpException(error);
                 }
             };
@@ -311,27 +297,27 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     }
 
     private Object createLabel(Program program, String name, Address address,
-                              Optional<String> namespaceOpt, GhidraMcpTool annotation) throws GhidraMcpException {
+            Optional<String> namespaceOpt, GhidraMcpTool annotation) throws GhidraMcpException {
         AddLabelCmd cmd = new AddLabelCmd(address, name, SourceType.USER_DEFINED);
 
         if (!cmd.applyTo(program)) {
             GhidraMcpError error = GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                .message("Failed to create label: " + cmd.getStatusMsg())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "label creation",
-                    Map.of(ARG_NAME, name, ARG_ADDRESS, address.toString()),
-                    Map.of("commandStatus", cmd.getStatusMsg()),
-                    Map.of("commandFailed", true)))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                        "Check if label already exists at address",
-                        "Verify address doesn't already have a conflicting symbol",
-                        null,
-                        null)))
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to create label: " + cmd.getStatusMsg())
+                    .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "label creation",
+                            Map.of(ARG_NAME, name, ARG_ADDRESS, address.toString()),
+                            Map.of("commandStatus", cmd.getStatusMsg()),
+                            Map.of("commandFailed", true)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                    "Check if label already exists at address",
+                                    "Verify address doesn't already have a conflicting symbol",
+                                    null,
+                                    null)))
+                    .build();
             throw new GhidraMcpException(error);
         }
 
@@ -348,9 +334,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         if (createdSymbol == null) {
             // This shouldn't happen if creation succeeded, but handle it
             GhidraMcpError error = GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                .message("Symbol created but could not be retrieved")
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                    .message("Symbol created but could not be retrieved")
+                    .build();
             throw new GhidraMcpException(error);
         }
 
@@ -358,7 +344,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     }
 
     private Object createClass(Program program, String name, Optional<String> namespaceOpt,
-                              GhidraMcpTool annotation) throws GhidraMcpException {
+            GhidraMcpTool annotation) throws GhidraMcpException {
         SymbolTable symbolTable = program.getSymbolTable();
 
         // Support hierarchical class creation with namespace path
@@ -374,11 +360,10 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             // 1. Create full namespace hierarchy (even for simple names)
             // 2. Convert the final namespace to a class
             Namespace namespace = NamespaceUtils.createNamespaceHierarchy(
-                name,
-                parentNamespace,
-                program,
-                SourceType.USER_DEFINED
-            );
+                    name,
+                    parentNamespace,
+                    program,
+                    SourceType.USER_DEFINED);
 
             // Convert the namespace to a class
             Namespace classNamespace = NamespaceUtils.convertNamespaceToClass(namespace);
@@ -386,47 +371,47 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             return new SymbolInfo(classSymbol);
         } catch (InvalidInputException e) {
             GhidraMcpError error = GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Invalid class name: " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "class name validation",
-                    Map.of(ARG_NAME, name),
-                    Map.of("validationError", e.getMessage()),
-                    Map.of("nameValid", false)))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                        "Use a valid class name",
-                        "Class names must follow Ghidra symbol naming conventions. Use '::' to create nested classes.",
-                        List.of("MyClass", "Outer::Inner", "Game::Player"),
-                        null)))
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                    .message("Invalid class name: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "class name validation",
+                            Map.of(ARG_NAME, name),
+                            Map.of("validationError", e.getMessage()),
+                            Map.of("nameValid", false)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                    "Use a valid class name",
+                                    "Class names must follow Ghidra symbol naming conventions. Use '::' to create nested classes.",
+                                    List.of("MyClass", "Outer::Inner", "Game::Player"),
+                                    null)))
+                    .build();
             throw new GhidraMcpException(error);
         } catch (Exception e) {
             GhidraMcpError error = GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                .message("Failed to create class: " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "class creation",
-                    Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
-                    Map.of("exceptionType", e.getClass().getSimpleName()),
-                    Map.of("creationFailed", true)))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                        "Check if class already exists",
-                        "Verify class name doesn't conflict with existing symbols",
-                        null,
-                        null)))
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to create class: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "class creation",
+                            Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                            Map.of("exceptionType", e.getClass().getSimpleName()),
+                            Map.of("creationFailed", true)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                    "Check if class already exists",
+                                    "Verify class name doesn't conflict with existing symbols",
+                                    null,
+                                    null)))
+                    .build();
             throw new GhidraMcpException(error);
         }
     }
 
     private Object createNamespace(Program program, String name, Optional<String> namespaceOpt,
-                                  GhidraMcpTool annotation) throws GhidraMcpException {
+            GhidraMcpTool annotation) throws GhidraMcpException {
         SymbolTable symbolTable = program.getSymbolTable();
 
         // Support hierarchical namespace creation (e.g., "Outer::Middle::Inner")
@@ -440,51 +425,50 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
 
             // Use NamespaceUtils to create namespace hierarchy if needed
             Namespace namespace = NamespaceUtils.createNamespaceHierarchy(
-                name,
-                parentNamespace,
-                program,
-                SourceType.USER_DEFINED
-            );
+                    name,
+                    parentNamespace,
+                    program,
+                    SourceType.USER_DEFINED);
 
             Symbol namespaceSymbol = namespace.getSymbol();
             return new SymbolInfo(namespaceSymbol);
         } catch (InvalidInputException e) {
             GhidraMcpError error = GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Invalid namespace name: " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "namespace name validation",
-                    Map.of(ARG_NAME, name),
-                    Map.of("validationError", e.getMessage()),
-                    Map.of("nameValid", false)))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                        "Use a valid namespace name",
-                        "Namespace names must follow Ghidra symbol naming conventions. Use '::' to create nested namespaces.",
-                        List.of("MyNamespace", "Outer::Inner", "Game::Engine::Graphics"),
-                        null)))
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                    .message("Invalid namespace name: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "namespace name validation",
+                            Map.of(ARG_NAME, name),
+                            Map.of("validationError", e.getMessage()),
+                            Map.of("nameValid", false)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                    "Use a valid namespace name",
+                                    "Namespace names must follow Ghidra symbol naming conventions. Use '::' to create nested namespaces.",
+                                    List.of("MyNamespace", "Outer::Inner", "Game::Engine::Graphics"),
+                                    null)))
+                    .build();
             throw new GhidraMcpException(error);
         } catch (Exception e) {
             GhidraMcpError error = GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                .message("Failed to create namespace: " + e.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                    annotation.mcpName(),
-                    "namespace creation",
-                    Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
-                    Map.of("exceptionType", e.getClass().getSimpleName()),
-                    Map.of("creationFailed", true)))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                        "Check if namespace already exists",
-                        "Verify namespace name doesn't conflict with existing symbols",
-                        null,
-                        null)))
-                .build();
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to create namespace: " + e.getMessage())
+                    .context(new GhidraMcpError.ErrorContext(
+                            annotation.mcpName(),
+                            "namespace creation",
+                            Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                            Map.of("exceptionType", e.getClass().getSimpleName()),
+                            Map.of("creationFailed", true)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                    "Check if namespace already exists",
+                                    "Verify namespace name doesn't conflict with existing symbols",
+                                    null,
+                                    null)))
+                    .build();
             throw new GhidraMcpException(error);
         }
     }
@@ -502,7 +486,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                         return new SymbolInfo(symbol);
                     }
                 }
-                throw new GhidraMcpException(createSymbolNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
+                throw new GhidraMcpException(
+                        createSymbolNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
             } else if (args.containsKey(ARG_ADDRESS)) {
                 String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
                 if (address != null && !address.trim().isEmpty()) {
@@ -514,7 +499,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                                 return new SymbolInfo(symbols[0]); // Return first symbol at address
                             }
                         }
-                        throw new GhidraMcpException(createSymbolNotFoundError(annotation.mcpName(), "address", address));
+                        throw new GhidraMcpException(
+                                createSymbolNotFoundError(annotation.mcpName(), "address", address));
                     } catch (Exception e) {
                         throw new GhidraMcpException(createInvalidAddressError(address, e));
                     }
@@ -532,9 +518,9 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     // Then try regex
                     try {
                         Symbol firstMatch = StreamSupport.stream(symbolTable.getAllSymbols(true).spliterator(), false)
-                            .filter(s -> s.getName().matches(name))
-                            .findFirst()
-                            .orElse(null);
+                                .filter(s -> s.getName().matches(name))
+                                .findFirst()
+                                .orElse(null);
 
                         if (firstMatch != null) {
                             return new SymbolInfo(firstMatch);
@@ -564,7 +550,7 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
 
         // Count provided identifiers
         int identifierCount = (hasSymbolId ? 1 : 0) + (hasCurrentName ? 1 : 0) + (hasAddress ? 1 : 0);
-        
+
         if (identifierCount > 1) {
             return Mono.error(multipleIdentifierError(args, symbolIdOpt, currentNameOpt, addressOpt));
         }
@@ -575,7 +561,8 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
 
         return executeInTransaction(program, "MCP - Rename Symbol", () -> {
             SymbolTable symbolTable = program.getSymbolTable();
-            SymbolResolveResult resolveResult = resolveSymbolForRename(symbolTable, program, args, symbolIdOpt, currentNameOpt, addressOpt, namespaceOpt);
+            SymbolResolveResult resolveResult = resolveSymbolForRename(symbolTable, program, args, symbolIdOpt,
+                    currentNameOpt, addressOpt, namespaceOpt);
 
             // Check if the new name already exists in the target namespace
             SymbolIterator existingSymbolIterator = symbolTable.getSymbolIterator(newName, true);
@@ -586,59 +573,60 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                     existingSymbols.add(existingSymbol);
                 }
             }
-            
-            // If there's already a symbol with the same name in the target namespace, provide detailed info
+
+            // If there's already a symbol with the same name in the target namespace,
+            // provide detailed info
             if (!existingSymbols.isEmpty()) {
                 Map<String, Object> conflictInfo = new HashMap<>();
                 List<Map<String, Object>> conflictingSymbols = existingSymbols.stream()
-                    .map(symbol -> {
-                        Map<String, Object> symbolInfo = new HashMap<>();
-                        symbolInfo.put("id", symbol.getID());
-                        symbolInfo.put("name", symbol.getName());
-                        symbolInfo.put("address", symbol.getAddress().toString());
-                        symbolInfo.put("type", symbol.getSymbolType().toString());
-                        symbolInfo.put("namespace", symbol.getParentNamespace().getName(false));
-                        symbolInfo.put("source", symbol.getSource().toString());
-                        return symbolInfo;
-                    })
-                    .collect(Collectors.toList());
-                
+                        .map(symbol -> {
+                            Map<String, Object> symbolInfo = new HashMap<>();
+                            symbolInfo.put("id", symbol.getID());
+                            symbolInfo.put("name", symbol.getName());
+                            symbolInfo.put("address", symbol.getAddress().toString());
+                            symbolInfo.put("type", symbol.getSymbolType().toString());
+                            symbolInfo.put("namespace", symbol.getParentNamespace().getName(false));
+                            symbolInfo.put("source", symbol.getSource().toString());
+                            return symbolInfo;
+                        })
+                        .collect(Collectors.toList());
+
                 conflictInfo.put("conflictingSymbols", conflictingSymbols);
                 conflictInfo.put("targetNamespace", resolveResult.targetNamespace().getName(false));
-                
+
                 GhidraMcpError error = GhidraMcpError.execution()
-                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                    .message("Symbol already exists: " + newName)
-                    .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        "rename symbol conflict",
-                        args,
-                        Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName),
-                        conflictInfo
-                    ))
-                    .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                        "Choose a different name",
-                        "Provide a unique name that doesn't conflict with existing symbols",
-                        List.of("CanvasAsset::s_typeId_v2", "CanvasAsset_s_typeId_new"),
-                        null)))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Symbol already exists: " + newName)
+                        .context(new GhidraMcpError.ErrorContext(
+                                this.getMcpName(),
+                                "rename symbol conflict",
+                                args,
+                                Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName),
+                                conflictInfo))
+                        .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Choose a different name",
+                                "Provide a unique name that doesn't conflict with existing symbols",
+                                List.of("CanvasAsset::s_typeId_v2", "CanvasAsset_s_typeId_new"),
+                                null)))
+                        .build();
                 throw new GhidraMcpException(error);
             }
 
-            RenameLabelCmd cmd = new RenameLabelCmd(resolveResult.symbol(), newName, resolveResult.targetNamespace(), SourceType.USER_DEFINED);
+            RenameLabelCmd cmd = new RenameLabelCmd(resolveResult.symbol(), newName, resolveResult.targetNamespace(),
+                    SourceType.USER_DEFINED);
             if (!cmd.applyTo(program)) {
                 GhidraMcpError error = GhidraMcpError.execution()
-                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                    .message("Failed to rename symbol: " + cmd.getStatusMsg())
-                    .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        "rename symbol",
-                        args,
-                        Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName, "targetNamespace", resolveResult.targetNamespace().getName(false)),
-                        Map.of("commandStatus", cmd.getStatusMsg())
-                    ))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                        .message("Failed to rename symbol: " + cmd.getStatusMsg())
+                        .context(new GhidraMcpError.ErrorContext(
+                                this.getMcpName(),
+                                "rename symbol",
+                                args,
+                                Map.of("symbolId", resolveResult.symbol().getID(), ARG_NEW_NAME, newName,
+                                        "targetNamespace", resolveResult.targetNamespace().getName(false)),
+                                Map.of("commandStatus", cmd.getStatusMsg())))
+                        .build();
                 throw new GhidraMcpException(error);
             }
 
@@ -671,25 +659,25 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 if (address == null) {
                     throw new IllegalArgumentException("Invalid address format: " + addressOpt.get());
                 }
-                
+
                 Symbol primarySymbol = symbolTable.getPrimarySymbol(address);
                 if (primarySymbol == null) {
                     throw symbolNotFoundByAddress(addressOpt.get(), args);
                 }
-                
+
                 Namespace targetNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
                 return new SymbolResolveResult(primarySymbol, primarySymbol.getName(false), targetNamespace);
             } catch (Exception e) {
                 GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                    .message("Failed to parse address: " + e.getMessage())
-                    .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        "address parsing",
-                        args,
-                        Map.of(ARG_ADDRESS, addressOpt.get()),
-                        Map.of("parseError", e.getMessage())))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                        .message("Failed to parse address: " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                                this.getMcpName(),
+                                "address parsing",
+                                args,
+                                Map.of(ARG_ADDRESS, addressOpt.get()),
+                                Map.of("parseError", e.getMessage())))
+                        .build();
                 throw new GhidraMcpException(error);
             }
         }
@@ -708,20 +696,21 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         return new SymbolResolveResult(selectedSymbol, currentName, targetNamespace);
     }
 
-    private Namespace resolveTargetNamespace(SymbolTable symbolTable, Program program, Optional<String> namespaceOpt) throws GhidraMcpException {
+    private Namespace resolveTargetNamespace(SymbolTable symbolTable, Program program, Optional<String> namespaceOpt)
+            throws GhidraMcpException {
         if (namespaceOpt.isEmpty() || namespaceOpt.get().isBlank() || namespaceOpt.get().equalsIgnoreCase("global")) {
             return program.getGlobalNamespace();
         }
 
         String namespacePath = namespaceOpt.get();
 
-        // Try to resolve namespace by path (supports hierarchical paths like "Outer::Inner")
+        // Try to resolve namespace by path (supports hierarchical paths like
+        // "Outer::Inner")
         try {
             List<Namespace> namespaces = NamespaceUtils.getNamespaceByPath(
-                program,
-                program.getGlobalNamespace(),
-                namespacePath
-            );
+                    program,
+                    program.getGlobalNamespace(),
+                    namespacePath);
 
             if (namespaces != null && !namespaces.isEmpty()) {
                 // If multiple namespaces match, return the first one
@@ -737,14 +726,15 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
     private List<Symbol> findSymbolsByName(SymbolTable symbolTable, String currentName) {
         SymbolIterator iterator = symbolTable.getSymbolIterator(currentName, true);
         return StreamSupport.stream(
-            Spliterators.spliteratorUnknownSize(iterator, Spliterator.ORDERED), false)
-            .collect(Collectors.toList());
+                Spliterators.spliteratorUnknownSize(iterator, Spliterator.ORDERED), false)
+                .collect(Collectors.toList());
     }
 
-    private Symbol selectSymbolWithinNamespace(List<Symbol> symbols, Namespace targetNamespace, Map<String, Object> args) throws GhidraMcpException {
+    private Symbol selectSymbolWithinNamespace(List<Symbol> symbols, Namespace targetNamespace,
+            Map<String, Object> args) throws GhidraMcpException {
         List<Symbol> scopedMatches = symbols.stream()
-            .filter(symbol -> symbol.getParentNamespace().equals(targetNamespace))
-            .collect(Collectors.toList());
+                .filter(symbol -> symbol.getParentNamespace().equals(targetNamespace))
+                .collect(Collectors.toList());
 
         if (scopedMatches.size() == 1) {
             return scopedMatches.get(0);
@@ -755,16 +745,17 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
         }
 
         List<String> conflicting = symbols.stream()
-            .map(symbol -> symbol.getName(false) + " (ID=" + symbol.getID() + ")")
-            .collect(Collectors.toList());
+                .map(symbol -> symbol.getName(false) + " (ID=" + symbol.getID() + ")")
+                .collect(Collectors.toList());
 
         throw ambiguousSymbolError(args, conflicting);
     }
 
-    private GhidraMcpException multipleIdentifierError(Map<String, Object> args, Optional<Long> symbolIdOpt, Optional<String> currentNameOpt, Optional<String> addressOpt) {
+    private GhidraMcpException multipleIdentifierError(Map<String, Object> args, Optional<Long> symbolIdOpt,
+            Optional<String> currentNameOpt, Optional<String> addressOpt) {
         List<String> providedIdentifiers = new ArrayList<>();
         Map<String, Object> providedValues = new HashMap<>();
-        
+
         if (symbolIdOpt.isPresent()) {
             providedIdentifiers.add(ARG_SYMBOL_ID);
             providedValues.put(ARG_SYMBOL_ID, symbolIdOpt.get());
@@ -777,320 +768,250 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             providedIdentifiers.add(ARG_ADDRESS);
             providedValues.put(ARG_ADDRESS, addressOpt.get());
         }
-        
+
         GhidraMcpError error = GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-            .message("Provide only one identifier: " + String.join(", ", providedIdentifiers))
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol rename identifier selection",
-                args,
-                providedValues,
-                Map.of("identifiersProvided", providedIdentifiers.size())))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                "Choose a single identifier",
-                "Use only one of: " + String.join(", ", providedIdentifiers),
-                List.of(
-                    "\"" + ARG_SYMBOL_ID + "\": 12345",
-                    "\"" + ARG_CURRENT_NAME + "\": \"MySymbol\"",
-                    "\"" + ARG_ADDRESS + "\": \"0x401000\""),
-                null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+                .message("Provide only one identifier: " + String.join(", ", providedIdentifiers))
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol rename identifier selection",
+                        args,
+                        providedValues,
+                        Map.of("identifiersProvided", providedIdentifiers.size())))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Choose a single identifier",
+                        "Use only one of: " + String.join(", ", providedIdentifiers),
+                        List.of(
+                                "\"" + ARG_SYMBOL_ID + "\": 12345",
+                                "\"" + ARG_CURRENT_NAME + "\": \"MySymbol\"",
+                                "\"" + ARG_ADDRESS + "\": \"0x401000\""),
+                        null)))
+                .build();
         return new GhidraMcpException(error);
     }
 
     private GhidraMcpException missingIdentifierError(Map<String, Object> args) {
         Map<String, Object> providedIdentifiers = Map.of(
-            ARG_SYMBOL_ID, args.getOrDefault(ARG_SYMBOL_ID, "not provided"),
-            ARG_CURRENT_NAME, args.getOrDefault(ARG_CURRENT_NAME, "not provided"),
-            ARG_ADDRESS, args.getOrDefault(ARG_ADDRESS, "not provided")
-        );
+                ARG_SYMBOL_ID, args.getOrDefault(ARG_SYMBOL_ID, "not provided"),
+                ARG_CURRENT_NAME, args.getOrDefault(ARG_CURRENT_NAME, "not provided"),
+                ARG_ADDRESS, args.getOrDefault(ARG_ADDRESS, "not provided"));
 
         GhidraMcpError error = GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-            .message("Provide either '" + ARG_SYMBOL_ID + "', '" + ARG_CURRENT_NAME + "', or '" + ARG_ADDRESS + "' to identify the symbol")
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol rename identifiers",
-                args,
-                providedIdentifiers,
-                Map.of("identifiersProvided", 0, "minimumRequired", 1)
-            ))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                "Include at least one identifier",
-                "Provide one of: " + ARG_SYMBOL_ID + ", " + ARG_CURRENT_NAME + ", or " + ARG_ADDRESS,
-                List.of("\"" + ARG_SYMBOL_ID + "\": 12345", "\"" + ARG_CURRENT_NAME + "\": \"FunctionName\"", "\"" + ARG_ADDRESS + "\": \"0x401000\""),
-                null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+                .message("Provide either '" + ARG_SYMBOL_ID + "', '" + ARG_CURRENT_NAME + "', or '" + ARG_ADDRESS
+                        + "' to identify the symbol")
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol rename identifiers",
+                        args,
+                        providedIdentifiers,
+                        Map.of("identifiersProvided", 0, "minimumRequired", 1)))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Include at least one identifier",
+                        "Provide one of: " + ARG_SYMBOL_ID + ", " + ARG_CURRENT_NAME + ", or " + ARG_ADDRESS,
+                        List.of("\"" + ARG_SYMBOL_ID + "\": 12345", "\"" + ARG_CURRENT_NAME + "\": \"FunctionName\"",
+                                "\"" + ARG_ADDRESS + "\": \"0x401000\""),
+                        null)))
+                .build();
         return new GhidraMcpException(error);
     }
 
     private GhidraMcpException symbolNotFoundById(long symbolId, Map<String, Object> args) {
         GhidraMcpError error = GhidraMcpError.resourceNotFound()
-            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-            .message("Symbol not found for ID: " + symbolId)
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol lookup",
-                args,
-                Map.of(ARG_SYMBOL_ID, symbolId),
-                Map.of("matched", false)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+                .message("Symbol not found for ID: " + symbolId)
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol lookup",
+                        args,
+                        Map.of(ARG_SYMBOL_ID, symbolId),
+                        Map.of("matched", false)))
+                .build();
         return new GhidraMcpException(error);
     }
 
-    private GhidraMcpException symbolNotFoundByName(String currentName, Optional<String> namespaceOpt, Map<String, Object> args) {
+    private GhidraMcpException symbolNotFoundByName(String currentName, Optional<String> namespaceOpt,
+            Map<String, Object> args) {
         GhidraMcpError error = GhidraMcpError.resourceNotFound()
-            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-            .message("Symbol not found: " + currentName)
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol lookup",
-                args,
-                Map.of(ARG_CURRENT_NAME, currentName, ARG_NAMESPACE, namespaceOpt.orElse("global")),
-                Map.of("matchesFound", 0)))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                "List symbols",
-                "Use the 'manage_symbols' tool with action 'list' to inspect available symbols",
-                null,
-                List.of("manage_symbols"))))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+                .message("Symbol not found: " + currentName)
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol lookup",
+                        args,
+                        Map.of(ARG_CURRENT_NAME, currentName, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                        Map.of("matchesFound", 0)))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                        "List symbols",
+                        "Use the 'manage_symbols' tool with action 'list' to inspect available symbols",
+                        null,
+                        List.of("manage_symbols"))))
+                .build();
         return new GhidraMcpException(error);
     }
 
     private GhidraMcpException namespaceNotFound(String namespaceName) {
         GhidraMcpError error = GhidraMcpError.resourceNotFound()
-            .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
-            .message("Namespace not found: " + namespaceName)
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "namespace lookup",
-                Map.of(ARG_NAMESPACE, namespaceName),
-                Map.of(ARG_NAMESPACE, namespaceName),
-                Map.of("namespaceExists", false)))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                "List namespaces",
-                "Use symbol listing or program tree to confirm the namespace name",
-                null,
-                List.of("manage_symbols"))))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
+                .message("Namespace not found: " + namespaceName)
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "namespace lookup",
+                        Map.of(ARG_NAMESPACE, namespaceName),
+                        Map.of(ARG_NAMESPACE, namespaceName),
+                        Map.of("namespaceExists", false)))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                        "List namespaces",
+                        "Use symbol listing or program tree to confirm the namespace name",
+                        null,
+                        List.of("manage_symbols"))))
+                .build();
         return new GhidraMcpException(error);
     }
 
     private GhidraMcpException symbolNotFoundByAddress(String address, Map<String, Object> args) {
         GhidraMcpError error = GhidraMcpError.resourceNotFound()
-            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-            .message("No symbol found at address: " + address)
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol lookup by address",
-                args,
-                Map.of(ARG_ADDRESS, address),
-                Map.of("symbolFound", false)))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                "Verify the address has symbols",
-                "Check if the address contains any symbols or data",
-                null,
-                List.of("manage_symbols"))))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+                .message("No symbol found at address: " + address)
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol lookup by address",
+                        args,
+                        Map.of(ARG_ADDRESS, address),
+                        Map.of("symbolFound", false)))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                        "Verify the address has symbols",
+                        "Check if the address contains any symbols or data",
+                        null,
+                        List.of("manage_symbols"))))
+                .build();
         return new GhidraMcpException(error);
     }
 
     private GhidraMcpException ambiguousSymbolError(Map<String, Object> args, List<String> candidates) {
         GhidraMcpError error = GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-            .message("Multiple symbols matched the provided criteria")
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "symbol disambiguation",
-                args,
-                Map.of("candidates", candidates),
-                Map.of("matchCount", candidates.size())))
-            .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
-                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                "Disambiguate the symbol",
-                "Provide the 'symbolId' or a fully qualified name via 'namespace'",
-                List.of("\"symbolId\": 12345", "\"namespace\": \"MyNamespace\""),
-                null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+                .message("Multiple symbols matched the provided criteria")
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "symbol disambiguation",
+                        args,
+                        Map.of("candidates", candidates),
+                        Map.of("matchCount", candidates.size())))
+                .suggestions(List.of(new GhidraMcpError.ErrorSuggestion(
+                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                        "Disambiguate the symbol",
+                        "Provide the 'symbolId' or a fully qualified name via 'namespace'",
+                        List.of("\"symbolId\": 12345", "\"namespace\": \"MyNamespace\""),
+                        null)))
+                .build();
         return new GhidraMcpException(error);
     }
 
-    private record SymbolResolveResult(Symbol symbol, String originalDisplayName, Namespace targetNamespace) {}
-
-    private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return executeInTransaction(program, "MCP - Delete Symbol", () -> {
-            Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
-            Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
-            Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
-
-            if (addressOpt.isEmpty() && nameOpt.isEmpty() && symbolIdOpt.isEmpty()) {
-                GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                    .message("At least one identifier must be provided")
-                    .build();
-                throw new GhidraMcpException(error);
-            }
-
-            SymbolTable symbolTable = program.getSymbolTable();
-            Symbol symbolToDelete = null;
-
-            if (symbolIdOpt.isPresent()) {
-                symbolToDelete = symbolTable.getSymbol(symbolIdOpt.get());
-            } else if (addressOpt.isPresent()) {
-                try {
-                    Address address = program.getAddressFactory().getAddress(addressOpt.get());
-                    if (address != null) {
-                        symbolToDelete = symbolTable.getPrimarySymbol(address);
-                    }
-                } catch (Exception e) {
-                    GhidraMcpError error = GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                        .message("Failed to parse address: " + e.getMessage())
-                        .build();
-                    throw new GhidraMcpException(error);
-                }
-            } else if (nameOpt.isPresent()) {
-                SymbolIterator symbolIter = symbolTable.getSymbolIterator(nameOpt.get(), true);
-                if (symbolIter.hasNext()) {
-                    symbolToDelete = symbolIter.next();
-                    if (symbolIter.hasNext()) {
-                        GhidraMcpError error = GhidraMcpError.validation()
-                            .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-                            .message("Multiple symbols found with name: " + nameOpt.get())
-                            .build();
-                        throw new GhidraMcpException(error);
-                    }
-                }
-            }
-
-            if (symbolToDelete == null) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-                    .message("Symbol not found")
-                    .build();
-                throw new GhidraMcpException(error);
-            }
-
-            DeleteLabelCmd cmd = new DeleteLabelCmd(symbolToDelete.getAddress(), symbolToDelete.getName(), symbolToDelete.getParentNamespace());
-            if (!cmd.applyTo(program)) {
-                GhidraMcpError error = GhidraMcpError.execution()
-                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                    .message("Failed to delete symbol: " + cmd.getStatusMsg())
-                    .build();
-                throw new GhidraMcpException(error);
-            }
-
-            return OperationResult
-                .success("delete_symbol", symbolToDelete.getAddress().toString(), "Symbol deleted successfully")
-                .setMetadata(Map.of(
-                    "name", symbolToDelete.getName(),
-                    "address", symbolToDelete.getAddress().toString()));
-        });
+    private record SymbolResolveResult(Symbol symbol, String originalDisplayName, Namespace targetNamespace) {
     }
 
     private GhidraMcpError createSymbolNotFoundError(String toolOperation, String searchType, String searchValue) {
         return GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-            .message("Symbol not found using " + searchType + ": " + searchValue)
-            .context(new GhidraMcpError.ErrorContext(
-                toolOperation,
-                "symbol resolution",
-                Map.of(searchType, searchValue),
-                Map.of(),
-                Map.of("searchMethod", searchType)))
-            .suggestions(List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                    "Verify the symbol exists",
-                    "Check that the symbol identifier is correct",
-                    List.of(
-                        "\"symbol_id\": 12345",
-                        "\"address\": \"0x401000\"",
-                        "\"name\": \"main\""
-                    ),
-                    null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+                .message("Symbol not found using " + searchType + ": " + searchValue)
+                .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "symbol resolution",
+                        Map.of(searchType, searchValue),
+                        Map.of(),
+                        Map.of("searchMethod", searchType)))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Verify the symbol exists",
+                                "Check that the symbol identifier is correct",
+                                List.of(
+                                        "\"symbol_id\": 12345",
+                                        "\"address\": \"0x401000\"",
+                                        "\"name\": \"main\""),
+                                null)))
+                .build();
     }
 
     private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
         return GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-            .message("Invalid address format: " + addressStr)
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "address parsing",
-                Map.of(ARG_ADDRESS, addressStr),
-                Map.of(),
-                Map.of("parseError", cause.getMessage())))
-            .suggestions(List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                    "Use valid hexadecimal address format",
-                    "Provide address in proper format",
-                    List.of("0x401000", "401000", "0x00401000"),
-                    null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                .message("Invalid address format: " + addressStr)
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "address parsing",
+                        Map.of(ARG_ADDRESS, addressStr),
+                        Map.of(),
+                        Map.of("parseError", cause.getMessage())))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Use valid hexadecimal address format",
+                                "Provide address in proper format",
+                                List.of("0x401000", "401000", "0x00401000"),
+                                null)))
+                .build();
     }
 
     private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
         return GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-            .message("Invalid regex pattern: " + cause.getMessage())
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                "regex compilation",
-                Map.of(ARG_NAME, pattern),
-                Map.of(),
-                Map.of("regexError", cause.getMessage())))
-            .suggestions(List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                    "Provide a valid Java regex pattern",
-                    "Use proper regex syntax for pattern matching",
-                    List.of(".*main.*", "decrypt_.*", "^get.*"),
-                    null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                .message("Invalid regex pattern: " + cause.getMessage())
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "regex compilation",
+                        Map.of(ARG_NAME, pattern),
+                        Map.of(),
+                        Map.of("regexError", cause.getMessage())))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Provide a valid Java regex pattern",
+                                "Use proper regex syntax for pattern matching",
+                                List.of(".*main.*", "decrypt_.*", "^get.*"),
+                                null)))
+                .build();
     }
 
     private GhidraMcpError createMissingParameterError(String toolOperation) {
         return GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-            .message("No search parameters provided")
-            .context(new GhidraMcpError.ErrorContext(
-                toolOperation,
-                "parameter validation",
-                Map.of(),
-                Map.of(),
-                Map.of("availableParameters", List.of(ARG_SYMBOL_ID, ARG_ADDRESS, ARG_NAME))))
-            .suggestions(List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                    "Provide at least one search parameter",
-                    "Use symbol_id, address, or name parameter",
-                    List.of(
-                        "\"symbol_id\": 12345",
-                        "\"address\": \"0x401000\"",
-                        "\"name\": \"main\"",
-                        "\"name\": \".*decrypt.*\""
-                    ),
-                    null)))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+                .message("No search parameters provided")
+                .context(new GhidraMcpError.ErrorContext(
+                        toolOperation,
+                        "parameter validation",
+                        Map.of(),
+                        Map.of(),
+                        Map.of("availableParameters", List.of(ARG_SYMBOL_ID, ARG_ADDRESS, ARG_NAME))))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                "Provide at least one search parameter",
+                                "Use symbol_id, address, or name parameter",
+                                List.of(
+                                        "\"symbol_id\": 12345",
+                                        "\"address\": \"0x401000\"",
+                                        "\"name\": \"main\"",
+                                        "\"name\": \".*decrypt.*\""),
+                                null)))
+                .build();
     }
 
-    private Mono<? extends Object> handleConvertToClass(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    private Mono<? extends Object> handleConvertToClass(Program program, Map<String, Object> args,
+            GhidraMcpTool annotation) {
         String toolOperation = annotation.mcpName() + ".convert_to_class";
         String name = getRequiredStringArgument(args, ARG_NAME);
         Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
 
         return executeInTransaction(program, "MCP - Convert Namespace to Class: " + name, () -> {
             SymbolTable symbolTable = program.getSymbolTable();
-            
+
             Namespace parentNamespace;
             try {
                 if (namespaceOpt.isPresent()) {
@@ -1103,29 +1024,28 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
             }
 
             Namespace namespaceToConvert = NamespaceUtils.getFirstNonFunctionNamespace(
-                parentNamespace, 
-                name, 
-                program
-            );
+                    parentNamespace,
+                    name,
+                    program);
 
             if (namespaceToConvert == null) {
                 GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
-                    .message("Namespace not found: " + name)
-                    .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "namespace lookup",
-                        Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
-                        Map.of("parentNamespace", parentNamespace.getName()),
-                        Map.of("namespaceFound", false)))
-                    .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                            GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                            "Verify the namespace exists",
-                            "Check that the namespace name is correct and exists in the specified parent namespace",
-                            null,
-                            null)))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.NAMESPACE_NOT_FOUND)
+                        .message("Namespace not found: " + name)
+                        .context(new GhidraMcpError.ErrorContext(
+                                toolOperation,
+                                "namespace lookup",
+                                Map.of(ARG_NAME, name, ARG_NAMESPACE, namespaceOpt.orElse("global")),
+                                Map.of("parentNamespace", parentNamespace.getName()),
+                                Map.of("namespaceFound", false)))
+                        .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                        "Verify the namespace exists",
+                                        "Check that the namespace name is correct and exists in the specified parent namespace",
+                                        null,
+                                        null)))
+                        .build();
                 throw new GhidraMcpException(error);
             }
 
@@ -1135,22 +1055,22 @@ public class ManageSymbolsTool implements IGhidraMcpSpecification {
                 return new SymbolInfo(classSymbol);
             } catch (InvalidInputException e) {
                 GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                    .message("Cannot convert namespace to class: " + e.getMessage())
-                    .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "namespace to class conversion",
-                        Map.of(ARG_NAME, name),
-                        Map.of("validationError", e.getMessage()),
-                        Map.of("conversionValid", false)))
-                    .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                            "Check namespace requirements",
-                            "Namespace cannot be converted if it is within a function. Move it to a different parent namespace.",
-                            null,
-                            null)))
-                    .build();
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message("Cannot convert namespace to class: " + e.getMessage())
+                        .context(new GhidraMcpError.ErrorContext(
+                                toolOperation,
+                                "namespace to class conversion",
+                                Map.of(ARG_NAME, name),
+                                Map.of("validationError", e.getMessage()),
+                                Map.of("conversionValid", false)))
+                        .suggestions(List.of(
+                                new GhidraMcpError.ErrorSuggestion(
+                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                                        "Check namespace requirements",
+                                        "Namespace cannot be converted if it is within a function. Move it to a different parent namespace.",
+                                        null,
+                                        null)))
+                        .build();
                 throw new GhidraMcpException(error);
             }
         });

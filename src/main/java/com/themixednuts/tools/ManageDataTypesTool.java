@@ -34,9 +34,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-@GhidraMcpTool(name = "Manage Data Types", description = "Data type CRUD operations: create, read, update, and delete structs, enums, unions, typedefs, and categories. Use 'update' to preserve existing references.", mcpName = "manage_data_types", mcpDescription = """
+@GhidraMcpTool(name = "Manage Data Types", description = "Data type operations: create and update structs, enums, unions, typedefs, and categories. Use 'update' to preserve existing references.", mcpName = "manage_data_types", mcpDescription = """
         <use_case>
-        Data type CRUD operations for Ghidra programs. Create, read, update, and delete
+        Data type operations for Ghidra programs. Create and update
         structures, enums, unions, typedefs, pointers, function definitions, and categories. Essential for
         reverse engineering when you need to define custom data structures and organize type information.
         </use_case>
@@ -46,7 +46,8 @@ import java.util.stream.IntStream;
         - Handles category organization and type resolution automatically
         - Validates data types and provides detailed error messages
         - Uses transactions for safe modifications
-        - Use ListDataTypesTool for browsing data types with filtering
+        - Use ReadDataTypesTool for reading/browsing data types with filtering
+        - Use DeleteDataTypeTool to delete data types
         - CRITICAL: Use 'update' action instead of 'delete' + 'create' to preserve existing references
         </important_notes>
 
@@ -118,9 +119,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
     public static final String ARG_DATA_TYPE_ID = "data_type_id";
 
     private static final String ACTION_CREATE = "create";
-    private static final String ACTION_READ = "read";
     private static final String ACTION_UPDATE = "update";
-    private static final String ACTION_DELETE = "delete";
 
     /**
      * Defines the JSON input schema for data type management operations.
@@ -138,9 +137,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
         schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
                 .enumValues(
                         ACTION_CREATE,
-                        ACTION_READ,
-                        ACTION_UPDATE,
-                        ACTION_DELETE)
+                        ACTION_UPDATE)
                 .description("Action to perform on data types"));
 
         schemaRoot.property(ARG_DATA_TYPE_KIND, JsonSchemaBuilder.string(mapper)
@@ -234,9 +231,7 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
             return switch (action.toLowerCase()) {
                 case ACTION_CREATE -> handleCreate(program, args, annotation, dataTypeKind);
-                case ACTION_READ -> handleRead(program, args, annotation, dataTypeKind);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation, dataTypeKind);
-                case ACTION_DELETE -> handleDelete(program, args, annotation, dataTypeKind);
                 default -> {
                     GhidraMcpError error = GhidraMcpError.validation()
                             .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -248,19 +243,15 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                                     Map.of(ARG_ACTION, action),
                                     Map.of("validActions", List.of(
                                             ACTION_CREATE,
-                                            ACTION_READ,
-                                            ACTION_UPDATE,
-                                            ACTION_DELETE))))
+                                            ACTION_UPDATE))))
                             .suggestions(List.of(
                                     new GhidraMcpError.ErrorSuggestion(
                                             GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                                             "Use a valid action",
-                                            "Choose from: create, read, update, delete",
+                                            "Choose from: create, update",
                                             List.of(
                                                     ACTION_CREATE,
-                                                    ACTION_READ,
-                                                    ACTION_UPDATE,
-                                                    ACTION_DELETE),
+                                                    ACTION_UPDATE),
                                             null)))
                             .build();
                     yield Mono.error(new GhidraMcpException(error));
@@ -677,94 +668,6 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                         "size", addedRTTI.getLength()));
     }
 
-    private Mono<? extends Object> handleRead(Program program, Map<String, Object> args, GhidraMcpTool annotation,
-            String dataTypeKind) {
-        return Mono.fromCallable(() -> {
-            // Check if this is an RTTI analysis request
-            Optional<String> analyzeAddressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
-            if (analyzeAddressOpt.isPresent()) {
-                return analyzeRTTIAtAddress(program, analyzeAddressOpt.get(), dataTypeKind);
-            }
-
-            DataTypeManager dtm = program.getDataTypeManager();
-            DataType dataType = null;
-
-            // Try data type ID lookup first (most direct)
-            Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
-            if (dataTypeIdOpt.isPresent()) {
-                dataType = dtm.getDataType(dataTypeIdOpt.get());
-            }
-
-            // Fallback to name-based lookup
-            if (dataType == null) {
-                String name = getRequiredStringArgument(args, ARG_NAME);
-                CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
-                        .map(CategoryPath::new).orElse(CategoryPath.ROOT);
-                dataType = dtm.getDataType(categoryPath, name);
-            }
-
-            if (dataType == null) {
-                String typeName = getOptionalStringArgument(args, ARG_NAME).orElse("unknown");
-                throw new GhidraMcpException(createDataTypeError(
-                        GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
-                        "Data type not found: " + typeName,
-                        "Reading data type",
-                        args,
-                        typeName,
-                        dtm));
-            }
-
-            List<DataTypeComponentDetail> components = null;
-            List<DataTypeEnumValue> enumValues = null;
-            int componentCount = 0;
-            int valueCount = 0;
-
-            if (dataType instanceof Structure struct) {
-                components = Arrays.stream(struct.getComponents())
-                        .map(comp -> new DataTypeComponentDetail(
-                                Optional.ofNullable(comp.getFieldName()).orElse(""),
-                                comp.getDataType().getName(),
-                                comp.getOffset(),
-                                comp.getLength()))
-                        .collect(Collectors.toList());
-                componentCount = struct.getNumComponents();
-            } else if (dataType instanceof ghidra.program.model.data.Enum enumType) {
-                enumValues = Arrays.stream(enumType.getNames())
-                        .map(valueName -> new DataTypeEnumValue(valueName, enumType.getValue(valueName)))
-                        .collect(Collectors.toList());
-                valueCount = enumType.getCount();
-            } else if (dataType instanceof Union union) {
-                components = Arrays.stream(union.getComponents())
-                        .map(comp -> new DataTypeComponentDetail(
-                                Optional.ofNullable(comp.getFieldName()).orElse(""),
-                                comp.getDataType().getName(),
-                                null,
-                                comp.getLength()))
-                        .collect(Collectors.toList());
-                componentCount = union.getNumComponents();
-            } else if (dataType instanceof RTTI0DataType) {
-                // For RTTI types, we'll provide special handling
-                // RTTI0DataType has 3 components: vfTablePointer, dataPointer, name
-                components = List.of(
-                        new DataTypeComponentDetail("vfTablePointer", "Pointer", 0, 8),
-                        new DataTypeComponentDetail("dataPointer", "Pointer", 8, 8),
-                        new DataTypeComponentDetail("name", "NullTerminatedString", 16, -1));
-                componentCount = 3;
-            }
-
-            return new DataTypeReadResult(
-                    dataType.getName(),
-                    dataType.getPathName(),
-                    getDataTypeKind(dataType),
-                    dataType.getLength(),
-                    dataType.getDescription(),
-                    components,
-                    enumValues,
-                    componentCount,
-                    valueCount);
-        });
-    }
-
     private Mono<? extends Object> handleUpdate(Program program,
             Map<String, Object> args,
             GhidraMcpTool annotation,
@@ -853,152 +756,6 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
             return buildUpdateResult(dataTypeKind, existing, dtm, args, annotation);
         });
-    }
-
-    private Mono<? extends Object> handleDelete(Program program,
-            Map<String, Object> args,
-            GhidraMcpTool annotation,
-            String dataTypeKind) {
-        return executeInTransaction(program, "MCP - Delete " + dataTypeKind, () -> {
-            String name = getRequiredStringArgument(args, ARG_NAME);
-            CategoryPath categoryPath = getOptionalStringArgument(args, ARG_CATEGORY_PATH)
-                    .map(CategoryPath::new).orElse(CategoryPath.ROOT);
-
-            DataTypeManager dtm = program.getDataTypeManager();
-            if ("category".equalsIgnoreCase(dataTypeKind)) {
-                try {
-                    return deleteCategory(dtm, categoryPath, name, annotation, args);
-                } catch (GhidraMcpException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            DataType dataType = null;
-
-            // Try data type ID lookup first (most direct)
-            Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
-            if (dataTypeIdOpt.isPresent()) {
-                dataType = dtm.getDataType(dataTypeIdOpt.get());
-            }
-
-            // Fallback to name-based lookup
-            if (dataType == null) {
-                dataType = dtm.getDataType(categoryPath, name);
-            }
-
-            if (dataType == null) {
-                throw new GhidraMcpException(createDataTypeError(
-                        GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
-                        "Data type not found: " + name,
-                        "Deleting data type",
-                        args,
-                        name,
-                        dtm));
-            }
-
-            boolean removed = dtm.remove(dataType, null);
-            if (!removed) {
-                GhidraMcpError error = GhidraMcpError.execution()
-                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                        .message("Failed to remove data type: " + name)
-                        .build();
-                throw new GhidraMcpException(error);
-            }
-
-            return new DataTypeDeleteResult(
-                    true,
-                    "Successfully deleted " + dataTypeKind + " '" + name + "'",
-                    name,
-                    categoryPath.toString());
-        }).onErrorMap(throwable -> {
-            if (throwable instanceof RuntimeException runtime
-                    && runtime.getCause() instanceof GhidraMcpException ghidra) {
-                return ghidra;
-            }
-            return throwable;
-        });
-    }
-
-    private DataTypeDeleteResult deleteCategory(DataTypeManager dtm,
-            CategoryPath categoryPath,
-            String name,
-            GhidraMcpTool annotation,
-            Map<String, Object> args) throws GhidraMcpException {
-
-        CategoryPath targetPath = buildCategoryPath(categoryPath, name);
-
-        if (targetPath.isRoot()) {
-            GhidraMcpError error = GhidraMcpError.validation()
-                    .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                    .message("Cannot delete the root category '/' using this tool.")
-                    .context(new GhidraMcpError.ErrorContext(
-                            annotation.mcpName(),
-                            "category validation",
-                            args,
-                            Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
-                            Map.of("isRoot", true)))
-                    .suggestions(List.of(
-                            new GhidraMcpError.ErrorSuggestion(
-                                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                    "Provide a non-root category",
-                                    "Specify a specific category path to delete",
-                                    List.of("/UserDefined", "/MyTypes/MyEmptyCategory"),
-                                    null)))
-                    .build();
-            throw new GhidraMcpException(error);
-        }
-
-        Category targetCategory = dtm.getCategory(targetPath);
-        if (targetCategory == null) {
-            GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                    .errorCode(GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND)
-                    .message("Category not found at path: " + targetPath.getPath())
-                    .context(new GhidraMcpError.ErrorContext(
-                            annotation.mcpName(),
-                            "category lookup",
-                            args,
-                            Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
-                            Map.of("categoryExists", false)))
-                    .build();
-            throw new GhidraMcpException(error);
-        }
-
-        CategoryPath parentPath = targetCategory.getParent() != null
-                ? targetCategory.getParent().getCategoryPath()
-                : CategoryPath.ROOT;
-
-        Category parentCategory = dtm.getCategory(parentPath);
-        if (parentCategory == null) {
-            throw new IllegalStateException(
-                    "Parent category '" + parentPath.getPath() + "' not found for '" + targetPath.getPath() + "'");
-        }
-
-        boolean removed = parentCategory.removeCategory(targetPath.getName(), TaskMonitor.DUMMY);
-        if (!removed) {
-            GhidraMcpError error = GhidraMcpError.execution()
-                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                    .message("Failed to delete category '" + targetPath.getPath() + "'. Ensure it is empty.")
-                    .context(new GhidraMcpError.ErrorContext(
-                            annotation.mcpName(),
-                            "category deletion",
-                            args,
-                            Map.of("attemptedCategory", targetPath.getPath()),
-                            Map.of("categoryEmpty", false)))
-                    .suggestions(List.of(
-                            new GhidraMcpError.ErrorSuggestion(
-                                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                    "Ensure the category is empty",
-                                    "Remove any contained data types or subcategories before deletion",
-                                    null,
-                                    null)))
-                    .build();
-            throw new GhidraMcpException(error);
-        }
-
-        return new DataTypeDeleteResult(
-                true,
-                "Successfully deleted category '" + targetPath.getPath() + "'",
-                targetPath.getName(),
-                parentPath.getPath());
     }
 
     private static void ensureCategoryExists(DataTypeManager dtm, CategoryPath categoryPath) {
@@ -1663,43 +1420,11 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
 
         String trimmedName = typeName.trim();
 
-        // Handle MCP client category path format: /CategoryPath/TypeName
-        // DataTypeParser doesn't handle leading slashes, so we try direct resolution first
-        if (trimmedName.startsWith("/")) {
-            try {
-                DataType result = dtm.getDataType(trimmedName);
-                if (result != null) {
-                    return result;
-                }
-
-                // Try parsing the category path + name format
-                int lastSlash = trimmedName.lastIndexOf('/');
-                if (lastSlash > 0) {
-                    String categoryPathStr = trimmedName.substring(0, lastSlash);
-                    String typeNameOnly = trimmedName.substring(lastSlash + 1);
-                    CategoryPath categoryPath = new CategoryPath(categoryPathStr);
-                    result = dtm.getDataType(categoryPath, typeNameOnly);
-                    if (result != null) {
-                        return result;
-                    }
-                }
-            } catch (Exception e) {
-                // Fall through to DataTypeParser
-            }
-        }
-
-        // Use Ghidra's DataTypeParser for standard type resolution
-        // This handles: pointers, arrays, templates, namespaces, primitives, etc.
+        // PRIMARY: Use Ghidra's DataTypeParser for standard type resolution
+        // This handles: pointers, arrays, templates, namespaces, primitives, category
+        // paths, etc.
         try {
-            // Note: DataTypeParser requires both source and destination DTMs
-            // We use the same DTM for both since we're resolving within the same program
-            DataTypeParser parser = new DataTypeParser(
-                dtm,                    // Source DTM
-                dtm,                    // Destination DTM
-                null,                   // DataTypeManagerService (optional)
-                AllowedDataTypes.ALL    // Allow all data types
-            );
-
+            DataTypeParser parser = new DataTypeParser(dtm, dtm, null, AllowedDataTypes.ALL);
             DataType result = parser.parse(trimmedName);
             if (result != null) {
                 return result;
@@ -1708,7 +1433,8 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
             // If DataTypeParser fails, continue to fallback methods
         }
 
-        // Fallback: Try without leading slash if it was present
+        // FALLBACK 1: Try without leading slash if it was present
+        // DataTypeParser may not handle leading slashes in some contexts
         if (trimmedName.startsWith("/")) {
             String nameWithoutSlash = trimmedName.substring(1);
             try {
@@ -1718,12 +1444,22 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
                     return result;
                 }
             } catch (Exception e) {
-                // Continue to final fallback
+                // Continue to next fallback
             }
         }
 
-        // Final fallback: Use DataTypeUtilities for namespace-qualified types
-        // This handles cases like "ns1::ns2::type" that might not be resolved above
+        // FALLBACK 2: Direct DTM lookup (for exact matches)
+        try {
+            DataType result = dtm.getDataType(trimmedName);
+            if (result != null) {
+                return result;
+            }
+        } catch (Exception e) {
+            // Continue to next fallback
+        }
+
+        // FALLBACK 3: Use DataTypeUtilities for namespace-qualified types
+        // This handles cases like "ns1::ns2::type"
         if (trimmedName.contains("::")) {
             DataType result = DataTypeUtilities.findNamespaceQualifiedDataType(dtm, trimmedName, null);
             if (result != null) {
