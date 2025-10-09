@@ -1,18 +1,20 @@
-name: Build with Maven
+name: Build
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "ghidra-ci"]
     tags: ["v*"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      ghidra-version: ${{ steps.ghidra-version.outputs.version }}
+      ghidra-date: ${{ steps.ghidra-version.outputs.date }}
     env:
-      GHIDRA_VERSION: 11.4.2
-      GHIDRA_DATE: 20250826
       GHIDRA_LIBS: >-
         Features/Base/lib/Base.jar
         Features/Decompiler/lib/Decompiler.jar
@@ -28,6 +30,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -35,36 +38,89 @@ jobs:
           distribution: "temurin"
           cache: maven
 
+      - name: Extract Ghidra version from pom.xml
+        id: ghidra-version
+        run: |
+          # Extract Ghidra version and release date from pom.xml (single source of truth)
+          GHIDRA_VERSION=$(mvn help:evaluate -Dexpression=ghidra.version -q -DforceStdout)
+          GHIDRA_DATE=$(mvn help:evaluate -Dexpression=ghidra.release.date -q -DforceStdout)
+          
+          echo "GHIDRA_VERSION=$GHIDRA_VERSION" >> $GITHUB_ENV
+          echo "GHIDRA_DATE=$GHIDRA_DATE" >> $GITHUB_ENV
+          
+          # Set outputs for other jobs
+          echo "version=$GHIDRA_VERSION" >> $GITHUB_OUTPUT
+          echo "date=$GHIDRA_DATE" >> $GITHUB_OUTPUT
+          
+          echo "Ghidra Version: $GHIDRA_VERSION"
+          echo "Ghidra Release Date: $GHIDRA_DATE"
+
+      - name: Cache Ghidra installation
+        id: cache-ghidra
+        uses: actions/cache@v4
+        with:
+          path: ~/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC
+          key: ghidra-${{ env.GHIDRA_VERSION }}-${{ env.GHIDRA_DATE }}
+
       - name: Download Ghidra
+        if: steps.cache-ghidra.outputs.cache-hit != 'true'
         run: |
           wget --no-verbose -O ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${{ env.GHIDRA_VERSION }}_build/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC_${{ env.GHIDRA_DATE }}.zip
-          7z x -bd ghidra.zip
+          7z x -bd ghidra.zip -o"$HOME/"
 
       - name: Copy Ghidra libs
         run: |
           mkdir -p ./lib
+          GHIDRA_DIR="${HOME}/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC"
+          
+          echo "Using Ghidra from: $GHIDRA_DIR"
+          ls -la "$GHIDRA_DIR" || echo "Directory not found!"
+          
           for libfile in ${{ env.GHIDRA_LIBS }}
             do echo "Copying ${libfile} to lib/"
-            cp ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC/Ghidra/${libfile} ./lib/
+            cp "${GHIDRA_DIR}/Ghidra/${libfile}" ./lib/
           done
 
       - name: Build with Maven
-        run: mvn clean package assembly:single
-
-      - name: Assemble release directory
         run: |
-          mkdir release
-          cp target/GhidraMCP-*.zip release/
+          echo "CI environment variable: $CI"
+          
+          # Explicitly activate ci-tests profile for CI builds
+          mvn clean package -P ci-tests
+          
+          # Verify test JAR was created
+          echo ""
+          echo "=== Build Artifacts ==="
+          ls -lh target/*.jar target/*.zip 2>/dev/null || echo "No artifacts found!"
+          
+          if ls target/*-tests.jar 1> /dev/null 2>&1; then
+            echo ""
+            echo "✅ Test JAR created successfully"
+          else
+            echo ""
+            echo "❌ Test JAR not found - CI profile may not have activated"
+            exit 1
+          fi
 
-      - name: Upload artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GhidraMCP-artifact
+          name: GhidraMCP-build
           path: |
-            release/*
+            target/GhidraMCP-*.zip
+            target/*-tests.jar
+          retention-days: 7
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*
+  test:
+    needs: build
+    uses: ./.github/workflows/test.yml
+    with:
+      ghidra-version: ${{ needs.build.outputs.ghidra-version }}
+      ghidra-date: ${{ needs.build.outputs.ghidra-date }}
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write

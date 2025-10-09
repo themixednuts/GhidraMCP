@@ -1,0 +1,231 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      ghidra-version:
+        description: 'Ghidra version from build job'
+        required: true
+        type: string
+      ghidra-date:
+        description: 'Ghidra release date from build job'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set Ghidra version from inputs
+        run: |
+          echo "GHIDRA_VERSION=${{ inputs.ghidra-version }}" >> $GITHUB_ENV
+          echo "GHIDRA_RELEASE_DATE=${{ inputs.ghidra-date }}" >> $GITHUB_ENV
+          echo "Using Ghidra ${{ inputs.ghidra-version }} (release: ${{ inputs.ghidra-date }})"
+
+      - name: Restore Ghidra cache from build job
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC
+          key: ghidra-${{ env.GHIDRA_VERSION }}-${{ env.GHIDRA_RELEASE_DATE }}
+          fail-on-cache-miss: true
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: GhidraMCP-build
+          path: ./artifacts/
+      
+      - name: List build artifacts
+        run: |
+          echo "Build artifacts:"
+          ls -la ./artifacts/
+
+      - name: Install extension to Ghidra
+        run: |
+          echo "Installing extension to Ghidra..."
+          EXTENSION_ZIP=$(find ./artifacts -name "GhidraMCP-*.zip" | head -n 1)
+          GHIDRA_DIR="${HOME}/ghidra_${GHIDRA_VERSION}_PUBLIC"
+          
+          if [ -z "$EXTENSION_ZIP" ]; then
+            echo "ERROR: Extension zip not found in ./artifacts/"
+            echo "Available files:"
+            ls -la ./artifacts/
+            exit 1
+          fi
+          
+          echo "Found extension: $EXTENSION_ZIP"
+          
+          # Check zip contents
+          echo ""
+          echo "=== Extension ZIP Contents ==="
+          unzip -l "$EXTENSION_ZIP"
+          
+          # Create Extensions directory if it doesn't exist
+          mkdir -p "${GHIDRA_DIR}/Ghidra/Extensions"
+          
+          # Unzip extension directly to Extensions directory
+          unzip -o "$EXTENSION_ZIP" -d "${GHIDRA_DIR}/Ghidra/Extensions/"
+          
+          echo ""
+          echo "=== Extension Directory Structure ==="
+          ls -laR "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/" || echo "GhidraMCP directory not found!"
+          
+          echo ""
+          echo "=== Module.manifest Contents ==="
+          cat "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/Module.manifest" || echo "Module.manifest not found!"
+          
+          echo ""
+          echo "=== extension.properties Contents ==="
+          cat "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/extension.properties" || echo "extension.properties not found!"
+          
+          # Install test JAR with dependencies
+          echo ""
+          echo "=== Installing Test JAR ==="
+          TEST_JAR=$(find ./artifacts -name "*-tests.jar" | head -n 1)
+          if [ -n "$TEST_JAR" ]; then
+            cp "$TEST_JAR" "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/lib/"
+            echo "Test JAR installed: $TEST_JAR"
+            ls -lh "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/lib/"*-tests.jar
+          else
+            echo "❌ ERROR: Test JAR not found in artifacts!"
+            echo "Available files:"
+            ls -la ./artifacts/
+            exit 1
+          fi
+
+      - name: Create test binary
+        run: |
+          echo "Creating test binary for Ghidra analysis..."
+          gcc -o /tmp/test_binary tests/test_program.c
+          
+          echo "Test binary created:"
+          file /tmp/test_binary
+          ls -lh /tmp/test_binary
+
+      - name: Run headless tool tests
+        run: |
+          echo "Running GhidraMCP tool tests in headless mode..."
+          GHIDRA_DIR="${HOME}/ghidra_${GHIDRA_VERSION}_PUBLIC"
+          TEST_PROJECT_DIR="${HOME}/ghidra-test-project"
+          EXTENSION_DIR="${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP"
+          mkdir -p "$TEST_PROJECT_DIR"
+          
+          # Build classpath with all extension JARs for Java script
+          EXTENSION_CP="${EXTENSION_DIR}/lib/GhidraMCP.jar"
+          for jar in "${EXTENSION_DIR}"/lib/*.jar; do
+            if [ "$jar" != "${EXTENSION_DIR}/lib/GhidraMCP.jar" ]; then
+              EXTENSION_CP="${EXTENSION_CP}:${jar}"
+            fi
+          done
+          
+          echo "Configured extension classpath with all JARs"
+          echo ""
+          
+          echo "Extension classpath configured"
+          echo ""
+          
+          # Run Ghidra headless with Python launcher (loads compiled Java tests)
+          echo "Starting Ghidra headless to test tools..."
+          CLASSPATH="${EXTENSION_CP}" \
+          "${GHIDRA_DIR}/support/analyzeHeadless" \
+            "$TEST_PROJECT_DIR" \
+            TestProject \
+            -import /tmp/test_binary \
+            -postScript src/test/scripts/RunTests.py \
+            -scriptlog /tmp/test_output.log \
+            -log /tmp/ghidra.log \
+            -noanalysis
+          
+          TEST_EXIT_CODE=$?
+          
+          echo ""
+          echo "=== Test Output ==="
+          if [ -f /tmp/test_output.log ] && [ -s /tmp/test_output.log ]; then
+            cat /tmp/test_output.log
+          else
+            echo "❌ ERROR: Test output log is empty or missing!"
+            echo "This indicates the Java test script failed to execute."
+            echo ""
+            echo "=== Ghidra Log (last 100 lines) ==="
+            tail -n 100 /tmp/ghidra.log
+            exit 1
+          fi
+          
+          echo ""
+          
+          # Validate that tests actually ran by checking for expected output
+          if ! grep -q "GhidraMCP Comprehensive Tool Test Suite" /tmp/test_output.log; then
+            echo "❌ ERROR: Java test script did not start properly"
+            echo "Expected test header not found in output"
+            echo ""
+            echo "=== Ghidra Log (last 100 lines) ==="
+            tail -n 100 /tmp/ghidra.log
+            exit 1
+          fi
+          
+          if ! grep -q "=== Test Summary ===" /tmp/test_output.log; then
+            echo "❌ ERROR: Test script did not complete"
+            echo "Test summary not found in output"
+            echo ""
+            echo "=== Ghidra Log (last 100 lines) ==="
+            tail -n 100 /tmp/ghidra.log
+            exit 1
+          fi
+          
+          # Now check the actual test results
+          if [ $TEST_EXIT_CODE -eq 0 ] && grep -q "ALL TESTS PASSED" /tmp/test_output.log; then
+            echo "✅ All tests passed!"
+          else
+            echo "❌ Tests failed (exit code: $TEST_EXIT_CODE)"
+            echo ""
+            echo "=== Ghidra Log (last 100 lines) ==="
+            tail -n 100 /tmp/ghidra.log
+            exit 1
+          fi
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            /tmp/test_output.log
+            /tmp/ghidra.log
+          retention-days: 7
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment" >> $GITHUB_STEP_SUMMARY
+          echo "- Ghidra Version: ${GHIDRA_VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Artifact: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Ghidra Cache: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Extension Installed: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "Tests verify MCP tools can be directly invoked in Ghidra headless mode." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show test results from script output
+          if [ -f /tmp/test_output.log ]; then
+            if grep -q "ALL TESTS PASSED" /tmp/test_output.log 2>/dev/null; then
+              echo "- Tool Tests: ✅ All passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- Tool Tests: ❌ Some failed" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Extract test counts if available
+            if grep -q "=== Test Summary ===" /tmp/test_output.log 2>/dev/null; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              sed -n '/=== Test Summary ===/,/^$/p' /tmp/test_output.log >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
