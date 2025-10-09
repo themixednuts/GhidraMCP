@@ -5,8 +5,8 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.cmd.label.DeleteLabelCmd;
 import ghidra.framework.plugintool.PluginTool;
@@ -69,20 +69,26 @@ public class DeleteSymbolTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
                 .description("Memory address for symbol deletion")
                 .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
                 .description("Symbol name for deletion"));
 
-        schemaRoot.property(ARG_SYMBOL_ID, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
                 .description("Unique symbol ID for precise identification"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME);
+
+        // At least one identifier must be provided (JSON Schema Draft 7 anyOf)
+        schemaRoot.anyOf(
+                SchemaBuilder.object(mapper).requiredProperty(ARG_ADDRESS),
+                SchemaBuilder.object(mapper).requiredProperty(ARG_NAME),
+                SchemaBuilder.object(mapper).requiredProperty(ARG_SYMBOL_ID));
 
         return schemaRoot.build();
     }

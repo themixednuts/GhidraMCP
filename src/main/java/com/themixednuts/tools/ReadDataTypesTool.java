@@ -10,8 +10,8 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RTTIAnalysisResult;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.framework.plugintool.PluginTool;
@@ -100,41 +100,41 @@ public class ReadDataTypesTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_DATA_TYPE_KIND, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_DATA_TYPE_KIND, SchemaBuilder.string(mapper)
                 .description("Type of data type (for single read mode)"));
 
-        schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
                 .description("Name of the data type (for single read mode)"));
 
-        schemaRoot.property(ARG_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_CATEGORY_PATH, SchemaBuilder.string(mapper)
                 .description("Category path of the data type (for single read mode)")
                 .defaultValue("/"));
 
-        schemaRoot.property(ARG_DATA_TYPE_ID, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_DATA_TYPE_ID, SchemaBuilder.integer(mapper)
                 .description("Data type ID for direct lookup (for single read mode)"));
 
-        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
                 .description("Address to analyze for RTTI structure information (for RTTI read mode)")
                 .pattern("^(0x)?[0-9a-fA-F]+$"));
 
         schemaRoot.property(ARG_NAME_FILTER,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter data types by name (case-insensitive substring match, list mode)"));
 
         schemaRoot.property(ARG_CATEGORY_FILTER,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter by category path (e.g., '/winapi', '/custom', list mode)"));
 
         schemaRoot.property(ARG_TYPE_KIND,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description(
                                 "Filter by data type kind (e.g., 'structure', 'union', 'enum', 'typedef', 'pointer', list mode)"));
 
         schemaRoot.property(ARG_CURSOR,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Pagination cursor from previous request (list mode)"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME);

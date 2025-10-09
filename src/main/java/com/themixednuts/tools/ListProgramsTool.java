@@ -11,8 +11,8 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ProgramFileInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.framework.model.DomainFile;
@@ -24,32 +24,27 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 import ghidra.framework.main.AppInfo;
 
-@GhidraMcpTool(
-    name = "List Programs",
-    description = "Lists all programs (both open and closed) in the Ghidra project.",
-    mcpName = "list_programs",
-    mcpDescription = """
-    <use_case>
-    List all program files within the active Ghidra project, including both currently open programs
-    and programs that exist in the project but are not currently loaded. Use this to discover
-    available programs before performing operations that require a fileName parameter.
-    </use_case>
+@GhidraMcpTool(name = "List Programs", description = "Lists all programs (both open and closed) in the Ghidra project.", mcpName = "list_programs", mcpDescription = """
+        <use_case>
+        List all program files within the active Ghidra project, including both currently open programs
+        and programs that exist in the project but are not currently loaded. Use this to discover
+        available programs before performing operations that require a fileName parameter.
+        </use_case>
 
-    <return_value_summary>
-    Returns an array of ProgramFileInfo objects, where each entry includes the program's name, project path,
-    version, open status, and metadata. Programs are sorted with open programs first, then by last modified time.
-    </return_value_summary>
+        <return_value_summary>
+        Returns an array of ProgramFileInfo objects, where each entry includes the program's name, project path,
+        version, open status, and metadata. Programs are sorted with open programs first, then by last modified time.
+        </return_value_summary>
 
-    <important_notes>
-    - Requires an active project in the current PluginTool context.
-    - Only lists files with program content type (executables, libraries, etc.).
-    - If no programs exist in the project, returns an empty list without raising an error.
-    - Closed programs can be opened by providing their fileName to other tools.
-    - Results are paginated (default 100 per page). Use the next_cursor to retrieve subsequent pages.
-    - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'nameFilter' to search by filename.
-    </important_notes>
-    """
-)
+        <important_notes>
+        - Requires an active project in the current PluginTool context.
+        - Only lists files with program content type (executables, libraries, etc.).
+        - If no programs exist in the project, returns an empty list without raising an error.
+        - Closed programs can be opened by providing their fileName to other tools.
+        - Results are paginated (default 100 per page). Use the next_cursor to retrieve subsequent pages.
+        - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'nameFilter' to search by filename.
+        </important_notes>
+        """)
 public class ListProgramsTool implements IGhidraMcpSpecification {
 
     private static final String CONTEXT_OPERATION = "list_programs";
@@ -108,7 +103,7 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
             String lowerFilterName = formatName.toLowerCase();
 
             return lowerFormat.contains(lowerFilterName) ||
-                   lowerFormat.equals(name().toLowerCase());
+                    lowerFormat.equals(name().toLowerCase());
         }
 
         /**
@@ -139,34 +134,37 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
 
         // Add optional pagination parameters
         schemaRoot.property(ARG_PAGE_SIZE,
-                JsonSchemaBuilder.integer(mapper)
-                        .description("Number of results per page (default: " + DEFAULT_PAGE_SIZE + ", max: " + MAX_PAGE_SIZE + ")")
+                SchemaBuilder.integer(mapper)
+                        .description("Number of results per page (default: " + DEFAULT_PAGE_SIZE + ", max: "
+                                + MAX_PAGE_SIZE + ")")
                         .minimum(1)
                         .maximum(MAX_PAGE_SIZE));
 
         schemaRoot.property(ARG_CURSOR,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Cursor from previous response for pagination"));
 
         // Add optional executable format filter
         String[] formatValues = java.util.Arrays.stream(ExecutableFormat.values())
-            .map(Enum::name)
-            .toArray(String[]::new);
+                .map(Enum::name)
+                .toArray(String[]::new);
 
         schemaRoot.property(ARG_FORMAT,
-                JsonSchemaBuilder.string(mapper)
-                        .description("Filter by executable format: ALL (default), PE (Windows), ELF (Linux/Unix), MACH_O (macOS), COFF (object files), RAW (raw binary)")
+                SchemaBuilder.string(mapper)
+                        .description(
+                                "Filter by executable format: ALL (default), PE (Windows), ELF (Linux/Unix), MACH_O (macOS), COFF (object files), RAW (raw binary)")
                         .enumValues(formatValues));
 
         // Add optional name filter
         schemaRoot.property(ARG_NAME_FILTER,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter programs by name (case-insensitive substring match)"));
 
         // Add optional open status filter
         schemaRoot.property(ARG_OPEN_ONLY,
-                JsonSchemaBuilder.bool(mapper)
-                        .description("Filter to show only currently open programs (default: false, shows all programs)"));
+                SchemaBuilder.bool(mapper)
+                        .description(
+                                "Filter to show only currently open programs (default: false, shows all programs)"));
 
         return schemaRoot.build();
     }
@@ -175,16 +173,15 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
      * Executes the program listing operation.
      * 
      * @param context The MCP transport context
-     * @param args The tool arguments (no arguments required for this tool)
-     * @param tool The Ghidra PluginTool context
+     * @param args    The tool arguments (no arguments required for this tool)
+     * @param tool    The Ghidra PluginTool context
      * @return A Mono emitting a list of ProgramFileInfo objects
      */
     @Override
     public Mono<? extends Object> execute(
-        McpTransportContext context,
-        Map<String, Object> args,
-        PluginTool tool
-    ) {
+            McpTransportContext context,
+            Map<String, Object> args,
+            PluginTool tool) {
         return Mono.fromCallable(() -> listPrograms(tool, args)).onErrorMap(this::wrapExecutionError);
     }
 
@@ -194,14 +191,16 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
      * @param tool The Ghidra PluginTool context
      * @param args Arguments including pagination and filter parameters
      * @return A PaginatedResult containing ProgramFileInfo objects
-     * @throws GhidraMcpException If there's an error accessing the project or programs
+     * @throws GhidraMcpException If there's an error accessing the project or
+     *                            programs
      */
-    private PaginatedResult<ProgramFileInfo> listPrograms(PluginTool tool, Map<String, Object> args) throws GhidraMcpException {
+    private PaginatedResult<ProgramFileInfo> listPrograms(PluginTool tool, Map<String, Object> args)
+            throws GhidraMcpException {
         // Extract parameters
         int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
         String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
         ExecutableFormat formatFilter = ExecutableFormat.fromString(
-            getOptionalStringArgument(args, ARG_FORMAT).orElse(null));
+                getOptionalStringArgument(args, ARG_FORMAT).orElse(null));
         String nameFilter = getOptionalStringArgument(args, ARG_NAME_FILTER).orElse(null);
         boolean openOnly = getOptionalBooleanArgument(args, ARG_OPEN_ONLY).orElse(false);
         // Get the active project from the Application level (not from PluginTool)
@@ -209,25 +208,22 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
 
         if (project == null) {
             throw new GhidraMcpException(GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                .message("No active project found in the application")
-                .context(new GhidraMcpError.ErrorContext(
-                    this.getMcpName(),
-                    CONTEXT_OPERATION,
-                    Map.of(),
-                    Map.of(),
-                    Map.of("projectAvailable", false)
-                ))
-                .suggestions(List.of(
-                    new GhidraMcpError.ErrorSuggestion(
-                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                        "Open or activate a Ghidra project",
-                        "Ensure a project is open in Ghidra before listing programs",
-                        null,
-                        null
-                    )
-                ))
-                .build());
+                    .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                    .message("No active project found in the application")
+                    .context(new GhidraMcpError.ErrorContext(
+                            this.getMcpName(),
+                            CONTEXT_OPERATION,
+                            Map.of(),
+                            Map.of(),
+                            Map.of("projectAvailable", false)))
+                    .suggestions(List.of(
+                            new GhidraMcpError.ErrorSuggestion(
+                                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                    "Open or activate a Ghidra project",
+                                    "Ensure a project is open in Ghidra before listing programs",
+                                    null,
+                                    null)))
+                    .build());
         }
 
         // Get all domain files from the project (recursively)
@@ -237,26 +233,27 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         collectDomainFiles(rootFolder, allFiles);
         ghidra.util.Msg.info(this, "Found " + allFiles.size() + " total domain files");
 
-        // Filter for program files and sort: open programs first, then by last modified (newest first)
+        // Filter for program files and sort: open programs first, then by last modified
+        // (newest first)
         List<DomainFile> programFiles = allFiles.stream()
-            .filter(file -> {
-                String contentType = file.getContentType();
-                // Check if content type contains "Program" or equals the class name
-                boolean isProgram = contentType.equals("Program") ||
-                                   contentType.equals(Program.class.getName()) ||
-                                   contentType.contains("Program");
-                return isProgram;
-            })
-            .filter(file -> matchesNameFilter(file.getName(), nameFilter))
-            .filter(file -> !openOnly || file.isOpen())
-            .sorted(Comparator
-                // First: open programs come before closed programs
-                .comparing(DomainFile::isOpen, Comparator.reverseOrder())
-                // Then: sort by last modified time (newest first), null-safe (nulls last)
-                .thenComparing(DomainFile::getLastModifiedTime, Comparator.nullsLast(Comparator.reverseOrder()))
-                // Finally: break ties with case-insensitive name
-                .thenComparing(DomainFile::getName, String.CASE_INSENSITIVE_ORDER))
-            .collect(Collectors.toList());
+                .filter(file -> {
+                    String contentType = file.getContentType();
+                    // Check if content type contains "Program" or equals the class name
+                    boolean isProgram = contentType.equals("Program") ||
+                            contentType.equals(Program.class.getName()) ||
+                            contentType.contains("Program");
+                    return isProgram;
+                })
+                .filter(file -> matchesNameFilter(file.getName(), nameFilter))
+                .filter(file -> !openOnly || file.isOpen())
+                .sorted(Comparator
+                        // First: open programs come before closed programs
+                        .comparing(DomainFile::isOpen, Comparator.reverseOrder())
+                        // Then: sort by last modified time (newest first), null-safe (nulls last)
+                        .thenComparing(DomainFile::getLastModifiedTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                        // Finally: break ties with case-insensitive name
+                        .thenComparing(DomainFile::getName, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
 
         ghidra.util.Msg.info(this, "Found " + programFiles.size() + " programs after filtering");
 
@@ -279,9 +276,9 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
 
         // Convert to ProgramFileInfo and apply format filter
         List<ProgramFileInfo> programs = pageFiles.stream()
-            .map(file -> createProgramFileInfo(project, file))
-            .filter(info -> formatFilter.matches(info.getExecutableFormat()))
-            .collect(Collectors.toList());
+                .map(file -> createProgramFileInfo(project, file))
+                .filter(info -> formatFilter.matches(info.getExecutableFormat()))
+                .collect(Collectors.toList());
 
         // Create next cursor if there are more results
         String nextCursor = null;
@@ -298,13 +295,14 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
     /**
      * Creates a pagination cursor that includes all sorting criteria.
      * Format: isOpen:lastModifiedTime:name:pathname
-     * This ensures the cursor remains valid even if program states change between requests.
+     * This ensures the cursor remains valid even if program states change between
+     * requests.
      */
     private String createCursor(DomainFile file) {
         return file.isOpen() + ":" +
-               file.getLastModifiedTime() + ":" +
-               file.getName() + ":" +
-               file.getPathname();
+                file.getLastModifiedTime() + ":" +
+                file.getName() + ":" +
+                file.getPathname();
     }
 
     /**
@@ -323,7 +321,7 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
     private void collectDomainFiles(DomainFolder folder, List<DomainFile> files) {
         // Add files in current folder
         files.addAll(List.of(folder.getFiles()));
-        
+
         // Recursively process subfolders
         for (DomainFolder subfolder : folder.getFolders()) {
             collectDomainFiles(subfolder, files);
@@ -336,10 +334,10 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
     private ProgramFileInfo createProgramFileInfo(Project project, DomainFile file) {
         // Generate program ID similar to ProgramEndpoints
         String programId = project.getName() + ":" + file.getPathname();
-        
+
         // Check if program is currently open
         boolean isOpen = isProgramOpen(file);
-        
+
         // Initialize basic info
         String architecture = null;
         String imageBase = null;
@@ -364,18 +362,17 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         }
 
         return new ProgramFileInfo(
-            file.getName(),
-            file.getPathname(),
-            programId,
-            file.getVersion(),
-            isOpen,
-            file.isChanged(),
-            file.isReadOnly(),
-            architecture,
-            imageBase,
-            programSize,
-            executableFormat
-        );
+                file.getName(),
+                file.getPathname(),
+                programId,
+                file.getVersion(),
+                isOpen,
+                file.isChanged(),
+                file.isReadOnly(),
+                architecture,
+                imageBase,
+                programSize,
+                executableFormat);
     }
 
     /**
@@ -392,25 +389,22 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
         }
 
         GhidraMcpError error = GhidraMcpError.execution()
-            .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-            .message("Failed to list programs: " + throwable.getMessage())
-            .context(new GhidraMcpError.ErrorContext(
-                this.getMcpName(),
-                CONTEXT_OPERATION,
-                Map.of(),
-                Map.of("exceptionType", throwable.getClass().getSimpleName()),
-                Map.of()
-            ))
-            .suggestions(List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                    "Verify project state",
-                    "Ensure the Ghidra project is accessible and contains program files",
-                    null,
-                    null
-                )
-            ))
-            .build();
+                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                .message("Failed to list programs: " + throwable.getMessage())
+                .context(new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        CONTEXT_OPERATION,
+                        Map.of(),
+                        Map.of("exceptionType", throwable.getClass().getSimpleName()),
+                        Map.of()))
+                .suggestions(List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
+                                "Verify project state",
+                                "Ensure the Ghidra project is accessible and contains program files",
+                                null,
+                                null)))
+                .build();
         return new GhidraMcpException(error);
     }
 }

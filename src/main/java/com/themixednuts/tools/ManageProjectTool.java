@@ -6,8 +6,8 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.ProgramInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
+import static com.themixednuts.utils.jsonschema.draft7.ConditionalSpec.conditional;
 
 import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.PluginTool;
@@ -69,37 +69,47 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
          */
         @Override
         public JsonSchema schema() {
-                IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+                // Use Draft 7 builder for conditional support
+                var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
-                                JsonSchemaBuilder.string(mapper)
+                                SchemaBuilder.string(mapper)
                                                 .description("The name of the program file."));
 
-                schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_ACTION, SchemaBuilder.string(mapper)
                                 .enumValues(
                                                 ACTION_GET_PROGRAM_INFO,
                                                 ACTION_CREATE_BOOKMARK,
                                                 ACTION_GO_TO_ADDRESS)
                                 .description("Project-level operation to perform"));
 
-                schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
                                 .description("Target address for navigation or bookmark operations")
                                 .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-                schemaRoot.property(ARG_BOOKMARK_TYPE, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_BOOKMARK_TYPE, SchemaBuilder.string(mapper)
                                 .description("Bookmark type (e.g., 'Note', 'Analysis')."));
 
-                schemaRoot.property(ARG_BOOKMARK_CATEGORY, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_BOOKMARK_CATEGORY, SchemaBuilder.string(mapper)
                                 .description("Bookmark category (e.g., 'Default', 'My Analysis')."));
 
-                schemaRoot.property(ARG_COMMENT, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_COMMENT, SchemaBuilder.string(mapper)
                                 .description("Bookmark comment text."));
 
-                schemaRoot.property(ARG_COMMENT_CONTAINS, JsonSchemaBuilder.string(mapper)
+                schemaRoot.property(ARG_COMMENT_CONTAINS, SchemaBuilder.string(mapper)
                                 .description("Filter for bookmark deletion: matches bookmarks whose comment contains this text."));
 
                 schemaRoot.requiredProperty(ARG_FILE_NAME)
                                 .requiredProperty(ARG_ACTION);
+
+                // Add conditional requirements based on action (JSON Schema Draft 7)
+                schemaRoot.addConditionals(
+                                // action=create_bookmark requires address, bookmark_type, bookmark_category,
+                                // comment
+                                conditional(ARG_ACTION, ACTION_CREATE_BOOKMARK).require(ARG_ADDRESS, ARG_BOOKMARK_TYPE,
+                                                ARG_BOOKMARK_CATEGORY, ARG_COMMENT),
+                                // action=go_to_address requires address
+                                conditional(ARG_ACTION, ACTION_GO_TO_ADDRESS).require(ARG_ADDRESS));
 
                 return schemaRoot.build();
         }

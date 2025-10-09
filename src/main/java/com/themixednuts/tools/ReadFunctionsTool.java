@@ -6,8 +6,8 @@ import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -94,25 +94,25 @@ public class ReadFunctionsTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_SYMBOL_ID, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
                 .description("Symbol ID to identify a specific function (single read mode)"));
 
-        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
                 .description("Function address to identify a specific function (single read mode)")
                 .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
                 .description("Function name for single function lookup (supports regex matching)"));
 
         schemaRoot.property(ARG_NAME_PATTERN,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Optional regex pattern to filter function names (list mode)"));
 
         schemaRoot.property(ARG_CURSOR,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Pagination cursor from previous request (list mode)"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME);

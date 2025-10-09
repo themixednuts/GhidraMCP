@@ -10,8 +10,8 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import ghidra.util.task.TaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 import com.themixednuts.utils.PaginatedResult;
 
 import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
@@ -27,39 +27,34 @@ import ghidra.util.datastruct.ListAccumulator;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(
-    name = "Search Memory",
-    description = "Search program memory for various data types and patterns using Ghidra's search mechanisms",
-    mcpName = "search_memory",
-    mcpDescription = """
-    <use_case>
-    Search program memory for various data types and patterns using Ghidra's native search algorithms.
-    Supports string search, byte patterns, regular expressions, and numeric values.
-    Use this when you need to find specific patterns, values, or strings in the program's memory.
-    </use_case>
+@GhidraMcpTool(name = "Search Memory", description = "Search program memory for various data types and patterns using Ghidra's search mechanisms", mcpName = "search_memory", mcpDescription = """
+        <use_case>
+        Search program memory for various data types and patterns using Ghidra's native search algorithms.
+        Supports string search, byte patterns, regular expressions, and numeric values.
+        Use this when you need to find specific patterns, values, or strings in the program's memory.
+        </use_case>
 
-    <ghidra_specific_notes>
-    - Uses Ghidra's Memory.findBytes and StringSearcher for efficient pattern matching
-    - Supports string, regex, hex byte, binary, and numeric searches
-    - Searches only in initialized memory regions by default
-    - Results are paginated to handle large search results efficiently
-    - Requires an active program to search through its memory
-    </ghidra_specific_notes>
+        <ghidra_specific_notes>
+        - Uses Ghidra's Memory.findBytes and StringSearcher for efficient pattern matching
+        - Supports string, regex, hex byte, binary, and numeric searches
+        - Searches only in initialized memory regions by default
+        - Results are paginated to handle large search results efficiently
+        - Requires an active program to search through its memory
+        </ghidra_specific_notes>
 
-    <parameters_summary>
-    - 'searchType': Type of search (string, hex, binary, decimal, float, double, regex)
-    - 'searchValue': The pattern/value to search for (format depends on search type)
-    - 'caseSensitive': Whether string/regex searches are case sensitive (default false)
-    - 'maxResults': Maximum number of results to return (default 100, max 1000)
-    </parameters_summary>
+        <parameters_summary>
+        - 'searchType': Type of search (string, hex, binary, decimal, float, double, regex)
+        - 'searchValue': The pattern/value to search for (format depends on search type)
+        - 'caseSensitive': Whether string/regex searches are case sensitive (default false)
+        - 'maxResults': Maximum number of results to return (default 100, max 1000)
+        </parameters_summary>
 
-    <agent_response_guidance>
-    Present search results in a clear, structured format showing addresses and found content.
-    Include the search type and value in your response. If many results are found, mention
-    the total count and suggest refining the search criteria if needed.
-    </agent_response_guidance>
-    """
-)
+        <agent_response_guidance>
+        Present search results in a clear, structured format showing addresses and found content.
+        Include the search type and value in your response. If many results are found, mention
+        the total count and suggest refining the search criteria if needed.
+        </agent_response_guidance>
+        """)
 public class SearchMemoryTool implements IGhidraMcpSpecification {
 
     /**
@@ -92,12 +87,12 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
 
         public static SearchType fromValue(String value) throws GhidraMcpException {
             return Arrays.stream(values())
-                .filter(type -> type.value.equalsIgnoreCase(value))
-                .findFirst()
-                .orElseThrow(() -> new GhidraMcpException(GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                        .message("Invalid search type: " + value)
-                        .build()));
+                    .filter(type -> type.value.equalsIgnoreCase(value))
+                    .findFirst()
+                    .orElseThrow(() -> new GhidraMcpException(GhidraMcpError.validation()
+                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                            .message("Invalid search type: " + value)
+                            .build()));
         }
 
         public static String[] getValidValues() {
@@ -134,16 +129,16 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_SEARCH_TYPE,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Type of search to perform")
                         .enumValues(SearchType.getValidValues()));
 
         schemaRoot.property(ARG_SEARCH_VALUE,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description(
                                 "Value to search for. Format depends on search type:\n" +
                                         "- string: text to find (e.g., 'hello')\n" +
@@ -155,11 +150,11 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
                                         "- regex: regular expression pattern"));
 
         schemaRoot.property(ARG_CASE_SENSITIVE,
-                JsonSchemaBuilder.bool(mapper)
+                SchemaBuilder.bool(mapper)
                         .description("Whether string/regex searches are case sensitive (default false)"));
 
         schemaRoot.property(ARG_MAX_RESULTS,
-                JsonSchemaBuilder.integer(mapper)
+                SchemaBuilder.integer(mapper)
                         .description("Maximum number of results to return (default/max: " + DEFAULT_PAGE_LIMIT + ")")
                         .minimum(1)
                         .maximum(DEFAULT_PAGE_LIMIT));
@@ -212,8 +207,9 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
     /**
      * Executes the memory search operation.
      * 
-     * @param ex The MCP transport context
-     * @param args The tool arguments containing fileName, searchType, searchValue, and optional parameters
+     * @param ex   The MCP transport context
+     * @param args The tool arguments containing fileName, searchType, searchValue,
+     *             and optional parameters
      * @param tool The Ghidra PluginTool context
      * @return A Mono emitting a SearchResult object
      */
@@ -246,7 +242,8 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
                         validateHexFormat(searchValue, args);
                     }
 
-                    SearchContext context = new SearchContext(program, searchType, searchValue, caseSensitive, maxResults);
+                    SearchContext context = new SearchContext(program, searchType, searchValue, caseSensitive,
+                            maxResults);
 
                     TaskMonitor monitor = TaskMonitor.DUMMY;
 
@@ -315,16 +312,16 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
                             "search execution",
                             Map.of("searchValue", searchValue, "searchType", searchType.getValue()),
                             Map.of("addressSetSize", addressSet.getNumAddresses(), "maxResults", maxResults),
-                            Map.of("programName", program.getName(), "endianness", program.getMemory().isBigEndian() ? "big" : "little")))
+                            Map.of("programName", program.getName(), "endianness",
+                                    program.getMemory().isBigEndian() ? "big" : "little")))
                     .suggestions(List.of(
                             new GhidraMcpError.ErrorSuggestion(
                                     GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
                                     "Try different search patterns",
                                     "Consider trying different hex patterns or search types",
-                                    List.of("Try with spaces: '38 8c 36 49'", "Try uppercase: '388C3649'", "Try different search type"),
-                                    null
-                            )
-                    ))
+                                    List.of("Try with spaces: '38 8c 36 49'", "Try uppercase: '388C3649'",
+                                            "Try different search type"),
+                                    null)))
                     .build());
         }
 
@@ -332,11 +329,12 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
     }
 
     /**
-     * Validates hex format and provides helpful suggestions for common format issues.
+     * Validates hex format and provides helpful suggestions for common format
+     * issues.
      */
     private void validateHexFormat(String searchValue, Map<String, Object> args) throws GhidraMcpException {
         String trimmed = searchValue.trim();
-        
+
         // Check for common format issues
         if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) {
             String withoutPrefix = trimmed.substring(2);
@@ -356,12 +354,10 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
                                     "Use space-separated hex format",
                                     "Remove '0x' prefix and add spaces between bytes",
                                     List.of(suggested),
-                                    null
-                            )
-                    ))
+                                    null)))
                     .build());
         }
-        
+
         // Check if it's a continuous hex string without spaces
         if (trimmed.matches("^[0-9a-fA-F]+$") && trimmed.length() > 2 && !trimmed.contains(" ")) {
             String suggested = formatHexWithSpaces(trimmed);
@@ -380,9 +376,7 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
                                     "Add spaces between hex bytes",
                                     "Separate each two-digit hex value with a space",
                                     List.of(suggested),
-                                    null
-                            )
-                    ))
+                                    null)))
                     .build());
         }
     }
@@ -394,7 +388,7 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
         if (hexString.length() % 2 != 0) {
             hexString = "0" + hexString; // Pad with leading zero if odd length
         }
-        
+
         StringBuilder result = new StringBuilder();
         for (int i = 0; i < hexString.length(); i += 2) {
             if (result.length() > 0) {

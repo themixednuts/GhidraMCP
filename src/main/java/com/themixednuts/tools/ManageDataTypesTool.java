@@ -12,8 +12,8 @@ import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.RTTIAnalysisResult;
 import ghidra.program.database.data.DataTypeUtilities;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import static com.themixednuts.utils.jsonschema.draft7.ConditionalSpec.conditional;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.*;
@@ -128,86 +128,113 @@ public class ManageDataTypesTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        // Use Draft 7 builder for conditional support
+        var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_ACTION, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ACTION, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .enumValues(
                         ACTION_CREATE,
                         ACTION_UPDATE)
                 .description("Action to perform on data types"));
 
-        schemaRoot.property(ARG_DATA_TYPE_KIND, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_DATA_TYPE_KIND, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .enumValues("struct", "enum", "union", "typedef", "pointer", "function_definition", "category", "rtti0")
                 .description("Type of data type to work with"));
 
-        schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NAME, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Name of the data type"));
 
-        schemaRoot.property(ARG_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_CATEGORY_PATH, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description(
                         "For non-category data types: full category path. For category operations: parent category path (default '/').")
                 .defaultValue("/"));
 
-        schemaRoot.property(ARG_SIZE, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_SIZE, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
                 .description("Size in bytes (for enums: 1,2,4,8; structs: 0 for growable)"));
 
-        schemaRoot.property(ARG_COMMENT, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_COMMENT, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Comment/description for the data type"));
 
         // For struct/union members
-        schemaRoot.property(ARG_MEMBERS, JsonSchemaBuilder.array(mapper)
-                .items(JsonSchemaBuilder.object(mapper)
-                        .property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Member name"))
-                        .property(ARG_DATA_TYPE_PATH, JsonSchemaBuilder.string(mapper).description("Member data type"))
+        schemaRoot.property(ARG_MEMBERS, SchemaBuilder.array(mapper)
+                .items(SchemaBuilder.object(mapper)
+                        .property(ARG_NAME,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Member name"))
+                        .property(ARG_DATA_TYPE_PATH,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Member data type"))
                         .property(ARG_DATA_TYPE_ID,
-                                JsonSchemaBuilder.integer(mapper)
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
                                         .description("Optional: Member data type ID for direct lookup by internal ID"))
                         .property(ARG_OFFSET,
-                                JsonSchemaBuilder.integer(mapper).description("Offset in bytes (-1 for append)"))
-                        .property(ARG_COMMENT, JsonSchemaBuilder.string(mapper).description("Member comment"))
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+                                        .description("Offset in bytes (-1 for append)"))
+                        .property(ARG_COMMENT,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Member comment"))
                         .requiredProperty(ARG_NAME))
                 .description("Members for struct/union creation"));
 
         // For enum entries
-        schemaRoot.property(ARG_ENTRIES, JsonSchemaBuilder.array(mapper)
-                .items(JsonSchemaBuilder.object(mapper)
-                        .property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Entry name"))
-                        .property(ARG_VALUE, JsonSchemaBuilder.integer(mapper).description("Entry value"))
+        schemaRoot.property(ARG_ENTRIES, SchemaBuilder.array(mapper)
+                .items(SchemaBuilder.object(mapper)
+                        .property(ARG_NAME,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Entry name"))
+                        .property(ARG_VALUE,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+                                        .description("Entry value"))
                         .requiredProperty(ARG_NAME)
                         .requiredProperty(ARG_VALUE))
                 .description("Entries for enum creation"));
 
         // For typedef/pointer
-        schemaRoot.property(ARG_BASE_TYPE, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_BASE_TYPE, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Base type for typedef/pointer"));
 
         // For function definitions
-        schemaRoot.property(ARG_RETURN_TYPE, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_RETURN_TYPE, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Return type for function definitions"));
 
-        schemaRoot.property(ARG_PARAMETERS, JsonSchemaBuilder.array(mapper)
-                .items(JsonSchemaBuilder.object(mapper)
-                        .property(ARG_NAME, JsonSchemaBuilder.string(mapper).description("Parameter name"))
-                        .property(ARG_TYPE, JsonSchemaBuilder.string(mapper).description("Parameter type"))
+        schemaRoot.property(ARG_PARAMETERS, SchemaBuilder.array(mapper)
+                .items(SchemaBuilder.object(mapper)
+                        .property(ARG_NAME,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Parameter name"))
+                        .property(ARG_TYPE,
+                                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                                        .description("Parameter type"))
                         .requiredProperty(ARG_TYPE))
                 .description("Parameters for function definitions"));
 
-        schemaRoot.property(ARG_NEW_CATEGORY_PATH, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NEW_CATEGORY_PATH, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Destination parent path when moving a category"));
 
-        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ADDRESS, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                 .description("Optional: Address to analyze for RTTI structure information"));
 
-        schemaRoot.property(ARG_DATA_TYPE_ID, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_DATA_TYPE_ID, com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
                 .description("Optional: Data type ID for direct lookup by internal ID"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
                 .requiredProperty(ARG_ACTION)
                 .requiredProperty(ARG_DATA_TYPE_KIND);
+
+        // Add conditional requirements based on data_type_kind and action (JSON Schema
+        // Draft 7)
+        schemaRoot.addConditionals(
+                // typedef and pointer require base_type
+                conditional(ARG_DATA_TYPE_KIND, "typedef").require(ARG_BASE_TYPE),
+                conditional(ARG_DATA_TYPE_KIND, "pointer").require(ARG_BASE_TYPE),
+                // action=create requires name
+                conditional(ARG_ACTION, ACTION_CREATE).require(ARG_NAME),
+                // action=update requires name
+                conditional(ARG_ACTION, ACTION_UPDATE).require(ARG_NAME));
 
         return schemaRoot.build();
     }
