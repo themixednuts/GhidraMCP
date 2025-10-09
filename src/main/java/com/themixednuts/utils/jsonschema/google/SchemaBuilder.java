@@ -1,10 +1,13 @@
-package com.themixednuts.utils.jsonschema;
+package com.themixednuts.utils.jsonschema.google;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
+import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.JsonSchemaType;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -15,8 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * A type-safe builder for creating JSON Schema objects following the Google AI
- * API specification subset.
+ * Builder for Google AI API JSON Schema (simplified, no conditionals).
  * 
  * <p>
  * Example Usage:
@@ -26,9 +28,11 @@ import java.util.Objects;
  * JsonSchema userSchema = JsonSchemaBuilder.object()
  * 		.title("User")
  * 		.description("Represents a user in the system")
- * 		.property("id", JsonSchemaBuilder.integer().format(IntegerFormatType.INT64).description("Unique identifier"), true)
+ * 		.property("id", JsonSchemaBuilder.integer().format(IntegerFormatType.INT64).description("Unique identifier"),
+ * 				true)
  * 		.property("name", JsonSchemaBuilder.string().minLength(1).description("User's full name"), true)
- * 		.property("email", JsonSchemaBuilder.string().format(StringFormatType.EMAIL).description("User's email address"))
+ * 		.property("email",
+ * 				JsonSchemaBuilder.string().format(StringFormatType.EMAIL).description("User's email address"))
  * 		.property("tags", JsonSchemaBuilder.array()
  * 				.items(JsonSchemaBuilder.string().description("A tag string"))
  * 				.description("Optional tags for the user")
@@ -46,10 +50,10 @@ import java.util.Objects;
  * <pre>{@code
  * // Create schema
  * JsonSchema schema = JsonSchemaBuilder.string()
- *     .minLength(5)
- *     .maxLength(20)
- *     .pattern("^[a-zA-Z]+$")
- *     .build();
+ * 		.minLength(5)
+ * 		.maxLength(20)
+ * 		.pattern("^[a-zA-Z]+$")
+ * 		.build();
  * 
  * // Use schema for API definitions or external validation
  * String schemaJson = schema.toJsonString().orElse("{}");
@@ -57,10 +61,8 @@ import java.util.Objects;
  *
  * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API
  *      Schema</a>
- * @see <a href="https://spec.openapis.org/oas/v3.0.3#data-types">OpenAPI 3.0.3
- *      Data Types</a>
  */
-public class JsonSchemaBuilder {
+public class SchemaBuilder {
 	static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
 	private static final String TYPE = "type";
 	private static final String FORMAT = "format";
@@ -89,23 +91,15 @@ public class JsonSchemaBuilder {
 	private final JsonSchemaType type;
 
 	/**
-	 * Private constructor for creating a JsonSchemaBuilder instance.
+	 * Private constructor for creating a SchemaBuilder instance.
 	 * Only called by the static factory methods and BuilderStateImpl.
 	 *
 	 * @param type The JSON schema type for this builder instance.
 	 */
-	private JsonSchemaBuilder(JsonSchemaType type) {
+	private SchemaBuilder(JsonSchemaType type) {
 		this.schema = DEFAULT_MAPPER.createObjectNode();
 		this.type = Objects.requireNonNull(type, "Schema type cannot be null");
 		this.schema.put(TYPE, type.toString());
-	}
-
-	/**
-	 * A base interface for any builder state that can produce a final ObjectNode
-	 * schema.
-	 */
-	public interface IBuildableSchemaType {
-		JsonSchema build();
 	}
 
 	/** State interface for building a 'string' schema. */
@@ -438,7 +432,6 @@ public class JsonSchemaBuilder {
 		 */
 		INumberSchemaBuilder minimum(float minimum);
 
-
 		/**
 		 * Sets the maximum value for a number type.
 		 * Corresponds to the "maximum" keyword in the JSON Schema specification,
@@ -462,7 +455,6 @@ public class JsonSchemaBuilder {
 		 *      (maximum)</a>
 		 */
 		INumberSchemaBuilder maximum(float maximum);
-
 
 		/**
 		 * Sets the format for a number type.
@@ -1058,7 +1050,11 @@ public class JsonSchemaBuilder {
 		IArraySchemaBuilder anyOf(List<? extends IBuildableSchemaType> schemas);
 	}
 
-	/** State interface for building an 'object' schema. */
+	/**
+	 * Base interface for building an 'object' schema (Google AI API).
+	 * For JSON Schema Draft 7 with conditionals, use
+	 * IJsonSchemaDraft7ObjectSchemaBuilder.
+	 */
 	public interface IObjectSchemaBuilder extends IBuildableSchemaType {
 		/**
 		 * Sets the title for this schema.
@@ -1141,16 +1137,16 @@ public class JsonSchemaBuilder {
 		IObjectSchemaBuilder property(String name, ObjectNode propertySchema, boolean required);
 
 		/**
-	 * Marks a property as required for this object schema.
-	 * Corresponds to the "required" keyword in the JSON Schema specification,
-	 * as used by the Google AI API.
-	 *
-	 * @param name The name of the property to mark as required.
-	 * @return This builder instance for chaining.
-	 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
-	 *      (required)</a>
-	 */
-	IObjectSchemaBuilder requiredProperty(String name);
+		 * Marks a property as required for this object schema.
+		 * Corresponds to the "required" keyword in the JSON Schema specification,
+		 * as used by the Google AI API.
+		 *
+		 * @param name The name of the property to mark as required.
+		 * @return This builder instance for chaining.
+		 * @see <a href="https://ai.google.dev/api/caching#Schema">Google AI API Schema
+		 *      (required)</a>
+		 */
+		IObjectSchemaBuilder requiredProperty(String name);
 
 		/**
 		 * Sets the minimum number of properties for an object type.
@@ -1305,7 +1301,6 @@ public class JsonSchemaBuilder {
 		 */
 		IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder, boolean required);
 	}
-
 
 	/**
 	 * Starts building a 'string' type JSON schema using the default ObjectMapper.
@@ -1468,12 +1463,11 @@ public class JsonSchemaBuilder {
 		return new BuilderStateImpl(JsonSchemaType.NULL, customMapper);
 	}
 
-
 	private static class BuilderStateImpl implements
 			IStringSchemaBuilder, INumberSchemaBuilder, IIntegerSchemaBuilder, IBooleanSchemaBuilder,
 			IArraySchemaBuilder, IObjectSchemaBuilder, INullSchemaBuilder {
 
-		private final JsonSchemaBuilder builder;
+		private final SchemaBuilder builder;
 		private Map<String, ObjectNode> propertiesMap = null;
 		private List<String> requiredPropertiesList = null;
 		private final ObjectMapper mapper;
@@ -1482,14 +1476,13 @@ public class JsonSchemaBuilder {
 		 * Package-private constructor for creating a BuilderStateImpl instance.
 		 * Called by the static factory methods in JsonSchemaBuilder.
 		 *
-		 * @param type The JSON schema type for this builder instance.
+		 * @param type   The JSON schema type for this builder instance.
 		 * @param mapper The ObjectMapper to use for value conversions.
 		 */
 		BuilderStateImpl(JsonSchemaType type, ObjectMapper mapper) {
-			this.builder = new JsonSchemaBuilder(type);
+			this.builder = new SchemaBuilder(type);
 			this.mapper = mapper;
 		}
-
 
 		@Override
 		public BuilderStateImpl title(String title) {
@@ -1546,7 +1539,6 @@ public class JsonSchemaBuilder {
 			return defaultValue((Object) value);
 		}
 
-
 		@Override
 		public BuilderStateImpl enumValues(List<String> values) {
 			assertType(JsonSchemaType.STRING);
@@ -1598,7 +1590,6 @@ public class JsonSchemaBuilder {
 			return this;
 		}
 
-
 		@Override
 		public IStringSchemaBuilder minLength(int minLength) {
 			assertType(JsonSchemaType.STRING);
@@ -1625,7 +1616,6 @@ public class JsonSchemaBuilder {
 			builder.schema.put(PATTERN, Objects.requireNonNull(pattern, "Pattern cannot be null"));
 			return this;
 		}
-
 
 		@Override
 		public INumberSchemaBuilder minimum(BigDecimal minimum) {
@@ -1660,8 +1650,6 @@ public class JsonSchemaBuilder {
 		public INumberSchemaBuilder maximum(float maximum) {
 			return maximum(BigDecimal.valueOf(maximum));
 		}
-
-
 
 		@Override
 		public IIntegerSchemaBuilder minimum(long minimum) {
@@ -1707,7 +1695,6 @@ public class JsonSchemaBuilder {
 			builder.schema.put(FORMAT, Objects.requireNonNull(format, "Format cannot be null").toString());
 			return this;
 		}
-
 
 		@Override
 		public IArraySchemaBuilder items(ObjectNode itemSchema) {
@@ -1757,13 +1744,12 @@ public class JsonSchemaBuilder {
 				subSchemaNodes.add(schemaBuilder.build().getNode());
 			}
 
-			IObjectSchemaBuilder itemsObjectSchemaBuilder = JsonSchemaBuilder.object(this.mapper);
+			IObjectSchemaBuilder itemsObjectSchemaBuilder = SchemaBuilder.object(this.mapper);
 			itemsObjectSchemaBuilder.anyOf(subSchemaNodes.toArray(new ObjectNode[0]));
 
 			builder.schema.set(ITEMS, itemsObjectSchemaBuilder.build().getNode());
 			return this;
 		}
-
 
 		@Override
 		public IObjectSchemaBuilder property(String name, ObjectNode propertySchema) {
@@ -1797,7 +1783,8 @@ public class JsonSchemaBuilder {
 		}
 
 		@Override
-		public IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder, boolean required) {
+		public IObjectSchemaBuilder property(String name, IBuildableSchemaType propertySchemaBuilder,
+				boolean required) {
 			Objects.requireNonNull(propertySchemaBuilder, "Property schema builder cannot be null");
 			return property(name, propertySchemaBuilder.build().getNode(), required);
 		}
@@ -1889,7 +1876,6 @@ public class JsonSchemaBuilder {
 			return properties(builtProperties);
 		}
 
-
 		@Override
 		public BuilderStateImpl anyOf(IBuildableSchemaType... schemas) {
 			Objects.requireNonNull(schemas, "anyOf schemas array cannot be null");
@@ -1935,7 +1921,8 @@ public class JsonSchemaBuilder {
 		 * Throws IllegalStateException if the types don't match.
 		 *
 		 * @param expectedType The expected schema type for the current operation.
-		 * @throws IllegalStateException if the builder type doesn't match the expected type.
+		 * @throws IllegalStateException if the builder type doesn't match the expected
+		 *                               type.
 		 */
 		private void assertType(JsonSchemaType expectedType) {
 			if (builder.type != expectedType) {

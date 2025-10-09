@@ -6,6 +6,7 @@ import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
 import com.networknt.schema.ValidationMessage;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +15,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests that validate actual data against schemas built with JsonSchemaBuilder.
+ * Tests that validate actual data against schemas built with SchemaBuilder.
  * Uses NetworkNT JSON Schema Validator to ensure our schemas work correctly.
  */
 class JsonSchemaValidationTest {
@@ -48,7 +49,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .minLength(3)
                 .maxLength(10)
                 .pattern("^[a-zA-Z]+$")
@@ -62,7 +63,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationMinLengthFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .minLength(5)
                 .build();
 
@@ -75,7 +76,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationMaxLengthFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .maxLength(3)
                 .build();
 
@@ -88,7 +89,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationPatternFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .pattern("^[a-zA-Z]+$")
                 .build();
 
@@ -101,7 +102,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationEnumSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .enumValues("red", "green", "blue")
                 .build();
 
@@ -113,7 +114,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testStringValidationEnumFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .enumValues("red", "green", "blue")
                 .build();
 
@@ -128,7 +129,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNumberValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.number()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.number()
                 .minimum(1.0)
                 .maximum(10.0)
                 .build();
@@ -141,7 +142,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNumberValidationMinimumFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.number()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.number()
                 .minimum(5.0)
                 .build();
 
@@ -154,7 +155,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNumberValidationMaximumFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.number()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.number()
                 .maximum(5.0)
                 .build();
 
@@ -169,7 +170,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testIntegerValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.integer()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.integer()
                 .minimum(1)
                 .maximum(100)
                 .build();
@@ -182,7 +183,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testIntegerValidationFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.integer()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.integer()
                 .build();
 
         JsonSchema networkNTSchema = createNetworkNTSchema(ourSchema);
@@ -195,7 +196,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testBooleanValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.bool().build();
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.bool().build();
 
         JsonSchema networkNTSchema = createNetworkNTSchema(ourSchema);
         Set<ValidationMessage> errors1 = validateData(networkNTSchema, true);
@@ -207,7 +208,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testBooleanValidationFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.bool().build();
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.bool().build();
 
         JsonSchema networkNTSchema = createNetworkNTSchema(ourSchema);
         Set<ValidationMessage> errors = validateData(networkNTSchema, "true");
@@ -219,7 +220,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testArrayValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.array()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.array()
                 .minItems(2)
                 .maxItems(5)
                 .build();
@@ -232,7 +233,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testArrayValidationMinItemsFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.array()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.array()
                 .minItems(3)
                 .build();
 
@@ -245,7 +246,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testArrayValidationMaxItemsFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.array()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.array()
                 .maxItems(2)
                 .build();
 
@@ -260,9 +261,9 @@ class JsonSchemaValidationTest {
 
     @Test
     void testObjectValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
-                .property("name", JsonSchemaBuilder.string(), true)
-                .property("age", JsonSchemaBuilder.integer(), false)
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
+                .property("name", SchemaBuilder.string(), true)
+                .property("age", SchemaBuilder.integer(), false)
                 .minProperties(1)
                 .maxProperties(3)
                 .build();
@@ -280,9 +281,9 @@ class JsonSchemaValidationTest {
 
     @Test
     void testObjectValidationRequiredPropertyFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
-                .property("name", JsonSchemaBuilder.string(), true)
-                .property("age", JsonSchemaBuilder.integer(), true)
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
+                .property("name", SchemaBuilder.string(), true)
+                .property("age", SchemaBuilder.integer(), true)
                 .build();
 
         java.util.Map<String, Object> invalidData = java.util.Map.of(
@@ -299,7 +300,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testObjectValidationMinPropertiesFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
                 .minProperties(2)
                 .build();
 
@@ -316,7 +317,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testObjectValidationMaxPropertiesFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
                 .maxProperties(2)
                 .build();
 
@@ -337,7 +338,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNullValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.nul().build();
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.nul().build();
 
         JsonSchema networkNTSchema = createNetworkNTSchema(ourSchema);
         Set<ValidationMessage> errors = validateData(networkNTSchema, null);
@@ -347,7 +348,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNullValidationFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.nul().build();
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.nul().build();
 
         JsonSchema networkNTSchema = createNetworkNTSchema(ourSchema);
         Set<ValidationMessage> errors = validateData(networkNTSchema, "not null");
@@ -359,7 +360,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNullableValidationSuccess() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .nullable(true)
                 .build();
 
@@ -373,7 +374,7 @@ class JsonSchemaValidationTest {
 
     @Test
     void testNullableValidationFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.string()
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.string()
                 .nullable(false)
                 .build();
 
@@ -387,13 +388,13 @@ class JsonSchemaValidationTest {
 
     @Test
     void testComplexNestedSchemaValidation() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
-                .property("user", JsonSchemaBuilder.object()
-                        .property("name", JsonSchemaBuilder.string().minLength(1), true)
-                        .property("age", JsonSchemaBuilder.integer().minimum(0), false)
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
+                .property("user", SchemaBuilder.object()
+                        .property("name", SchemaBuilder.string().minLength(1), true)
+                        .property("age", SchemaBuilder.integer().minimum(0), false)
                         .build().getNode(), true)
-                .property("tags", JsonSchemaBuilder.array()
-                        .items(JsonSchemaBuilder.string())
+                .property("tags", SchemaBuilder.array()
+                        .items(SchemaBuilder.string())
                         .maxItems(5)
                         .build().getNode(), false)
                 .build();
@@ -414,11 +415,11 @@ class JsonSchemaValidationTest {
 
     @Test
     void testComplexNestedSchemaValidationFailure() {
-        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = JsonSchemaBuilder.object()
-                .property("user", JsonSchemaBuilder.object()
-                        .property("name", JsonSchemaBuilder.string().minLength(1), true)
+        com.themixednuts.utils.jsonschema.JsonSchema ourSchema = SchemaBuilder.object()
+                .property("user", SchemaBuilder.object()
+                        .property("name", SchemaBuilder.string().minLength(1), true)
                         .build().getNode(), true)
-                .property("tags", JsonSchemaBuilder.array()
+                .property("tags", SchemaBuilder.array()
                         .maxItems(2)
                         .build().getNode(), false)
                 .build();
