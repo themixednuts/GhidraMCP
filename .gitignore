@@ -45,6 +45,16 @@ mvnw.cmd
 .env
 .env.*
 
+# Act (GitHub Actions local runner) files
+.secrets
+.vars
+.input
+act-*.log
+
+# Local test outputs  
+ghidra.zip
+/tmp/
+
 # Java crash logs (if any)
 hs_err_pid*
 replay_pid*

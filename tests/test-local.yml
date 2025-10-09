@@ -1,0 +1,163 @@
+# Local Testing Workflow for GhidraMCP
+#
+# This workflow is designed to run locally using 'act' (GitHub Actions local runner)
+#
+# Prerequisites:
+#   - Docker Desktop: https://www.docker.com/products/docker-desktop/
+#   - act: https://github.com/nektos/act/releases
+#
+# Usage:
+#   act -W tests/test-local.yml
+#
+# What it does:
+#   1. Downloads Ghidra (cached for subsequent runs)
+#   2. Builds the extension with Maven
+#   3. Runs comprehensive tool tests (~32k tests)
+
+name: Test Local
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GHIDRA_LIBS: >-
+        Features/Base/lib/Base.jar
+        Features/Decompiler/lib/Decompiler.jar
+        Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar
+        Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar
+        Features/MicrosoftDmang/lib/MicrosoftDmang.jar
+        Framework/Docking/lib/Docking.jar
+        Framework/Generic/lib/Generic.jar
+        Framework/Project/lib/Project.jar
+        Framework/SoftwareModeling/lib/SoftwareModeling.jar
+        Framework/Utility/lib/Utility.jar
+        Framework/Gui/lib/Gui.jar
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Extract Ghidra version from pom.xml
+        id: ghidra-version
+        run: |
+          GHIDRA_VERSION=$(mvn help:evaluate -Dexpression=ghidra.version -q -DforceStdout)
+          GHIDRA_DATE=$(mvn help:evaluate -Dexpression=ghidra.release.date -q -DforceStdout)
+
+          echo "GHIDRA_VERSION=$GHIDRA_VERSION" >> $GITHUB_ENV
+          echo "GHIDRA_RELEASE_DATE=$GHIDRA_DATE" >> $GITHUB_ENV
+
+          echo "Ghidra Version: $GHIDRA_VERSION"
+          echo "Ghidra Release Date: $GHIDRA_DATE"
+
+      - name: Cache Ghidra installation
+        id: cache-ghidra
+        uses: actions/cache@v4
+        with:
+          path: ~/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC
+          key: ghidra-${{ env.GHIDRA_VERSION }}-${{ env.GHIDRA_RELEASE_DATE }}
+
+      - name: Download Ghidra
+        if: steps.cache-ghidra.outputs.cache-hit != 'true'
+        run: |
+          wget --no-verbose -O ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_RELEASE_DATE}.zip
+          7z x -bd ghidra.zip -o"$HOME/"
+
+      - name: Copy Ghidra libs
+        run: |
+          mkdir -p ./lib
+          GHIDRA_DIR="${HOME}/ghidra_${GHIDRA_VERSION}_PUBLIC"
+
+          echo "Copying Ghidra libraries for build..."
+          for libfile in ${{ env.GHIDRA_LIBS }}
+            do cp "${GHIDRA_DIR}/Ghidra/${libfile}" ./lib/
+          done
+
+          ls -lh ./lib/
+
+      - name: Build with Maven
+        run: |
+          echo "Building extension and test JAR..."
+          mvn clean package -P ci-tests
+
+          echo ""
+          echo "Build artifacts:"
+          ls -lh target/*.jar target/*.zip
+
+      - name: Install extension to Ghidra
+        run: |
+          GHIDRA_DIR="${HOME}/ghidra_${GHIDRA_VERSION}_PUBLIC"
+          mkdir -p "${GHIDRA_DIR}/Ghidra/Extensions"
+
+          echo "Installing extension from build..."
+
+          # Unzip extension
+          unzip -o target/GhidraMCP-*.zip -d "${GHIDRA_DIR}/Ghidra/Extensions/"
+
+          # Copy test JAR
+          cp target/*-tests.jar "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/lib/"
+
+          echo "✅ Extension installed!"
+          ls -lh "${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP/lib/"
+
+      - name: Create test binary
+        run: |
+          gcc -o /tmp/test_binary tests/test_program.c
+          echo "Test binary created:"
+          file /tmp/test_binary
+          ls -lh /tmp/test_binary
+
+      - name: Run headless tool tests
+        run: |
+          GHIDRA_DIR="${HOME}/ghidra_${GHIDRA_VERSION}_PUBLIC"
+          TEST_PROJECT_DIR="${HOME}/ghidra-test-project"
+          EXTENSION_DIR="${GHIDRA_DIR}/Ghidra/Extensions/GhidraMCP"
+          mkdir -p "$TEST_PROJECT_DIR"
+
+          # Build classpath
+          EXTENSION_CP="${EXTENSION_DIR}/lib/GhidraMCP.jar"
+          for jar in "${EXTENSION_DIR}"/lib/*.jar; do
+            if [ "$jar" != "${EXTENSION_DIR}/lib/GhidraMCP.jar" ]; then
+              EXTENSION_CP="${EXTENSION_CP}:${jar}"
+            fi
+          done
+
+          echo "Running tests..."
+          echo "Classpath: ${EXTENSION_CP}"
+
+          # Run tests
+          CLASSPATH="${EXTENSION_CP}" \
+          "${GHIDRA_DIR}/support/analyzeHeadless" \
+            "$TEST_PROJECT_DIR" \
+            TestProject \
+            -import /tmp/test_binary \
+            -postScript src/test/scripts/RunTests.py \
+            -scriptlog /tmp/test_output.log \
+            -log /tmp/ghidra.log \
+            -noanalysis
+
+          TEST_EXIT_CODE=$?
+
+          echo ""
+          echo "=== Test Output ==="
+          cat /tmp/test_output.log
+
+          echo ""
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            echo "✅ Tests passed!"
+          else
+            echo "❌ Tests failed with exit code: $TEST_EXIT_CODE"
+            echo ""
+            echo "=== Ghidra Log (last 100 lines) ==="
+            tail -n 100 /tmp/ghidra.log
+          fi
+
+          exit $TEST_EXIT_CODE

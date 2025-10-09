@@ -1,0 +1,12 @@
+# Act configuration file
+# This tells act to use the full Ubuntu image (matches GitHub Actions exactly)
+
+# Use ubuntu-latest image (full image, ~18GB, includes Maven and all GitHub Actions tools)
+-P ubuntu-latest=catthehacker/ubuntu:full-latest
+
+# Bind workspace to allow file access
+--bind
+
+# Verbose output
+--verbose
+
