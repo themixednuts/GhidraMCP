@@ -5,8 +5,8 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
@@ -75,35 +75,35 @@ public class ReadMemoryBlocksTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
         schemaRoot.property(ARG_NAME_FILTER,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter memory blocks by name (case-insensitive substring match)"));
 
         schemaRoot.property(ARG_READABLE,
-                JsonSchemaBuilder.bool(mapper)
+                SchemaBuilder.bool(mapper)
                         .description("Filter by read permission"));
 
         schemaRoot.property(ARG_WRITABLE,
-                JsonSchemaBuilder.bool(mapper)
+                SchemaBuilder.bool(mapper)
                         .description("Filter by write permission"));
 
         schemaRoot.property(ARG_EXECUTABLE,
-                JsonSchemaBuilder.bool(mapper)
+                SchemaBuilder.bool(mapper)
                         .description("Filter by execute permission"));
 
         schemaRoot.property(ARG_MIN_SIZE,
-                JsonSchemaBuilder.integer(mapper)
+                SchemaBuilder.integer(mapper)
                         .description("Minimum block size in bytes"));
 
         schemaRoot.property(ARG_MAX_SIZE,
-                JsonSchemaBuilder.integer(mapper)
+                SchemaBuilder.integer(mapper)
                         .description("Maximum block size in bytes"));
 
         schemaRoot.property(ARG_CURSOR,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Pagination cursor from previous request"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME);

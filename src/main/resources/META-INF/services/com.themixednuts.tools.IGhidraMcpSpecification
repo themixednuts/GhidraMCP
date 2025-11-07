@@ -2,6 +2,7 @@ com.themixednuts.tools.ManageFunctionsTool
 com.themixednuts.tools.ReadFunctionsTool
 com.themixednuts.tools.DeleteFunctionTool
 com.themixednuts.tools.DecompileCodeTool
+com.themixednuts.tools.ReadListingTool
 com.themixednuts.tools.ManageDataTypesTool
 com.themixednuts.tools.ReadDataTypesTool
 com.themixednuts.tools.DeleteDataTypeTool

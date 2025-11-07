@@ -1,2 +1,0 @@
-GHIDRA_MODULE_NAME=${project.name}
-GHIDRA_MODULE_DESC=${project.description}

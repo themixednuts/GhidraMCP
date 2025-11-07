@@ -6,8 +6,8 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder;
-import com.themixednuts.utils.jsonschema.JsonSchemaBuilder.IObjectSchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import generic.FilteredIterator;
 import ghidra.framework.plugintool.PluginTool;
@@ -91,37 +91,37 @@ public class ReadSymbolsTool implements IGhidraMcpSpecification {
         IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_SYMBOL_ID, JsonSchemaBuilder.integer(mapper)
+        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
                 .description("Symbol ID to identify a specific symbol (single read mode)"));
 
-        schemaRoot.property(ARG_ADDRESS, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
                 .description("Memory address to identify a specific symbol (single read mode)")
                 .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, JsonSchemaBuilder.string(mapper)
+        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
                 .description("Symbol name for single symbol lookup (supports regex matching)"));
 
         schemaRoot.property(ARG_NAME_FILTER,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter symbols by name (case-insensitive substring match, list mode)"));
 
         schemaRoot.property(ARG_SYMBOL_TYPE,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter by symbol type (e.g., FUNCTION, LABEL, PARAMETER, LOCAL_VAR)"));
 
         schemaRoot.property(ARG_SOURCE_TYPE,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter by source type (e.g., USER_DEFINED, IMPORTED, ANALYSIS)"));
 
         schemaRoot.property(ARG_NAMESPACE,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Filter by namespace (e.g., 'Global', function names)"));
 
         schemaRoot.property(ARG_CURSOR,
-                JsonSchemaBuilder.string(mapper)
+                SchemaBuilder.string(mapper)
                         .description("Pagination cursor from previous request"));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME);
