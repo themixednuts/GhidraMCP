@@ -1,5 +1,5 @@
 <div align="center">
-<a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square&version=0.2.3" alt="GitHub release (latest by date)"></a>
+<a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/themixednuts/GhidraMCP/build.yml?style=flat-square" alt="Build Status"></a>
   <a href="#"><img src="https://img.shields.io/badge/Ghidra-11.4.2-blue?style=flat-square" alt="Tested Ghidra Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"></a>
@@ -57,6 +57,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 - **Read Data Types** - Browse and query program data types with filtering and
   pagination
 - **Read Functions** - Enumerate functions with detailed metadata and filtering
+- **Read Listing** - View disassembly and data from program listing with address,
+  range, or function-based viewing
 - **Read Memory Blocks** - View memory segments, permissions, and properties
 - **Read Symbols** - Browse symbols with type and namespace filtering
 
@@ -70,8 +72,9 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 ### Discovery & Search
 
 - **List Analysis Options** - View available analysis options and settings
-- **List Programs** - Discover open and closed programs in the project
-- **Find References** - Locate code and data references
+- **List Programs** - Discover open and closed programs in the project with
+  pagination and filtering
+- **Find References** - Locate code and data references with pagination support
 - **Search Memory** - Pattern search with hex, string, binary, and regex support
 
 ### Utilities
@@ -106,7 +109,7 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 > manually closed, or the server will hang and become unresponsive.
 
 > [!TIP] > **Missing fileName Parameter:** When tools request a `fileName`
-> parameter, use the `list_open_files` tool to see available programs. Most
+> parameter, use the `list_programs` tool to see available programs. Most
 > tools provide this context automatically on failed calls.
 
 ## ⚙️ Configuration
@@ -162,8 +165,8 @@ settings:
    mvn clean package
    ```
 6. The installable `zip` file will be located in the `target/` directory (e.g.,
-   `target/GhidraMCP-*-SNAPSHOT-ghidra.zip`). Follow the Installation steps
-   above using this file.
+   `target/GhidraMCP-0.5.0.zip`). Follow the Installation steps above using this
+   file.
 
    > [!TIP]
    > **CI Test JAR:** The test JAR with dependencies is only built when
