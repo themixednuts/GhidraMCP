@@ -244,8 +244,6 @@ configuration format:
 }
 ```
 
-The server supports standard MCP over HTTP protocol.
-
 </details>
 
 ---
