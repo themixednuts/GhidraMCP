@@ -106,14 +106,14 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
    'Configuring an MCP Client' below).
 
 > [!WARNING]
-> **Script Error Dialogs:** Some tools that execute Ghidra scripts
-> may trigger GUI error dialogs via `Msg.showError`. These dialogs **must** be
-> manually closed, or the server will hang and become unresponsive.
+> **Script Error Dialogs:** Some tools that execute Ghidra scripts may trigger
+> GUI error dialogs via `Msg.showError`. These dialogs **must** be manually
+> closed, or the server will hang and become unresponsive.
 
 > [!TIP]
-> **Missing fileName Parameter:** When tools request a `fileName`
-> parameter, use the `list_programs` tool to see available programs. Most tools
-> provide this context automatically on failed calls.
+> **Missing fileName Parameter:** When tools request a `fileName` parameter, use
+> the `list_programs` tool to see available programs. Most tools provide this
+> context automatically on failed calls.
 
 ## ⚙️ Configuration
 
@@ -130,9 +130,9 @@ settings:
 4. Click **OK** to save your settings.
 
 > [!NOTE]
-> **Port Configuration:** If you change the default port (8080), you
-> must update your MCP client configuration accordingly (see 'Configuring an MCP
-> Client' below).
+> **Port Configuration:** If you change the default port (8080), you must update
+> your MCP client configuration accordingly (see 'Configuring an MCP Client'
+> below).
 
 ## 🛠️ Building from Source
 
@@ -174,8 +174,8 @@ settings:
    file.
 
 > [!TIP]
-> **CI Test JAR:** The test JAR with dependencies is only built when
-> explicitly requested. To build it locally for testing:
+> **CI Test JAR:** The test JAR with dependencies is only built when explicitly
+> requested. To build it locally for testing:
 >
 > ```bash
 > mvn clean package -P ci-tests
