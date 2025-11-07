@@ -159,11 +159,18 @@ settings:
      > vary slightly based on Ghidra version and OS.
 5. Build the project using Maven:
    ```bash
-   mvn clean package assembly:single
+   mvn clean package
    ```
 6. The installable `zip` file will be located in the `target/` directory (e.g.,
    `target/GhidraMCP-*-SNAPSHOT-ghidra.zip`). Follow the Installation steps
    above using this file.
+
+   > [!TIP]
+   > **CI Test JAR:** The test JAR with dependencies is only built when
+   > explicitly requested. To build it locally for testing:
+   > ```bash
+   > mvn clean package -P ci-tests
+   > ```
 
 ---
 
