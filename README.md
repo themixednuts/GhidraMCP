@@ -21,14 +21,9 @@
 
 > Ghidra integration for the Model Context Protocol (MCP)
 
-A Ghidra extension that runs an embedded MCP server to expose Ghidra program
-data and functionalities via tools.
-
 ---
 
 ## ✨ Features
-
-GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 
 ### Core Analysis
 
@@ -100,10 +95,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 
 ## ▶️ Usage
 
-1. Ensure Ghidra is running with the GhidraMCP extension active.
-2. Configure the MCP server settings (see 'Configuration' below).
-3. Ensure your MCP Client is configured to connect to the GhidraMCP server (see
-   'Configuring an MCP Client' below).
+Configure the MCP server settings (see 'Configuration' below) and ensure your
+MCP Client is configured to connect (see 'Configuring an MCP Client' below).
 
 > [!WARNING]
 > **Script Error Dialogs:** Some tools that execute Ghidra scripts may trigger
@@ -129,10 +122,6 @@ settings:
      Ghidra launches
 4. Click **OK** to save your settings.
 
-> [!NOTE]
-> **Port Configuration:** If you change the default port (8080), you must update
-> your MCP client configuration accordingly (see 'Configuring an MCP Client'
-> below).
 
 ## 🛠️ Building from Source
 
@@ -140,16 +129,10 @@ settings:
    ```bash
    git clone https://github.com/themixednuts/GhidraMCP.git
    ```
-2. Navigate to the project directory:
-   ```bash
-   cd GhidraMCP
-   ```
-3. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and a
-   JDK (compatible version, e.g., JDK 21 or later recommended for modern Ghidra
-   development) installed.
-4. Copy the following required JAR files from your Ghidra installation directory
-   into the `lib/` directory of this project. Create the `lib/` directory if it
-   doesn't exist:
+2. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and
+   JDK 21 or later installed.
+3. Copy the following required JAR files from your Ghidra installation directory
+   into the `lib/` directory (create it if needed):
    - `Ghidra/Features/Base/lib/Base.jar`
    - `Ghidra/Features/Decompiler/lib/Decompiler.jar`
    - `Ghidra/Framework/Docking/lib/Docking.jar`
@@ -161,17 +144,12 @@ settings:
    - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
    - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
    - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
-   > [!NOTE]
-   > Paths are relative to your Ghidra installation folder. Exact paths might
-   > vary slightly based on Ghidra version and OS.
-5. Build the project using Maven:
+4. Build the project using Maven:
    ```bash
    mvn clean package
    ```
-6. The installable `zip` file will be located in the `target/` directory (e.g.,
-   `target/GhidraMCP-0.5.0.zip`). The filename format is
-   `GhidraMCP-<version>.zip`. Follow the Installation steps above using this
-   file.
+5. The installable `zip` file will be in the `target/` directory (e.g.,
+   `target/GhidraMCP-0.5.0.zip`). Install it using the steps above.
 
 > [!TIP]
 > **CI Test JAR:** The test JAR with dependencies is only built when explicitly
@@ -185,21 +163,15 @@ settings:
 
 ## 🔌 Configuring an MCP Client
 
-To allow an MCP client (like Claude Desktop or a custom client) to interact with
-Ghidra via this extension, you need to configure the client to connect to the
-server endpoint provided by GhidraMCP.
-
-The GhidraMCP server runs within Ghidra itself when the extension is active. It
-exposes an HTTP endpoint for stateless MCP communication.
+Configure your MCP client to connect to `http://127.0.0.1:8080/mcp` (or your
+configured port).
 
 ### Agent-Specific Setup Instructions
 
 <details>
 <summary><strong>🤖 Claude Desktop</strong></summary>
 
-For Claude Desktop, add the following configuration to your
-`claude_desktop_config.json` file. Adjust the key (`"ghidra"` in this example)
-as needed:
+Add the following to your `claude_desktop_config.json`:
 
 ```json
 {
@@ -207,7 +179,6 @@ as needed:
     "ghidra": {
       "url": "http://127.0.0.1:8080/mcp"
     }
-    // Add other MCP server configurations here if needed
   }
 }
 ```
@@ -230,8 +201,6 @@ For Claude Code, use the following command to add the GhidraMCP server:
 ```bash
 claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
 ```
-
-This will automatically configure the MCP server connection for Claude Code.
 
 </details>
 
@@ -283,14 +252,10 @@ The server supports standard MCP over HTTP protocol.
 ---
 
 > [!IMPORTANT]
-> **Port:** The default port is `8080`. This is configurable within Ghidra under
-> **Browser** → **Edit** → **Tool Options** → **Miscellaneous** → **GhidraMCP
-> HTTP Server**. If you change the port in Ghidra, you **must** update the `url`
-> in your client configuration accordingly.
-
-> [!IMPORTANT]
-> **Server Status:** Ghidra must be running with the GhidraMCP extension enabled
-> for the client to connect successfully.
+> The default port is `8080` (configurable in Ghidra: **Browser** → **Edit** →
+> **Tool Options** → **Miscellaneous** → **GhidraMCP HTTP Server**). If you
+> change the port, update your client configuration accordingly. Ghidra must be
+> running with the extension enabled for the client to connect.
 
 > [!NOTE]
 > **Timeout Issues:** If you encounter timeout problems, refer to the
