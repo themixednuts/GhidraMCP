@@ -122,15 +122,14 @@ settings:
      Ghidra launches
 4. Click **OK** to save your settings.
 
-
 ## 🛠️ Building from Source
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/themixednuts/GhidraMCP.git
    ```
-2. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and
-   JDK 21 or later installed.
+2. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and JDK
+   21 or later installed.
 3. Copy the following required JAR files from your Ghidra installation directory
    into the `lib/` directory (create it if needed):
    - `Ghidra/Features/Base/lib/Base.jar`
