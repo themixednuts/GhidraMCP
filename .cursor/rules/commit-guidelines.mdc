@@ -1,0 +1,184 @@
+---
+description: Commit Guidelines
+globs: 
+alwaysApply: false
+---
+# Commit Guidelines
+
+This document outlines best practices for creating clean, logical commits and managing the commit workflow.
+
+## 1. Commit Quality Principles
+
+*   **Atomic Commits:** Each commit should represent a single logical change or feature.
+*   **Clear Messages:** Use conventional commit format: `type: description`
+    *   Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`
+    *   Description should be concise but descriptive
+*   **Logical Grouping:** Group related changes together. Separate unrelated changes into different commits.
+*   **No Broken States:** Never commit code that breaks the build or tests.
+
+## 2. Pre-Commit Validation
+
+Before committing, ensure:
+
+*   **Build Success:** Run `mvn clean package` to verify the project compiles and builds successfully.
+*   **Tests Pass:** Run `mvn test` to ensure all tests pass.
+*   **No Lint Errors:** Check for any linter errors or warnings that should be addressed.
+*   **Logical Completeness:** Ensure all related changes for a feature/fix are included together.
+*   **No Debug Code:** Remove any debug statements, commented-out code, or temporary files.
+
+## 3. Commit Workflow
+
+### Step 1: Stage Changes
+```bash
+git add <files>
+# Or use git add -p for interactive staging to review changes
+```
+
+### Step 2: Review Staged Changes
+```bash
+git diff --cached
+# Review what will be committed to ensure it's logical and complete
+```
+
+### Step 3: Commit
+```bash
+git commit -m "type: clear and descriptive message"
+```
+
+### Step 4: Validate Commit
+After committing, validate:
+```bash
+# Check the commit looks correct
+git log -1 --stat
+
+# Verify build still works
+mvn clean package
+
+# Verify tests still pass
+mvn test
+```
+
+### Step 5: Amend if Needed
+If you discover issues or want to add related changes:
+
+```bash
+# Make additional changes
+git add <files>
+git commit --amend --no-edit  # Keep same message
+# OR
+git commit --amend -m "type: updated message"  # Update message
+```
+
+**When to Amend:**
+*   Adding forgotten files that are part of the same logical change
+*   Fixing typos or small issues in the same commit
+*   Improving commit message clarity
+*   Adding related changes that should be grouped together
+
+**When NOT to Amend:**
+*   After pushing to a shared branch (unless you're the only one using it)
+*   If the commit is already part of a PR or review
+*   If it would rewrite history that others have based work on
+
+### Step 6: Final Validation Before Push
+Before pushing, ensure:
+
+*   All commits are logical and complete
+*   Build succeeds: `mvn clean package`
+*   Tests pass: `mvn test`
+*   No obvious issues or incomplete work
+*   Commit messages are clear and follow conventions
+
+### Step 7: Push
+```bash
+git push origin <branch>
+```
+
+## 4. Amending Before Push
+
+**Always amend commits before pushing if:**
+*   You're still on a local branch (not yet pushed)
+*   You discover related changes that belong in the same commit
+*   The commit message needs improvement
+*   You want to add files that were part of the same logical change
+
+**Amend workflow:**
+```bash
+# Make additional changes
+git add <files>
+
+# Amend the last commit (keeps it as one logical unit)
+git commit --amend --no-edit  # If message is fine
+# OR
+git commit --amend -m "type: improved message"  # If updating message
+
+# Validate again
+mvn clean package
+mvn test
+
+# Then push
+git push origin <branch>
+```
+
+## 5. Commit Message Format
+
+Use conventional commit format:
+
+```
+<type>: <description>
+
+[optional body]
+
+[optional footer]
+```
+
+**Types:**
+*   `feat`: New feature
+*   `fix`: Bug fix
+*   `docs`: Documentation changes
+*   `refactor`: Code refactoring
+*   `test`: Adding or updating tests
+*   `chore`: Maintenance tasks (version bumps, dependency updates)
+*   `ci`: CI/CD changes
+*   `build`: Build system changes
+
+**Examples:**
+```
+feat: add pagination to FindReferencesTool
+fix: correct error handling in DecompileCodeTool
+docs: update README with latest features
+refactor: migrate tools to use new schema builders
+test: add comprehensive tests for JSON Schema builders
+chore: bump version to v0.5.0
+ci: update workflow to use mvn clean package
+```
+
+## 6. Multiple Related Commits
+
+If you have multiple related commits that should be grouped:
+
+1. Make all commits locally
+2. Review the commit sequence: `git log --oneline`
+3. Use interactive rebase to squash or reorder if needed: `git rebase -i HEAD~N`
+4. Validate the final result
+5. Push once everything is validated
+
+## 7. Checklist Before Pushing
+
+- [ ] All changes are staged and committed
+- [ ] Commit messages follow conventions
+- [ ] Build succeeds (`mvn clean package`)
+- [ ] Tests pass (`mvn test`)
+- [ ] No obvious issues or incomplete work
+- [ ] Related changes are grouped logically
+- [ ] No debug code or temporary files
+- [ ] Ready for review/deployment
+
+## 8. Best Practices
+
+*   **Commit Often:** Make small, logical commits rather than large monolithic ones.
+*   **Review Before Committing:** Use `git diff` to review changes before staging.
+*   **Amend Freely Before Push:** Don't hesitate to amend commits that haven't been pushed yet.
+*   **Validate Before Push:** Always run build and tests before pushing.
+*   **Keep History Clean:** Use interactive rebase to clean up commit history before pushing.
+*   **One Logical Change Per Commit:** If a commit does multiple unrelated things, split it.

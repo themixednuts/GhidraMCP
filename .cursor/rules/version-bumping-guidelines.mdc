@@ -62,8 +62,9 @@ The primary location for the project version is the `pom.xml` file.
 ## 4. Release Process
 
 1.  **Ensure Code Stability:**
-    *   All tests must be passing run `mvn test`.
+    *   All tests must be passing - run `mvn test`.
     *   The main branch should be stable and reflect the code to be released.
+    *   Build must succeed - run `mvn clean package` to verify.
 2.  **Update Changelog:**
     *   Finalize `CHANGELOG.md` for the new version as described in Section 1.
 3.  **Determine New Version:**
