@@ -37,7 +37,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 - **Decompile Code** - Function decompilation to C-like pseudocode with P-code
   analysis
 - **Demangle Symbols** - C++ symbol demangling with multiple format support
-- **Script Guidance** - Provides guidance on using Ghidra scripts like DemangleAllScript for advanced demangling
+- **Script Guidance** - Provides guidance on using Ghidra scripts like
+  DemangleAllScript for advanced demangling
 
 ### Management Operations
 
@@ -165,8 +166,9 @@ settings:
    mvn clean package
    ```
 6. The installable `zip` file will be located in the `target/` directory (e.g.,
-   `target/GhidraMCP-0.5.0.zip`). The filename format is `GhidraMCP-<version>.zip`.
-   Follow the Installation steps above using this file.
+   `target/GhidraMCP-0.5.0.zip`). The filename format is
+   `GhidraMCP-<version>.zip`. Follow the Installation steps above using this
+   file.
 
    > [!TIP]
    > **CI Test JAR:** The test JAR with dependencies is only built when
