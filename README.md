@@ -161,9 +161,9 @@ settings:
    - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
    - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
    - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
-     > [!NOTE]
-     > Paths are relative to your Ghidra installation folder. Exact paths might
-     > vary slightly based on Ghidra version and OS.
+   > [!NOTE]
+   > Paths are relative to your Ghidra installation folder. Exact paths might
+   > vary slightly based on Ghidra version and OS.
 5. Build the project using Maven:
    ```bash
    mvn clean package
