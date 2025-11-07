@@ -37,7 +37,7 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 - **Decompile Code** - Function decompilation to C-like pseudocode with P-code
   analysis
 - **Demangle Symbols** - C++ symbol demangling with multiple format support
-- **Execute Scripts** - Run Ghidra scripts within the analysis environment
+- **Script Guidance** - Provides guidance on using Ghidra scripts like DemangleAllScript for advanced demangling
 
 ### Management Operations
 
@@ -57,8 +57,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 - **Read Data Types** - Browse and query program data types with filtering and
   pagination
 - **Read Functions** - Enumerate functions with detailed metadata and filtering
-- **Read Listing** - View disassembly and data from program listing with address,
-  range, or function-based viewing
+- **Read Listing** - View disassembly and data from program listing with
+  address, range, or function-based viewing
 - **Read Memory Blocks** - View memory segments, permissions, and properties
 - **Read Symbols** - Browse symbols with type and namespace filtering
 
@@ -109,8 +109,8 @@ GhidraMCP provides comprehensive MCP tools for reverse engineering workflows:
 > manually closed, or the server will hang and become unresponsive.
 
 > [!TIP] > **Missing fileName Parameter:** When tools request a `fileName`
-> parameter, use the `list_programs` tool to see available programs. Most
-> tools provide this context automatically on failed calls.
+> parameter, use the `list_programs` tool to see available programs. Most tools
+> provide this context automatically on failed calls.
 
 ## ⚙️ Configuration
 
@@ -165,12 +165,13 @@ settings:
    mvn clean package
    ```
 6. The installable `zip` file will be located in the `target/` directory (e.g.,
-   `target/GhidraMCP-0.5.0.zip`). Follow the Installation steps above using this
-   file.
+   `target/GhidraMCP-0.5.0.zip`). The filename format is `GhidraMCP-<version>.zip`.
+   Follow the Installation steps above using this file.
 
    > [!TIP]
    > **CI Test JAR:** The test JAR with dependencies is only built when
    > explicitly requested. To build it locally for testing:
+   >
    > ```bash
    > mvn clean package -P ci-tests
    > ```
