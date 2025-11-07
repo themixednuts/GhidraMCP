@@ -7,16 +7,55 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-11-07
+
+### Added
+- **JSON Schema Infrastructure** - New type-safe schema builders for tool definitions
+  - Draft 7 schema builder with conditional support (if/then/else, allOf, anyOf)
+  - Google AI API schema builder with format types
+  - Comprehensive validation for both schema types
+  - Trait interfaces for type-safe schema building
+- **ReadListingTool** - New tool for viewing disassembly and data from program listing
+  - Support for viewing by address, address range, or function
+  - Pagination support for large listings
+  - Detailed instruction and data information with labels, comments, and function context
+- **ListingInfo Model** - New model for representing listing entries
+  - Comprehensive instruction and data details
+  - Function context and comment information
+- **Comprehensive Test Suite** - Extensive tests for JSON Schema builders
+  - Tests for Draft 7 schema builder (SchemaBuilderTest, ValidationTest)
+  - Tests for Google AI API schema builder (SchemaBuilderTest, ValidationTest)
+  - Test assembly configuration for CI testing
+
 ### Changed
-- **Data Type Resolution** - Refactored to use Ghidra's `DataTypeParser`
-  - Now uses Ghidra's standard `DataTypeParser` for consistent type resolution
-  - Supports all Ghidra data type syntax: pointers (`byte*`, `byte**`), arrays (`byte[5]`), templates, namespaces
-  - Maintains backward compatibility with MCP client path formats (paths starting with `/`)
-  - Follows patterns from Ghidra's `DataTypeParserTest` for maximum compatibility
-- **List Programs Sorting** - Improved program list ordering for better UX
-  - Open programs now appear first in the list
-  - Programs sorted by last modified time (newest first) after open status
-  - Makes frequently accessed programs easier to find with pagination
+- **All Tools Migrated** - Updated all 24 tools to use new JSON Schema builders
+  - Tools with conditionals use Draft 7 schema builder
+  - Simple tools use Google AI API schema builder
+  - Improved type safety and schema validation
+- **FindReferencesTool** - Major improvements
+  - Removed direction parameter - now returns all references regardless of direction
+  - Added cursor-based pagination support
+  - Improved performance for large reference sets
+- **DecompileCodeTool** - Enhanced error handling
+  - Better error messages for addresses within functions
+  - Suggests decompiling containing function when address is not entry point
+- **Build Configuration** - Enhanced build system
+  - Added ci-tests profile for building test JAR with dependencies
+  - Test assembly configuration for headless testing
+  - Updated Module.manifest
+- **Extension Properties** - Version visibility improvements
+  - Version now displayed in extension description in Ghidra UI
+  - Fixed version field to use project.version instead of ghidra.version
+
+### Removed
+- **Deprecated JsonSchemaBuilder** - Removed old schema builder implementation
+  - Replaced by google.SchemaBuilder and draft7.SchemaBuilder
+  - Old format type enums moved to google package
+  - Old JsonSchemaValidationTest replaced by new validation tests
+
+### Fixed
+- Version now visible in Ghidra extension manager UI
+- Improved schema validation and error handling across all tools
 
 ## [0.4.3] - 2025-01-27
 
