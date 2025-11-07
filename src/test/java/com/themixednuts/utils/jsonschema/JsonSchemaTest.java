@@ -2,6 +2,7 @@ package com.themixednuts.utils.jsonschema;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,19 +21,19 @@ class JsonSchemaTest {
     @BeforeEach
     void setUp() {
         mapper = new ObjectMapper();
-        schema = JsonSchemaBuilder
-            .string()
-            .minLength(1)
-            .maxLength(10)
-            .build();
+        schema = SchemaBuilder
+                .string()
+                .minLength(1)
+                .maxLength(10)
+                .build();
     }
 
     @Test
     void testBuildIntegerSchemaWithMinimum() {
-        JsonSchema testSchema = JsonSchemaBuilder
-            .integer()
-            .minimum(0)
-            .build();
+        JsonSchema testSchema = SchemaBuilder
+                .integer()
+                .minimum(0)
+                .build();
         ObjectNode result = testSchema.getNode();
         assertEquals("integer", result.get("type").asText());
         assertEquals(0, result.get("minimum").asInt());
@@ -48,7 +49,7 @@ class JsonSchemaTest {
 
     @Test
     void testBuilderProducesObjectSchema() {
-        JsonSchema obj = JsonSchemaBuilder.object().build();
+        JsonSchema obj = SchemaBuilder.object().build();
         assertEquals("object", obj.getNode().get("type").asText());
     }
 
@@ -59,7 +60,7 @@ class JsonSchemaTest {
 
         // Should return the same reference (not deep copies)
         assertSame(node1, node2);
-        
+
         // Modifications should affect the schema
         node1.put("newField", "test");
         assertTrue(schema.getNode().has("newField"));
@@ -77,25 +78,26 @@ class JsonSchemaTest {
     @Test
     void testToJsonStringWithValidMapper() {
         Optional<String> jsonString = schema.toJsonString(mapper);
-        
+
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
         assertTrue(json.contains("\"type\":\"string\""));
-        assertTrue(json.contains("\"minLength\":1"));
-        assertTrue(json.contains("\"maxLength\":10"));
+        // Google AI API serializes numeric constraints as strings per spec
+        assertTrue(json.contains("\"minLength\":\"1\""));
+        assertTrue(json.contains("\"maxLength\":\"10\""));
     }
 
     @Test
     void testToJsonStringWithNullMapper() {
         Optional<String> jsonString = schema.toJsonString(null);
-        
+
         assertFalse(jsonString.isPresent());
     }
 
     @Test
     void testToJsonStringWithDefaultMapper() {
         Optional<String> jsonString = schema.toJsonString();
-        
+
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
         assertTrue(json.contains("\"type\":\"string\""));
@@ -103,12 +105,12 @@ class JsonSchemaTest {
 
     @Test
     void testToJsonStringWithComplexData() {
-        JsonSchema complexSchema = JsonSchemaBuilder
-            .object()
-            .title("Complex Schema")
-            .property("name", JsonSchemaBuilder.string().minLength(1))
-            .requiredProperty("name")
-            .build();
+        JsonSchema complexSchema = SchemaBuilder
+                .object()
+                .title("Complex Schema")
+                .property("name", SchemaBuilder.string().minLength(1))
+                .requiredProperty("name")
+                .build();
         Optional<String> jsonString = complexSchema.toJsonString();
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
@@ -120,7 +122,7 @@ class JsonSchemaTest {
     @Test
     void testToString() {
         String stringRepresentation = schema.toString();
-        
+
         assertNotNull(stringRepresentation);
         assertFalse(stringRepresentation.isEmpty());
         assertTrue(stringRepresentation.contains("type"));
@@ -132,7 +134,7 @@ class JsonSchemaTest {
         // by mocking a scenario where serialization might fail
         JsonSchema testSchema = new JsonSchema();
         String result = testSchema.toString();
-        
+
         // Should return a fallback string if serialization fails
         assertNotNull(result);
         assertFalse(result.isEmpty());
@@ -145,15 +147,15 @@ class JsonSchemaTest {
 
     @Test
     void testEqualsWithEqualSchemas() {
-        JsonSchema schema1 = JsonSchemaBuilder.string().minLength(1).build();
-        JsonSchema schema2 = JsonSchemaBuilder.string().minLength(1).build();
+        JsonSchema schema1 = SchemaBuilder.string().minLength(1).build();
+        JsonSchema schema2 = SchemaBuilder.string().minLength(1).build();
         assertEquals(schema1, schema2);
     }
 
     @Test
     void testEqualsWithDifferentSchemas() {
-        JsonSchema schema1 = JsonSchemaBuilder.string().build();
-        JsonSchema schema2 = JsonSchemaBuilder.integer().build();
+        JsonSchema schema1 = SchemaBuilder.string().build();
+        JsonSchema schema2 = SchemaBuilder.integer().build();
         assertNotEquals(schema1, schema2);
     }
 
@@ -171,26 +173,26 @@ class JsonSchemaTest {
     void testHashCodeConsistency() {
         int hash1 = schema.hashCode();
         int hash2 = schema.hashCode();
-        
+
         assertEquals(hash1, hash2);
     }
 
     @Test
     void testHashCodeWithEqualObjects() {
-        JsonSchema schema1 = JsonSchemaBuilder.string().build();
-        JsonSchema schema2 = JsonSchemaBuilder.string().build();
+        JsonSchema schema1 = SchemaBuilder.string().build();
+        JsonSchema schema2 = SchemaBuilder.string().build();
         assertEquals(schema1.hashCode(), schema2.hashCode());
     }
 
     @Test
     void testComplexSchemaSerialization() {
-        JsonSchema complexSchema = JsonSchemaBuilder
-            .object()
-            .title("User Profile")
-            .description("A complex user profile")
-            .property("name", JsonSchemaBuilder.string().minLength(1).maxLength(50))
-            .property("age", JsonSchemaBuilder.integer().minimum(0).maximum(150))
-            .build();
+        JsonSchema complexSchema = SchemaBuilder
+                .object()
+                .title("User Profile")
+                .description("A complex user profile")
+                .property("name", SchemaBuilder.string().minLength(1).maxLength(50))
+                .property("age", SchemaBuilder.integer().minimum(0).maximum(150))
+                .build();
         Optional<String> jsonString = complexSchema.toJsonString();
         assertTrue(jsonString.isPresent());
         String json = jsonString.get();
@@ -204,10 +206,10 @@ class JsonSchemaTest {
     @Test
     void testEmptySchema() {
         JsonSchema emptySchema = new JsonSchema();
-        
+
         assertNotNull(emptySchema.getNode());
         assertTrue(emptySchema.getNode().isEmpty());
-        
+
         Optional<String> jsonString = emptySchema.toJsonString();
         assertTrue(jsonString.isPresent());
         assertEquals("{}", jsonString.get());
@@ -215,11 +217,11 @@ class JsonSchemaTest {
 
     @Test
     void testSchemaWithSpecialCharacters() {
-        JsonSchema testSchema = JsonSchemaBuilder
-            .string()
-            .pattern("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
-            .description("Email with special chars: @#$%^&*()")
-            .build();
+        JsonSchema testSchema = SchemaBuilder
+                .string()
+                .pattern("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
+                .description("Email with special chars: @#$%^&*()")
+                .build();
 
         Optional<String> jsonString = testSchema.toJsonString();
 
@@ -231,10 +233,10 @@ class JsonSchemaTest {
 
     @Test
     void testSchemaWithUnicodeCharacters() {
-        JsonSchema testSchema = JsonSchemaBuilder
-            .string()
-            .description("Unicode test: 你好世界 🌍")
-            .build();
+        JsonSchema testSchema = SchemaBuilder
+                .string()
+                .description("Unicode test: 你好世界 🌍")
+                .build();
 
         Optional<String> jsonString = testSchema.toJsonString();
 
