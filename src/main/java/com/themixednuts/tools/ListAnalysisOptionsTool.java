@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
@@ -15,11 +16,11 @@ import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @GhidraMcpTool(name = "List Analysis Options", description = "List program analysis options with filtering and pagination support.", mcpName = "list_analysis_options", mcpDescription = """
                 <use_case>
@@ -68,6 +69,10 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
                                 SchemaBuilder.bool(mapper)
                                                 .description("Show only options using default values"));
 
+                schemaRoot.property(ARG_CURSOR,
+                                SchemaBuilder.string(mapper)
+                                                .description("Pagination cursor from previous request"));
+
                 schemaRoot.requiredProperty(ARG_FILE_NAME);
 
                 return schemaRoot.build();
@@ -75,11 +80,11 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
 
         /**
          * Executes the analysis options listing operation.
-         * 
+         *
          * @param context The MCP transport context
          * @param args    The tool arguments containing fileName and optional filters
          * @param tool    The Ghidra PluginTool context
-         * @return A Mono emitting a list of AnalysisOptionInfo objects
+         * @return A Mono emitting a paginated list of AnalysisOptionInfo objects
          */
         @Override
         public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
@@ -87,13 +92,14 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
                         String filter = getOptionalStringArgument(args, ARG_FILTER).orElse("");
                         String optionType = getOptionalStringArgument(args, ARG_OPTION_TYPE).orElse("");
                         boolean defaultsOnly = getOptionalBooleanArgument(args, ARG_DEFAULTS_ONLY).orElse(false);
+                        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-                        return listAnalysisOptions(program, filter, optionType, defaultsOnly);
+                        return listAnalysisOptions(program, filter, optionType, defaultsOnly, cursorOpt);
                 });
         }
 
-        private Mono<List<AnalysisOptionInfo>> listAnalysisOptions(Program program, String filter,
-                        String optionType, boolean defaultsOnly) {
+        private Mono<PaginatedResult<AnalysisOptionInfo>> listAnalysisOptions(Program program, String filter,
+                        String optionType, boolean defaultsOnly, Optional<String> cursorOpt) {
                 return Mono.fromCallable(() -> {
                         Options analysisOptions = Optional.ofNullable(program.getOptions(Program.ANALYSIS_PROPERTIES))
                                         .orElseThrow(() -> new GhidraMcpException(GhidraMcpError.execution()
@@ -108,16 +114,60 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
                                                                         Map.of("analysisOptionsAvailable", false)))
                                                         .build()));
 
-                        return analysisOptions.getOptionNames().stream()
-                                        .map(optionName -> createAnalysisOptionInfo(analysisOptions, optionName))
-                                        .filter(option -> filter.isEmpty() ||
-                                                        option.getName().toLowerCase().contains(filter.toLowerCase()))
-                                        .filter(option -> optionType.isEmpty() ||
-                                                        option.getType().equalsIgnoreCase(optionType))
-                                        .filter(option -> !defaultsOnly || option.isUsingDefaultValue())
-                                        .sorted(Comparator.comparing(AnalysisOptionInfo::getName,
-                                                        String.CASE_INSENSITIVE_ORDER))
-                                        .collect(Collectors.toList());
+                        // Get cursor for pagination
+                        final String cursorName = cursorOpt.orElse(null);
+                        boolean passedCursor = (cursorName == null);
+
+                        // Get all matching options sorted by name
+                        List<AnalysisOptionInfo> allOptions = new ArrayList<>();
+                        List<String> sortedNames = analysisOptions.getOptionNames().stream()
+                                        .sorted(String.CASE_INSENSITIVE_ORDER)
+                                        .toList();
+
+                        for (String optName : sortedNames) {
+                                // Skip past cursor
+                                if (!passedCursor) {
+                                        if (optName.compareToIgnoreCase(cursorName) <= 0) {
+                                                continue;
+                                        }
+                                        passedCursor = true;
+                                }
+
+                                AnalysisOptionInfo option = createAnalysisOptionInfo(analysisOptions, optName);
+
+                                // Apply filters
+                                if (!filter.isEmpty() &&
+                                                !option.getName().toLowerCase().contains(filter.toLowerCase())) {
+                                        continue;
+                                }
+                                if (!optionType.isEmpty() &&
+                                                !option.getType().equalsIgnoreCase(optionType)) {
+                                        continue;
+                                }
+                                if (defaultsOnly && !option.isUsingDefaultValue()) {
+                                        continue;
+                                }
+
+                                allOptions.add(option);
+
+                                // Stop if we have enough for pagination check
+                                if (allOptions.size() > DEFAULT_PAGE_LIMIT) {
+                                        break;
+                                }
+                        }
+
+                        // Determine if there are more results
+                        boolean hasMore = allOptions.size() > DEFAULT_PAGE_LIMIT;
+                        List<AnalysisOptionInfo> results = hasMore
+                                        ? allOptions.subList(0, DEFAULT_PAGE_LIMIT)
+                                        : allOptions;
+
+                        String nextCursor = null;
+                        if (hasMore && !results.isEmpty()) {
+                                nextCursor = results.get(results.size() - 1).getName();
+                        }
+
+                        return new PaginatedResult<>(results, nextCursor);
                 });
         }
 

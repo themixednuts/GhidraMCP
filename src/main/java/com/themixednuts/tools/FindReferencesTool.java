@@ -4,11 +4,13 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ReferenceInfo;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
@@ -18,11 +20,11 @@ import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-@GhidraMcpTool(name = "Find References", description = "Find cross-references to and from addresses in the program.", mcpName = "find_references", mcpDescription = """
+@GhidraMcpTool(name = "Find References", description = "Find cross-references to and from addresses in the program with pagination.", mcpName = "find_references", mcpDescription = """
         <use_case>
         Find cross-references (xrefs) to and from specific addresses in the program.
         Use this for analyzing code flow, finding where data is used, or understanding
@@ -30,13 +32,15 @@ import java.util.Map;
         </use_case>
 
         <return_value_summary>
-        Returns a list of ReferenceInfo objects containing reference details including
+        Returns a paginated list of ReferenceInfo objects containing reference details including
         source address, target address, reference type, and context information.
+        Use the cursor from the response to fetch the next page of results.
         </return_value_summary>
 
         <important_notes>
         - Supports both "to" (incoming) and "from" (outgoing) reference searches
         - References include code references, data references, and external references
+        - Results are paginated - use cursor parameter for subsequent pages
         - Results include reference type and operation context
         </important_notes>
         """)
@@ -109,6 +113,10 @@ public class FindReferencesTool extends BaseMcpTool {
                 SchemaBuilder.string(mapper)
                         .description("Filter by reference type (e.g., 'DATA', 'CALL', 'JUMP')"));
 
+        schemaRoot.property(ARG_CURSOR,
+                SchemaBuilder.string(mapper)
+                        .description("Pagination cursor from previous request"));
+
         schemaRoot.requiredProperty(ARG_FILE_NAME);
         schemaRoot.requiredProperty(ARG_ADDRESS);
         schemaRoot.requiredProperty(ARG_DIRECTION);
@@ -118,12 +126,12 @@ public class FindReferencesTool extends BaseMcpTool {
 
     /**
      * Executes the reference finding operation.
-     * 
+     *
      * @param context The MCP transport context
      * @param args    The tool arguments containing address, direction, and optional
      *                reference type
      * @param tool    The Ghidra PluginTool context
-     * @return A Mono emitting a list of ReferenceInfo objects
+     * @return A Mono emitting a paginated list of ReferenceInfo objects
      */
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
@@ -139,6 +147,7 @@ public class FindReferencesTool extends BaseMcpTool {
                 return Mono.error(e);
             }
             String referenceType = getOptionalStringArgument(args, ARG_REFERENCE_TYPE).orElse("");
+            Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
             Direction direction = Direction.fromValue(directionStr);
 
@@ -146,12 +155,12 @@ public class FindReferencesTool extends BaseMcpTool {
                     .flatMap(addressResult -> {
                         switch (direction) {
                             case TO -> {
-                                return findReferencesTo(program, addressResult.getAddress(), referenceType, args,
-                                        annotation);
+                                return findReferencesTo(program, addressResult.getAddress(), referenceType,
+                                        cursorOpt, args, annotation);
                             }
                             case FROM -> {
-                                return findReferencesFrom(program, addressResult.getAddress(), referenceType, args,
-                                        annotation);
+                                return findReferencesFrom(program, addressResult.getAddress(), referenceType,
+                                        cursorOpt, args, annotation);
                             }
                             default -> {
                                 return Mono.error(new GhidraMcpException(GhidraMcpError.validation()
@@ -164,68 +173,135 @@ public class FindReferencesTool extends BaseMcpTool {
         });
     }
 
-    private Mono<List<ReferenceInfo>> findReferencesTo(Program program, ghidra.program.model.address.Address address,
-            String referenceType, Map<String, Object> args,
+    private Mono<PaginatedResult<ReferenceInfo>> findReferencesTo(Program program, Address address,
+            String referenceType, Optional<String> cursorOpt, Map<String, Object> args,
             GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
             ReferenceManager refManager = program.getReferenceManager();
 
             // Use native hasReferencesTo() for early exit - avoids iterator creation if no refs
             if (!refManager.hasReferencesTo(address)) {
-                return Collections.<ReferenceInfo>emptyList();
+                return new PaginatedResult<>(List.of(), null);
             }
 
-            List<ReferenceInfo> references = new ArrayList<>();
+            // Parse cursor - cursor is the source address of the last reference seen
+            Address cursorAddress = null;
+            if (cursorOpt.isPresent()) {
+                try {
+                    cursorAddress = program.getAddressFactory().getAddress(cursorOpt.get());
+                } catch (Exception e) {
+                    // Invalid cursor, start from beginning
+                }
+            }
+
+            List<ReferenceInfo> results = new ArrayList<>();
+            boolean passedCursor = (cursorAddress == null);
+            final Address finalCursorAddress = cursorAddress;
 
             try {
                 ReferenceIterator refIterator = refManager.getReferencesTo(address);
-                while (refIterator.hasNext()) {
+                while (refIterator.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
                     Reference ref = refIterator.next();
+
+                    // Skip past cursor position
+                    if (!passedCursor) {
+                        if (ref.getFromAddress().compareTo(finalCursorAddress) <= 0) {
+                            continue;
+                        }
+                        passedCursor = true;
+                    }
+
                     // Apply reference type filter
                     if (referenceType.isEmpty() ||
                             ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
-                        references.add(new ReferenceInfo(program, ref));
+                        results.add(new ReferenceInfo(program, ref));
                     }
                 }
             } catch (Exception e) {
                 throw buildXrefAnalysisException(annotation, args, "find_references_to",
-                        address.toString(), references.size(), e);
+                        address.toString(), results.size(), e);
             }
 
-            return references;
+            // Determine if there are more results
+            boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+            if (hasMore) {
+                results = results.subList(0, DEFAULT_PAGE_LIMIT);
+            }
+
+            String nextCursor = null;
+            if (hasMore && !results.isEmpty()) {
+                // Cursor is the source address of the last reference
+                nextCursor = results.get(results.size() - 1).getFromAddress();
+            }
+
+            return new PaginatedResult<>(results, nextCursor);
         });
     }
 
-    private Mono<List<ReferenceInfo>> findReferencesFrom(Program program, ghidra.program.model.address.Address address,
-            String referenceType, Map<String, Object> args,
+    private Mono<PaginatedResult<ReferenceInfo>> findReferencesFrom(Program program, Address address,
+            String referenceType, Optional<String> cursorOpt, Map<String, Object> args,
             GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
             ReferenceManager refManager = program.getReferenceManager();
 
             // Use native hasReferencesFrom() for early exit
             if (!refManager.hasReferencesFrom(address)) {
-                return Collections.<ReferenceInfo>emptyList();
+                return new PaginatedResult<>(List.of(), null);
+            }
+
+            // Parse cursor - cursor is the target address of the last reference seen
+            Address cursorAddress = null;
+            if (cursorOpt.isPresent()) {
+                try {
+                    cursorAddress = program.getAddressFactory().getAddress(cursorOpt.get());
+                } catch (Exception e) {
+                    // Invalid cursor, start from beginning
+                }
             }
 
             Reference[] referencesArray = refManager.getReferencesFrom(address);
-            List<ReferenceInfo> references = new ArrayList<>(referencesArray != null ? referencesArray.length : 0);
+            List<ReferenceInfo> results = new ArrayList<>();
+            boolean passedCursor = (cursorAddress == null);
+            final Address finalCursorAddress = cursorAddress;
 
             try {
                 if (referencesArray != null) {
                     for (Reference ref : referencesArray) {
+                        if (results.size() > DEFAULT_PAGE_LIMIT) break;
+
+                        // Skip past cursor position
+                        if (!passedCursor) {
+                            if (ref.getToAddress().compareTo(finalCursorAddress) <= 0) {
+                                continue;
+                            }
+                            passedCursor = true;
+                        }
+
                         // Apply reference type filter
                         if (referenceType.isEmpty() ||
                                 ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
-                            references.add(new ReferenceInfo(program, ref));
+                            results.add(new ReferenceInfo(program, ref));
                         }
                     }
                 }
             } catch (Exception e) {
                 throw buildXrefAnalysisException(annotation, args, "find_references_from",
-                        address.toString(), references.size(), e);
+                        address.toString(), results.size(), e);
             }
 
-            return references;
+            // Determine if there are more results
+            boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+            if (hasMore) {
+                results = results.subList(0, DEFAULT_PAGE_LIMIT);
+            }
+
+            String nextCursor = null;
+            if (hasMore && !results.isEmpty()) {
+                // Cursor is the target address of the last reference
+                nextCursor = results.get(results.size() - 1).getToAddress();
+            }
+
+            return new PaginatedResult<>(results, nextCursor);
         });
     }
 
