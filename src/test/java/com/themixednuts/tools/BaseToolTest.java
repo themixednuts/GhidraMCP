@@ -139,7 +139,7 @@ public abstract class BaseToolTest {
      * Executes a tool with the given arguments and returns the result.
      */
     @SuppressWarnings("unchecked")
-    protected <T> T executeTool(IGhidraMcpSpecification tool, Map<String, Object> args) throws Exception {
+    protected <T> T executeTool(BaseMcpTool tool, Map<String, Object> args) throws Exception {
         Mono<? extends Object> result = tool.execute(mockContext, args, mockTool);
         return (T) result.block();
     }

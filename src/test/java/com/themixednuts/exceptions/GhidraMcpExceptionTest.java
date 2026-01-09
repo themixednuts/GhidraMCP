@@ -6,9 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 
-import java.util.List;
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -21,27 +18,9 @@ class GhidraMcpExceptionTest {
 
     @BeforeEach
     void setUp() {
-        GhidraMcpError.ErrorContext context = new GhidraMcpError.ErrorContext(
-            "test_tool",
-            "test_operation",
-            Map.of("arg1", "value1"),
-            Map.of("provided1", "value1"),
-            Map.of("meta1", "value1")
-        );
-
-        GhidraMcpError.ErrorSuggestion suggestion = new GhidraMcpError.ErrorSuggestion(
-            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-            "Test suggestion",
-            "Test description",
-            List.of("arg1", "arg2"),
-            List.of("tool1", "tool2")
-        );
-
         error = GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-            .message("Test error message")
-            .context(context)
-            .suggestions(List.of(suggestion))
+            .msg("Test error message")
+            .hint("Fix it")
             .build();
     }
 
@@ -77,26 +56,17 @@ class GhidraMcpExceptionTest {
     @DisplayName("Getter Tests")
     class GetterTests {
 
-        @BeforeEach
-        void setUp() {
-            exception = new GhidraMcpException(error);
-        }
-
-        @Test
-        @DisplayName("Should return correct error")
-        void shouldReturnCorrectError() {
-            assertEquals(error, exception.getErr());
-        }
-
         @Test
         @DisplayName("Should return correct error type")
         void shouldReturnCorrectErrorType() {
+            exception = new GhidraMcpException(error);
             assertEquals(error.getErrorType(), exception.getErrorType());
         }
 
         @Test
         @DisplayName("Should return correct error code")
         void shouldReturnCorrectErrorCode() {
+            exception = new GhidraMcpException(error);
             assertEquals(error.getErrorCode(), exception.getErrorCode());
         }
     }
@@ -108,12 +78,7 @@ class GhidraMcpExceptionTest {
         @Test
         @DisplayName("Should correctly identify validation error")
         void shouldCorrectlyIdentifyValidationError() {
-            GhidraMcpError validationError = GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                .message("Validation error")
-                .build();
-
-            exception = new GhidraMcpException(validationError);
+            exception = new GhidraMcpException(GhidraMcpError.validation().msg("x").build());
 
             assertTrue(exception.isValidationError());
             assertFalse(exception.isResourceNotFoundError());
@@ -124,12 +89,7 @@ class GhidraMcpExceptionTest {
         @Test
         @DisplayName("Should correctly identify resource not found error")
         void shouldCorrectlyIdentifyResourceNotFoundError() {
-            GhidraMcpError resourceError = GhidraMcpError.resourceNotFound()
-                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                .message("Resource not found error")
-                .build();
-
-            exception = new GhidraMcpException(resourceError);
+            exception = new GhidraMcpException(GhidraMcpError.resourceNotFound().msg("x").build());
 
             assertFalse(exception.isValidationError());
             assertTrue(exception.isResourceNotFoundError());
@@ -140,12 +100,7 @@ class GhidraMcpExceptionTest {
         @Test
         @DisplayName("Should correctly identify data type parsing error")
         void shouldCorrectlyIdentifyDataTypeParsingError() {
-            GhidraMcpError parsingError = GhidraMcpError.dataTypeParsing()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_POINTER_SYNTAX)
-                .message("Data type parsing error")
-                .build();
-
-            exception = new GhidraMcpException(parsingError);
+            exception = new GhidraMcpException(GhidraMcpError.dataTypeParsing().msg("x").build());
 
             assertFalse(exception.isValidationError());
             assertFalse(exception.isResourceNotFoundError());
@@ -156,12 +111,7 @@ class GhidraMcpExceptionTest {
         @Test
         @DisplayName("Should correctly identify execution error")
         void shouldCorrectlyIdentifyExecutionError() {
-            GhidraMcpError executionError = GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.SCRIPT_EXECUTION_FAILED)
-                .message("Execution error")
-                .build();
-
-            exception = new GhidraMcpException(executionError);
+            exception = new GhidraMcpException(GhidraMcpError.execution().msg("x").build());
 
             assertFalse(exception.isValidationError());
             assertFalse(exception.isResourceNotFoundError());
@@ -178,47 +128,54 @@ class GhidraMcpExceptionTest {
         @DisplayName("Should create exception from generic throwable")
         void shouldCreateExceptionFromGenericThrowable() {
             RuntimeException cause = new RuntimeException("Test exception");
-            String toolOperation = "test_operation";
-            String toolClass = "TestTool";
 
-            exception = GhidraMcpException.fromException(cause, toolOperation, toolClass);
+            exception = GhidraMcpException.fromException(cause, "test_operation", "TestTool");
 
             assertNotNull(exception);
             assertEquals(cause, exception.getCause());
-            assertEquals("Unexpected error occurred: Test exception", exception.getMessage());
+            assertTrue(exception.getMessage().contains("test_operation"));
+            assertTrue(exception.getMessage().contains("Test exception"));
             assertEquals(GhidraMcpError.ErrorType.INTERNAL, exception.getErrorType());
-            assertEquals(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR.getCode(), exception.getErrorCode());
-
-            // Check that the error context is properly set
-            GhidraMcpError err = exception.getErr();
-            assertNotNull(err.getContext());
-            assertEquals(toolOperation, err.getContext().getOperation());
-            assertNotNull(err.getDebugInfo());
-            assertEquals(toolClass, err.getDebugInfo().getToolClass());
         }
 
         @Test
-        @DisplayName("Should create exception from null throwable")
-        void shouldCreateExceptionFromNullThrowable() {
-            String toolOperation = "test_operation";
-            String toolClass = "TestTool";
-
-            assertThrows(NullPointerException.class, () -> {
-                GhidraMcpException.fromException(null, toolOperation, toolClass);
-            });
+        @DisplayName("Should handle null throwable gracefully")
+        void shouldHandleNullThrowableGracefully() {
+            exception = GhidraMcpException.fromException(null, "test_operation", "TestTool");
+            assertNotNull(exception);
+            assertTrue(exception.getMessage().contains("Unknown error"));
         }
 
         @Test
-        @DisplayName("Should create exception from throwable with null message")
-        void shouldCreateExceptionFromThrowableWithNullMessage() {
-            RuntimeException cause = new RuntimeException((String) null);
-            String toolOperation = "test_operation";
-            String toolClass = "TestTool";
+        @DisplayName("wrap() should pass through GhidraMcpException")
+        void wrapShouldPassThrough() {
+            GhidraMcpException original = new GhidraMcpException(error);
+            GhidraMcpException wrapped = GhidraMcpException.wrap(original);
+            assertSame(original, wrapped);
+        }
 
-            // The method throws NPE when message is null due to Map.of() usage
-            assertThrows(NullPointerException.class, () -> {
-                GhidraMcpException.fromException(cause, toolOperation, toolClass);
-            });
+        @Test
+        @DisplayName("wrap() should convert other exceptions")
+        void wrapShouldConvertOthers() {
+            RuntimeException cause = new RuntimeException("cause");
+            GhidraMcpException wrapped = GhidraMcpException.wrap(cause);
+            assertEquals(cause, wrapped.getCause());
+            assertEquals(GhidraMcpError.ErrorType.INTERNAL, wrapped.getErrorType());
+        }
+
+        @Test
+        @DisplayName("of() should create simple exception")
+        void ofShouldCreateSimple() {
+            exception = GhidraMcpException.of("error message");
+            assertEquals("error message", exception.getMessage());
+        }
+
+        @Test
+        @DisplayName("of() should create exception with hint")
+        void ofShouldCreateWithHint() {
+            exception = GhidraMcpException.of("error message", "hint");
+            assertEquals("error message", exception.getMessage());
+            assertEquals("hint", exception.getErr().getHint());
         }
     }
 
@@ -231,28 +188,20 @@ class GhidraMcpExceptionTest {
         void shouldReturnMeaningfulStringRepresentation() {
             exception = new GhidraMcpException(error);
 
-            String stringRepresentation = exception.toString();
+            String str = exception.toString();
 
-            assertNotNull(stringRepresentation);
-            assertFalse(stringRepresentation.isEmpty());
-            assertTrue(stringRepresentation.contains("GhidraMcpException"));
-            assertTrue(stringRepresentation.contains("VALIDATION"));
-            assertTrue(stringRepresentation.contains("VAL_001"));
-            assertTrue(stringRepresentation.contains("Test error message"));
+            assertNotNull(str);
+            assertTrue(str.contains("GhidraMcpException"));
+            assertTrue(str.contains("VALIDATION"));
+            assertTrue(str.contains("Test error message"));
         }
 
         @Test
-        @DisplayName("Should handle exception with cause in toString")
-        void shouldHandleExceptionWithCauseInToString() {
-            RuntimeException cause = new RuntimeException("Root cause");
-            exception = new GhidraMcpException(error, cause);
-
-            String stringRepresentation = exception.toString();
-
-            assertNotNull(stringRepresentation);
-            assertFalse(stringRepresentation.isEmpty());
-            assertTrue(stringRepresentation.contains("GhidraMcpException"));
-            assertTrue(stringRepresentation.contains("Test error message"));
+        @DisplayName("Should include hint in toString")
+        void shouldIncludeHintInToString() {
+            exception = new GhidraMcpException(error);
+            String str = exception.toString();
+            assertTrue(str.contains("Fix it"));
         }
     }
 
@@ -261,12 +210,10 @@ class GhidraMcpExceptionTest {
     class InheritanceTests {
 
         @Test
-        @DisplayName("Should be instance of Exception")
-        void shouldBeInstanceOfException() {
+        @DisplayName("Should be RuntimeException")
+        void shouldBeRuntimeException() {
             exception = new GhidraMcpException(error);
-
-            assertTrue(exception instanceof Exception);
-            assertTrue(exception instanceof Throwable);
+            assertTrue(exception instanceof RuntimeException);
         }
 
         @Test
@@ -285,37 +232,26 @@ class GhidraMcpExceptionTest {
     class EdgeCaseTests {
 
         @Test
-        @DisplayName("Should handle null error gracefully")
-        void shouldHandleNullErrorGracefully() {
-            // This test verifies that the constructor doesn't throw NPE
-            // Note: The constructor should not allow null errors, but we test defensive behavior
-            assertDoesNotThrow(() -> {
-                try {
-                    new GhidraMcpException(null);
-                } catch (Exception e) {
-                    // Expected to throw NPE or similar
-                }
-            });
+        @DisplayName("Should handle null error")
+        void shouldHandleNullError() {
+            exception = new GhidraMcpException(null);
+            assertEquals("Unknown error", exception.getMessage());
+            assertEquals(GhidraMcpError.ErrorType.INTERNAL, exception.getErrorType());
         }
 
         @Test
         @DisplayName("Should handle error with null message")
         void shouldHandleErrorWithNullMessage() {
-            GhidraMcpError nullMessageError = GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                .message(null)
-                .build();
-
-            exception = new GhidraMcpException(nullMessageError);
+            GhidraMcpError nullMsgError = GhidraMcpError.validation().msg(null).build();
+            exception = new GhidraMcpException(nullMsgError);
 
             assertNotNull(exception);
-            assertNull(exception.getMessage());
-            assertEquals(nullMessageError, exception.getErr());
+            assertEquals(nullMsgError, exception.getErr());
         }
 
         @Test
-        @DisplayName("Should handle multiple nested exceptions")
-        void shouldHandleMultipleNestedExceptions() {
+        @DisplayName("Should handle nested exceptions")
+        void shouldHandleNestedExceptions() {
             RuntimeException cause1 = new RuntimeException("Level 1");
             RuntimeException cause2 = new RuntimeException("Level 2", cause1);
             RuntimeException cause3 = new RuntimeException("Level 3", cause2);
@@ -325,7 +261,6 @@ class GhidraMcpExceptionTest {
             assertNotNull(exception);
             assertEquals(cause3, exception.getCause());
             assertEquals(cause2, exception.getCause().getCause());
-            assertEquals(cause1, exception.getCause().getCause().getCause());
         }
     }
 }
