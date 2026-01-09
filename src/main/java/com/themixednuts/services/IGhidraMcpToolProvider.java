@@ -2,7 +2,6 @@ package com.themixednuts.services;
 
 import java.util.List;
 
-import generic.stl.Pair;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 import ghidra.framework.plugintool.ServiceInfo;
 
@@ -15,9 +14,9 @@ public interface IGhidraMcpToolProvider {
 	/**
 	 * Gets the list of currently enabled and configured MCP tool specifications.
 	 * 
-	 * @return A list of AsyncToolSpecification.
+	 * @return A list of AsyncToolSpecification for all enabled tools.
 	 * @throws Exception If there's an error loading or configuring tools.
 	 */
-	List<Pair<String, AsyncToolSpecification>> getAvailableToolSpecifications() throws Exception;
+	List<AsyncToolSpecification> getAvailableToolSpecifications() throws Exception;
 
 }
