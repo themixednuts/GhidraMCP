@@ -22,7 +22,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-@GhidraMcpTool(name = "Delete Symbol", description = "Delete symbols and labels by address, name, or symbol ID.", mcpName = "delete_symbol", mcpDescription = """
+@GhidraMcpTool(
+    name = "Delete Symbol", 
+    description = "Delete symbols and labels by address, name, or symbol ID.", 
+    mcpName = "delete_symbol",
+    title = "Delete Symbol",
+    destructiveHint = true,
+    mcpDescription = """
         <use_case>
         Deletes a symbol or label from the program. Use this when you need to remove incorrect
         labels, clean up auto-generated symbols, or reorganize symbol naming conventions.
@@ -41,32 +47,28 @@ import java.util.Optional;
         <examples>
         Delete a symbol at an address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000"
         }
 
         Delete a symbol by name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name": "old_label"
         }
 
         Delete a symbol by ID:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "symbol_id": 12345
         }
         </examples>
         """)
-public class DeleteSymbolTool implements IGhidraMcpSpecification {
-
-    public static final String ARG_ADDRESS = "address";
-    public static final String ARG_NAME = "name";
-    public static final String ARG_SYMBOL_ID = "symbol_id";
+public class DeleteSymbolTool extends BaseMcpTool {
 
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)

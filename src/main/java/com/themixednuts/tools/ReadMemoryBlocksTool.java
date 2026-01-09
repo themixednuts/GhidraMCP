@@ -37,29 +37,29 @@ import java.util.stream.Collectors;
         <examples>
         List first page of memory blocks:
         {
-          "fileName": "program.exe"
+          "file_name": "program.exe"
         }
 
         List memory blocks with name filter:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name_filter": ".text"
         }
 
         Filter by permissions:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "executable": true
         }
 
         Get next page of results:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "cursor": ".text:0x401000"
         }
         </examples>
         """)
-public class ReadMemoryBlocksTool implements IGhidraMcpSpecification {
+public class ReadMemoryBlocksTool extends BaseMcpTool {
 
     public static final String ARG_NAME_FILTER = "name_filter";
     public static final String ARG_READABLE = "readable";
@@ -68,11 +68,9 @@ public class ReadMemoryBlocksTool implements IGhidraMcpSpecification {
     public static final String ARG_MIN_SIZE = "min_size";
     public static final String ARG_MAX_SIZE = "max_size";
 
-    private static final int DEFAULT_PAGE_LIMIT = 50;
-
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)

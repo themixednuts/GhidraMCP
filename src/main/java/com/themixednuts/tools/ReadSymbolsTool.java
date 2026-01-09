@@ -74,21 +74,15 @@ import java.util.stream.StreamSupport;
         }
         </examples>
         """)
-public class ReadSymbolsTool implements IGhidraMcpSpecification {
+public class ReadSymbolsTool extends BaseMcpTool {
 
-    public static final String ARG_SYMBOL_ID = "symbol_id";
-    public static final String ARG_ADDRESS = "address";
-    public static final String ARG_NAME = "name";
     public static final String ARG_NAME_FILTER = "name_filter";
     public static final String ARG_SYMBOL_TYPE = "symbol_type";
     public static final String ARG_SOURCE_TYPE = "source_type";
-    public static final String ARG_NAMESPACE = "namespace";
-
-    private static final int DEFAULT_PAGE_LIMIT = 50;
 
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
@@ -324,89 +318,20 @@ public class ReadSymbolsTool implements IGhidraMcpSpecification {
     }
 
     private GhidraMcpError createSymbolNotFoundError(String toolOperation, String searchType, String searchValue) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-                .message("Symbol not found using " + searchType + ": " + searchValue)
-                .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "symbol resolution",
-                        Map.of(searchType, searchValue),
-                        Map.of(),
-                        Map.of("searchMethod", searchType)))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Verify the symbol exists",
-                                "Check that the symbol identifier is correct",
-                                List.of(
-                                        "\"symbol_id\": 12345",
-                                        "\"address\": \"0x401000\"",
-                                        "\"name\": \"main\""),
-                                null)))
-                .build();
+        return GhidraMcpError.notFound("symbol", searchValue,
+                "Verify the symbol exists using " + searchType);
     }
 
     private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                .message("Invalid address format: " + addressStr)
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        "address parsing",
-                        Map.of(ARG_ADDRESS, addressStr),
-                        Map.of(),
-                        Map.of("parseError", cause.getMessage())))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Use valid hexadecimal address format",
-                                "Provide address in proper format",
-                                List.of("0x401000", "401000", "0x00401000"),
-                                null)))
-                .build();
+        return GhidraMcpError.parse("address", addressStr);
     }
 
     private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Invalid regex pattern: " + cause.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        "regex compilation",
-                        Map.of(ARG_NAME, pattern),
-                        Map.of(),
-                        Map.of("regexError", cause.getMessage())))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Provide a valid Java regex pattern",
-                                "Use proper regex syntax for pattern matching",
-                                List.of(".*main.*", "decrypt_.*", "^get.*"),
-                                null)))
-                .build();
+        return GhidraMcpError.invalid(ARG_NAME, pattern, "Invalid regex pattern: " + cause.getMessage());
     }
 
     private GhidraMcpError createMissingParameterError(String toolOperation) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                .message("No search parameters provided")
-                .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "parameter validation",
-                        Map.of(),
-                        Map.of(),
-                        Map.of("availableParameters", List.of(ARG_SYMBOL_ID, ARG_ADDRESS, ARG_NAME))))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Provide at least one search parameter",
-                                "Use symbol_id, address, or name parameter",
-                                List.of(
-                                        "\"symbol_id\": 12345",
-                                        "\"address\": \"0x401000\"",
-                                        "\"name\": \"main\"",
-                                        "\"name\": \".*decrypt.*\""),
-                                null)))
-                .build();
+        return GhidraMcpError.of("No search parameters provided",
+                "Provide symbol_id, address, or name parameter");
     }
 }

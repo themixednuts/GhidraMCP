@@ -38,11 +38,10 @@ import java.util.stream.Collectors;
                 - Shows current values and default status for each option
                 </important_notes>
                 """)
-public class ListAnalysisOptionsTool implements IGhidraMcpSpecification {
+public class ListAnalysisOptionsTool extends BaseMcpTool {
 
-        public static final String ARG_FILTER = "filter";
-        public static final String ARG_OPTION_TYPE = "optionType";
-        public static final String ARG_DEFAULTS_ONLY = "defaultsOnly";
+        public static final String ARG_OPTION_TYPE = "option_type";
+        public static final String ARG_DEFAULTS_ONLY = "defaults_only";
 
         /**
          * Defines the JSON input schema for listing analysis options.
@@ -51,7 +50,7 @@ public class ListAnalysisOptionsTool implements IGhidraMcpSpecification {
          */
         @Override
         public JsonSchema schema() {
-                IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+                IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 SchemaBuilder.string(mapper)

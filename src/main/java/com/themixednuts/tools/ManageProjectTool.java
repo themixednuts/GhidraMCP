@@ -11,17 +11,12 @@ import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 @GhidraMcpTool(name = "Manage Project", description = "Project-level operations covering bookmarks, navigation, analysis settings, and program metadata.", mcpName = "manage_project", mcpDescription = """
                 <use_case>
@@ -50,9 +45,8 @@ import java.util.stream.Collectors;
                 JSON unless explicitly requested.
                 </agent_response_guidance>
                 """)
-public class ManageProjectTool implements IGhidraMcpSpecification {
+public class ManageProjectTool extends BaseMcpTool {
 
-        public static final String ARG_ACTION = "action";
         public static final String ARG_BOOKMARK_TYPE = "bookmark_type";
         public static final String ARG_BOOKMARK_CATEGORY = "bookmark_category";
         public static final String ARG_COMMENT_CONTAINS = "comment_contains";
@@ -69,7 +63,7 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
         @Override
         public JsonSchema schema() {
                 // Use Draft 7 builder for conditional support
-                var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
+                var schemaRoot = createDraft7SchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 SchemaBuilder.string(mapper)
@@ -142,7 +136,12 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                 GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
                 return getProgram(args, tool).flatMap(program -> {
-                        String action = getRequiredStringArgument(args, ARG_ACTION);
+                        String action;
+                        try {
+                                action = getRequiredStringArgument(args, ARG_ACTION);
+                        } catch (GhidraMcpException e) {
+                                return Mono.error(e);
+                        }
                         String normalizedAction = action.toLowerCase();
 
                         return switch (normalizedAction) {
@@ -150,29 +149,9 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                 case ACTION_CREATE_BOOKMARK -> handleCreateBookmark(program, args, annotation);
                                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool, annotation);
                                 default -> {
-                                        GhidraMcpError error = GhidraMcpError.validation()
-                                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                        .message("Invalid action: " + action)
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        annotation.mcpName(),
-                                                                        "action validation",
-                                                                        args,
-                                                                        Map.of(ARG_ACTION, action),
-                                                                        Map.of("validActions", List.of(
-                                                                                        ACTION_GET_PROGRAM_INFO,
-                                                                                        ACTION_CREATE_BOOKMARK,
-                                                                                        ACTION_GO_TO_ADDRESS))))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                        "Use a valid action",
-                                                                                        "Choose one of the supported manage_project actions",
-                                                                                        List.of(
-                                                                                                        ACTION_GET_PROGRAM_INFO,
-                                                                                                        ACTION_CREATE_BOOKMARK,
-                                                                                                        ACTION_GO_TO_ADDRESS),
-                                                                                        null)))
-                                                        .build();
+                                        GhidraMcpError error = GhidraMcpError.invalid(ARG_ACTION, action,
+                                                        "must be one of: " + ACTION_GET_PROGRAM_INFO + ", "
+                                                                        + ACTION_CREATE_BOOKMARK + ", " + ACTION_GO_TO_ADDRESS);
                                         yield Mono.error(new GhidraMcpException(error));
                                 }
                         };
@@ -185,10 +164,18 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
 
         private Mono<? extends Object> handleCreateBookmark(Program program, Map<String, Object> args,
                         GhidraMcpTool annotation) {
-                String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-                String bookmarkType = getRequiredStringArgument(args, ARG_BOOKMARK_TYPE);
-                String bookmarkCategory = getRequiredStringArgument(args, ARG_BOOKMARK_CATEGORY);
-                String comment = getRequiredStringArgument(args, ARG_COMMENT);
+                String addressStr;
+                String bookmarkType;
+                String bookmarkCategory;
+                String comment;
+                try {
+                        addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                        bookmarkType = getRequiredStringArgument(args, ARG_BOOKMARK_TYPE);
+                        bookmarkCategory = getRequiredStringArgument(args, ARG_BOOKMARK_CATEGORY);
+                        comment = getRequiredStringArgument(args, ARG_COMMENT);
+                } catch (GhidraMcpException e) {
+                        return Mono.error(e);
+                }
 
                 // Validate arguments with early returns
                 if (bookmarkType.isBlank()) {
@@ -200,8 +187,7 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                         ARG_BOOKMARK_CATEGORY + " must not be blank");
                 }
 
-                try {
-                        return parseAddress(program, args, addressStr, ACTION_CREATE_BOOKMARK, annotation)
+                return parseAddress(program, addressStr, ACTION_CREATE_BOOKMARK)
                                         .flatMap(addressResult -> executeInTransaction(program, "MCP - Create Bookmark",
                                                         () -> {
                                                                 Address address = addressResult.getAddress();
@@ -224,118 +210,49 @@ public class ManageProjectTool implements IGhidraMcpSpecification {
                                                                                                         ARG_BOOKMARK_CATEGORY,
                                                                                                         bookmarkCategory));
                                                                 } catch (Exception e) {
-                                                                        GhidraMcpError error = GhidraMcpError
-                                                                                        .execution()
-                                                                                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                                                                                        .message("Failed to create bookmark: "
-                                                                                                        + e.getMessage())
-                                                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                                                        annotation.mcpName(),
-                                                                                                        ACTION_CREATE_BOOKMARK,
-                                                                                                        args,
-                                                                                                        Map.of(
-                                                                                                                        ARG_ADDRESS,
-                                                                                                                        normalizedAddress,
-                                                                                                                        ARG_BOOKMARK_TYPE,
-                                                                                                                        bookmarkType,
-                                                                                                                        ARG_BOOKMARK_CATEGORY,
-                                                                                                                        bookmarkCategory),
-                                                                                                        Map.of("exceptionType",
-                                                                                                                        e.getClass().getSimpleName())))
-                                                                                        .suggestions(List.of(
-                                                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                                                        "Verify bookmark parameters",
-                                                                                                                        "Ensure the bookmark type and category are valid for the program",
-                                                                                                                        null,
-                                                                                                                        null)))
-                                                                                        .build();
+                                                                        GhidraMcpError error = GhidraMcpError.failed(
+                                                                                        "create bookmark",
+                                                                                        e.getMessage());
                                                                         throw new GhidraMcpException(error, e);
                                                                 }
                                                         }));
-                } catch (GhidraMcpException e) {
-                        return Mono.error(e);
-                }
         }
 
         private Mono<? extends Object> handleGoToAddress(Program program, Map<String, Object> args, PluginTool tool,
                         GhidraMcpTool annotation) {
-                String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                String addressStr;
                 try {
-                        return parseAddress(program, args, addressStr, ACTION_GO_TO_ADDRESS, annotation)
+                        addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                } catch (GhidraMcpException e) {
+                        return Mono.error(e);
+                }
+                return parseAddress(program, addressStr, ACTION_GO_TO_ADDRESS)
                                         .flatMap(addressResult -> Mono.fromCallable(() -> {
                                                 Address address = addressResult.getAddress();
                                                 String normalizedAddress = addressResult.getAddressString();
                                                 GoToService goToService = tool != null ? tool.getService(GoToService.class) : null;
                                                 if (goToService == null) {
-                                                        GhidraMcpError error = GhidraMcpError.internal()
-                                                                        .errorCode(GhidraMcpError.ErrorCode.CONFIGURATION_ERROR)
-                                                                        .message("GoToService is not available in the current tool context.")
-                                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                                        annotation.mcpName(),
-                                                                                        ACTION_GO_TO_ADDRESS,
-                                                                                        args,
-                                                                                        Map.of("missingService",
-                                                                                                        "GoToService"),
-                                                                                        Map.of("serviceAvailable",
-                                                                                                        false)))
-                                                                        .build();
+                                                        GhidraMcpError error = GhidraMcpError.of(
+                                                                        "GoToService is not available in the current tool context.");
                                                         throw new GhidraMcpException(error);
                                                 }
 
                                                 boolean success = goToService.goTo(address, program);
                                                 if (!success) {
-                                                        GhidraMcpError error = GhidraMcpError.execution()
-                                                                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                                                                        .message("Failed to navigate to address: "
-                                                                                        + addressStr)
-                                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                                        annotation.mcpName(),
-                                                                                        ACTION_GO_TO_ADDRESS,
-                                                                                        args,
-                                                                                        Map.of(ARG_ADDRESS,
-                                                                                                        normalizedAddress),
-                                                                                        Map.of("navigationSucceeded",
-                                                                                                        false)))
-                                                                        .suggestions(List.of(
-                                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                                        "Verify program state and open views",
-                                                                                                        "Ensure Listing or Decompiler views are open and the address is valid",
-                                                                                                        null,
-                                                                                                        null)))
-                                                                        .build();
+                                                        GhidraMcpError error = GhidraMcpError.failed(
+                                                                        "navigate to address " + normalizedAddress,
+                                                                        "ensure Listing or Decompiler views are open");
                                                         throw new GhidraMcpException(error);
                                                 }
 
                                                 return OperationResult.success(ACTION_GO_TO_ADDRESS, address.toString(),
                                                                 "Navigation completed successfully.");
                                         }));
-                } catch (GhidraMcpException e) {
-                        return Mono.error(e);
-                }
         }
 
         private Mono<? extends Object> buildBlankArgumentError(GhidraMcpTool annotation, Map<String, Object> args,
                         String argumentName, String operation, String message) {
-                GhidraMcpError error = GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                .message(message)
-                                .context(new GhidraMcpError.ErrorContext(
-                                                annotation.mcpName(),
-                                                operation,
-                                                args,
-                                                Map.of(argumentName, ""),
-                                                Map.of("blank", true)))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Provide a non-empty value",
-                                                                "Set the '" + argumentName
-                                                                                + "' argument to a descriptive value",
-                                                                List.of(argumentName + " = \"Example\""),
-                                                                null)))
-                                .build();
+                GhidraMcpError error = GhidraMcpError.invalid(argumentName, "", "must not be blank");
                 return Mono.error(new GhidraMcpException(error));
         }
 }

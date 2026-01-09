@@ -98,7 +98,7 @@ import java.util.*;
     <examples>
     Create multiple symbols at once:
     {
-      "fileName": "program.exe",
+      "file_name": "program.exe",
       "operations": [
         {
           "tool": "manage_symbols",
@@ -123,7 +123,7 @@ import java.util.*;
 
     Define a struct and apply it to memory:
     {
-      "fileName": "program.exe",
+      "file_name": "program.exe",
       "operations": [
         {
           "tool": "manage_data_types",
@@ -157,16 +157,16 @@ import java.util.*;
     - Transaction rollback is automatic on any failure
     </error_handling_summary>
     """)
-public class BatchOperationsTool implements IGhidraMcpSpecification {
+public class BatchOperationsTool extends BaseMcpTool {
 
   public static final String ARG_OPERATIONS = "operations";
   public static final String ARG_TOOL = "tool";
   public static final String ARG_ARGUMENTS = "arguments";
 
-  private static final Map<String, IGhidraMcpSpecification> toolCache = new HashMap<>();
+  private static final Map<String, BaseMcpTool> toolCache = new HashMap<>();
 
   static {
-    ServiceLoader.load(IGhidraMcpSpecification.class).forEach(toolInstance -> {
+    ServiceLoader.load(BaseMcpTool.class).forEach(toolInstance -> {
       GhidraMcpTool annotation = toolInstance.getClass().getAnnotation(GhidraMcpTool.class);
       if (annotation != null) {
         toolCache.put(annotation.mcpName(), toolInstance);
@@ -177,7 +177,7 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
 
   @Override
   public JsonSchema schema() {
-    IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+    IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
     schemaRoot.property(ARG_FILE_NAME,
         SchemaBuilder.string(mapper)
@@ -231,7 +231,12 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
 
     for (int i = 0; i < operations.size(); i++) {
       Map<String, Object> operation = operations.get(i);
-      String toolName = getRequiredStringArgument(operation, ARG_TOOL);
+      String toolName;
+      try {
+        toolName = getRequiredStringArgument(operation, ARG_TOOL);
+      } catch (GhidraMcpException e) {
+        return Mono.error(e);
+      }
 
       if (!toolCache.containsKey(toolName)) {
         GhidraMcpError error = GhidraMcpError.validation()
@@ -262,12 +267,12 @@ public class BatchOperationsTool implements IGhidraMcpSpecification {
 
           for (int i = 0; i < operations.size(); i++) {
             Map<String, Object> operation = operations.get(i);
-            String toolName = getRequiredStringArgument(operation, ARG_TOOL);
+            String toolName = getOptionalStringArgument(operation, ARG_TOOL).orElse("");
             Map<String, Object> toolArgs = getRequiredMapArgument(operation, ARG_ARGUMENTS);
 
             toolArgs.put(ARG_FILE_NAME, args.get(ARG_FILE_NAME));
 
-            IGhidraMcpSpecification toolInstance = toolCache.get(toolName);
+            BaseMcpTool toolInstance = toolCache.get(toolName);
 
             try {
               Object result = toolInstance.execute(context, toolArgs, tool).block();

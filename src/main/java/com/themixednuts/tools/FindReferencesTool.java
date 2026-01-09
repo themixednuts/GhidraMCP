@@ -41,10 +41,10 @@ import java.util.stream.StreamSupport;
         - Results include reference type and operation context
         </important_notes>
         """)
-public class FindReferencesTool implements IGhidraMcpSpecification {
+public class FindReferencesTool extends BaseMcpTool {
 
     public static final String ARG_DIRECTION = "direction";
-    public static final String ARG_REFERENCE_TYPE = "referenceType";
+    public static final String ARG_REFERENCE_TYPE = "reference_type";
 
     /**
      * Enumeration of reference search directions.
@@ -90,7 +90,7 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
@@ -131,35 +131,37 @@ public class FindReferencesTool implements IGhidraMcpSpecification {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
         return getProgram(args, tool).flatMap(program -> {
-            String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-            String directionStr = getRequiredStringArgument(args, ARG_DIRECTION);
+            String addressStr;
+            String directionStr;
+            try {
+                addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                directionStr = getRequiredStringArgument(args, ARG_DIRECTION);
+            } catch (GhidraMcpException e) {
+                return Mono.error(e);
+            }
             String referenceType = getOptionalStringArgument(args, ARG_REFERENCE_TYPE).orElse("");
 
             Direction direction = Direction.fromValue(directionStr);
 
-            try {
-                return parseAddress(program, args, addressStr, "find_references", annotation)
-                        .flatMap(addressResult -> {
-                            switch (direction) {
-                                case TO -> {
-                                    return findReferencesTo(program, addressResult.getAddress(), referenceType, args,
-                                            annotation);
-                                }
-                                case FROM -> {
-                                    return findReferencesFrom(program, addressResult.getAddress(), referenceType, args,
-                                            annotation);
-                                }
-                                default -> {
-                                    return Mono.error(new GhidraMcpException(GhidraMcpError.validation()
-                                            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                            .message("Invalid direction: " + directionStr)
-                                            .build()));
-                                }
+            return parseAddress(program, addressStr, "find_references")
+                    .flatMap(addressResult -> {
+                        switch (direction) {
+                            case TO -> {
+                                return findReferencesTo(program, addressResult.getAddress(), referenceType, args,
+                                        annotation);
                             }
-                        });
-            } catch (GhidraMcpException e) {
-                return Mono.error(e);
-            }
+                            case FROM -> {
+                                return findReferencesFrom(program, addressResult.getAddress(), referenceType, args,
+                                        annotation);
+                            }
+                            default -> {
+                                return Mono.error(new GhidraMcpException(GhidraMcpError.validation()
+                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                                        .message("Invalid direction: " + directionStr)
+                                        .build()));
+                            }
+                        }
+                    });
         });
     }
 

@@ -41,27 +41,24 @@ import reactor.core.publisher.Mono;
         <examples>
         Undo the last change:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "undo"
         }
 
         Redo the last undone change:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "redo"
         }
 
         Get undo/redo information:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "info"
         }
         </examples>
         """)
-public class UndoRedoTool implements IGhidraMcpSpecification {
-
-    // Argument constants
-    private static final String ARG_ACTION = "action";
+public class UndoRedoTool extends BaseMcpTool {
 
     // Action types
     private static final String ACTION_UNDO = "undo";
@@ -70,19 +67,19 @@ public class UndoRedoTool implements IGhidraMcpSpecification {
 
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
                         .description("The name of the program file."));
 
-        schemaRoot.property(ARG_ACTION,
+        schemaRoot.property(BaseMcpTool.ARG_ACTION,
                 SchemaBuilder.string(mapper)
                         .description("Action to perform: 'undo', 'redo', or 'info'")
                         .enumValues(new String[] { ACTION_UNDO, ACTION_REDO, ACTION_INFO }));
 
         schemaRoot.requiredProperty(ARG_FILE_NAME)
-                .requiredProperty(ARG_ACTION);
+                .requiredProperty(BaseMcpTool.ARG_ACTION);
 
         return schemaRoot.build();
     }
@@ -95,7 +92,12 @@ public class UndoRedoTool implements IGhidraMcpSpecification {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
         return getProgram(args, tool).flatMap(program -> {
-            String action = getRequiredStringArgument(args, ARG_ACTION);
+            String action;
+            try {
+                action = getRequiredStringArgument(args, ARG_ACTION);
+            } catch (GhidraMcpException e) {
+                return Mono.error(e);
+            }
 
             return switch (action.toLowerCase()) {
                 case ACTION_UNDO -> handleUndo(program, args, annotation);

@@ -37,30 +37,30 @@ import java.util.stream.Collectors;
                 - Bookmark deletion is permanent and cannot be undone without undo/redo
                 </important_notes>
 
-                <examples>
+        <examples>
                 Delete all bookmarks at an address:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "address": "0x401000"
                 }
 
                 Delete bookmarks of a specific type:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "address": "0x401000",
                   "bookmark_type": "Note"
                 }
 
                 Delete bookmarks with specific comment:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "address": "0x401000",
                   "comment_contains": "TODO"
                 }
 
                 Delete bookmarks matching all filters:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "address": "0x401000",
                   "bookmark_type": "Note",
                   "bookmark_category": "Analysis",
@@ -68,16 +68,15 @@ import java.util.stream.Collectors;
                 }
                 </examples>
                 """)
-public class DeleteBookmarkTool implements IGhidraMcpSpecification {
+public class DeleteBookmarkTool extends BaseMcpTool {
 
-        public static final String ARG_ADDRESS = "address";
         public static final String ARG_BOOKMARK_TYPE = "bookmark_type";
         public static final String ARG_BOOKMARK_CATEGORY = "bookmark_category";
         public static final String ARG_COMMENT_CONTAINS = "comment_contains";
 
         @Override
         public JsonSchema schema() {
-                IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+                IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 SchemaBuilder.string(mapper)
@@ -111,13 +110,17 @@ public class DeleteBookmarkTool implements IGhidraMcpSpecification {
 
         private Mono<? extends Object> handleDeleteBookmark(Program program, Map<String, Object> args,
                         GhidraMcpTool annotation) {
-                String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                String addressStr;
+                try {
+                        addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+                } catch (GhidraMcpException e) {
+                        return Mono.error(e);
+                }
                 Optional<String> bookmarkTypeOpt = getOptionalStringArgument(args, ARG_BOOKMARK_TYPE);
                 Optional<String> bookmarkCategoryOpt = getOptionalStringArgument(args, ARG_BOOKMARK_CATEGORY);
                 Optional<String> commentContainsOpt = getOptionalStringArgument(args, ARG_COMMENT_CONTAINS);
 
-                try {
-                        return parseAddress(program, args, addressStr, annotation.mcpName(), annotation)
+                return parseAddress(program, addressStr, "delete_bookmark")
                                         .flatMap(addressResult -> executeInTransaction(program, "MCP - Delete Bookmark",
                                                         () -> {
                                                                 Address address = addressResult.getAddress();
@@ -251,8 +254,5 @@ public class DeleteBookmarkTool implements IGhidraMcpSpecification {
                                                                         throw new GhidraMcpException(error, e);
                                                                 }
                                                         }));
-                } catch (GhidraMcpException e) {
-                        return Mono.error(e);
-                }
         }
 }

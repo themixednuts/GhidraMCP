@@ -24,7 +24,14 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 import ghidra.framework.main.AppInfo;
 
-@GhidraMcpTool(name = "List Programs", description = "Lists all programs (both open and closed) in the Ghidra project.", mcpName = "list_programs", mcpDescription = """
+@GhidraMcpTool(
+    name = "List Programs", 
+    description = "Lists all programs (both open and closed) in the Ghidra project.", 
+    mcpName = "list_programs",
+    title = "List Programs",
+    readOnlyHint = true,
+    idempotentHint = true,
+    mcpDescription = """
         <use_case>
         List all program files within the active Ghidra project, including both currently open programs
         and programs that exist in the project but are not currently loaded. Use this to discover
@@ -45,15 +52,15 @@ import ghidra.framework.main.AppInfo;
         - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'nameFilter' to search by filename.
         </important_notes>
         """)
-public class ListProgramsTool implements IGhidraMcpSpecification {
+public class ListProgramsTool extends BaseMcpTool {
 
     private static final String CONTEXT_OPERATION = "list_programs";
 
     // Additional argument constants specific to this tool
-    private static final String ARG_PAGE_SIZE = "pageSize";
+    private static final String ARG_PAGE_SIZE = "page_size";
     private static final String ARG_FORMAT = "format";
-    private static final String ARG_NAME_FILTER = "nameFilter";
-    private static final String ARG_OPEN_ONLY = "openOnly";
+    private static final String ARG_NAME_FILTER = "name_filter";
+    private static final String ARG_OPEN_ONLY = "open_only";
 
     // Default values
     private static final int DEFAULT_PAGE_SIZE = 100;
@@ -130,7 +137,7 @@ public class ListProgramsTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         // Add optional pagination parameters
         schemaRoot.property(ARG_PAGE_SIZE,

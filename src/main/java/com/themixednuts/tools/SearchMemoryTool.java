@@ -55,7 +55,7 @@ import reactor.core.publisher.Mono;
         the total count and suggest refining the search criteria if needed.
         </agent_response_guidance>
         """)
-public class SearchMemoryTool implements IGhidraMcpSpecification {
+public class SearchMemoryTool extends BaseMcpTool {
 
     /**
      * Enumeration of supported memory search types.
@@ -114,10 +114,10 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
         }
     }
 
-    public static final String ARG_SEARCH_TYPE = "searchType";
-    public static final String ARG_SEARCH_VALUE = "searchValue";
-    public static final String ARG_CASE_SENSITIVE = "caseSensitive";
-    public static final String ARG_MAX_RESULTS = "maxResults";
+    public static final String ARG_SEARCH_TYPE = "search_type";
+    public static final String ARG_SEARCH_VALUE = "search_value";
+    public static final String ARG_CASE_SENSITIVE = "case_sensitive";
+    public static final String ARG_MAX_RESULTS = "max_results";
 
     /**
      * Defines the JSON input schema for memory searching.
@@ -126,7 +126,7 @@ public class SearchMemoryTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)

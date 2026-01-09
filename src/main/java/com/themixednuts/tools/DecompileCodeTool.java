@@ -27,7 +27,14 @@ import java.util.stream.StreamSupport;
 import java.util.Spliterator;
 import java.util.Spliterators;
 
-@GhidraMcpTool(name = "Decompile Code", description = "Advanced decompilation and P-code analysis for functions and code regions.", mcpName = "decompile_code", mcpDescription = """
+@GhidraMcpTool(
+    name = "Decompile Code", 
+    description = "Advanced decompilation and P-code analysis for functions and code regions.", 
+    mcpName = "decompile_code",
+    title = "Decompile Code",
+    readOnlyHint = true,
+    idempotentHint = true,
+    mcpDescription = """
                 <use_case>
                 Advanced code analysis through decompilation and P-code intermediate representation. Decompile functions
                 to C-like pseudocode, analyze P-code operations, and understand program control flow. Essential for
@@ -41,10 +48,10 @@ import java.util.Spliterators;
                 - Handles complex control structures and data types
                 </important_notes>
 
-                <examples>
+        <examples>
                 Decompile function by name:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "target_type": "function",
                   "target_value": "main",
                   "include_pcode": true
@@ -52,14 +59,14 @@ import java.util.Spliterators;
 
                 Decompile code at address:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "target_type": "address",
                   "target_value": "0x401000",
                   "timeout": 60
                 }
                 </examples>
                 """)
-public class DecompileCodeTool implements IGhidraMcpSpecification {
+public class DecompileCodeTool extends BaseMcpTool {
 
         public static final String ARG_TARGET_TYPE = "target_type";
         public static final String ARG_TARGET_VALUE = "target_value";
@@ -76,7 +83,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
         @Override
         public JsonSchema schema() {
                 // Use Draft 7 builder for conditional support
-                var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
+                var schemaRoot = createDraft7SchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 schemaRoot.string()
@@ -160,7 +167,12 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                 GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
                 return getProgram(args, tool).flatMap(program -> {
-                        String targetType = getRequiredStringArgument(args, ARG_TARGET_TYPE);
+                        String targetType;
+                        try {
+                                targetType = getRequiredStringArgument(args, ARG_TARGET_TYPE);
+                        } catch (GhidraMcpException e) {
+                                return Mono.error(e);
+                        }
                         String targetValue = getOptionalStringArgument(args, ARG_TARGET_VALUE).orElse("");
                         boolean includePcode = getOptionalBooleanArgument(args, ARG_INCLUDE_PCODE).orElse(false);
                         boolean includeAst = getOptionalBooleanArgument(args, ARG_INCLUDE_AST).orElse(false);
@@ -179,28 +191,8 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                 case "all_functions" ->
                                         decompileAllFunctions(program, includePcode, includeAst, timeout, annotation);
                                 default -> {
-                                        GhidraMcpError error = GhidraMcpError.validation()
-                                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                        .message("Invalid target type: " + targetType)
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        annotation.mcpName(),
-                                                                        "target type validation",
-                                                                        args,
-                                                                        Map.of(ARG_TARGET_TYPE, targetType),
-                                                                        Map.of("validTargetTypes",
-                                                                                        List.of("function", "address",
-                                                                                                        "address_range",
-                                                                                                        "all_functions"))))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                        "Use a valid target type",
-                                                                                        "Choose from: function, address, address_range, all_functions",
-                                                                                        List.of("function", "address",
-                                                                                                        "address_range",
-                                                                                                        "all_functions"),
-                                                                                        null)))
-                                                        .build();
+                                        GhidraMcpError error = GhidraMcpError.invalid(ARG_TARGET_TYPE, targetType,
+                                                        "Must be one of: function, address, address_range, all_functions");
                                         yield Mono.error(new GhidraMcpException(error));
                                 }
                         };
@@ -212,10 +204,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                         int timeout, GhidraMcpTool annotation) {
                 return Mono.fromCallable(() -> {
                         if (functionName.isEmpty()) {
-                                throw new GhidraMcpException(GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                                                .message("Function name is required for function decompilation")
-                                                .build());
+                                throw new GhidraMcpException(GhidraMcpError.missing(ARG_TARGET_VALUE));
                         }
 
                         FunctionManager functionManager = program.getFunctionManager();
@@ -226,34 +215,8 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                         .orElse(null);
 
                         if (targetFunction == null) {
-                                List<String> availableFunctions = StreamSupport
-                                                .stream(functionManager.getFunctions(true).spliterator(), false)
-                                                .map(Function::getName)
-                                                .sorted()
-                                                .limit(20)
-                                                .collect(Collectors.toList());
-
-                                throw new GhidraMcpException(GhidraMcpError.resourceNotFound()
-                                                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                                                .message("Function not found: " + functionName)
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                annotation.mcpName(),
-                                                                "function lookup",
-                                                                Map.of(ARG_TARGET_VALUE, functionName),
-                                                                Map.of("availableFunctions", availableFunctions),
-                                                                Map.of("totalFunctions",
-                                                                                functionManager.getFunctionCount())))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.SIMILAR_VALUES,
-                                                                                "Check available functions",
-                                                                                "Use analyze_functions with list action to see all functions",
-                                                                                availableFunctions.subList(0, Math.min(
-                                                                                                10,
-                                                                                                availableFunctions
-                                                                                                                .size())),
-                                                                                List.of("analyze_functions"))))
-                                                .build());
+                                throw new GhidraMcpException(GhidraMcpError.notFound("function", functionName,
+                                                "Use list_functions to see available functions"));
                         }
 
                         return performDecompilation(program, targetFunction, includePcode, includeAst, timeout,
@@ -264,10 +227,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
         private Mono<? extends Object> decompileAtAddress(Program program, String addressStr,
                         boolean includePcode, boolean includeAst,
                         int timeout, GhidraMcpTool annotation) {
-                try {
-                        return parseAddress(program, Map.of(ARG_ADDRESS, addressStr), addressStr,
-                                        "decompile_at_address",
-                                        annotation)
+                return parseAddress(program, addressStr, "decompile_at_address")
                                         .flatMap(addressResult -> Mono.fromCallable(() -> {
                                                 Address address = addressResult.getAddress();
                                                 FunctionManager functionManager = program.getFunctionManager();
@@ -280,21 +240,14 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                                         if (instruction != null) {
                                                                 return analyzeInstructionPcode(instruction, address);
                                                         } else {
-                                                                throw new GhidraMcpException(GhidraMcpError
-                                                                                .resourceNotFound()
-                                                                                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                                                                                .message("No function or instruction found at address: "
-                                                                                                + addressStr)
-                                                                                .build());
+                                                                throw new GhidraMcpException(GhidraMcpError.notFound(
+                                                                                "function or instruction", addressStr));
                                                         }
                                                 }
 
                                                 return performDecompilation(program, function, includePcode, includeAst,
                                                                 timeout, annotation);
                                         }));
-                } catch (GhidraMcpException e) {
-                        return Mono.error(e);
-                }
         }
 
         private Map<String, Object> analyzeInstructionPcode(Instruction instruction, Address address) {
@@ -338,10 +291,7 @@ public class DecompileCodeTool implements IGhidraMcpSpecification {
                                         .orElseGet(() -> createFailedDecompilation(function, decompResult));
 
                 } catch (Exception e) {
-                        throw new GhidraMcpException(GhidraMcpError.execution()
-                                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                                        .message("Decompilation error: " + e.getMessage())
-                                        .build());
+                        throw new GhidraMcpException(GhidraMcpError.failed("decompilation", e.getMessage()));
                 } finally {
                         decomp.dispose();
                 }

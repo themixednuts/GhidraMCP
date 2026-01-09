@@ -4,10 +4,8 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.GhidraMcpError;
-import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
-import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -15,19 +13,24 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-@GhidraMcpTool(name = "Read Functions", description = "Read a single function or list functions in a Ghidra program with pagination and filtering options.", mcpName = "read_functions", mcpDescription = """
+@GhidraMcpTool(
+    name = "Read Functions",
+    description = "Read a single function or list functions in a Ghidra program with pagination and filtering options.",
+    mcpName = "read_functions",
+    title = "Read Functions",
+    readOnlyHint = true,
+    idempotentHint = true,
+    mcpDescription = """
         <use_case>
         Read a single function by identifier (symbol_id, address, name) or browse/list functions
         in Ghidra programs with optional filtering by name pattern and pagination support.
@@ -46,52 +49,46 @@ import java.util.stream.StreamSupport;
         <examples>
         Read a single function by address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000"
         }
 
         Read a single function by name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name": "main"
         }
 
         Read a single function by symbol ID:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "symbol_id": 12345
         }
 
         List all functions (first page):
         {
-          "fileName": "program.exe"
+          "file_name": "program.exe"
         }
 
         List functions matching pattern:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name_pattern": ".*decrypt.*"
         }
 
         Get next page of results:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "cursor": "0x401000:main"
         }
         </examples>
-        """)
-public class ReadFunctionsTool implements IGhidraMcpSpecification {
-
-    public static final String ARG_SYMBOL_ID = "symbol_id";
-    public static final String ARG_ADDRESS = "address";
-    public static final String ARG_NAME = "name";
-    public static final String ARG_NAME_PATTERN = "name_pattern";
-
-    private static final int DEFAULT_PAGE_LIMIT = 50;
+        """
+)
+public class ReadFunctionsTool extends BaseMcpTool {
 
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        var schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
@@ -123,93 +120,115 @@ public class ReadFunctionsTool implements IGhidraMcpSpecification {
     @Override
     public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
         return getProgram(args, tool).flatMap(program -> {
-            // Check if this is a single function read or a list operation
             boolean hasSingleIdentifier = args.containsKey(ARG_SYMBOL_ID) ||
                     args.containsKey(ARG_ADDRESS) ||
                     args.containsKey(ARG_NAME);
 
             if (hasSingleIdentifier) {
-                return handleRead(program, args);
+                return readSingleFunction(program, args);
             } else {
                 return Mono.fromCallable(() -> listFunctions(program, args));
             }
         });
     }
 
-    private Mono<? extends Object> handleRead(Program program, Map<String, Object> args) {
+    private Mono<FunctionInfo> readSingleFunction(Program program, Map<String, Object> args) {
         return Mono.fromCallable(() -> {
             FunctionManager functionManager = program.getFunctionManager();
-            GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
             // Apply precedence: symbol_id > address > name
             if (args.containsKey(ARG_SYMBOL_ID)) {
-                Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-                if (symbolId != null) {
-                    Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
-                    if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
-                        Function function = functionManager.getFunctionAt(symbol.getAddress());
-                        if (function != null) {
-                            return new FunctionInfo(function);
-                        }
-                    }
-                }
-                throw new GhidraMcpException(
-                        createFunctionNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
+                return readBySymbolId(program, functionManager, args);
             } else if (args.containsKey(ARG_ADDRESS)) {
-                String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
-                if (address != null && !address.trim().isEmpty()) {
-                    try {
-                        Address functionAddress = program.getAddressFactory().getAddress(address);
-                        if (functionAddress != null) {
-                            Function function = functionManager.getFunctionAt(functionAddress);
-                            if (function != null) {
-                                return new FunctionInfo(function);
-                            }
-                        }
-                    } catch (Exception e) {
-                        throw new GhidraMcpException(createInvalidAddressError(address, e));
-                    }
-                }
-                throw new GhidraMcpException(createFunctionNotFoundError(annotation.mcpName(), "address", address));
+                return readByAddress(program, functionManager, args);
             } else if (args.containsKey(ARG_NAME)) {
-                String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
-                if (name != null && !name.trim().isEmpty()) {
-                    // First try exact match
-                    Optional<Function> exactMatch = StreamSupport
-                            .stream(functionManager.getFunctions(true).spliterator(), false)
-                            .filter(f -> f.getName().equals(name))
-                            .findFirst();
-
-                    if (exactMatch.isPresent()) {
-                        return new FunctionInfo(exactMatch.get());
-                    }
-
-                    // Then try regex match
-                    try {
-                        List<Function> regexMatches = StreamSupport
-                                .stream(functionManager.getFunctions(true).spliterator(), false)
-                                .filter(f -> f.getName().matches(name))
-                                .collect(Collectors.toList());
-
-                        if (regexMatches.size() == 1) {
-                            return new FunctionInfo(regexMatches.get(0));
-                        } else if (regexMatches.size() > 1) {
-                            throw new GhidraMcpException(
-                                    createMultipleFunctionsFoundError(annotation.mcpName(), name, regexMatches));
-                        }
-                    } catch (Exception e) {
-                        throw new GhidraMcpException(createInvalidRegexError(name, e));
-                    }
-                }
-                throw new GhidraMcpException(createFunctionNotFoundError(annotation.mcpName(), "name", name));
+                return readByName(functionManager, args);
             } else {
-                throw new GhidraMcpException(createMissingParameterError());
+                throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
             }
         });
     }
 
-    private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args)
+    private FunctionInfo readBySymbolId(Program program, FunctionManager functionManager, Map<String, Object> args)
             throws GhidraMcpException {
+        Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
+        if (symbolId == null) {
+            throw new GhidraMcpException(GhidraMcpError.missing(ARG_SYMBOL_ID));
+        }
+
+        Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+        if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+            Function function = functionManager.getFunctionAt(symbol.getAddress());
+            if (function != null) {
+                return new FunctionInfo(function);
+            }
+        }
+
+        throw new GhidraMcpException(GhidraMcpError.notFound("function", "symbol_id=" + symbolId));
+    }
+
+    private FunctionInfo readByAddress(Program program, FunctionManager functionManager, Map<String, Object> args)
+            throws GhidraMcpException {
+        String addressStr = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
+        if (addressStr == null || addressStr.isBlank()) {
+            throw new GhidraMcpException(GhidraMcpError.missing(ARG_ADDRESS));
+        }
+
+        try {
+            Address functionAddress = program.getAddressFactory().getAddress(addressStr);
+            if (functionAddress != null) {
+                Function function = functionManager.getFunctionAt(functionAddress);
+                if (function != null) {
+                    return new FunctionInfo(function);
+                }
+            }
+        } catch (Exception e) {
+            throw new GhidraMcpException(GhidraMcpError.parse("address", addressStr));
+        }
+
+        throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
+    }
+
+    private FunctionInfo readByName(FunctionManager functionManager, Map<String, Object> args)
+            throws GhidraMcpException {
+        String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+        if (name == null || name.isBlank()) {
+            throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
+        }
+
+        // First try exact match
+        Optional<Function> exactMatch = StreamSupport
+                .stream(functionManager.getFunctions(true).spliterator(), false)
+                .filter(f -> f.getName().equals(name))
+                .findFirst();
+
+        if (exactMatch.isPresent()) {
+            return new FunctionInfo(exactMatch.get());
+        }
+
+        // Then try regex match
+        try {
+            List<Function> regexMatches = StreamSupport
+                    .stream(functionManager.getFunctions(true).spliterator(), false)
+                    .filter(f -> f.getName().matches(name))
+                    .collect(Collectors.toList());
+
+            if (regexMatches.size() == 1) {
+                return new FunctionInfo(regexMatches.get(0));
+            } else if (regexMatches.size() > 1) {
+                throw new GhidraMcpException(
+                        GhidraMcpError.conflict("Multiple functions found for name pattern: " + name));
+            }
+        } catch (GhidraMcpException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
+        }
+
+        throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
+    }
+
+    private List<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
         FunctionManager functionManager = program.getFunctionManager();
 
         Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
@@ -218,8 +237,7 @@ public class ReadFunctionsTool implements IGhidraMcpSpecification {
         // Get all functions and apply name filter if provided
         List<FunctionInfo> allFunctions = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
                 .filter(function -> {
-                    if (namePatternOpt.isEmpty())
-                        return true;
+                    if (namePatternOpt.isEmpty()) return true;
                     try {
                         return function.getName().matches(namePatternOpt.get());
                     } catch (Exception e) {
@@ -231,21 +249,18 @@ public class ReadFunctionsTool implements IGhidraMcpSpecification {
                 .collect(Collectors.toList());
 
         // Apply cursor-based pagination
-        final String finalCursorStr = cursorOpt.orElse(null);
+        final String cursorStr = cursorOpt.orElse(null);
 
         List<FunctionInfo> paginatedFunctions = allFunctions.stream()
                 .dropWhile(funcInfo -> {
-                    if (finalCursorStr == null)
-                        return false;
+                    if (cursorStr == null) return false;
 
-                    // Cursor format: "address:name"
-                    String[] parts = finalCursorStr.split(":", 2);
+                    String[] parts = cursorStr.split(":", 2);
                     String cursorAddress = parts[0];
                     String cursorName = parts.length > 1 ? parts[1] : "";
 
                     int addressCompare = funcInfo.getAddress().compareTo(cursorAddress);
-                    if (addressCompare < 0)
-                        return true;
+                    if (addressCompare < 0) return true;
                     if (addressCompare == 0) {
                         return funcInfo.getName().compareTo(cursorName) <= 0;
                     }
@@ -255,131 +270,6 @@ public class ReadFunctionsTool implements IGhidraMcpSpecification {
                 .collect(Collectors.toList());
 
         boolean hasMore = paginatedFunctions.size() > DEFAULT_PAGE_LIMIT;
-        List<FunctionInfo> resultsForPage = paginatedFunctions.subList(0,
-                Math.min(paginatedFunctions.size(), DEFAULT_PAGE_LIMIT));
-
-        String nextCursor = null;
-        if (hasMore && !resultsForPage.isEmpty()) {
-            FunctionInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
-            nextCursor = lastItem.getAddress() + ":" + lastItem.getName();
-        }
-
-        return new PaginatedResult<>(resultsForPage, nextCursor);
-    }
-
-    private GhidraMcpError createFunctionNotFoundError(String toolOperation, String searchType, String searchValue) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                .message("Function not found using " + searchType + ": " + searchValue)
-                .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "function resolution",
-                        Map.of(searchType, searchValue),
-                        Map.of(),
-                        Map.of("searchMethod", searchType)))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Verify the function exists",
-                                "Check that the function identifier is correct",
-                                List.of(
-                                        "\"symbol_id\": 12345",
-                                        "\"address\": \"0x401000\"",
-                                        "\"name\": \"main\""),
-                                null)))
-                .build();
-    }
-
-    private GhidraMcpError createMultipleFunctionsFoundError(String toolOperation, String searchValue,
-            List<Function> functions) {
-        List<String> functionNames = functions.stream()
-                .map(Function::getName)
-                .limit(5)
-                .collect(Collectors.toList());
-
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Multiple functions found for name pattern: " + searchValue)
-                .context(new GhidraMcpError.ErrorContext(
-                        toolOperation,
-                        "function resolution",
-                        Map.of("name", searchValue),
-                        Map.of("matchCount", functions.size()),
-                        Map.of("firstFiveMatches", functionNames)))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Use a more specific function identifier",
-                                "Consider using symbol_id or address for exact identification",
-                                List.of(
-                                        "\"symbol_id\": 12345",
-                                        "\"address\": \"0x401000\"",
-                                        "\"name\": \"exact_function_name\""),
-                                null)))
-                .build();
-    }
-
-    private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                .message("Invalid address format: " + addressStr)
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                        "address parsing",
-                        Map.of(ARG_ADDRESS, addressStr),
-                        Map.of(),
-                        Map.of("parseError", cause.getMessage())))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Use valid hexadecimal address format",
-                                "Provide address in proper format",
-                                List.of("0x401000", "401000", "0x00401000"),
-                                null)))
-                .build();
-    }
-
-    private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Invalid regex pattern: " + cause.getMessage())
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                        "regex compilation",
-                        Map.of(ARG_NAME, pattern),
-                        Map.of(),
-                        Map.of("regexError", cause.getMessage())))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Provide a valid Java regex pattern",
-                                "Use proper regex syntax for pattern matching",
-                                List.of(".*main.*", "decrypt_.*", "^get.*"),
-                                null)))
-                .build();
-    }
-
-    private GhidraMcpError createMissingParameterError() {
-        return GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                .message("No search parameters provided")
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                        "parameter validation",
-                        Map.of(),
-                        Map.of(),
-                        Map.of("availableParameters", List.of(ARG_SYMBOL_ID, ARG_ADDRESS, ARG_NAME))))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Provide at least one search parameter",
-                                "Use symbol_id, address, or name parameter",
-                                List.of(
-                                        "\"symbol_id\": 12345",
-                                        "\"address\": \"0x401000\"",
-                                        "\"name\": \"main\"",
-                                        "\"name\": \".*decrypt.*\""),
-                                null)))
-                .build();
+        return paginatedFunctions.subList(0, Math.min(paginatedFunctions.size(), DEFAULT_PAGE_LIMIT));
     }
 }

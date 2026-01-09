@@ -55,11 +55,11 @@ import java.util.Map;
             - Uses advanced Microsoft-specific RTTI analysis capabilities
             </important_notes>
         """)
-public class AnalyzeRttiTool implements IGhidraMcpSpecification {
+public class AnalyzeRttiTool extends BaseMcpTool {
 
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)

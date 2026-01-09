@@ -22,7 +22,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-@GhidraMcpTool(name = "Delete Data Type", description = "Delete data types (structs, enums, unions, typedefs, pointers, function definitions) and categories.", mcpName = "delete_data_type", mcpDescription = """
+@GhidraMcpTool(
+    name = "Delete Data Type", 
+    description = "Delete data types (structs, enums, unions, typedefs, pointers, function definitions) and categories.", 
+    mcpName = "delete_data_type",
+    title = "Delete Data Type",
+    destructiveHint = true,
+    mcpDescription = """
                 <use_case>
                 Deletes data types and categories from the program. Use this when you need to remove
                 incorrect data type definitions, clean up unused types, or reorganize the data type
@@ -40,17 +46,17 @@ import java.util.Optional;
                 - Deleting and recreating will break all existing references to this type; use 'update' to preserve references
                 </important_notes>
 
-                <examples>
+        <examples>
                 Delete a data type by ID:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "data_type_kind": "struct",
                   "data_type_id": 12345
                 }
 
                 Delete a data type by name:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "data_type_kind": "struct",
                   "name": "MyStruct",
                   "category_path": "/MyTypes"
@@ -58,23 +64,20 @@ import java.util.Optional;
 
                 Delete an empty category:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "data_type_kind": "category",
                   "name": "OldCategory",
                   "category_path": "/MyTypes"
                 }
                 </examples>
                 """)
-public class DeleteDataTypeTool implements IGhidraMcpSpecification {
+public class DeleteDataTypeTool extends BaseMcpTool {
 
         public static final String ARG_DATA_TYPE_KIND = "data_type_kind";
-        public static final String ARG_NAME = "name";
-        public static final String ARG_CATEGORY_PATH = "category_path";
-        public static final String ARG_DATA_TYPE_ID = "data_type_id";
 
         @Override
         public JsonSchema schema() {
-                IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+                IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 SchemaBuilder.string(mapper)
@@ -112,7 +115,12 @@ public class DeleteDataTypeTool implements IGhidraMcpSpecification {
                 GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
                 return getProgram(args, tool).flatMap(program -> {
-                        String dataTypeKind = getRequiredStringArgument(args, ARG_DATA_TYPE_KIND);
+                        String dataTypeKind;
+                        try {
+                                dataTypeKind = getRequiredStringArgument(args, ARG_DATA_TYPE_KIND);
+                        } catch (GhidraMcpException e) {
+                                return Mono.error(e);
+                        }
                         return handleDelete(program, args, annotation, dataTypeKind);
                 });
         }

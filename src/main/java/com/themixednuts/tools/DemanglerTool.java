@@ -64,10 +64,10 @@ import reactor.core.publisher.Mono;
         - Returns structured error information with suggestions for alternative approaches
         </error_handling_summary>
         """)
-public class DemanglerTool implements IGhidraMcpSpecification {
+public class DemanglerTool extends BaseMcpTool {
 
-    public static final String ARG_MANGLED_SYMBOL = "mangledSymbol";
-    public static final String ARG_DEMANGLER_NAME = "demanglerName";
+    public static final String ARG_MANGLED_SYMBOL = "mangled_symbol";
+    public static final String ARG_DEMANGLER_NAME = "demangler_name";
 
     /**
      * Defines the JSON input schema for demangling symbols.
@@ -76,7 +76,7 @@ public class DemanglerTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)

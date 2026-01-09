@@ -5,7 +5,6 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.FunctionInfo;
-import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.FunctionGraph;
 import com.themixednuts.models.FunctionGraphNode;
 import com.themixednuts.models.FunctionGraphEdge;
@@ -19,7 +18,6 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.cmd.function.CreateFunctionCmd;
-import ghidra.app.cmd.function.DeleteFunctionCmd;
 import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -116,7 +114,7 @@ import ghidra.util.task.TaskMonitor;
                 }
                 </examples>
                 """)
-public class ManageFunctionsTool implements IGhidraMcpSpecification {
+public class ManageFunctionsTool extends BaseMcpTool {
 
         public static final String ARG_ACTION = "action";
         public static final String ARG_SYMBOL_ID = "symbol_id";
@@ -137,7 +135,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         @Override
         public JsonSchema schema() {
                 // Use Draft 7 builder for conditional support with additive approach
-                var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
+                var schemaRoot = createDraft7SchemaNode();
 
                 // Global properties (always available)
                 schemaRoot.property(ARG_FILE_NAME,
@@ -325,30 +323,8 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                 case ACTION_LIST_VARIABLES -> handleListVariables(program, args, annotation);
                                 case ACTION_GET_GRAPH -> handleGetGraph(program, args, annotation);
                                 default -> {
-                                        GhidraMcpError error = GhidraMcpError.validation()
-                                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                        .message("Invalid action: " + action)
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        annotation.mcpName(),
-                                                                        "action validation",
-                                                                        args,
-                                                                        Map.of(ARG_ACTION, action),
-                                                                        Map.of("validActions",
-                                                                                        List.of(ACTION_CREATE,
-                                                                                                        ACTION_UPDATE_PROTOTYPE,
-                                                                                                        ACTION_LIST_VARIABLES,
-                                                                                                        ACTION_GET_GRAPH))))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                        "Use a valid action",
-                                                                                        "Choose from: create, update_prototype, list_variables, get_graph",
-                                                                                        List.of(ACTION_CREATE,
-                                                                                                        ACTION_UPDATE_PROTOTYPE,
-                                                                                                        ACTION_LIST_VARIABLES,
-                                                                                                        ACTION_GET_GRAPH),
-                                                                                        null)))
-                                                        .build();
+                                        GhidraMcpError error = GhidraMcpError.invalid(ARG_ACTION, action,
+                                                        "must be one of: create, update_prototype, list_variables, get_graph");
                                         yield Mono.error(new GhidraMcpException(error));
                                 }
                         };
@@ -363,23 +339,8 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
                 return parseAddressOrThrow(program, addressString, toolOperation, args).flatMap(functionAddress -> {
                         if (program.getFunctionManager().getFunctionAt(functionAddress) != null) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-                                                .message("Function already exists at the specified address")
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                toolOperation,
-                                                                "function existence check",
-                                                                args,
-                                                                Map.of(ARG_ADDRESS, addressString),
-                                                                Map.of("functionExists", true)))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                "Verify the address is not already a function entry point",
-                                                                                "Inspect existing functions around the target address",
-                                                                                null,
-                                                                                null)))
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.conflict(
+                                                "Function already exists at address " + addressString);
                                 return Mono.error(new GhidraMcpException(error));
                         }
 
@@ -393,49 +354,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                 boolean success = cmd.applyTo(program);
                                 if (!success) {
                                         String status = Optional.ofNullable(cmd.getStatusMsg()).orElse("Unknown error");
-                                        GhidraMcpError error = GhidraMcpError.execution()
-                                                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                                                        .message("Failed to create function: " + status)
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        toolOperation,
-                                                                        "function creation command",
-                                                                        Map.of(ARG_ADDRESS, addressString,
-                                                                                        ARG_FUNCTION_NAME,
-                                                                                        nameOpt.orElse("default")),
-                                                                        Map.of("commandStatus", status),
-                                                                        Map.of("commandSuccess", false)))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                        "Ensure the address contains executable code",
-                                                                                        "Verify the target address has been properly disassembled",
-                                                                                        null,
-                                                                                        null)))
-                                                        .build();
-                                        throw new GhidraMcpException(error);
+                                        throw new GhidraMcpException(GhidraMcpError.failed("create function", status));
                                 }
 
                                 Function createdFunction = cmd.getFunction();
                                 if (createdFunction == null) {
-                                        GhidraMcpError error = GhidraMcpError.execution()
-                                                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                                                        .message("Function creation succeeded but returned no function object")
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        toolOperation,
-                                                                        "function creation result",
-                                                                        Map.of(ARG_ADDRESS, addressString),
-                                                                        Map.of("commandSuccess", true,
-                                                                                        "functionReturned", false),
-                                                                        Map.of("internalError", true)))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                        "Verify the new function exists",
-                                                                                        "Inspect the program to confirm the created function",
-                                                                                        null,
-                                                                                        null)))
-                                                        .build();
-                                        throw new GhidraMcpException(error);
+                                        throw new GhidraMcpException(GhidraMcpError.internal(
+                                                        "Function creation succeeded but returned no function object"));
                                 }
 
                                 return new FunctionInfo(createdFunction);
@@ -465,7 +390,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
 
                 if (identifiers.isEmpty()) {
-                        return Mono.error(new GhidraMcpException(createMissingIdentifierError(annotation, args)));
+                        return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
                 }
 
                 // Check if raw prototype string is provided (preferred approach)
@@ -476,7 +401,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 if (rawPrototypeOpt.isPresent()) {
                         // Use raw prototype string with FunctionSignatureParser
                         return Mono.fromCallable(() -> resolveFunctionByIdentifiers(
-                                        program, identifiers, annotation, args, toolOperation))
+                                        program, identifiers, toolOperation))
                                         .map(function -> new UpdatePrototypeContext(program, function,
                                                         rawPrototypeOpt.get()))
                                         .flatMap(context -> executePrototypeUpdate(program, annotation, tool, context));
@@ -490,7 +415,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
                         return Mono.fromCallable(() -> resolveFunctionForPrototype(program,
                                         tool, identifiers, returnTypeName, callingConventionOpt, newFunctionNameOpt,
-                                        parametersOpt, noReturn, annotation, args, toolOperation))
+                                        parametersOpt, noReturn, toolOperation))
                                         .flatMap(context -> executePrototypeUpdate(program, annotation, tool, context));
                 }
         }
@@ -525,36 +450,14 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
                         if (!cmd.applyTo(program)) {
                                 String status = Optional.ofNullable(cmd.getStatusMsg()).orElse("Unknown error");
-                                GhidraMcpError error = GhidraMcpError.execution()
-                                                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                                                .message("Failed to apply function prototype: " + status)
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                annotation.mcpName(),
-                                                                "function prototype update command",
-                                                                Map.of("prototype", prototype, ARG_FUNCTION_NAME,
-                                                                                function.getName()),
-                                                                Map.of("commandStatus", status),
-                                                                Map.of("commandSuccess", false, "prototypeValid",
-                                                                                true)))
-                                                .build();
-                                throw new GhidraMcpException(error);
+                                throw new GhidraMcpException(GhidraMcpError.failed("apply function prototype", status));
                         }
 
                         return new FunctionInfo(function);
                 } catch (GhidraMcpException e) {
                         throw e;
                 } catch (Exception e) {
-                        GhidraMcpError error = GhidraMcpError.validation()
-                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                        .message("Failed to parse constructed function prototype: " + e.getMessage())
-                                        .context(new GhidraMcpError.ErrorContext(
-                                                        annotation.mcpName(),
-                                                        "prototype parsing",
-                                                        null,
-                                                        Map.of("error", e.getMessage()),
-                                                        Map.of("prototypeSyntax", false)))
-                                        .build();
-                        throw new GhidraMcpException(error);
+                        throw new GhidraMcpException(GhidraMcpError.parse("function prototype", prototype));
                 }
         }
 
@@ -566,14 +469,10 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                         Optional<String> newFunctionNameOpt,
                         Optional<List<Map<String, Object>>> parametersOpt,
                         boolean noReturn,
-                        GhidraMcpTool annotation,
-                        Map<String, Object> args,
                         String toolOperation) throws GhidraMcpException {
                 Function function = resolveFunctionByIdentifiers(
                                 program,
                                 identifiers,
-                                annotation,
-                                args,
                                 toolOperation);
 
                 String prototype = buildPrototypeString(program,
@@ -583,17 +482,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                 callingConventionOpt,
                                 newFunctionNameOpt.orElse(function.getName()),
                                 parametersOpt,
-                                noReturn,
-                                annotation,
-                                args);
+                                noReturn);
 
                 return new UpdatePrototypeContext(program, function, prototype);
         }
 
         private Function resolveFunctionByIdentifiers(Program program,
                         FunctionIdentifiers identifiers,
-                        GhidraMcpTool annotation,
-                        Map<String, Object> args,
                         String toolOperation) throws GhidraMcpException {
                 FunctionManager funcMan = program.getFunctionManager();
                 SymbolTable symbolTable = program.getSymbolTable();
@@ -645,23 +540,12 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 }
 
                 if (function == null) {
-                        Map<String, Object> searchCriteria = Map.of(
-                                        ARG_FUNCTION_SYMBOL_ID,
-                                        identifiers.symbolId().map(Object::toString).orElse("not provided"),
-                                        ARG_ADDRESS, identifiers.address().orElse("not provided"),
-                                        ARG_FUNCTION_NAME, identifiers.name().orElse("not provided"));
-
-                        GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                                        .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                                        .message("Function not found using provided identifiers")
-                                        .context(new GhidraMcpError.ErrorContext(
-                                                        annotation.mcpName(),
-                                                        "function lookup",
-                                                        args,
-                                                        searchCriteria,
-                                                        Map.of("searchAttempted", true, "functionFound", false)))
-                                        .build();
-                        throw new GhidraMcpException(error);
+                        String searchDesc = identifiers.symbolId()
+                                        .map(id -> "symbol_id=" + id)
+                                        .or(() -> identifiers.address().map(a -> "address=" + a))
+                                        .or(() -> identifiers.name().map(n -> "name=" + n))
+                                        .orElse("unknown");
+                        throw new GhidraMcpException(GhidraMcpError.notFound("function", searchDesc));
                 }
 
                 return function;
@@ -674,19 +558,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                         Optional<String> callingConventionOpt,
                         String functionName,
                         Optional<List<Map<String, Object>>> parametersOpt,
-                        boolean noReturn,
-                        GhidraMcpTool annotation,
-                        Map<String, Object> args) throws GhidraMcpException {
+                        boolean noReturn) throws GhidraMcpException {
                 StringBuilder prototype = new StringBuilder();
 
                 DataType returnType = DataTypeUtilities.getCPrimitiveDataType(returnTypeName);
                 if (returnType == null) {
-                        throw new GhidraMcpException(createDataTypeError(
-                                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
-                                        "Invalid return type: " + returnTypeName,
-                                        "Creating function",
-                                        args,
-                                        returnTypeName));
+                        throw new GhidraMcpException(GhidraMcpError.invalid("returnType", returnTypeName,
+                                        "not a valid C primitive data type"));
                 }
 
                 prototype.append(returnType.getName());
@@ -696,7 +574,7 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 if (parametersOpt.isPresent() && !parametersOpt.get().isEmpty()) {
                         List<String> params = new ArrayList<>();
                         for (Map<String, Object> param : parametersOpt.get()) {
-                                params.add(parameterToString(program, tool, param, annotation, args));
+                                params.add(parameterToString(program, tool, param));
                         }
                         prototype.append(String.join(", ", params));
                 }
@@ -711,25 +589,13 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
         private String parameterToString(Program program,
                         PluginTool tool,
-                        Map<String, Object> paramMap,
-                        GhidraMcpTool annotation,
-                        Map<String, Object> args) throws GhidraMcpException {
+                        Map<String, Object> paramMap) throws GhidraMcpException {
                 String name = (String) paramMap.get("name");
                 String dataType = (String) paramMap.get("dataType");
 
                 if (name == null || dataType == null) {
-                        GhidraMcpError error = GhidraMcpError.validation()
-                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                        .message("Parameter entries must include 'name' and 'dataType'")
-                                        .context(new GhidraMcpError.ErrorContext(
-                                                        annotation.mcpName(),
-                                                        "parameter validation",
-                                                        args,
-                                                        paramMap,
-                                                        Map.of("hasName", name != null, "hasDataType",
-                                                                        dataType != null)))
-                                        .build();
-                        throw new RuntimeException(error.getMessage());
+                        throw new GhidraMcpException(GhidraMcpError.invalid("parameter",
+                                        "must include both 'name' and 'dataType' fields"));
                 }
 
                 if ("...".equals(dataType)) {
@@ -738,12 +604,8 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
 
                 DataType resolved = DataTypeUtilities.getCPrimitiveDataType(dataType);
                 if (resolved == null) {
-                        throw new GhidraMcpException(createDataTypeError(
-                                        GhidraMcpError.ErrorCode.INVALID_TYPE_PATH,
-                                        "Invalid parameter data type: " + dataType,
-                                        "Parsing function parameter",
-                                        args,
-                                        dataType));
+                        throw new GhidraMcpException(GhidraMcpError.invalid("parameter dataType", dataType,
+                                        "not a valid C primitive data type"));
                 }
                 return resolved.getName() + " " + name;
         }
@@ -768,36 +630,10 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                 Optional.ofNullable(functionNameValue));
         }
 
-        private GhidraMcpError createMissingIdentifierError(GhidraMcpTool annotation, Map<String, Object> args) {
-                Map<String, Object> providedIdentifiers = Map.of(
-                                ARG_FUNCTION_SYMBOL_ID, "not provided",
-                                ARG_ADDRESS, "not provided",
-                                ARG_FUNCTION_NAME, "not provided");
-
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                                .message("At least one function identifier must be provided")
-                                .context(new GhidraMcpError.ErrorContext(
-                                                annotation.mcpName(),
-                                                "function identifier validation",
-                                                args,
-                                                providedIdentifiers,
-                                                Map.of("identifiersProvided", 0, "minimumRequired", 1)))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Provide at least one function identifier",
-                                                                "Include at least one of: " + ARG_FUNCTION_SYMBOL_ID
-                                                                                + ", " + ARG_ADDRESS + ", or "
-                                                                                + ARG_FUNCTION_NAME,
-                                                                List.of(
-                                                                                "\"" + ARG_FUNCTION_SYMBOL_ID
-                                                                                                + "\": 12345",
-                                                                                "\"" + ARG_ADDRESS + "\": \"0x401000\"",
-                                                                                "\"" + ARG_FUNCTION_NAME
-                                                                                                + "\": \"main\""),
-                                                                null)))
-                                .build();
+        private GhidraMcpError createMissingIdentifierError() {
+                return GhidraMcpError.of(
+                                "At least one function identifier must be provided (symbol_id, address, or name)",
+                                "Include at least one of: symbol_id, address, or name");
         }
 
         private Mono<Address> parseAddressOrThrow(Program program, String addressString, String toolOperation,
@@ -805,25 +641,8 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 return Mono.fromCallable(() -> {
                         Address address = program.getAddressFactory().getAddress(addressString);
                         if (address == null) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                .message("Invalid address: " + addressString)
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                toolOperation,
-                                                                "address resolution",
-                                                                args,
-                                                                Map.of(ARG_ADDRESS, addressString),
-                                                                Map.of("addressResolved", false)))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                "Use a valid hexadecimal address",
-                                                                                "Provide the function entry point as a hexadecimal value",
-                                                                                List.of("0x401000", "401000",
-                                                                                                "0x00401000"),
-                                                                                null)))
-                                                .build();
-                                throw new GhidraMcpException(error);
+                                throw new GhidraMcpException(GhidraMcpError.invalid(ARG_ADDRESS, addressString,
+                                                "could not be resolved to a valid address"));
                         }
                         return address;
                 }).onErrorMap(e -> {
@@ -844,18 +663,17 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
 
                 if (identifiers.isEmpty()) {
-                        return Mono.error(new GhidraMcpException(createMissingIdentifierError(annotation, args)));
+                        return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
                 }
 
                 return Mono.fromCallable(() -> {
-                        Function function = resolveFunctionByIdentifiers(program, identifiers, annotation, args,
-                                        toolOperation);
-                        return listFunctionVariables(function, program, args, annotation);
+                        Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
+                        return listFunctionVariables(function, program, args);
                 });
         }
 
         private PaginatedResult<FunctionVariableInfo> listFunctionVariables(Function function, Program program,
-                        Map<String, Object> args, GhidraMcpTool annotation) {
+                        Map<String, Object> args) {
                 Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
                 // Get listing variables
@@ -948,145 +766,8 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
         private void ensureArgumentPresent(Map<String, Object> args, String argumentName, String toolOperation)
                         throws GhidraMcpException {
                 if (!args.containsKey(argumentName) || args.get(argumentName) == null) {
-                        GhidraMcpError error = GhidraMcpError.validation()
-                                        .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                                        .message("Missing required argument: '" + argumentName + "'")
-                                        .context(new GhidraMcpError.ErrorContext(
-                                                        toolOperation,
-                                                        "argument validation",
-                                                        args,
-                                                        Map.of(argumentName, "not provided"),
-                                                        Map.of("required", true)))
-                                        .suggestions(List.of(
-                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                        "Provide the '" + argumentName + "' argument",
-                                                                        "Include the " + argumentName
-                                                                                        + " field with a valid value",
-                                                                        List.of("\"" + argumentName
-                                                                                        + "\": \"example_value\""),
-                                                                        null)))
-                                        .build();
-                        throw new GhidraMcpException(error);
+                        throw new GhidraMcpException(GhidraMcpError.missing(argumentName));
                 }
-        }
-
-        private GhidraMcpError createFunctionNotFoundError(String toolOperation, String searchType,
-                        String searchValue) {
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                                .message("Function not found using " + searchType + ": " + searchValue)
-                                .context(new GhidraMcpError.ErrorContext(
-                                                toolOperation,
-                                                "function resolution",
-                                                Map.of(searchType, searchValue),
-                                                Map.of(),
-                                                Map.of("searchMethod", searchType)))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Verify the function exists",
-                                                                "Check that the function identifier is correct",
-                                                                List.of(
-                                                                                "\"symbol_id\": 12345",
-                                                                                "\"address\": \"0x401000\"",
-                                                                                "\"name\": \"main\""),
-                                                                null)))
-                                .build();
-        }
-
-        private GhidraMcpError createMultipleFunctionsFoundError(String toolOperation, String searchValue,
-                        List<Function> functions) {
-                List<String> functionNames = functions.stream()
-                                .map(Function::getName)
-                                .limit(5)
-                                .collect(Collectors.toList());
-
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                .message("Multiple functions found for name pattern: " + searchValue)
-                                .context(new GhidraMcpError.ErrorContext(
-                                                toolOperation,
-                                                "function resolution",
-                                                Map.of("name", searchValue),
-                                                Map.of("matchCount", functions.size()),
-                                                Map.of("firstFiveMatches", functionNames)))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Use a more specific function identifier",
-                                                                "Consider using symbol_id or address for exact identification",
-                                                                List.of(
-                                                                                "\"symbol_id\": 12345",
-                                                                                "\"address\": \"0x401000\"",
-                                                                                "\"name\": \"exact_function_name\""),
-                                                                null)))
-                                .build();
-        }
-
-        private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                                .message("Invalid address format: " + addressStr)
-                                .context(new GhidraMcpError.ErrorContext(
-                                                this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                                                "address parsing",
-                                                Map.of(ARG_ADDRESS, addressStr),
-                                                Map.of(),
-                                                Map.of("parseError", cause.getMessage())))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Use valid hexadecimal address format",
-                                                                "Provide address in proper format",
-                                                                List.of("0x401000", "401000", "0x00401000"),
-                                                                null)))
-                                .build();
-        }
-
-        private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                .message("Invalid regex pattern: " + cause.getMessage())
-                                .context(new GhidraMcpError.ErrorContext(
-                                                this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                                                "regex compilation",
-                                                Map.of(ARG_NAME, pattern),
-                                                Map.of(),
-                                                Map.of("regexError", cause.getMessage())))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Provide a valid Java regex pattern",
-                                                                "Use proper regex syntax for pattern matching",
-                                                                List.of(".*main.*", "decrypt_.*", "^get.*"),
-                                                                null)))
-                                .build();
-        }
-
-        private GhidraMcpError createMissingParameterError() {
-                return GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                                .message("No search parameters provided")
-                                .context(new GhidraMcpError.ErrorContext(
-                                                this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                                                "parameter validation",
-                                                Map.of(),
-                                                Map.of(),
-                                                Map.of("availableParameters",
-                                                                List.of(ARG_SYMBOL_ID, ARG_ADDRESS, ARG_NAME))))
-                                .suggestions(List.of(
-                                                new GhidraMcpError.ErrorSuggestion(
-                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                "Provide at least one search parameter",
-                                                                "Use symbol_id, address, or name parameter",
-                                                                List.of(
-                                                                                "\"symbol_id\": 12345",
-                                                                                "\"address\": \"0x401000\"",
-                                                                                "\"name\": \"main\"",
-                                                                                "\"name\": \".*decrypt.*\""),
-                                                                null)))
-                                .build();
         }
 
         private Mono<? extends Object> handleGetGraph(Program program, Map<String, Object> args,
@@ -1098,12 +779,11 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                 FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
 
                 if (identifiers.isEmpty()) {
-                        return Mono.error(new GhidraMcpException(createMissingIdentifierError(annotation, args)));
+                        return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
                 }
 
                 return Mono.fromCallable(() -> {
-                        Function function = resolveFunctionByIdentifiers(program, identifiers, annotation, args,
-                                        toolOperation);
+                        Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
                         return buildFunctionGraph(program, function);
                 });
         }
@@ -1147,91 +827,12 @@ public class ManageFunctionsTool implements IGhidraMcpSpecification {
                                 }
                         }
                 } catch (Exception e) {
-                        GhidraMcpError error = GhidraMcpError.internal()
-                                        .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                                        .message("Failed to build function graph: " + e.getMessage())
-                                        .context(new GhidraMcpError.ErrorContext(
-                                                        this.getClass().getAnnotation(GhidraMcpTool.class).mcpName(),
-                                                        "function graph construction",
-                                                        Map.of("functionName", function.getName()),
-                                                        Map.of("error", e.getMessage()),
-                                                        Map.of("graphBuildFailed", true)))
-                                        .build();
-                        throw new GhidraMcpException(error);
+                        throw new GhidraMcpException(GhidraMcpError.internal(e));
                 }
 
                 List<FunctionGraphNode> nodes = new ArrayList<>(idToNode.values());
                 String funcName = function.getName(true);
                 String funcAddr = function.getEntryPoint() != null ? function.getEntryPoint().toString() : null;
                 return new FunctionGraph(funcName, funcAddr, nodes, edges);
-        }
-
-        /**
-         * Creates a comprehensive data type error with rich context and suggestions.
-         * Provides actionable guidance for resolving data type issues.
-         */
-        private GhidraMcpError createDataTypeError(GhidraMcpError.ErrorCode errorCode, String message,
-                        String context, Map<String, Object> args,
-                        String failedTypeName) {
-                GhidraMcpError.Builder errorBuilder = GhidraMcpError.dataTypeParsing()
-                                .errorCode(errorCode)
-                                .message(message);
-
-                // Add context information
-                GhidraMcpError.ErrorContext errorContext = new GhidraMcpError.ErrorContext(
-                                this.getMcpName(),
-                                context,
-                                args,
-                                Map.of("failedTypeName", failedTypeName),
-                                Map.of());
-                errorBuilder.context(errorContext);
-
-                // Add suggestions based on the failed type name
-                List<GhidraMcpError.ErrorSuggestion> suggestions = generateDataTypeSuggestions(failedTypeName);
-                errorBuilder.suggestions(suggestions);
-
-                return errorBuilder.build();
-        }
-
-        /**
-         * Generates contextual suggestions for data type resolution failures.
-         */
-        private List<GhidraMcpError.ErrorSuggestion> generateDataTypeSuggestions(String failedTypeName) {
-                List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
-                String lowerName = failedTypeName.toLowerCase();
-
-                // Type-specific suggestions
-                if (lowerName.contains("ulonglong") || lowerName.contains("unsigned_long_long")) {
-                        suggestions.add(new GhidraMcpError.ErrorSuggestion(
-                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                        "Use correct 64-bit unsigned type",
-                                        "For 64-bit unsigned integers",
-                                        List.of("ulonglong", "unsigned long long"),
-                                        null));
-                } else if (lowerName.contains("ulong") || lowerName.contains("unsigned_long")) {
-                        suggestions.add(new GhidraMcpError.ErrorSuggestion(
-                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                        "Specify bit width for unsigned long",
-                                        "Choose appropriate size",
-                                        List.of("ulonglong (64-bit)", "uint (32-bit)"),
-                                        null));
-                } else if (lowerName.contains("uint") || lowerName.contains("unsigned_int")) {
-                        suggestions.add(new GhidraMcpError.ErrorSuggestion(
-                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                        "Use correct 32-bit unsigned type",
-                                        "For 32-bit unsigned integers",
-                                        List.of("uint", "unsigned int"),
-                                        null));
-                }
-
-                // General suggestions
-                suggestions.add(new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                "Try common built-in types",
-                                "Use standard C primitive types",
-                                List.of("int", "uint", "long", "ulonglong", "float", "double", "void", "char", "uchar"),
-                                null));
-
-                return suggestions;
         }
 }

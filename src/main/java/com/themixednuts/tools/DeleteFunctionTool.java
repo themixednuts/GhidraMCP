@@ -23,7 +23,13 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-@GhidraMcpTool(name = "Delete Function", description = "Delete functions by address, name, or symbol ID.", mcpName = "delete_function", mcpDescription = """
+@GhidraMcpTool(
+    name = "Delete Function", 
+    description = "Delete functions by address, name, or symbol ID.", 
+    mcpName = "delete_function",
+    title = "Delete Function",
+    destructiveHint = true,
+    mcpDescription = """
                 <use_case>
                 Deletes a function from the program. Essential for cleaning up incorrectly identified
                 functions or removing functions that are actually data or part of other functions.
@@ -38,35 +44,31 @@ import java.util.stream.StreamSupport;
                 - Deleting and recreating will break existing references; prefer updating when possible
                 </important_notes>
 
-                <examples>
+        <examples>
                 Delete a function at an address:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "address": "0x401500"
                 }
 
                 Delete a function by name:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "name": "incorrect_function"
                 }
 
                 Delete a function by symbol ID:
                 {
-                  "fileName": "program.exe",
+                  "file_name": "program.exe",
                   "symbol_id": 12345
                 }
                 </examples>
                 """)
-public class DeleteFunctionTool implements IGhidraMcpSpecification {
-
-        public static final String ARG_SYMBOL_ID = "symbol_id";
-        public static final String ARG_ADDRESS = "address";
-        public static final String ARG_NAME = "name";
+public class DeleteFunctionTool extends BaseMcpTool {
 
         @Override
         public JsonSchema schema() {
-                IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+                IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 SchemaBuilder.string(mapper)
@@ -177,8 +179,8 @@ public class DeleteFunctionTool implements IGhidraMcpSpecification {
         }
 
         private Mono<? extends Object> deleteByAddress(Program program, String addressStr, String toolOperation,
-                        Map<String, Object> args, GhidraMcpTool annotation) throws GhidraMcpException {
-                return parseAddress(program, args, addressStr, toolOperation, annotation)
+                        Map<String, Object> args, GhidraMcpTool annotation) {
+                return parseAddress(program, addressStr, toolOperation)
                                 .flatMap(addressResult -> {
                                         Function function = program.getFunctionManager()
                                                         .getFunctionAt(addressResult.getAddress());

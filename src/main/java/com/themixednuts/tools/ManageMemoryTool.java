@@ -72,9 +72,8 @@ import java.util.stream.IntStream;
                 }
                 </examples>
                 """)
-public class ManageMemoryTool implements IGhidraMcpSpecification {
+public class ManageMemoryTool extends BaseMcpTool {
 
-        public static final String ARG_ACTION = "action";
         public static final String ARG_BYTES_HEX = "bytes_hex";
 
         private static final String ACTION_READ = "read";
@@ -91,7 +90,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
         @Override
         public JsonSchema schema() {
                 // Use Draft 7 builder for conditional support
-                var schemaRoot = IGhidraMcpSpecification.createDraft7SchemaNode();
+                var schemaRoot = createDraft7SchemaNode();
 
                 schemaRoot.property(ARG_FILE_NAME,
                                 com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
@@ -201,33 +200,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                 case ACTION_LIST_SEGMENTS -> handleListSegments(program, args, annotation);
                                 case ACTION_ANALYZE_SEGMENT -> handleAnalyzeSegment(program, args, annotation);
                                 default -> {
-                                        GhidraMcpError error = GhidraMcpError.validation()
-                                                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                        .message("Invalid action: " + action)
-                                                        .context(new GhidraMcpError.ErrorContext(
-                                                                        annotation.mcpName(),
-                                                                        "action validation",
-                                                                        args,
-                                                                        Map.of(ARG_ACTION, action),
-                                                                        Map.of("validActions", List.of(
-                                                                                        ACTION_READ,
-                                                                                        ACTION_WRITE,
-                                                                                        ACTION_UNDEFINE,
-                                                                                        ACTION_LIST_SEGMENTS,
-                                                                                        ACTION_ANALYZE_SEGMENT))))
-                                                        .suggestions(List.of(
-                                                                        new GhidraMcpError.ErrorSuggestion(
-                                                                                        GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                        "Use a valid action",
-                                                                                        "Choose from: read, write, undefine, list_segments, analyze_segment",
-                                                                                        List.of(
-                                                                                                        ACTION_READ,
-                                                                                                        ACTION_WRITE,
-                                                                                                        ACTION_UNDEFINE,
-                                                                                                        ACTION_LIST_SEGMENTS,
-                                                                                                        ACTION_ANALYZE_SEGMENT),
-                                                                                        null)))
-                                                        .build();
+                                        GhidraMcpError error = GhidraMcpError.invalid("action", action,
+                                                        "use: read, write, undefine, list_segments, analyze_segment");
                                         yield Mono.error(new GhidraMcpException(error));
                                 }
                         };
@@ -241,10 +215,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 return Mono.fromCallable(() -> {
                         // Validate parameters
                         if (length <= 0 || length > 4096) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                .message("Invalid length: " + length + ". Must be between 1 and 4096")
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.invalid("length", String.valueOf(length),
+                                                "must be between 1 and 4096");
                                 throw new GhidraMcpException(error);
                         }
 
@@ -256,24 +228,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                         throw new IllegalArgumentException("Invalid address format");
                                 }
                         } catch (Exception e) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                                                .message("Failed to parse address: " + e.getMessage())
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                annotation.mcpName(),
-                                                                "address parsing",
-                                                                args,
-                                                                Map.of(ARG_ADDRESS, addressStr),
-                                                                Map.of("parseError", e.getMessage())))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                "Use valid hexadecimal address format",
-                                                                                "Provide address as hexadecimal value",
-                                                                                List.of("0x401000", "401000",
-                                                                                                "0x00401000"),
-                                                                                null)))
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
                                 throw new GhidraMcpException(error);
                         }
 
@@ -285,23 +240,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                         try {
                                 actualBytesRead = memory.getBytes(address, bytesRead);
                         } catch (MemoryAccessException e) {
-                                GhidraMcpError error = GhidraMcpError.execution()
-                                                .errorCode(GhidraMcpError.ErrorCode.MEMORY_ACCESS_FAILED)
-                                                .message("Memory access error: " + e.getMessage())
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                annotation.mcpName(),
-                                                                "memory read",
-                                                                args,
-                                                                Map.of("memoryError", e.getMessage()),
-                                                                Map.of("address", addressStr, "length", length)))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                "Verify address is in mapped memory",
-                                                                                "Ensure the address is within a valid memory region",
-                                                                                null,
-                                                                                null)))
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.failed("memory read",
+                                                "address " + addressStr + " is not accessible");
                                 throw new GhidraMcpException(error);
                         }
 
@@ -332,10 +272,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                 return executeInTransaction(program, "MCP - Write Memory at " + addressStr, () -> {
                         // Validate hex format
                         if (bytesHex.length() % 2 != 0) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                .message("Invalid hex format: odd number of characters")
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.invalid("bytes_hex", bytesHex,
+                                                "odd number of characters");
                                 throw new GhidraMcpException(error);
                         }
 
@@ -347,10 +285,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                         throw new IllegalArgumentException("Invalid address format");
                                 }
                         } catch (Exception e) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                                                .message("Failed to parse address: " + e.getMessage())
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
                                 throw new GhidraMcpException(error);
                         }
 
@@ -359,10 +294,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                         try {
                                 bytes = HexFormat.of().parseHex(bytesHex);
                         } catch (IllegalArgumentException e) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                                                .message("Invalid hex string: " + e.getMessage())
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.parse("hex bytes", bytesHex);
                                 throw new GhidraMcpException(error);
                         }
 
@@ -374,10 +306,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                                 bytes.length,
                                                 bytesHex);
                         } catch (MemoryAccessException e) {
-                                GhidraMcpError error = GhidraMcpError.execution()
-                                                .errorCode(GhidraMcpError.ErrorCode.MEMORY_ACCESS_FAILED)
-                                                .message("Memory write error: " + e.getMessage())
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.failed("memory write",
+                                                "address " + addressStr + " is not writable");
                                 throw new GhidraMcpException(error);
                         }
                 });
@@ -396,24 +326,7 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                         throw new IllegalArgumentException("Invalid address format");
                                 }
                         } catch (Exception e) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                                                .message("Failed to parse address: " + e.getMessage())
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                this.getMcpName(),
-                                                                "address parsing",
-                                                                args,
-                                                                Map.of(ARG_ADDRESS, addressStr),
-                                                                Map.of("parseError", e.getMessage())))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                                                                                "Use valid address format",
-                                                                                "Provide address in hexadecimal format",
-                                                                                List.of("0x401000", "0x00401000",
-                                                                                                "401000"),
-                                                                                null)))
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
                                 throw new GhidraMcpException(error);
                         }
 
@@ -422,23 +335,8 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                                 program.getListing().clearCodeUnits(address, address, false);
                                 return "Successfully cleared code unit definition at address " + address.toString();
                         } catch (Exception e) {
-                                GhidraMcpError error = GhidraMcpError.execution()
-                                                .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                                                .message("Failed to clear code units: " + e.getMessage())
-                                                .context(new GhidraMcpError.ErrorContext(
-                                                                this.getMcpName(),
-                                                                "undefine operation",
-                                                                args,
-                                                                Map.of(ARG_ADDRESS, addressStr),
-                                                                Map.of("operationError", e.getMessage())))
-                                                .suggestions(List.of(
-                                                                new GhidraMcpError.ErrorSuggestion(
-                                                                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                                                                "Verify address is valid",
-                                                                                "Ensure the address is within a valid memory range",
-                                                                                null,
-                                                                                null)))
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.failed("undefine",
+                                                "could not clear code units at " + addressStr);
                                 throw new GhidraMcpException(error);
                         }
                 });
@@ -474,19 +372,13 @@ public class ManageMemoryTool implements IGhidraMcpSpecification {
                         try {
                                 address = program.getAddressFactory().getAddress(addressStr);
                         } catch (Exception e) {
-                                GhidraMcpError error = GhidraMcpError.validation()
-                                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                                                .message("Failed to parse address: " + e.getMessage())
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
                                 throw new GhidraMcpException(error);
                         }
 
                         MemoryBlock block = program.getMemory().getBlock(address);
                         if (block == null) {
-                                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                                                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_NOT_FOUND)
-                                                .message("No memory segment found at address: " + addressStr)
-                                                .build();
+                                GhidraMcpError error = GhidraMcpError.notFound("memory segment", addressStr);
                                 throw new GhidraMcpException(error);
                         }
 

@@ -47,44 +47,41 @@ import java.util.stream.Collectors;
         <examples>
         View listing at single address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000"
         }
 
         View listing in address range:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000",
           "end_address": "0x402000"
         }
 
         View listing for a function:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "function": "main"
         }
 
         Get next page of results:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000",
           "end_address": "0x402000",
           "cursor": "0x401050"
         }
         </examples>
         """)
-public class ReadListingTool implements IGhidraMcpSpecification {
+public class ReadListingTool extends BaseMcpTool {
 
-    public static final String ARG_ADDRESS = "address";
     public static final String ARG_END_ADDRESS = "end_address";
     public static final String ARG_FUNCTION = "function";
     public static final String ARG_MAX_LINES = "max_lines";
 
-    private static final int DEFAULT_PAGE_LIMIT = 100;
-
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
@@ -125,30 +122,31 @@ public class ReadListingTool implements IGhidraMcpSpecification {
         GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
         return getProgram(args, tool).flatMap(program -> {
-            try {
-                // Determine which viewing mode
-                if (args.containsKey(ARG_ADDRESS)) {
-                    if (args.containsKey(ARG_END_ADDRESS)) {
-                        return handleAddressRange(program, args, annotation);
-                    } else {
-                        return handleSingleAddress(program, args, annotation);
-                    }
-                } else if (args.containsKey(ARG_FUNCTION)) {
-                    return handleFunction(program, args, annotation);
+            // Determine which viewing mode
+            if (args.containsKey(ARG_ADDRESS)) {
+                if (args.containsKey(ARG_END_ADDRESS)) {
+                    return handleAddressRange(program, args, annotation);
                 } else {
-                    // Default: show first page from start of program
-                    return handleDefaultStart(program, args, annotation);
+                    return handleSingleAddress(program, args, annotation);
                 }
-            } catch (GhidraMcpException e) {
-                return Mono.error(e);
+            } else if (args.containsKey(ARG_FUNCTION)) {
+                return handleFunction(program, args, annotation);
+            } else {
+                // Default: show first page from start of program
+                return handleDefaultStart(program, args, annotation);
             }
         });
     }
 
     private Mono<? extends Object> handleSingleAddress(Program program, Map<String, Object> args,
-            GhidraMcpTool annotation) throws GhidraMcpException {
-        return parseAddress(program, args, getRequiredStringArgument(args, ARG_ADDRESS),
-                "read_listing_single", annotation)
+            GhidraMcpTool annotation) {
+        String addressStr;
+        try {
+            addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
+        return parseAddress(program, addressStr, "read_listing_single")
                 .flatMap(addressResult -> Mono.fromCallable(() -> {
                     Address address = addressResult.getAddress();
                     Listing listing = program.getListing();
@@ -220,14 +218,18 @@ public class ReadListingTool implements IGhidraMcpSpecification {
     }
 
     private Mono<? extends Object> handleAddressRange(Program program, Map<String, Object> args,
-            GhidraMcpTool annotation) throws GhidraMcpException {
-        String startStr = getRequiredStringArgument(args, ARG_ADDRESS);
-        String endStr = getRequiredStringArgument(args, ARG_END_ADDRESS);
+            GhidraMcpTool annotation) {
+        String startStr;
+        String endStr;
+        try {
+            startStr = getRequiredStringArgument(args, ARG_ADDRESS);
+            endStr = getRequiredStringArgument(args, ARG_END_ADDRESS);
+        } catch (GhidraMcpException e) {
+            return Mono.error(e);
+        }
 
-        Mono<IGhidraMcpSpecification.AddressResult> startMono = parseAddress(program, args, startStr,
-                "read_listing_range_start", annotation);
-        Mono<IGhidraMcpSpecification.AddressResult> endMono = parseAddress(program, args, endStr,
-                "read_listing_range_end", annotation);
+        Mono<AddressResult> startMono = parseAddress(program, startStr, "read_listing_range_start");
+        Mono<AddressResult> endMono = parseAddress(program, endStr, "read_listing_range_end");
 
         return startMono.flatMap(startResult -> endMono.flatMap(endResult -> {
             Address startAddr = startResult.getAddress();

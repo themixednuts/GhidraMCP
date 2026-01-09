@@ -82,22 +82,16 @@ import java.util.stream.StreamSupport;
         }
         </examples>
         """)
-public class ReadDataTypesTool implements IGhidraMcpSpecification {
+public class ReadDataTypesTool extends BaseMcpTool {
 
     public static final String ARG_DATA_TYPE_KIND = "data_type_kind";
-    public static final String ARG_NAME = "name";
-    public static final String ARG_CATEGORY_PATH = "category_path";
-    public static final String ARG_DATA_TYPE_ID = "data_type_id";
-    public static final String ARG_ADDRESS = "address";
     public static final String ARG_NAME_FILTER = "name_filter";
     public static final String ARG_CATEGORY_FILTER = "category_filter";
     public static final String ARG_TYPE_KIND = "type_kind";
 
-    private static final int DEFAULT_PAGE_LIMIT = 50;
-
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
@@ -188,13 +182,9 @@ public class ReadDataTypesTool implements IGhidraMcpSpecification {
                 String identifier = nameOpt
                         .or(() -> dataTypeIdOpt.map(String::valueOf))
                         .orElse("unknown");
-                throw new GhidraMcpException(createDataTypeError(
-                        GhidraMcpError.ErrorCode.DATA_TYPE_NOT_FOUND,
-                        "Data type not found: " + identifier,
-                        "Reading data type",
-                        args,
-                        identifier,
-                        dtm));
+                throw new GhidraMcpException(
+                        GhidraMcpError.notFound("Data type", identifier,
+                                "Use read_data_types without identifiers to see what's available"));
             }
 
             List<DataTypeComponentDetail> components = null;
@@ -348,10 +338,8 @@ public class ReadDataTypesTool implements IGhidraMcpSpecification {
         try {
             Address address = program.getAddressFactory().getAddress(addressStr);
             if (address == null) {
-                throw new GhidraMcpException(GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                        .message("Invalid address: " + addressStr)
-                        .build());
+                throw new GhidraMcpException(
+                        GhidraMcpError.invalid("address", addressStr, "Could not parse as valid address"));
             }
 
             DataTypeManager dtm = program.getDataTypeManager();
@@ -367,10 +355,8 @@ public class ReadDataTypesTool implements IGhidraMcpSpecification {
             return RTTIAnalysisResult.from(rtti0, program, address);
 
         } catch (Exception e) {
-            throw new GhidraMcpException(GhidraMcpError.execution()
-                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                    .message("Failed to analyze RTTI at address: " + e.getMessage())
-                    .build());
+            throw new GhidraMcpException(
+                    GhidraMcpError.failed("RTTI analysis", e.getMessage()));
         }
     }
 
@@ -397,25 +383,4 @@ public class ReadDataTypesTool implements IGhidraMcpSpecification {
         return dataType.getClass().getSimpleName().toLowerCase();
     }
 
-    private GhidraMcpError createDataTypeError(GhidraMcpError.ErrorCode errorCode, String message,
-            String context, Map<String, Object> args,
-            String failedTypeName, DataTypeManager dtm) {
-        return GhidraMcpError.dataTypeParsing()
-                .errorCode(errorCode)
-                .message(message)
-                .context(new GhidraMcpError.ErrorContext(
-                        this.getMcpName(),
-                        context,
-                        args,
-                        Map.of("failedTypeName", failedTypeName),
-                        Map.of()))
-                .suggestions(List.of(
-                        new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                "Browse available data types",
-                                "Use read_data_types without identifiers to see what's available",
-                                null,
-                                null)))
-                .build();
-    }
 }

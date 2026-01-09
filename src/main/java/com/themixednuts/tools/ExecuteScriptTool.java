@@ -50,10 +50,10 @@ import reactor.core.publisher.Mono;
         Include practical tips and troubleshooting advice for common issues.
         </agent_response_guidance>
         """)
-public class ExecuteScriptTool implements IGhidraMcpSpecification {
+public class ExecuteScriptTool extends BaseMcpTool {
 
-    public static final String ARG_SCRIPT_NAME = "scriptName";
-    public static final String ARG_GUIDANCE_TYPE = "guidanceType";
+    public static final String ARG_SCRIPT_NAME = "script_name";
+    public static final String ARG_GUIDANCE_TYPE = "guidance_type";
 
     /**
      * Defines the JSON input schema for script guidance.
@@ -62,7 +62,7 @@ public class ExecuteScriptTool implements IGhidraMcpSpecification {
      */
     @Override
     public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = IGhidraMcpSpecification.createBaseSchemaNode();
+        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
         schemaRoot.property(ARG_FILE_NAME,
                 SchemaBuilder.string(mapper)
