@@ -1,0 +1,5 @@
+com.themixednuts.resources.ProgramListResource
+com.themixednuts.resources.ProgramFunctionsResource
+com.themixednuts.resources.ProgramSymbolsResource
+com.themixednuts.resources.ProgramDataTypesResource
+com.themixednuts.resources.FunctionDecompilationResource
