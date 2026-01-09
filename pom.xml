@@ -5,7 +5,7 @@
   <groupId>com.themixednuts</groupId>
   <artifactId>GhidraMCP</artifactId>
   <packaging>jar</packaging>
-  <version>0.5.0</version>
+  <version>0.5.1</version>
   <name>GhidraMCP</name>
   <description>A Ghidra extension implementing the Model Context Protocol (MCP) by running an embedded MCP server.</description>
   <url>https://github.com/themixednuts/GhidraMCP</url>
@@ -47,8 +47,8 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     
     <!-- Ghidra version configuration - single source of truth -->
-    <ghidra.version>11.4.2</ghidra.version>
-    <ghidra.release.date>20250826</ghidra.release.date>
+    <ghidra.version>12.0</ghidra.version>
+    <ghidra.release.date>20251205</ghidra.release.date>
     
     <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
     <!-- Add any necessary properties here -->

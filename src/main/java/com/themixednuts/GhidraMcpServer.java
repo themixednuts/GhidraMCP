@@ -32,7 +32,7 @@ import java.util.List;
 public final class GhidraMcpServer {
 
     private static final String SERVER_NAME = "ghidra-mcp";
-    private static final String SERVER_VERSION = "0.5.0";
+    private static final String SERVER_VERSION = "0.5.1";
     private static final String MCP_PATH_SPEC = "/*";
 
     private static final Object lock = new Object();

@@ -7,6 +7,36 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-01-09
+
+### Added
+- **Pagination Support** - Extended pagination to additional tools
+  - `FindReferencesTool` now supports cursor-based pagination for large reference sets
+  - `ListAnalysisOptionsTool` now supports cursor-based pagination
+- **MCP Prompts, Resources, and Completions** - New MCP specification features
+  - Added prompt provider infrastructure for guided workflows
+  - Added resource provider for exposing program data as MCP resources
+  - Added completion provider for argument autocompletion
+
+### Changed
+- **Ghidra 12.0 Support** - Updated to latest Ghidra version
+  - Updated dependency to Ghidra 12.0 (20251205)
+  - Verified API compatibility with new Ghidra release
+- **Performance Optimizations** - Tools now use native Ghidra APIs for better performance
+  - `ReadFunctionsTool` uses `SymbolTable.getSymbols()` and `getFunctions(Address, boolean)`
+  - `ReadSymbolsTool` uses `scanSymbolsByName()` and native wildcard iterators
+  - `ReadDataTypesTool` uses type-specific iterators (`getAllStructures()`, `getAllComposites()`)
+  - `FindReferencesTool` uses `hasReferencesTo()`/`hasReferencesFrom()` for early exit
+  - `ManageDataTypesTool` uses `getDataTypeCount(true)` for efficient counting
+- **Tool Infrastructure** - Major refactoring for maintainability
+  - Introduced `BaseMcpTool` base class replacing `IGhidraMcpSpecification`
+  - Simplified error handling with centralized utility methods
+  - All 24 tools updated to extend `BaseMcpTool`
+
+### Fixed
+- Improved pagination consistency across all listing tools
+- Better cursor handling for large result sets
+
 ## [0.5.0] - 2025-11-07
 
 ### Added
