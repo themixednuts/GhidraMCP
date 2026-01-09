@@ -1,145 +1,148 @@
 package com.themixednuts;
 
+import com.themixednuts.services.IGhidraMcpCompletionProvider;
+import com.themixednuts.services.IGhidraMcpPromptProvider;
+import com.themixednuts.services.IGhidraMcpResourceProvider;
 import com.themixednuts.services.IGhidraMcpToolProvider;
 
 import ghidra.framework.options.OptionType;
+import ghidra.framework.options.OptionsChangeListener;
 import ghidra.framework.options.ToolOptions;
-import ghidra.framework.plugintool.Plugin;
-import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.main.ApplicationLevelOnlyPlugin;
+import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginInfo;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import ghidra.framework.options.OptionsChangeListener;
+
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
+/**
+ * Ghidra plugin that exposes program data via the Model Context Protocol (MCP).
+ * 
+ * <p>This plugin runs at the application level (Project Window) and starts an embedded
+ * HTTP server that provides MCP-compliant API access to Ghidra's reverse engineering
+ * capabilities for AI assistants.
+ */
 @PluginInfo(
     status = PluginStatus.RELEASED,
     packageName = "GhidraMCP",
     category = "Application",
     shortDescription = "MCP Server Plugin",
-    description = "Exposes program data via MCP (Model Context Protocol) HTTP API for AI-assisted reverse engineering. Server runs in the Project Window.",
-    servicesProvided = { IGhidraMcpToolProvider.class }
+    description = "Exposes program data via MCP (Model Context Protocol) HTTP API for AI-assisted reverse engineering.",
+    servicesProvided = { 
+        IGhidraMcpToolProvider.class,
+        IGhidraMcpResourceProvider.class,
+        IGhidraMcpPromptProvider.class,
+        IGhidraMcpCompletionProvider.class
+    }
 )
 public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugin {
-    /**
-     * Map to track active plugin instances by port, similar to GhydraMCP reference.
-     */
-    public static final java.util.Map<Integer, GhidraMcpPlugin> activeInstances = new java.util.concurrent.ConcurrentHashMap<>();
-    
-    /**
-     * The category name used for registering Ghidra Tool Options for this plugin suite.
-     */
-    public static final String MCP_TOOL_OPTIONS_CATEGORY = "GhidraMCP HTTP Server";
 
-    // Option Constants
-    private static final String PORT_OPTION_NAME = "Server Port";
-    private static final String PORT_OPTION_DESC = "Port number for the embedded HTTP MCP server.";
+    public static final String OPTIONS_CATEGORY = "GhidraMCP HTTP Server";
+    
+    /** @deprecated Use OPTIONS_CATEGORY instead */
+    @Deprecated
+    public static final String MCP_TOOL_OPTIONS_CATEGORY = OPTIONS_CATEGORY;
+
+    private static final String PORT_OPTION = "Server Port";
+    private static final String PORT_DESCRIPTION = "Port number for the embedded HTTP MCP server.";
     private static final int DEFAULT_PORT = 8080;
+    private static final int RESTART_DEBOUNCE_MS = 1000;
 
     private int currentPort = DEFAULT_PORT;
-    private final OptionsChangeListener mcpOptionsListener;
-    private Timer restartDebounceTimer;
-    private GhidraMcpTools toolsProvider;
+    private OptionsChangeListener optionsListener;
+    private Timer restartTimer;
 
     public GhidraMcpPlugin(PluginTool tool) {
         super(tool);
-
-        Msg.info(this, "GhidraMCP Plugin loading with ApplicationLevelPlugin support on port " + currentPort);
-
-        // Track this instance
-        activeInstances.put(currentPort, this);
-
-        this.mcpOptionsListener = setupOptions();
-
-        // Create and register the tool provider service
-        toolsProvider = new GhidraMcpTools(tool);
-        registerServiceProvided(IGhidraMcpToolProvider.class, toolsProvider);
-
-        // Delay server start until after plugin is fully initialized
-        // This ensures the service is registered and available
-        javax.swing.SwingUtilities.invokeLater(() -> {
-            Msg.info(this, "Starting MCP server on port " + currentPort);
-            GhidraMcpServer.start(currentPort, tool);
-            Msg.info(this, "GhidraMCP Plugin loaded with MCP transport on port " + currentPort);
-        });
+        
+        Msg.info(this, "Initializing GhidraMCP plugin");
+        
+        initializeOptions();
+        registerProviders();
+        scheduleServerStart();
     }
 
-    private OptionsChangeListener setupOptions() {
-        ToolOptions options = tool.getOptions(MCP_TOOL_OPTIONS_CATEGORY);
-
+    private void initializeOptions() {
+        ToolOptions options = tool.getOptions(OPTIONS_CATEGORY);
+        
         // Register port option
-        options.registerOption(PORT_OPTION_NAME, OptionType.INT_TYPE, DEFAULT_PORT,
-                new HelpLocation("GhidraMCP", "ServerPortOption"),
-                PORT_OPTION_DESC, (java.util.function.Supplier<java.beans.PropertyEditor>) null);
-
-        // Register MCP tool options
+        options.registerOption(PORT_OPTION, OptionType.INT_TYPE, DEFAULT_PORT,
+                new HelpLocation("GhidraMCP", "ServerPortOption"), PORT_DESCRIPTION, 
+                (java.util.function.Supplier<java.beans.PropertyEditor>) null);
+        
+        // Register tool enable/disable options
         GhidraMcpTools.registerOptions(options, "GhidraMCP");
-
-        // Read current values
-        currentPort = options.getInt(PORT_OPTION_NAME, DEFAULT_PORT);
-
-        // Create options change listener
-        OptionsChangeListener listener = (options1, name, oldValue, newValue) -> {
-            if (name.equals(PORT_OPTION_NAME)) {
+        
+        // Read current port
+        currentPort = options.getInt(PORT_OPTION, DEFAULT_PORT);
+        
+        // Listen for changes
+        optionsListener = (opts, name, oldValue, newValue) -> {
+            if (PORT_OPTION.equals(name)) {
                 int newPort = (Integer) newValue;
-                if (newPort != this.currentPort) {
-                    Msg.info(this, "Server port changing from " + this.currentPort + " to " + newPort);
-                    this.currentPort = newPort;
+                if (newPort != currentPort) {
+                    Msg.info(this, "Port changing from " + currentPort + " to " + newPort);
+                    currentPort = newPort;
                     scheduleServerRestart();
                 }
             } else {
-                // Handle tool-specific option changes
+                // Tool option changed - restart to pick up new configuration
                 scheduleServerRestart();
             }
         };
+        options.addOptionsChangeListener(optionsListener);
+    }
 
-        // Register the listener so changes trigger restarts
-        options.addOptionsChangeListener(listener);
-        return listener;
+    private void registerProviders() {
+        registerServiceProvided(IGhidraMcpToolProvider.class, new GhidraMcpTools(tool));
+        registerServiceProvided(IGhidraMcpResourceProvider.class, new GhidraMcpResources(tool));
+        registerServiceProvided(IGhidraMcpPromptProvider.class, new GhidraMcpPrompts(tool));
+        registerServiceProvided(IGhidraMcpCompletionProvider.class, new GhidraMcpCompletions(tool));
+    }
+
+    private void scheduleServerStart() {
+        SwingUtilities.invokeLater(() -> {
+            GhidraMcpServer.start(currentPort, tool);
+            Msg.info(this, "GhidraMCP server started on port " + currentPort);
+        });
     }
 
     private void scheduleServerRestart() {
-        if (restartDebounceTimer != null && restartDebounceTimer.isRunning()) {
-            restartDebounceTimer.stop();
+        if (restartTimer != null && restartTimer.isRunning()) {
+            restartTimer.stop();
         }
-
-        restartDebounceTimer = new Timer(1000, e -> {
-            Msg.info(this, "Restarting MCP server due to configuration change...");
-            GhidraMcpServer.restart(currentPort, this.tool);
+        
+        restartTimer = new Timer(RESTART_DEBOUNCE_MS, e -> {
+            Msg.info(this, "Restarting MCP server due to configuration change");
+            GhidraMcpServer.restart(currentPort, tool);
         });
-        restartDebounceTimer.setRepeats(false);
-        restartDebounceTimer.start();
+        restartTimer.setRepeats(false);
+        restartTimer.start();
     }
 
     @Override
     public void dispose() {
-        if (mcpOptionsListener != null) {
-            ToolOptions options = tool.getOptions(MCP_TOOL_OPTIONS_CATEGORY);
-            options.removeOptionsChangeListener(mcpOptionsListener);
+        if (optionsListener != null) {
+            tool.getOptions(OPTIONS_CATEGORY).removeOptionsChangeListener(optionsListener);
         }
-
-        if (restartDebounceTimer != null) {
-            restartDebounceTimer.stop();
+        
+        if (restartTimer != null) {
+            restartTimer.stop();
         }
-
-        // Stop the MCP server (reference counted - will stop only when last tool closes)
+        
         GhidraMcpServer.stop();
-        
-        // Remove this instance from tracking
-        activeInstances.remove(currentPort);
-        
-        Msg.info(this, "GhidraMCP Plugin disposed on port " + currentPort);
+        Msg.info(this, "GhidraMCP plugin disposed");
         super.dispose();
     }
 
     /**
-     * Get the port this plugin instance is running on
-     * @return The HTTP server port
+     * Returns the current server port.
      */
     public int getPort() {
         return currentPort;
     }
-    
 }

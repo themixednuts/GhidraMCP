@@ -20,7 +20,7 @@
       <dependency>
         <groupId>io.modelcontextprotocol.sdk</groupId>
         <artifactId>mcp-bom</artifactId>
-        <version>0.13.1</version>
+        <version>0.17.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -28,13 +28,13 @@
       <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter-api</artifactId>
-        <version>5.10.3</version>
+        <version>5.12.2</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter-engine</artifactId>
-        <version>5.10.3</version>
+        <version>5.12.2</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
@@ -64,7 +64,7 @@
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jdk8</artifactId>
-      <version>2.17.0</version>
+      <version>2.19.0</version>
     </dependency>
 
     <!-- Ghidra JARs using file repository -->
@@ -158,13 +158,13 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-server</artifactId>
-      <version>12.0.20</version>
+      <version>12.0.21</version>
     </dependency>
 
     <dependency>
       <groupId>org.eclipse.jetty.ee10</groupId>
       <artifactId>jetty-ee10-servlet</artifactId>
-      <version>12.0.20</version>
+      <version>12.0.21</version>
     </dependency>
 
     <!-- Other dependencies -->
@@ -191,13 +191,13 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
-      <version>5.8.0</version>
+      <version>5.18.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-junit-jupiter</artifactId>
-      <version>5.8.0</version>
+      <version>5.18.0</version>
       <scope>test</scope>
     </dependency>
 
@@ -205,7 +205,7 @@
     <dependency>
       <groupId>org.junit.platform</groupId>
       <artifactId>junit-platform-suite-api</artifactId>
-      <version>1.10.3</version>
+      <version>1.12.2</version>
       <scope>test</scope>
     </dependency>
     
@@ -213,7 +213,7 @@
     <dependency>
       <groupId>com.github.erosb</groupId>
       <artifactId>everit-json-schema</artifactId>
-      <version>1.14.4</version>
+      <version>1.14.6</version>
       <scope>test</scope>
     </dependency>
     
@@ -221,7 +221,7 @@
     <dependency>
       <groupId>org.json</groupId>
       <artifactId>json</artifactId>
-      <version>20240303</version>
+      <version>20250517</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
