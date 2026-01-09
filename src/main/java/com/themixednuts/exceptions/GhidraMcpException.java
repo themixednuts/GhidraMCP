@@ -3,175 +3,93 @@ package com.themixednuts.exceptions;
 import com.themixednuts.models.GhidraMcpError;
 
 /**
- * Custom exception that carries structured error information for Ghidra MCP
- * tools.
- * This exception wraps a {@link GhidraMcpError} object providing detailed
- * context,
- * suggestions, and debug information that can be serialized and sent to MCP
- * clients.
+ * Exception carrying a structured error for MCP responses.
+ * Unchecked to allow use in lambdas.
  */
-public class GhidraMcpException extends Exception {
+public class GhidraMcpException extends RuntimeException {
 
     private final GhidraMcpError err;
 
-    /**
-     * Creates a new GhidraMcpException with structured error information.
-     *
-     * @param err The detailed error information
-     */
     public GhidraMcpException(GhidraMcpError err) {
-        super(err.getMessage());
+        super(err != null ? err.getMsg() : "Unknown error");
         this.err = err;
     }
 
-    /**
-     * Creates a new GhidraMcpException with structured error information and a
-     * cause.
-     *
-     * @param structuredError The detailed error information
-     * @param cause           The underlying exception that caused this error
-     */
-    public GhidraMcpException(GhidraMcpError structuredError, Throwable cause) {
-        super(structuredError.getMessage(), cause);
-        this.err = structuredError;
+    public GhidraMcpException(GhidraMcpError err, Throwable cause) {
+        super(err != null ? err.getMsg() : "Unknown error", cause);
+        this.err = err;
     }
 
-    /**
-     * Gets the structured error information.
-     *
-     * @return The detailed error information including context, suggestions, and
-     *         debug data
-     */
     public GhidraMcpError getErr() {
         return err;
     }
 
-    /**
-     * Gets the error type from the structured error.
-     *
-     * @return The error type
-     */
     public GhidraMcpError.ErrorType getErrorType() {
-        return err.getErrorType();
+        return err != null ? err.getErrorType() : GhidraMcpError.ErrorType.INTERNAL;
     }
 
-    /**
-     * Gets the error code from the structured error.
-     *
-     * @return The error code string
-     */
     public String getErrorCode() {
-        return err.getErrorCode();
+        return err != null ? err.getErrorCode() : "INTERNAL";
     }
 
-    /**
-     * Checks if this is a validation error.
-     *
-     * @return true if this is a validation error
-     */
     public boolean isValidationError() {
-        return (err.getErrorType() == GhidraMcpError.ErrorType.VALIDATION);
+        return getErrorType() == GhidraMcpError.ErrorType.VALIDATION;
     }
 
-    /**
-     * Checks if this is a resource not found error.
-     *
-     * @return true if this is a resource not found error
-     */
     public boolean isResourceNotFoundError() {
-        return (
-            err.getErrorType() == GhidraMcpError.ErrorType.RESOURCE_NOT_FOUND
-        );
+        return getErrorType() == GhidraMcpError.ErrorType.RESOURCE_NOT_FOUND;
     }
 
-    /**
-     * Checks if this is a data type parsing error.
-     *
-     * @return true if this is a data type parsing error
-     */
     public boolean isDataTypeParsingError() {
-        return (
-            err.getErrorType() == GhidraMcpError.ErrorType.DATA_TYPE_PARSING
-        );
+        return getErrorType() == GhidraMcpError.ErrorType.DATA_TYPE_PARSING;
     }
 
-    /**
-     * Checks if this is an execution error.
-     *
-     * @return true if this is an execution error
-     */
     public boolean isExecutionError() {
-        return (err.getErrorType() == GhidraMcpError.ErrorType.EXECUTION);
+        return getErrorType() == GhidraMcpError.ErrorType.EXECUTION;
     }
 
-    /**
-     * Creates a GhidraMcpException from a regular exception with minimal error
-     * information.
-     * This is useful for wrapping unexpected exceptions that don't have structured
-     * error details.
-     *
-     * @param cause         The original exception
-     * @param toolOperation The operation that was being performed
-     * @param toolClass     The class of the tool that threw the exception
-     * @return A new GhidraMcpException with basic error information
-     */
-    public static GhidraMcpException fromException(
-        Throwable cause,
-        String toolOperation,
-        String toolClass
-    ) {
-        GhidraMcpError error = GhidraMcpError.internal()
-            .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-            .message("Unexpected error occurred: " + cause.getMessage())
-            .context(
-                new GhidraMcpError.ErrorContext(
-                    toolOperation,
-                    "internal operation",
-                    null,
-                    null,
-                    java.util.Map.of(
-                        "exceptionType",
-                        cause.getClass().getSimpleName()
-                    )
-                )
-            )
-            .debugInfo(
-                new GhidraMcpError.ErrorDebugInfo(
-                    getStackTraceString(cause),
-                    null, // Will be set by GhidraMcpErrorUtils if needed
-                    toolClass,
-                    java.time.Instant.now().toString(),
-                    java.util.Map.of("originalMessage", cause.getMessage())
-                )
-            )
-            .build();
-
-        return new GhidraMcpException(error, cause);
+    public boolean isInternalError() {
+        return getErrorType() == GhidraMcpError.ErrorType.INTERNAL;
     }
 
-    /**
-     * Helper method to convert stack trace to string.
-     */
-    private static String getStackTraceString(Throwable throwable) {
-        java.io.StringWriter sw = new java.io.StringWriter();
-        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
+    /** Create from any throwable */
+    public static GhidraMcpException wrap(Throwable t) {
+        if (t instanceof GhidraMcpException gme) {
+            return gme;
+        }
+        return new GhidraMcpException(GhidraMcpError.internal(t), t);
+    }
+
+    /** Create from message */
+    public static GhidraMcpException of(String msg) {
+        return new GhidraMcpException(GhidraMcpError.of(msg));
+    }
+
+    public static GhidraMcpException of(String msg, String hint) {
+        return new GhidraMcpException(GhidraMcpError.of(msg, hint));
+    }
+
+    /** Create from throwable with operation context */
+    public static GhidraMcpException fromException(Throwable t, String operation, String toolClass) {
+        if (t == null) {
+            return new GhidraMcpException(GhidraMcpError.internal()
+                .msg("Unknown error during " + operation)
+                .build());
+        }
+        String msg = t.getMessage();
+        if (msg == null) msg = t.getClass().getSimpleName();
+        return new GhidraMcpException(GhidraMcpError.internal()
+            .msg(operation + ": " + msg)
+            .build(), t);
     }
 
     @Override
     public String toString() {
-        return (
-            "GhidraMcpException{" +
-            "errorType=" +
-            err.getErrorType() +
-            ", errorCode='" +
-            err.getErrorCode() +
-            '\'' +
-            ", message='" +
-            getMessage() +
-            '\'' +
-            '}'
-        );
+        String type = err != null ? err.getErrorType().name() : "UNKNOWN";
+        String msg = err != null ? err.getMsg() : getMessage();
+        String hint = err != null ? err.getHint() : null;
+        return hint != null
+            ? "GhidraMcpException[" + type + "]: " + msg + " [" + hint + "]"
+            : "GhidraMcpException[" + type + "]: " + msg;
     }
 }
