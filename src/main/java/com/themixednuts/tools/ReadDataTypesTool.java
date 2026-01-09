@@ -18,12 +18,11 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.Program;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 @GhidraMcpTool(name = "Read Data Types", description = "Read a single data type or list data types in a Ghidra program with pagination and filtering options.", mcpName = "read_data_types", mcpDescription = """
         <use_case>
@@ -238,99 +237,155 @@ public class ReadDataTypesTool extends BaseMcpTool {
 
     private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args)
             throws GhidraMcpException {
-        DataTypeManager dataTypeManager = program.getDataTypeManager();
+        DataTypeManager dtm = program.getDataTypeManager();
 
         Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
         Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
         Optional<String> typeKindOpt = getOptionalStringArgument(args, ARG_TYPE_KIND);
         Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-        // Get all data types and apply filters
-        Iterator<DataType> dataTypeIterator = dataTypeManager.getAllDataTypes();
-        List<DataTypeInfo> allDataTypes = StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(dataTypeIterator, Spliterator.ORDERED), false)
-                .filter(dataType -> {
-                    // Apply name filter
-                    if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-                        if (!dataType.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
-                            return false;
-                        }
+        // Parse cursor for pagination
+        String cursorPath = null;
+        if (cursorOpt.isPresent()) {
+            String[] parts = cursorOpt.get().split(":", 2);
+            cursorPath = parts.length > 1 ? parts[1] : parts[0];
+        }
+
+        // Use type-specific iterators when type_kind is specified for better performance
+        Iterator<? extends DataType> dataTypeIterator = getTypeSpecificIterator(dtm, typeKindOpt);
+
+        // If name filter is specified, use native findDataTypes with wildcard support
+        List<DataType> searchResults = null;
+        if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty() && typeKindOpt.isEmpty()) {
+            searchResults = new ArrayList<>();
+            // Use wildcard pattern for native search - supports * and ?
+            String searchPattern = "*" + nameFilterOpt.get() + "*";
+            dtm.findDataTypes(searchPattern, searchResults, false, TaskMonitor.DUMMY);
+        }
+
+        List<DataTypeInfo> results = new ArrayList<>();
+        final String finalCursorPath = cursorPath;
+        final String finalCategoryFilter = categoryFilterOpt.orElse(null);
+        final String finalNameFilter = nameFilterOpt.orElse(null);
+        final String finalTypeKind = typeKindOpt.orElse(null);
+        boolean passedCursor = (cursorPath == null);
+
+        // Process either search results or iterator
+        if (searchResults != null) {
+            // Sort search results by path name for consistent ordering
+            searchResults.sort((dt1, dt2) -> dt1.getPathName().compareToIgnoreCase(dt2.getPathName()));
+
+            for (DataType dataType : searchResults) {
+                if (results.size() > DEFAULT_PAGE_LIMIT) break;
+
+                // Skip past cursor
+                if (!passedCursor) {
+                    if (dataType.getPathName().compareToIgnoreCase(finalCursorPath) <= 0) {
+                        continue;
                     }
+                    passedCursor = true;
+                }
 
-                    // Apply category filter
-                    if (categoryFilterOpt.isPresent() && !categoryFilterOpt.get().isEmpty()) {
-                        String categoryPath = dataType.getCategoryPath().getPath();
-                        if (!categoryPath.toLowerCase().contains(categoryFilterOpt.get().toLowerCase())) {
-                            return false;
-                        }
+                // Apply category filter
+                if (finalCategoryFilter != null && !finalCategoryFilter.isEmpty()) {
+                    if (!dataType.getCategoryPath().getPath().toLowerCase()
+                            .contains(finalCategoryFilter.toLowerCase())) {
+                        continue;
                     }
+                }
 
-                    // Apply type kind filter
-                    if (typeKindOpt.isPresent() && !typeKindOpt.get().isEmpty()) {
-                        String typeKind = typeKindOpt.get().toLowerCase();
-                        String dataTypeName = dataType.getClass().getSimpleName().toLowerCase();
+                DataTypeInfo info = new DataTypeInfo(dataType);
+                info.getDetails().setDataTypeId(dtm.getID(dataType));
+                results.add(info);
+            }
+        } else {
+            // Process iterator directly
+            while (dataTypeIterator.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+                DataType dataType = dataTypeIterator.next();
 
-                        boolean matches = switch (typeKind) {
-                            case "structure", "struct" -> dataTypeName.contains("structure");
-                            case "union" -> dataTypeName.contains("union");
-                            case "enum" -> dataTypeName.contains("enum");
-                            case "typedef" -> dataTypeName.contains("typedef");
-                            case "pointer" -> dataTypeName.contains("pointer");
-                            case "array" -> dataTypeName.contains("array");
-                            case "function" -> dataTypeName.contains("function");
-                            default -> dataTypeName.contains(typeKind);
-                        };
-
-                        if (!matches) {
-                            return false;
-                        }
+                // Skip past cursor (comparing by path name)
+                if (!passedCursor) {
+                    if (dataType.getPathName().compareToIgnoreCase(finalCursorPath) <= 0) {
+                        continue;
                     }
+                    passedCursor = true;
+                }
 
-                    return true;
-                })
-                .sorted((dt1, dt2) -> dt1.getPathName().compareToIgnoreCase(dt2.getPathName()))
-                .map(dataType -> {
-                    DataTypeInfo info = new DataTypeInfo(dataType);
-                    info.getDetails().setDataTypeId(dataTypeManager.getID(dataType));
-                    return info;
-                })
-                .collect(Collectors.toList());
-
-        // Apply cursor-based pagination
-        final String finalCursorStr = cursorOpt.orElse(null);
-
-        List<DataTypeInfo> paginatedDataTypes = allDataTypes.stream()
-                .dropWhile(dataTypeInfo -> {
-                    if (finalCursorStr == null)
-                        return false;
-
-                    // Cursor format: "name:pathName"
-                    String[] parts = finalCursorStr.split(":", 2);
-                    String cursorName = parts[0];
-                    String cursorPathName = parts.length > 1 ? parts[1] : "";
-
-                    int nameCompare = dataTypeInfo.getDetails().getName().compareToIgnoreCase(cursorName);
-                    if (nameCompare < 0)
-                        return true;
-                    if (nameCompare == 0) {
-                        return dataTypeInfo.getDetails().getPath().compareTo(cursorPathName) <= 0;
+                // Apply name filter if not using search
+                if (finalNameFilter != null && !finalNameFilter.isEmpty()) {
+                    if (!dataType.getName().toLowerCase().contains(finalNameFilter.toLowerCase())) {
+                        continue;
                     }
-                    return false;
-                })
-                .limit(DEFAULT_PAGE_LIMIT + 1)
-                .collect(Collectors.toList());
+                }
 
-        boolean hasMore = paginatedDataTypes.size() > DEFAULT_PAGE_LIMIT;
-        List<DataTypeInfo> resultsForPage = paginatedDataTypes.subList(0,
-                Math.min(paginatedDataTypes.size(), DEFAULT_PAGE_LIMIT));
+                // Apply category filter
+                if (finalCategoryFilter != null && !finalCategoryFilter.isEmpty()) {
+                    if (!dataType.getCategoryPath().getPath().toLowerCase()
+                            .contains(finalCategoryFilter.toLowerCase())) {
+                        continue;
+                    }
+                }
+
+                // Apply type kind filter for non-specialized iterators
+                if (finalTypeKind != null && !matchesTypeKind(dataType, finalTypeKind)) {
+                    continue;
+                }
+
+                DataTypeInfo info = new DataTypeInfo(dataType);
+                info.getDetails().setDataTypeId(dtm.getID(dataType));
+                results.add(info);
+            }
+        }
+
+        // Sort results by path name for consistent ordering
+        results.sort((d1, d2) -> d1.getDetails().getPath().compareToIgnoreCase(d2.getDetails().getPath()));
+
+        // Determine if there are more results
+        boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+        if (hasMore) {
+            results = results.subList(0, DEFAULT_PAGE_LIMIT);
+        }
 
         String nextCursor = null;
-        if (hasMore && !resultsForPage.isEmpty()) {
-            DataTypeInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
+        if (hasMore && !results.isEmpty()) {
+            DataTypeInfo lastItem = results.get(results.size() - 1);
             nextCursor = lastItem.getDetails().getName() + ":" + lastItem.getDetails().getPath();
         }
 
-        return new PaginatedResult<>(resultsForPage, nextCursor);
+        return new PaginatedResult<>(results, nextCursor);
+    }
+
+    /**
+     * Get type-specific iterator for better performance when filtering by type kind.
+     * Uses native Ghidra iterators: getAllStructures(), getAllComposites(), getAllFunctionDefinitions()
+     */
+    private Iterator<? extends DataType> getTypeSpecificIterator(DataTypeManager dtm, Optional<String> typeKindOpt) {
+        if (typeKindOpt.isEmpty()) {
+            return dtm.getAllDataTypes();
+        }
+
+        String typeKind = typeKindOpt.get().toLowerCase();
+        return switch (typeKind) {
+            case "structure", "struct" -> dtm.getAllStructures();
+            case "composite" -> dtm.getAllComposites();  // Structures + Unions
+            case "function", "function_definition" -> dtm.getAllFunctionDefinitions();
+            default -> dtm.getAllDataTypes();  // Fall back to all types for other filters
+        };
+    }
+
+    private boolean matchesTypeKind(DataType dataType, String typeKind) {
+        String kind = typeKind.toLowerCase();
+        return switch (kind) {
+            case "structure", "struct" -> dataType instanceof Structure;
+            case "union" -> dataType instanceof Union;
+            case "composite" -> dataType instanceof Composite;
+            case "enum" -> dataType instanceof ghidra.program.model.data.Enum;
+            case "typedef" -> dataType instanceof TypeDef;
+            case "pointer" -> dataType instanceof Pointer;
+            case "array" -> dataType instanceof Array;
+            case "function", "function_definition" -> dataType instanceof FunctionDefinition;
+            default -> dataType.getClass().getSimpleName().toLowerCase().contains(kind);
+        };
     }
 
     private RTTIAnalysisResult analyzeRTTIAtAddress(Program program, String addressStr, String dataTypeKind)

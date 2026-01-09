@@ -1448,16 +1448,12 @@ public class ManageDataTypesTool extends BaseMcpTool {
 
     /**
      * Gets count of available data types for context.
+     * Uses native DataTypeManager.getDataTypeCount() for efficiency.
      */
     private int getAvailableTypeCount(DataTypeManager dtm) {
         try {
-            Iterator<DataType> iterator = dtm.getAllDataTypes();
-            int count = 0;
-            while (iterator.hasNext()) {
-                iterator.next();
-                count++;
-            }
-            return count;
+            // Use native count method instead of iterating all types
+            return dtm.getDataTypeCount(true);  // true = include pointers and arrays
         } catch (Exception e) {
             return -1; // Unknown count
         }

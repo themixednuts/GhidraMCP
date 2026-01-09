@@ -4,24 +4,29 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 @GhidraMcpTool(
     name = "Read Functions",
@@ -142,7 +147,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
             } else if (args.containsKey(ARG_ADDRESS)) {
                 return readByAddress(program, functionManager, args);
             } else if (args.containsKey(ARG_NAME)) {
-                return readByName(functionManager, args);
+                return readByName(program, functionManager, args);
             } else {
                 throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
             }
@@ -189,87 +194,166 @@ public class ReadFunctionsTool extends BaseMcpTool {
         throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
     }
 
-    private FunctionInfo readByName(FunctionManager functionManager, Map<String, Object> args)
+    private FunctionInfo readByName(Program program, FunctionManager functionManager, Map<String, Object> args)
             throws GhidraMcpException {
         String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
         if (name == null || name.isBlank()) {
             throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
         }
 
-        // First try exact match
-        Optional<Function> exactMatch = StreamSupport
-                .stream(functionManager.getFunctions(true).spliterator(), false)
-                .filter(f -> f.getName().equals(name))
-                .findFirst();
+        SymbolTable symbolTable = program.getSymbolTable();
 
-        if (exactMatch.isPresent()) {
-            return new FunctionInfo(exactMatch.get());
+        // Use native SymbolTable.getSymbols() for efficient exact name lookup
+        SymbolIterator symbolIter = symbolTable.getSymbols(name);
+        while (symbolIter.hasNext()) {
+            Symbol symbol = symbolIter.next();
+            if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+                Function function = functionManager.getFunctionAt(symbol.getAddress());
+                if (function != null) {
+                    return new FunctionInfo(function);
+                }
+            }
         }
 
-        // Then try regex match
-        try {
-            List<Function> regexMatches = StreamSupport
-                    .stream(functionManager.getFunctions(true).spliterator(), false)
-                    .filter(f -> f.getName().matches(name))
-                    .collect(Collectors.toList());
+        // If no exact match, try wildcard search using SymbolTable's native wildcard support
+        // SymbolTable.getSymbolIterator supports * and ? wildcards
+        if (name.contains("*") || name.contains("?")) {
+            SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
+            Function firstMatch = null;
+            int matchCount = 0;
 
-            if (regexMatches.size() == 1) {
-                return new FunctionInfo(regexMatches.get(0));
-            } else if (regexMatches.size() > 1) {
-                throw new GhidraMcpException(
-                        GhidraMcpError.conflict("Multiple functions found for name pattern: " + name));
+            while (wildcardIter.hasNext()) {
+                Symbol symbol = wildcardIter.next();
+                if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+                    Function function = functionManager.getFunctionAt(symbol.getAddress());
+                    if (function != null) {
+                        if (firstMatch == null) {
+                            firstMatch = function;
+                        }
+                        matchCount++;
+                        if (matchCount > 1) {
+                            throw new GhidraMcpException(
+                                    GhidraMcpError.conflict("Multiple functions found for wildcard pattern: " + name));
+                        }
+                    }
+                }
             }
+
+            if (firstMatch != null) {
+                return new FunctionInfo(firstMatch);
+            }
+        }
+
+        // Fallback: try as regex pattern (for backwards compatibility)
+        try {
+            Pattern pattern = Pattern.compile(name);
+            Function firstMatch = null;
+            int matchCount = 0;
+
+            FunctionIterator funcIter = functionManager.getFunctions(true);
+            while (funcIter.hasNext()) {
+                Function function = funcIter.next();
+                if (pattern.matcher(function.getName()).matches()) {
+                    if (firstMatch == null) {
+                        firstMatch = function;
+                    }
+                    matchCount++;
+                    if (matchCount > 1) {
+                        throw new GhidraMcpException(
+                                GhidraMcpError.conflict("Multiple functions found for regex pattern: " + name));
+                    }
+                }
+            }
+
+            if (firstMatch != null) {
+                return new FunctionInfo(firstMatch);
+            }
+        } catch (PatternSyntaxException e) {
+            throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
         } catch (GhidraMcpException e) {
             throw e;
-        } catch (Exception e) {
-            throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
         }
 
         throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
     }
 
-    private List<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
+    private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
         FunctionManager functionManager = program.getFunctionManager();
 
         Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
         Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-        // Get all functions and apply name filter if provided
-        List<FunctionInfo> allFunctions = StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-                .filter(function -> {
-                    if (namePatternOpt.isEmpty()) return true;
-                    try {
-                        return function.getName().matches(namePatternOpt.get());
-                    } catch (Exception e) {
-                        return false;
-                    }
-                })
-                .sorted((f1, f2) -> f1.getEntryPoint().compareTo(f2.getEntryPoint()))
-                .map(FunctionInfo::new)
-                .collect(Collectors.toList());
+        // Parse cursor to get starting address
+        Address startAddress = null;
+        String cursorName = null;
+        if (cursorOpt.isPresent()) {
+            String cursorStr = cursorOpt.get();
+            String[] parts = cursorStr.split(":", 2);
+            try {
+                startAddress = program.getAddressFactory().getAddress(parts[0]);
+                cursorName = parts.length > 1 ? parts[1] : null;
+            } catch (Exception e) {
+                // Invalid cursor, start from beginning
+            }
+        }
 
-        // Apply cursor-based pagination
-        final String cursorStr = cursorOpt.orElse(null);
+        // Compile name pattern if provided
+        Pattern namePattern = null;
+        if (namePatternOpt.isPresent()) {
+            try {
+                namePattern = Pattern.compile(namePatternOpt.get());
+            } catch (PatternSyntaxException e) {
+                throw new GhidraMcpException(GhidraMcpError.invalid("name_pattern", namePatternOpt.get(), e.getMessage()));
+            }
+        }
 
-        List<FunctionInfo> paginatedFunctions = allFunctions.stream()
-                .dropWhile(funcInfo -> {
-                    if (cursorStr == null) return false;
+        // Use native FunctionManager.getFunctions(Address, boolean) for cursor-based iteration
+        // Functions are already returned in address order, no sorting needed
+        FunctionIterator funcIter;
+        if (startAddress != null) {
+            funcIter = functionManager.getFunctions(startAddress, true);
+        } else {
+            funcIter = functionManager.getFunctions(true);
+        }
 
-                    String[] parts = cursorStr.split(":", 2);
-                    String cursorAddress = parts[0];
-                    String cursorName = parts.length > 1 ? parts[1] : "";
+        List<FunctionInfo> results = new ArrayList<>();
+        boolean skipFirst = (startAddress != null && cursorName != null);
+        final Pattern finalNamePattern = namePattern;
 
-                    int addressCompare = funcInfo.getAddress().compareTo(cursorAddress);
-                    if (addressCompare < 0) return true;
-                    if (addressCompare == 0) {
-                        return funcInfo.getName().compareTo(cursorName) <= 0;
-                    }
-                    return false;
-                })
-                .limit(DEFAULT_PAGE_LIMIT + 1)
-                .collect(Collectors.toList());
+        while (funcIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+            Function function = funcIter.next();
 
-        boolean hasMore = paginatedFunctions.size() > DEFAULT_PAGE_LIMIT;
-        return paginatedFunctions.subList(0, Math.min(paginatedFunctions.size(), DEFAULT_PAGE_LIMIT));
+            // Skip past cursor position (same address, name <= cursor name)
+            if (skipFirst) {
+                if (function.getEntryPoint().equals(startAddress) &&
+                    function.getName().compareTo(cursorName) <= 0) {
+                    continue;
+                }
+                skipFirst = false;
+            }
+
+            // Apply name pattern filter if provided
+            if (finalNamePattern != null) {
+                if (!finalNamePattern.matcher(function.getName()).matches()) {
+                    continue;
+                }
+            }
+
+            results.add(new FunctionInfo(function));
+        }
+
+        // Determine if there are more results and create next cursor
+        boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+        if (hasMore) {
+            results = results.subList(0, DEFAULT_PAGE_LIMIT);
+        }
+
+        String nextCursor = null;
+        if (hasMore && !results.isEmpty()) {
+            FunctionInfo lastFunc = results.get(results.size() - 1);
+            nextCursor = lastFunc.getAddress() + ":" + lastFunc.getName();
+        }
+
+        return new PaginatedResult<>(results, nextCursor);
     }
 }

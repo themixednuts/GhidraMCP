@@ -12,16 +12,15 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.ReferenceManager;
 import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.StreamSupport;
 
 @GhidraMcpTool(name = "Find References", description = "Find cross-references to and from addresses in the program.", mcpName = "find_references", mcpDescription = """
         <use_case>
@@ -169,15 +168,25 @@ public class FindReferencesTool extends BaseMcpTool {
             String referenceType, Map<String, Object> args,
             GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
-            ReferenceIterator refIterator = program.getReferenceManager().getReferencesTo(address);
+            ReferenceManager refManager = program.getReferenceManager();
+
+            // Use native hasReferencesTo() for early exit - avoids iterator creation if no refs
+            if (!refManager.hasReferencesTo(address)) {
+                return Collections.<ReferenceInfo>emptyList();
+            }
+
             List<ReferenceInfo> references = new ArrayList<>();
 
             try {
-                StreamSupport.stream(
-                        Spliterators.spliteratorUnknownSize(refIterator, Spliterator.ORDERED), false)
-                        .filter(ref -> referenceType.isEmpty() ||
-                                ref.getReferenceType().toString().equalsIgnoreCase(referenceType))
-                        .forEach(ref -> references.add(new ReferenceInfo(program, ref)));
+                ReferenceIterator refIterator = refManager.getReferencesTo(address);
+                while (refIterator.hasNext()) {
+                    Reference ref = refIterator.next();
+                    // Apply reference type filter
+                    if (referenceType.isEmpty() ||
+                            ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
+                        references.add(new ReferenceInfo(program, ref));
+                    }
+                }
             } catch (Exception e) {
                 throw buildXrefAnalysisException(annotation, args, "find_references_to",
                         address.toString(), references.size(), e);
@@ -191,15 +200,25 @@ public class FindReferencesTool extends BaseMcpTool {
             String referenceType, Map<String, Object> args,
             GhidraMcpTool annotation) {
         return Mono.fromCallable(() -> {
-            Reference[] referencesArray = program.getReferenceManager().getReferencesFrom(address);
+            ReferenceManager refManager = program.getReferenceManager();
+
+            // Use native hasReferencesFrom() for early exit
+            if (!refManager.hasReferencesFrom(address)) {
+                return Collections.<ReferenceInfo>emptyList();
+            }
+
+            Reference[] referencesArray = refManager.getReferencesFrom(address);
             List<ReferenceInfo> references = new ArrayList<>(referencesArray != null ? referencesArray.length : 0);
 
             try {
                 if (referencesArray != null) {
-                    Arrays.stream(referencesArray)
-                            .filter(ref -> referenceType.isEmpty() ||
-                                    ref.getReferenceType().toString().equalsIgnoreCase(referenceType))
-                            .forEach(reference -> references.add(new ReferenceInfo(program, reference)));
+                    for (Reference ref : referencesArray) {
+                        // Apply reference type filter
+                        if (referenceType.isEmpty() ||
+                                ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
+                            references.add(new ReferenceInfo(program, ref));
+                        }
+                    }
                 }
             } catch (Exception e) {
                 throw buildXrefAnalysisException(annotation, args, "find_references_from",
