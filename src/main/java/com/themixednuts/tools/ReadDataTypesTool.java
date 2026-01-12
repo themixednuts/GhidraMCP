@@ -23,6 +23,7 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @GhidraMcpTool(name = "Read Data Types", description = "Read a single data type or list data types in a Ghidra program with pagination and filtering options.", mcpName = "read_data_types", mcpDescription = """
         <use_case>
