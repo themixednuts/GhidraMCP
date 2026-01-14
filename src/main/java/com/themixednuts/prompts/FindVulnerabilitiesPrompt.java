@@ -42,7 +42,7 @@ public class FindVulnerabilitiesPrompt extends BaseMcpPrompt {
             // Buffer overflows
             "strcpy", "strcat", "sprintf", "vsprintf", "gets", "scanf",
             // Format strings
-            "printf", "fprintf", "sprintf", "snprintf", "syslog",
+            "printf", "fprintf", "snprintf", "syslog",
             // Memory operations
             "memcpy", "memmove", "memset",
             // Integer overflows

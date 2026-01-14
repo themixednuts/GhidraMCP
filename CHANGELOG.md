@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-01-14
+
+### Fixed
+- Fixed `extension.properties` version field to use Ghidra version for compatibility
+- Fixed duplicate `sprintf` entry in `FindVulnerabilitiesPrompt` causing ServiceLoader error
+
 ## [0.5.1] - 2026-01-09
 
 ### Added
