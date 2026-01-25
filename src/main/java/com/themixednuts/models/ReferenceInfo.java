@@ -2,112 +2,109 @@ package com.themixednuts.models;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.RefType;
+import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 
-/**
- * Represents a cross-reference between two addresses within a Ghidra program.
- */
+/** Represents a cross-reference between two addresses within a Ghidra program. */
 public class ReferenceInfo {
 
-    private final String fromAddress;
-    private final String toAddress;
-    private final String fromSymbol;
-    private final String toSymbol;
-    private final String referenceType;
-    private final boolean call;
-    private final boolean jump;
-    private final boolean data;
-    private final boolean read;
-    private final boolean write;
-    private final boolean primary;
-    private final boolean external;
-    private final int operandIndex;
+  private final String fromAddress;
+  private final String toAddress;
+  private final String fromSymbol;
+  private final String toSymbol;
+  private final String referenceType;
+  private final boolean call;
+  private final boolean jump;
+  private final boolean data;
+  private final boolean read;
+  private final boolean write;
+  private final boolean primary;
+  private final boolean external;
+  private final int operandIndex;
 
-    public ReferenceInfo(Program program, Reference reference) {
-        SymbolTable symbolTable = program != null ? program.getSymbolTable() : null;
-        this.fromAddress = toString(reference.getFromAddress());
-        this.toAddress = toString(reference.getToAddress());
-        this.fromSymbol = resolveSymbol(symbolTable, reference.getFromAddress());
-        this.toSymbol = resolveSymbol(symbolTable, reference.getToAddress());
+  public ReferenceInfo(Program program, Reference reference) {
+    SymbolTable symbolTable = program != null ? program.getSymbolTable() : null;
+    this.fromAddress = toString(reference.getFromAddress());
+    this.toAddress = toString(reference.getToAddress());
+    this.fromSymbol = resolveSymbol(symbolTable, reference.getFromAddress());
+    this.toSymbol = resolveSymbol(symbolTable, reference.getToAddress());
 
-        RefType type = reference.getReferenceType();
-        this.referenceType = type != null ? type.getName() : "UNKNOWN";
-        this.call = type != null && type.isCall();
-        this.jump = type != null && type.isJump();
-        this.data = type != null && type.isData();
-        this.read = type != null && type.isRead();
-        this.write = type != null && type.isWrite();
+    RefType type = reference.getReferenceType();
+    this.referenceType = type != null ? type.getName() : "UNKNOWN";
+    this.call = type != null && type.isCall();
+    this.jump = type != null && type.isJump();
+    this.data = type != null && type.isData();
+    this.read = type != null && type.isRead();
+    this.write = type != null && type.isWrite();
 
-        this.primary = reference.isPrimary();
-        this.external = reference.isExternalReference();
-        this.operandIndex = reference.getOperandIndex();
+    this.primary = reference.isPrimary();
+    this.external = reference.isExternalReference();
+    this.operandIndex = reference.getOperandIndex();
+  }
+
+  private static String toString(Address address) {
+    return address != null ? address.toString() : null;
+  }
+
+  private static String resolveSymbol(SymbolTable symbolTable, Address address) {
+    if (symbolTable == null || address == null) {
+      return null;
     }
+    Symbol symbol = symbolTable.getPrimarySymbol(address);
+    return symbol != null ? symbol.getName(true) : null;
+  }
 
-    private static String toString(Address address) {
-        return address != null ? address.toString() : null;
-    }
+  public String getFromAddress() {
+    return fromAddress;
+  }
 
-    private static String resolveSymbol(SymbolTable symbolTable, Address address) {
-        if (symbolTable == null || address == null) {
-            return null;
-        }
-        Symbol symbol = symbolTable.getPrimarySymbol(address);
-        return symbol != null ? symbol.getName(true) : null;
-    }
+  public String getToAddress() {
+    return toAddress;
+  }
 
-    public String getFromAddress() {
-        return fromAddress;
-    }
+  public String getFromSymbol() {
+    return fromSymbol;
+  }
 
-    public String getToAddress() {
-        return toAddress;
-    }
+  public String getToSymbol() {
+    return toSymbol;
+  }
 
-    public String getFromSymbol() {
-        return fromSymbol;
-    }
+  public String getReferenceType() {
+    return referenceType;
+  }
 
-    public String getToSymbol() {
-        return toSymbol;
-    }
+  public boolean isCall() {
+    return call;
+  }
 
-    public String getReferenceType() {
-        return referenceType;
-    }
+  public boolean isJump() {
+    return jump;
+  }
 
-    public boolean isCall() {
-        return call;
-    }
+  public boolean isData() {
+    return data;
+  }
 
-    public boolean isJump() {
-        return jump;
-    }
+  public boolean isRead() {
+    return read;
+  }
 
-    public boolean isData() {
-        return data;
-    }
+  public boolean isWrite() {
+    return write;
+  }
 
-    public boolean isRead() {
-        return read;
-    }
+  public boolean isPrimary() {
+    return primary;
+  }
 
-    public boolean isWrite() {
-        return write;
-    }
+  public boolean isExternal() {
+    return external;
+  }
 
-    public boolean isPrimary() {
-        return primary;
-    }
-
-    public boolean isExternal() {
-        return external;
-    }
-
-    public int getOperandIndex() {
-        return operandIndex;
-    }
+  public int getOperandIndex() {
+    return operandIndex;
+  }
 }
-

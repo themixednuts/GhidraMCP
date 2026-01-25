@@ -7,7 +7,6 @@ import com.themixednuts.models.OperationResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
-
 import ghidra.app.cmd.label.DeleteLabelCmd;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -16,19 +15,18 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.common.McpTransportContext;
-import reactor.core.publisher.Mono;
-
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
-    name = "Delete Symbol", 
-    description = "Delete symbols and labels by address, name, or symbol ID.", 
+    name = "Delete Symbol",
+    description = "Delete symbols and labels by address, name, or symbol ID.",
     mcpName = "delete_symbol",
     title = "Delete Symbol",
     destructiveHint = true,
-    mcpDescription = """
+    mcpDescription =
+        """
         <use_case>
         Deletes a symbol or label from the program. Use this when you need to remove incorrect
         labels, clean up auto-generated symbols, or reorganize symbol naming conventions.
@@ -66,111 +64,129 @@ import java.util.Optional;
         """)
 public class DeleteSymbolTool extends BaseMcpTool {
 
-    @Override
-    public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
+  @Override
+  public JsonSchema schema() {
+    IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
-        schemaRoot.property(ARG_FILE_NAME,
-                SchemaBuilder.string(mapper)
-                        .description("The name of the program file."));
+    schemaRoot.property(
+        ARG_FILE_NAME, SchemaBuilder.string(mapper).description("The name of the program file."));
 
-        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
-                .description("Memory address for symbol deletion")
-                .pattern("^(0x)?[0-9a-fA-F]+$"));
+    schemaRoot.property(
+        ARG_ADDRESS,
+        SchemaBuilder.string(mapper)
+            .description("Memory address for symbol deletion")
+            .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
-                .description("Symbol name for deletion"));
+    schemaRoot.property(
+        ARG_NAME, SchemaBuilder.string(mapper).description("Symbol name for deletion"));
 
-        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
-                .description("Unique symbol ID for precise identification"));
+    schemaRoot.property(
+        ARG_SYMBOL_ID,
+        SchemaBuilder.integer(mapper).description("Unique symbol ID for precise identification"));
 
-        schemaRoot.requiredProperty(ARG_FILE_NAME);
+    schemaRoot.requiredProperty(ARG_FILE_NAME);
 
-        // At least one identifier must be provided (JSON Schema Draft 7 anyOf)
-        schemaRoot.anyOf(
-                SchemaBuilder.object(mapper).requiredProperty(ARG_ADDRESS),
-                SchemaBuilder.object(mapper).requiredProperty(ARG_NAME),
-                SchemaBuilder.object(mapper).requiredProperty(ARG_SYMBOL_ID));
+    // At least one identifier must be provided (JSON Schema Draft 7 anyOf)
+    schemaRoot.anyOf(
+        SchemaBuilder.object(mapper).requiredProperty(ARG_ADDRESS),
+        SchemaBuilder.object(mapper).requiredProperty(ARG_NAME),
+        SchemaBuilder.object(mapper).requiredProperty(ARG_SYMBOL_ID));
 
-        return schemaRoot.build();
-    }
+    return schemaRoot.build();
+  }
 
-    @Override
-    public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
-        GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+  @Override
+  public Mono<? extends Object> execute(
+      McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+    GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
-        return getProgram(args, tool).flatMap(program -> handleDelete(program, args, annotation));
-    }
+    return getProgram(args, tool).flatMap(program -> handleDelete(program, args, annotation));
+  }
 
-    private Mono<? extends Object> handleDelete(Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-        return executeInTransaction(program, "MCP - Delete Symbol", () -> {
-            Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
-            Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
-            Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
+  private Mono<? extends Object> handleDelete(
+      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    return executeInTransaction(
+        program,
+        "MCP - Delete Symbol",
+        () -> {
+          Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+          Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
+          Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
 
-            if (addressOpt.isEmpty() && nameOpt.isEmpty() && symbolIdOpt.isEmpty()) {
-                GhidraMcpError error = GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-                        .message("At least one identifier must be provided")
+          if (addressOpt.isEmpty() && nameOpt.isEmpty() && symbolIdOpt.isEmpty()) {
+            GhidraMcpError error =
+                GhidraMcpError.validation()
+                    .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
+                    .message("At least one identifier must be provided")
+                    .build();
+            throw new GhidraMcpException(error);
+          }
+
+          SymbolTable symbolTable = program.getSymbolTable();
+          Symbol symbolToDelete = null;
+
+          if (symbolIdOpt.isPresent()) {
+            symbolToDelete = symbolTable.getSymbol(symbolIdOpt.get());
+          } else if (addressOpt.isPresent()) {
+            try {
+              Address address = program.getAddressFactory().getAddress(addressOpt.get());
+              if (address != null) {
+                symbolToDelete = symbolTable.getPrimarySymbol(address);
+              }
+            } catch (Exception e) {
+              GhidraMcpError error =
+                  GhidraMcpError.validation()
+                      .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
+                      .message("Failed to parse address: " + e.getMessage())
+                      .build();
+              throw new GhidraMcpException(error);
+            }
+          } else if (nameOpt.isPresent()) {
+            SymbolIterator symbolIter = symbolTable.getSymbolIterator(nameOpt.get(), true);
+            if (symbolIter.hasNext()) {
+              symbolToDelete = symbolIter.next();
+              if (symbolIter.hasNext()) {
+                GhidraMcpError error =
+                    GhidraMcpError.validation()
+                        .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
+                        .message("Multiple symbols found with name: " + nameOpt.get())
                         .build();
                 throw new GhidraMcpException(error);
+              }
             }
+          }
 
-            SymbolTable symbolTable = program.getSymbolTable();
-            Symbol symbolToDelete = null;
+          if (symbolToDelete == null) {
+            GhidraMcpError error =
+                GhidraMcpError.resourceNotFound()
+                    .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
+                    .message("Symbol not found")
+                    .build();
+            throw new GhidraMcpException(error);
+          }
 
-            if (symbolIdOpt.isPresent()) {
-                symbolToDelete = symbolTable.getSymbol(symbolIdOpt.get());
-            } else if (addressOpt.isPresent()) {
-                try {
-                    Address address = program.getAddressFactory().getAddress(addressOpt.get());
-                    if (address != null) {
-                        symbolToDelete = symbolTable.getPrimarySymbol(address);
-                    }
-                } catch (Exception e) {
-                    GhidraMcpError error = GhidraMcpError.validation()
-                            .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                            .message("Failed to parse address: " + e.getMessage())
-                            .build();
-                    throw new GhidraMcpException(error);
-                }
-            } else if (nameOpt.isPresent()) {
-                SymbolIterator symbolIter = symbolTable.getSymbolIterator(nameOpt.get(), true);
-                if (symbolIter.hasNext()) {
-                    symbolToDelete = symbolIter.next();
-                    if (symbolIter.hasNext()) {
-                        GhidraMcpError error = GhidraMcpError.validation()
-                                .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-                                .message("Multiple symbols found with name: " + nameOpt.get())
-                                .build();
-                        throw new GhidraMcpException(error);
-                    }
-                }
-            }
+          DeleteLabelCmd cmd =
+              new DeleteLabelCmd(
+                  symbolToDelete.getAddress(),
+                  symbolToDelete.getName(),
+                  symbolToDelete.getParentNamespace());
+          if (!cmd.applyTo(program)) {
+            GhidraMcpError error =
+                GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
+                    .message("Failed to delete symbol: " + cmd.getStatusMsg())
+                    .build();
+            throw new GhidraMcpException(error);
+          }
 
-            if (symbolToDelete == null) {
-                GhidraMcpError error = GhidraMcpError.resourceNotFound()
-                        .errorCode(GhidraMcpError.ErrorCode.SYMBOL_NOT_FOUND)
-                        .message("Symbol not found")
-                        .build();
-                throw new GhidraMcpException(error);
-            }
-
-            DeleteLabelCmd cmd = new DeleteLabelCmd(symbolToDelete.getAddress(), symbolToDelete.getName(),
-                    symbolToDelete.getParentNamespace());
-            if (!cmd.applyTo(program)) {
-                GhidraMcpError error = GhidraMcpError.execution()
-                        .errorCode(GhidraMcpError.ErrorCode.TRANSACTION_FAILED)
-                        .message("Failed to delete symbol: " + cmd.getStatusMsg())
-                        .build();
-                throw new GhidraMcpException(error);
-            }
-
-            return OperationResult
-                    .success("delete_symbol", symbolToDelete.getAddress().toString(), "Symbol deleted successfully")
-                    .setMetadata(Map.of(
-                            "name", symbolToDelete.getName(),
-                            "address", symbolToDelete.getAddress().toString()));
+          return OperationResult.success(
+                  "delete_symbol",
+                  symbolToDelete.getAddress().toString(),
+                  "Symbol deleted successfully")
+              .setMetadata(
+                  Map.of(
+                      "name", symbolToDelete.getName(),
+                      "address", symbolToDelete.getAddress().toString()));
         });
-    }
+  }
 }

@@ -4,20 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.INullSchemaBuilder;
 
-/**
- * Implementation of INullSchemaBuilder for building null-type schemas.
- */
+/** Implementation of INullSchemaBuilder for building null-type schemas. */
 final class NullBuilderImpl extends AbstractSchemaBuilderImpl<INullSchemaBuilder>
-        implements INullSchemaBuilder {
+    implements INullSchemaBuilder {
 
-    NullBuilderImpl(ObjectMapper mapper) {
-        super(JsonSchemaType.NULL, mapper);
-    }
+  NullBuilderImpl(ObjectMapper mapper) {
+    super(JsonSchemaType.NULL, mapper);
+  }
 
-    @Override
-    protected INullSchemaBuilder self() {
-        return this;
-    }
+  @Override
+  protected INullSchemaBuilder self() {
+    return this;
+  }
 
-    // Null type has no specific validation methods beyond common metadata
+  // Null type has no specific validation methods beyond common metadata
 }

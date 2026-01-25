@@ -7,7 +7,6 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
-
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -19,23 +18,25 @@ import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
-import reactor.core.publisher.Mono;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
     name = "Read Functions",
-    description = "Read a single function or list functions in a Ghidra program with pagination and filtering options.",
+    description =
+        "Read a single function or list functions in a Ghidra program with pagination and filtering"
+            + " options.",
     mcpName = "read_functions",
     title = "Read Functions",
     readOnlyHint = true,
     idempotentHint = true,
-    mcpDescription = """
+    mcpDescription =
+        """
         <use_case>
         Read a single function by identifier (symbol_id, address, name) or browse/list functions
         in Ghidra programs with optional filtering by name pattern and pagination support.
@@ -87,273 +88,289 @@ import java.util.regex.PatternSyntaxException;
           "cursor": "0x401000:main"
         }
         </examples>
-        """
-)
+        """)
 public class ReadFunctionsTool extends BaseMcpTool {
 
-    @Override
-    public JsonSchema schema() {
-        var schemaRoot = createBaseSchemaNode();
+  @Override
+  public JsonSchema schema() {
+    var schemaRoot = createBaseSchemaNode();
 
-        schemaRoot.property(ARG_FILE_NAME,
-                SchemaBuilder.string(mapper)
-                        .description("The name of the program file."));
+    schemaRoot.property(
+        ARG_FILE_NAME, SchemaBuilder.string(mapper).description("The name of the program file."));
 
-        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
-                .description("Symbol ID to identify a specific function (single read mode)"));
+    schemaRoot.property(
+        ARG_SYMBOL_ID,
+        SchemaBuilder.integer(mapper)
+            .description("Symbol ID to identify a specific function (single read mode)"));
 
-        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
-                .description("Function address to identify a specific function (single read mode)")
-                .pattern("^(0x)?[0-9a-fA-F]+$"));
+    schemaRoot.property(
+        ARG_ADDRESS,
+        SchemaBuilder.string(mapper)
+            .description("Function address to identify a specific function (single read mode)")
+            .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
-                .description("Function name for single function lookup (supports regex matching)"));
+    schemaRoot.property(
+        ARG_NAME,
+        SchemaBuilder.string(mapper)
+            .description("Function name for single function lookup (supports regex matching)"));
 
-        schemaRoot.property(ARG_NAME_PATTERN,
-                SchemaBuilder.string(mapper)
-                        .description("Optional regex pattern to filter function names (list mode)"));
+    schemaRoot.property(
+        ARG_NAME_PATTERN,
+        SchemaBuilder.string(mapper)
+            .description("Optional regex pattern to filter function names (list mode)"));
 
-        schemaRoot.property(ARG_CURSOR,
-                SchemaBuilder.string(mapper)
-                        .description("Pagination cursor from previous request (list mode)"));
+    schemaRoot.property(
+        ARG_CURSOR,
+        SchemaBuilder.string(mapper)
+            .description("Pagination cursor from previous request (list mode)"));
 
-        schemaRoot.requiredProperty(ARG_FILE_NAME);
+    schemaRoot.requiredProperty(ARG_FILE_NAME);
 
-        return schemaRoot.build();
-    }
+    return schemaRoot.build();
+  }
 
-    @Override
-    public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
-        return getProgram(args, tool).flatMap(program -> {
-            boolean hasSingleIdentifier = args.containsKey(ARG_SYMBOL_ID) ||
-                    args.containsKey(ARG_ADDRESS) ||
-                    args.containsKey(ARG_NAME);
+  @Override
+  public Mono<? extends Object> execute(
+      McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+    return getProgram(args, tool)
+        .flatMap(
+            program -> {
+              boolean hasSingleIdentifier =
+                  args.containsKey(ARG_SYMBOL_ID)
+                      || args.containsKey(ARG_ADDRESS)
+                      || args.containsKey(ARG_NAME);
 
-            if (hasSingleIdentifier) {
+              if (hasSingleIdentifier) {
                 return readSingleFunction(program, args);
-            } else {
+              } else {
                 return Mono.fromCallable(() -> listFunctions(program, args));
-            }
+              }
+            });
+  }
+
+  private Mono<FunctionInfo> readSingleFunction(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          FunctionManager functionManager = program.getFunctionManager();
+
+          // Apply precedence: symbol_id > address > name
+          if (args.containsKey(ARG_SYMBOL_ID)) {
+            return readBySymbolId(program, functionManager, args);
+          } else if (args.containsKey(ARG_ADDRESS)) {
+            return readByAddress(program, functionManager, args);
+          } else if (args.containsKey(ARG_NAME)) {
+            return readByName(program, functionManager, args);
+          } else {
+            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+          }
         });
+  }
+
+  private FunctionInfo readBySymbolId(
+      Program program, FunctionManager functionManager, Map<String, Object> args)
+      throws GhidraMcpException {
+    Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
+    if (symbolId == null) {
+      throw new GhidraMcpException(GhidraMcpError.missing(ARG_SYMBOL_ID));
     }
 
-    private Mono<FunctionInfo> readSingleFunction(Program program, Map<String, Object> args) {
-        return Mono.fromCallable(() -> {
-            FunctionManager functionManager = program.getFunctionManager();
-
-            // Apply precedence: symbol_id > address > name
-            if (args.containsKey(ARG_SYMBOL_ID)) {
-                return readBySymbolId(program, functionManager, args);
-            } else if (args.containsKey(ARG_ADDRESS)) {
-                return readByAddress(program, functionManager, args);
-            } else if (args.containsKey(ARG_NAME)) {
-                return readByName(program, functionManager, args);
-            } else {
-                throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
-            }
-        });
+    Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+    if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+      Function function = functionManager.getFunctionAt(symbol.getAddress());
+      if (function != null) {
+        return new FunctionInfo(function);
+      }
     }
 
-    private FunctionInfo readBySymbolId(Program program, FunctionManager functionManager, Map<String, Object> args)
-            throws GhidraMcpException {
-        Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-        if (symbolId == null) {
-            throw new GhidraMcpException(GhidraMcpError.missing(ARG_SYMBOL_ID));
-        }
+    throw new GhidraMcpException(GhidraMcpError.notFound("function", "symbol_id=" + symbolId));
+  }
 
-        Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
-        if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
-            Function function = functionManager.getFunctionAt(symbol.getAddress());
-            if (function != null) {
-                return new FunctionInfo(function);
-            }
-        }
-
-        throw new GhidraMcpException(GhidraMcpError.notFound("function", "symbol_id=" + symbolId));
+  private FunctionInfo readByAddress(
+      Program program, FunctionManager functionManager, Map<String, Object> args)
+      throws GhidraMcpException {
+    String addressStr = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
+    if (addressStr == null || addressStr.isBlank()) {
+      throw new GhidraMcpException(GhidraMcpError.missing(ARG_ADDRESS));
     }
 
-    private FunctionInfo readByAddress(Program program, FunctionManager functionManager, Map<String, Object> args)
-            throws GhidraMcpException {
-        String addressStr = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
-        if (addressStr == null || addressStr.isBlank()) {
-            throw new GhidraMcpException(GhidraMcpError.missing(ARG_ADDRESS));
+    try {
+      Address functionAddress = program.getAddressFactory().getAddress(addressStr);
+      if (functionAddress != null) {
+        Function function = functionManager.getFunctionAt(functionAddress);
+        if (function != null) {
+          return new FunctionInfo(function);
         }
-
-        try {
-            Address functionAddress = program.getAddressFactory().getAddress(addressStr);
-            if (functionAddress != null) {
-                Function function = functionManager.getFunctionAt(functionAddress);
-                if (function != null) {
-                    return new FunctionInfo(function);
-                }
-            }
-        } catch (Exception e) {
-            throw new GhidraMcpException(GhidraMcpError.parse("address", addressStr));
-        }
-
-        throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
+      }
+    } catch (Exception e) {
+      throw new GhidraMcpException(GhidraMcpError.parse("address", addressStr));
     }
 
-    private FunctionInfo readByName(Program program, FunctionManager functionManager, Map<String, Object> args)
-            throws GhidraMcpException {
-        String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
-        if (name == null || name.isBlank()) {
-            throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
-        }
+    throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
+  }
 
-        SymbolTable symbolTable = program.getSymbolTable();
-
-        // Use native SymbolTable.getSymbols() for efficient exact name lookup
-        SymbolIterator symbolIter = symbolTable.getSymbols(name);
-        while (symbolIter.hasNext()) {
-            Symbol symbol = symbolIter.next();
-            if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-                Function function = functionManager.getFunctionAt(symbol.getAddress());
-                if (function != null) {
-                    return new FunctionInfo(function);
-                }
-            }
-        }
-
-        // If no exact match, try wildcard search using SymbolTable's native wildcard support
-        // SymbolTable.getSymbolIterator supports * and ? wildcards
-        if (name.contains("*") || name.contains("?")) {
-            SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
-            Function firstMatch = null;
-            int matchCount = 0;
-
-            while (wildcardIter.hasNext()) {
-                Symbol symbol = wildcardIter.next();
-                if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-                    Function function = functionManager.getFunctionAt(symbol.getAddress());
-                    if (function != null) {
-                        if (firstMatch == null) {
-                            firstMatch = function;
-                        }
-                        matchCount++;
-                        if (matchCount > 1) {
-                            throw new GhidraMcpException(
-                                    GhidraMcpError.conflict("Multiple functions found for wildcard pattern: " + name));
-                        }
-                    }
-                }
-            }
-
-            if (firstMatch != null) {
-                return new FunctionInfo(firstMatch);
-            }
-        }
-
-        // Fallback: try as regex pattern (for backwards compatibility)
-        try {
-            Pattern pattern = Pattern.compile(name);
-            Function firstMatch = null;
-            int matchCount = 0;
-
-            FunctionIterator funcIter = functionManager.getFunctions(true);
-            while (funcIter.hasNext()) {
-                Function function = funcIter.next();
-                if (pattern.matcher(function.getName()).matches()) {
-                    if (firstMatch == null) {
-                        firstMatch = function;
-                    }
-                    matchCount++;
-                    if (matchCount > 1) {
-                        throw new GhidraMcpException(
-                                GhidraMcpError.conflict("Multiple functions found for regex pattern: " + name));
-                    }
-                }
-            }
-
-            if (firstMatch != null) {
-                return new FunctionInfo(firstMatch);
-            }
-        } catch (PatternSyntaxException e) {
-            throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
-        } catch (GhidraMcpException e) {
-            throw e;
-        }
-
-        throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
+  private FunctionInfo readByName(
+      Program program, FunctionManager functionManager, Map<String, Object> args)
+      throws GhidraMcpException {
+    String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+    if (name == null || name.isBlank()) {
+      throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
     }
 
-    private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
-        FunctionManager functionManager = program.getFunctionManager();
+    SymbolTable symbolTable = program.getSymbolTable();
 
-        Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
-        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-
-        // Parse cursor to get starting address
-        Address startAddress = null;
-        String cursorName = null;
-        if (cursorOpt.isPresent()) {
-            String cursorStr = cursorOpt.get();
-            String[] parts = cursorStr.split(":", 2);
-            try {
-                startAddress = program.getAddressFactory().getAddress(parts[0]);
-                cursorName = parts.length > 1 ? parts[1] : null;
-            } catch (Exception e) {
-                // Invalid cursor, start from beginning
-            }
+    // Use native SymbolTable.getSymbols() for efficient exact name lookup
+    SymbolIterator symbolIter = symbolTable.getSymbols(name);
+    while (symbolIter.hasNext()) {
+      Symbol symbol = symbolIter.next();
+      if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+        Function function = functionManager.getFunctionAt(symbol.getAddress());
+        if (function != null) {
+          return new FunctionInfo(function);
         }
-
-        // Compile name pattern if provided
-        Pattern namePattern = null;
-        if (namePatternOpt.isPresent()) {
-            try {
-                namePattern = Pattern.compile(namePatternOpt.get());
-            } catch (PatternSyntaxException e) {
-                throw new GhidraMcpException(GhidraMcpError.invalid("name_pattern", namePatternOpt.get(), e.getMessage()));
-            }
-        }
-
-        // Use native FunctionManager.getFunctions(Address, boolean) for cursor-based iteration
-        // Functions are already returned in address order, no sorting needed
-        FunctionIterator funcIter;
-        if (startAddress != null) {
-            funcIter = functionManager.getFunctions(startAddress, true);
-        } else {
-            funcIter = functionManager.getFunctions(true);
-        }
-
-        List<FunctionInfo> results = new ArrayList<>();
-        boolean skipFirst = (startAddress != null && cursorName != null);
-        final Pattern finalNamePattern = namePattern;
-
-        while (funcIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
-            Function function = funcIter.next();
-
-            // Skip past cursor position (same address, name <= cursor name)
-            if (skipFirst) {
-                if (function.getEntryPoint().equals(startAddress) &&
-                    function.getName().compareTo(cursorName) <= 0) {
-                    continue;
-                }
-                skipFirst = false;
-            }
-
-            // Apply name pattern filter if provided
-            if (finalNamePattern != null) {
-                if (!finalNamePattern.matcher(function.getName()).matches()) {
-                    continue;
-                }
-            }
-
-            results.add(new FunctionInfo(function));
-        }
-
-        // Determine if there are more results and create next cursor
-        boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-        if (hasMore) {
-            results = results.subList(0, DEFAULT_PAGE_LIMIT);
-        }
-
-        String nextCursor = null;
-        if (hasMore && !results.isEmpty()) {
-            FunctionInfo lastFunc = results.get(results.size() - 1);
-            nextCursor = lastFunc.getAddress() + ":" + lastFunc.getName();
-        }
-
-        return new PaginatedResult<>(results, nextCursor);
+      }
     }
+
+    // If no exact match, try wildcard search using SymbolTable's native wildcard support
+    // SymbolTable.getSymbolIterator supports * and ? wildcards
+    if (name.contains("*") || name.contains("?")) {
+      SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
+      Function firstMatch = null;
+      int matchCount = 0;
+
+      while (wildcardIter.hasNext()) {
+        Symbol symbol = wildcardIter.next();
+        if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+          Function function = functionManager.getFunctionAt(symbol.getAddress());
+          if (function != null) {
+            if (firstMatch == null) {
+              firstMatch = function;
+            }
+            matchCount++;
+            if (matchCount > 1) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.conflict(
+                      "Multiple functions found for wildcard pattern: " + name));
+            }
+          }
+        }
+      }
+
+      if (firstMatch != null) {
+        return new FunctionInfo(firstMatch);
+      }
+    }
+
+    // Fallback: try as regex pattern (for backwards compatibility)
+    try {
+      Pattern pattern = Pattern.compile(name);
+      Function firstMatch = null;
+      int matchCount = 0;
+
+      FunctionIterator funcIter = functionManager.getFunctions(true);
+      while (funcIter.hasNext()) {
+        Function function = funcIter.next();
+        if (pattern.matcher(function.getName()).matches()) {
+          if (firstMatch == null) {
+            firstMatch = function;
+          }
+          matchCount++;
+          if (matchCount > 1) {
+            throw new GhidraMcpException(
+                GhidraMcpError.conflict("Multiple functions found for regex pattern: " + name));
+          }
+        }
+      }
+
+      if (firstMatch != null) {
+        return new FunctionInfo(firstMatch);
+      }
+    } catch (PatternSyntaxException e) {
+      throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
+    } catch (GhidraMcpException e) {
+      throw e;
+    }
+
+    throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
+  }
+
+  private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
+    FunctionManager functionManager = program.getFunctionManager();
+
+    Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+
+    // Parse cursor to get starting address
+    Address startAddress = null;
+    String cursorName = null;
+    if (cursorOpt.isPresent()) {
+      String cursorStr = cursorOpt.get();
+      String[] parts = cursorStr.split(":", 2);
+      try {
+        startAddress = program.getAddressFactory().getAddress(parts[0]);
+        cursorName = parts.length > 1 ? parts[1] : null;
+      } catch (Exception e) {
+        // Invalid cursor, start from beginning
+      }
+    }
+
+    // Compile name pattern if provided
+    Pattern namePattern = null;
+    if (namePatternOpt.isPresent()) {
+      try {
+        namePattern = Pattern.compile(namePatternOpt.get());
+      } catch (PatternSyntaxException e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid("name_pattern", namePatternOpt.get(), e.getMessage()));
+      }
+    }
+
+    // Use native FunctionManager.getFunctions(Address, boolean) for cursor-based iteration
+    // Functions are already returned in address order, no sorting needed
+    FunctionIterator funcIter;
+    if (startAddress != null) {
+      funcIter = functionManager.getFunctions(startAddress, true);
+    } else {
+      funcIter = functionManager.getFunctions(true);
+    }
+
+    List<FunctionInfo> results = new ArrayList<>();
+    boolean skipFirst = (startAddress != null && cursorName != null);
+    final Pattern finalNamePattern = namePattern;
+
+    while (funcIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+      Function function = funcIter.next();
+
+      // Skip past cursor position (same address, name <= cursor name)
+      if (skipFirst) {
+        if (function.getEntryPoint().equals(startAddress)
+            && function.getName().compareTo(cursorName) <= 0) {
+          continue;
+        }
+        skipFirst = false;
+      }
+
+      // Apply name pattern filter if provided
+      if (finalNamePattern != null) {
+        if (!finalNamePattern.matcher(function.getName()).matches()) {
+          continue;
+        }
+      }
+
+      results.add(new FunctionInfo(function));
+    }
+
+    // Determine if there are more results and create next cursor
+    boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+    if (hasMore) {
+      results = results.subList(0, DEFAULT_PAGE_LIMIT);
+    }
+
+    String nextCursor = null;
+    if (hasMore && !results.isEmpty()) {
+      FunctionInfo lastFunc = results.get(results.size() - 1);
+      nextCursor = lastFunc.getAddress() + ":" + lastFunc.getName();
+    }
+
+    return new PaginatedResult<>(results, nextCursor);
+  }
 }
