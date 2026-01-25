@@ -12,20 +12,19 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class PaginatedResult<T> {
 
-	@JsonProperty("results")
-	public final List<T> results;
+  @JsonProperty("results")
+  public final List<T> results;
 
-	/**
-	 * The cursor to use for fetching the next page of results.
-	 * This field will be present only if there are more results available.
-	 * MCP clients should use this value in the 'cursor' parameter of the next
-	 * request.
-	 */
-	@JsonProperty("next_cursor")
-	public final String nextCursor;
+  /**
+   * The cursor to use for fetching the next page of results. This field will be present only if
+   * there are more results available. MCP clients should use this value in the 'cursor' parameter
+   * of the next request.
+   */
+  @JsonProperty("next_cursor")
+  public final String nextCursor;
 
-	public PaginatedResult(List<T> results, String nextCursor) {
-		this.results = results;
-		this.nextCursor = nextCursor;
-	}
+  public PaginatedResult(List<T> results, String nextCursor) {
+    this.results = results;
+    this.nextCursor = nextCursor;
+  }
 }

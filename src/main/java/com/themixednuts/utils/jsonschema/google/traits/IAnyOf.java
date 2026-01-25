@@ -5,13 +5,14 @@ import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import java.util.List;
 
 /**
- * Capability interface for anyOf keyword.
- * The schema must validate against ANY (one or more) of the provided schemas.
+ * Capability interface for anyOf keyword. The schema must validate against ANY (one or more) of the
+ * provided schemas.
  *
- * <p>This interface follows the trait/capability pattern, allowing type-safe
- * method chaining with the concrete builder type.</p>
+ * <p>This interface follows the trait/capability pattern, allowing type-safe method chaining with
+ * the concrete builder type.
  *
  * <h3>Usage Example:</h3>
+ *
  * <pre>{@code
  * SchemaBuilder.string()
  *     .anyOf(
@@ -25,30 +26,27 @@ import java.util.List;
  */
 public interface IAnyOf<SELF> {
 
-    /**
-     * Adds anyOf constraint - schema must validate against ANY (one or more) of
-     * the provided schemas.
-     *
-     * @param schemas Varargs of schemas where at least one must match
-     * @return This builder instance for chaining
-     */
-    SELF anyOf(IBuildableSchemaType... schemas);
+  /**
+   * Adds anyOf constraint - schema must validate against ANY (one or more) of the provided schemas.
+   *
+   * @param schemas Varargs of schemas where at least one must match
+   * @return This builder instance for chaining
+   */
+  SELF anyOf(IBuildableSchemaType... schemas);
 
-    /**
-     * Adds anyOf constraint using pre-built schema nodes.
-     *
-     * @param schemas Varargs of ObjectNode schemas where at least one must match
-     * @return This builder instance for chaining
-     */
-    SELF anyOf(ObjectNode... schemas);
+  /**
+   * Adds anyOf constraint using pre-built schema nodes.
+   *
+   * @param schemas Varargs of ObjectNode schemas where at least one must match
+   * @return This builder instance for chaining
+   */
+  SELF anyOf(ObjectNode... schemas);
 
-    /**
-     * Adds anyOf constraint - schema must validate against ANY (one or more) of
-     * the provided schemas.
-     *
-     * @param schemas List of schemas where at least one must match
-     * @return This builder instance for chaining
-     */
-    SELF anyOf(List<? extends IBuildableSchemaType> schemas);
+  /**
+   * Adds anyOf constraint - schema must validate against ANY (one or more) of the provided schemas.
+   *
+   * @param schemas List of schemas where at least one must match
+   * @return This builder instance for chaining
+   */
+  SELF anyOf(List<? extends IBuildableSchemaType> schemas);
 }
-
