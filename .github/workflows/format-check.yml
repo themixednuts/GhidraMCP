@@ -17,11 +17,7 @@ jobs:
         with:
           java-version: "21"
           distribution: "temurin"
-
-      - name: Download google-java-format
-        run: |
-          wget --no-verbose -O google-java-format.jar https://github.com/google/google-java-format/releases/download/v1.33.0/google-java-format-1.33.0-all-deps.jar
+          cache: "maven"
 
       - name: Check formatting
-        run: |
-          java -jar google-java-format.jar --dry-run --set-exit-if-changed $(find src -name "*.java")
+        run: mvn spotless:check com.github.hazendaz.maven:xml-format-maven-plugin:xml-check

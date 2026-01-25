@@ -1,6 +1,5 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.themixednuts</groupId>
   <artifactId>GhidraMCP</artifactId>
@@ -9,12 +8,10 @@
   <name>GhidraMCP</name>
   <description>A Ghidra extension implementing the Model Context Protocol (MCP) by running an embedded MCP server.</description>
   <url>https://github.com/themixednuts/GhidraMCP</url>
-
   <organization>
     <name>TheMixedNuts</name>
     <url>https://github.com/themixednuts</url>
   </organization>
-
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -39,34 +36,28 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
-
   <properties>
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    
     <!-- Ghidra version configuration - single source of truth -->
     <ghidra.version>12.0</ghidra.version>
     <ghidra.release.date>20251205</ghidra.release.date>
-    
     <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
     <!-- Add any necessary properties here -->
   </properties>
-
   <dependencies>
     <dependency>
       <groupId>io.modelcontextprotocol.sdk</groupId>
       <artifactId>mcp</artifactId>
     </dependency>
-
     <!-- Jackson JDK8 module for Optional support -->
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jdk8</artifactId>
       <version>2.19.0</version>
     </dependency>
-
     <!-- Ghidra JARs using file repository -->
     <dependency>
       <groupId>ghidra</groupId>
@@ -145,28 +136,23 @@
       <scope>system</scope>
       <systemPath>${project.basedir}/lib/MicrosoftDmang.jar</systemPath>
     </dependency>
-
-
     <!-- Add the jakarta.servlet-api dependency -->
     <dependency>
       <groupId>jakarta.servlet</groupId>
       <artifactId>jakarta.servlet-api</artifactId>
       <version>6.1.0</version>
     </dependency>
-
     <!-- Jetty Embedded Server Dependencies -->
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-server</artifactId>
       <version>12.0.21</version>
     </dependency>
-
     <dependency>
       <groupId>org.eclipse.jetty.ee10</groupId>
       <artifactId>jetty-ee10-servlet</artifactId>
       <version>12.0.21</version>
     </dependency>
-
     <!-- Other dependencies -->
     <dependency>
       <groupId>org.reflections</groupId>
@@ -174,7 +160,6 @@
       <version>0.10.2</version>
       <scope>test</scope>
     </dependency>
-
     <!-- Add JUnit 5 dependencies (version/scope managed) -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -186,7 +171,6 @@
       <artifactId>junit-jupiter-engine</artifactId>
       <scope>test</scope>
     </dependency>
-
     <!-- Mockito for mocking in tests -->
     <dependency>
       <groupId>org.mockito</groupId>
@@ -200,7 +184,6 @@
       <version>5.18.0</version>
       <scope>test</scope>
     </dependency>
-
     <!-- JUnit Platform Suite for test suites -->
     <dependency>
       <groupId>org.junit.platform</groupId>
@@ -208,7 +191,6 @@
       <version>1.12.2</version>
       <scope>test</scope>
     </dependency>
-    
     <!-- JSON Schema validator for headless test framework -->
     <dependency>
       <groupId>com.github.erosb</groupId>
@@ -216,7 +198,6 @@
       <version>1.14.6</version>
       <scope>test</scope>
     </dependency>
-    
     <!-- JSON library for schema validation -->
     <dependency>
       <groupId>org.json</groupId>
@@ -225,7 +206,6 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
-
   <build>
     <resources>
       <resource>
@@ -252,13 +232,11 @@
           <outputDirectory>${project.build.directory}</outputDirectory>
         </configuration>
       </plugin>
-
       <!-- The Assembly Plugin for creating the Ghidra extension ZIP -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
         <version>3.3.0</version>
-
         <executions>
           <execution>
             <id>make-extension</id>
@@ -276,7 +254,6 @@
           </execution>
         </executions>
       </plugin>
-
       <!-- Copy dependencies to target/lib for the assembly -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -296,7 +273,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -316,7 +292,6 @@
           <classpathScope>test</classpathScope>
         </configuration>
       </plugin>
-      
       <!-- Surefire plugin: exclude headless tests (they run in Ghidra, not JUnit) -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -328,9 +303,47 @@
           </excludes>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.46.1</version>
+        <configuration>
+          <java>
+            <googleJavaFormat>
+              <version>1.33.0</version>
+              <style>GOOGLE</style>
+            </googleJavaFormat>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.github.hazendaz.maven</groupId>
+        <artifactId>xml-format-maven-plugin</artifactId>
+        <version>4.2.0</version>
+        <executions>
+          <execution>
+            <id>xml-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>xml-check</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <indentSize>2</indentSize>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
-  
   <profiles>
     <profile>
       <id>ci-tests</id>
