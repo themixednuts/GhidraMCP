@@ -3,9 +3,7 @@ package com.themixednuts.models.versiontracking;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/**
- * Represents details about a Version Tracking match between source and destination addresses.
- */
+/** Represents details about a Version Tracking match between source and destination addresses. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record VTMatchInfo(
     @JsonProperty("source_address") String sourceAddress,
@@ -17,5 +15,4 @@ public record VTMatchInfo(
     @JsonProperty("correlator") String correlator,
     @JsonProperty("source_name") String sourceName,
     @JsonProperty("destination_name") String destinationName,
-    @JsonProperty("markup_item_count") int markupItemCount
-) {}
+    @JsonProperty("markup_item_count") int markupItemCount) {}

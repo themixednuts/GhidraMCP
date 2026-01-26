@@ -13,5 +13,4 @@ public record VTMarkupItemInfo(
     @JsonProperty("destination_address") String destinationAddress,
     @JsonProperty("source_value") String sourceValue,
     @JsonProperty("destination_value") String destinationValue,
-    @JsonProperty("status") String status
-) {}
+    @JsonProperty("status") String status) {}

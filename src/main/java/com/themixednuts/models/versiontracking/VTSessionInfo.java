@@ -2,12 +2,9 @@ package com.themixednuts.models.versiontracking;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.List;
 
-/**
- * Represents metadata and statistics about a Version Tracking session.
- */
+/** Represents metadata and statistics about a Version Tracking session. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record VTSessionInfo(
     @JsonProperty("name") String name,
@@ -18,5 +15,4 @@ public record VTSessionInfo(
     @JsonProperty("rejected_matches") int rejectedMatches,
     @JsonProperty("blocked_matches") int blockedMatches,
     @JsonProperty("applied_markup_count") int appliedMarkupCount,
-    @JsonProperty("match_sets") List<String> matchSets
-) {}
+    @JsonProperty("match_sets") List<String> matchSets) {}

@@ -8,19 +8,23 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
-
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.*;
 import io.modelcontextprotocol.common.McpTransportContext;
-import reactor.core.publisher.Mono;
-
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import reactor.core.publisher.Mono;
 
-@GhidraMcpTool(name = "Read Symbols", description = "Read a single symbol or list symbols in a Ghidra program with pagination and filtering options.", mcpName = "read_symbols", mcpDescription = """
+@GhidraMcpTool(
+    name = "Read Symbols",
+    description =
+        "Read a single symbol or list symbols in a Ghidra program with pagination and filtering options.",
+    mcpName = "read_symbols",
+    mcpDescription =
+        """
         <use_case>
         Read a single symbol by identifier (symbol_id, address, name) or browse/list symbols
         in Ghidra programs with optional filtering by name pattern, symbol type, source type,
@@ -75,310 +79,339 @@ import java.util.regex.PatternSyntaxException;
         """)
 public class ReadSymbolsTool extends BaseMcpTool {
 
-    public static final String ARG_NAME_FILTER = "name_filter";
-    public static final String ARG_SYMBOL_TYPE = "symbol_type";
-    public static final String ARG_SOURCE_TYPE = "source_type";
+  public static final String ARG_NAME_FILTER = "name_filter";
+  public static final String ARG_SYMBOL_TYPE = "symbol_type";
+  public static final String ARG_SOURCE_TYPE = "source_type";
 
-    @Override
-    public JsonSchema schema() {
-        IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
+  @Override
+  public JsonSchema schema() {
+    IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
-        schemaRoot.property(ARG_FILE_NAME,
-                SchemaBuilder.string(mapper)
-                        .description("The name of the program file."));
+    schemaRoot.property(
+        ARG_FILE_NAME, SchemaBuilder.string(mapper).description("The name of the program file."));
 
-        schemaRoot.property(ARG_SYMBOL_ID, SchemaBuilder.integer(mapper)
-                .description("Symbol ID to identify a specific symbol (single read mode)"));
+    schemaRoot.property(
+        ARG_SYMBOL_ID,
+        SchemaBuilder.integer(mapper)
+            .description("Symbol ID to identify a specific symbol (single read mode)"));
 
-        schemaRoot.property(ARG_ADDRESS, SchemaBuilder.string(mapper)
-                .description("Memory address to identify a specific symbol (single read mode)")
-                .pattern("^(0x)?[0-9a-fA-F]+$"));
+    schemaRoot.property(
+        ARG_ADDRESS,
+        SchemaBuilder.string(mapper)
+            .description("Memory address to identify a specific symbol (single read mode)")
+            .pattern("^(0x)?[0-9a-fA-F]+$"));
 
-        schemaRoot.property(ARG_NAME, SchemaBuilder.string(mapper)
-                .description("Symbol name for single symbol lookup (supports regex matching)"));
+    schemaRoot.property(
+        ARG_NAME,
+        SchemaBuilder.string(mapper)
+            .description("Symbol name for single symbol lookup (supports regex matching)"));
 
-        schemaRoot.property(ARG_NAME_FILTER,
-                SchemaBuilder.string(mapper)
-                        .description("Filter symbols by name (case-insensitive substring match, list mode)"));
+    schemaRoot.property(
+        ARG_NAME_FILTER,
+        SchemaBuilder.string(mapper)
+            .description("Filter symbols by name (case-insensitive substring match, list mode)"));
 
-        schemaRoot.property(ARG_SYMBOL_TYPE,
-                SchemaBuilder.string(mapper)
-                        .description("Filter by symbol type (e.g., FUNCTION, LABEL, PARAMETER, LOCAL_VAR)"));
+    schemaRoot.property(
+        ARG_SYMBOL_TYPE,
+        SchemaBuilder.string(mapper)
+            .description("Filter by symbol type (e.g., FUNCTION, LABEL, PARAMETER, LOCAL_VAR)"));
 
-        schemaRoot.property(ARG_SOURCE_TYPE,
-                SchemaBuilder.string(mapper)
-                        .description("Filter by source type (e.g., USER_DEFINED, IMPORTED, ANALYSIS)"));
+    schemaRoot.property(
+        ARG_SOURCE_TYPE,
+        SchemaBuilder.string(mapper)
+            .description("Filter by source type (e.g., USER_DEFINED, IMPORTED, ANALYSIS)"));
 
-        schemaRoot.property(ARG_NAMESPACE,
-                SchemaBuilder.string(mapper)
-                        .description("Filter by namespace (e.g., 'Global', function names)"));
+    schemaRoot.property(
+        ARG_NAMESPACE,
+        SchemaBuilder.string(mapper)
+            .description("Filter by namespace (e.g., 'Global', function names)"));
 
-        schemaRoot.property(ARG_CURSOR,
-                SchemaBuilder.string(mapper)
-                        .description("Pagination cursor from previous request"));
+    schemaRoot.property(
+        ARG_CURSOR,
+        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
 
-        schemaRoot.requiredProperty(ARG_FILE_NAME);
+    schemaRoot.requiredProperty(ARG_FILE_NAME);
 
-        return schemaRoot.build();
-    }
+    return schemaRoot.build();
+  }
 
-    @Override
-    public Mono<? extends Object> execute(McpTransportContext context, Map<String, Object> args, PluginTool tool) {
-        return getProgram(args, tool).flatMap(program -> {
-            // Check if this is a single symbol read or a list operation
-            boolean hasSingleIdentifier = args.containsKey(ARG_SYMBOL_ID) ||
-                    args.containsKey(ARG_ADDRESS) ||
-                    args.containsKey(ARG_NAME);
+  @Override
+  public Mono<? extends Object> execute(
+      McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+    return getProgram(args, tool)
+        .flatMap(
+            program -> {
+              // Check if this is a single symbol read or a list operation
+              boolean hasSingleIdentifier =
+                  args.containsKey(ARG_SYMBOL_ID)
+                      || args.containsKey(ARG_ADDRESS)
+                      || args.containsKey(ARG_NAME);
 
-            if (hasSingleIdentifier) {
+              if (hasSingleIdentifier) {
                 return handleRead(program, args);
-            } else {
+              } else {
                 return Mono.fromCallable(() -> listSymbols(program, args));
+              }
+            });
+  }
+
+  private Mono<? extends Object> handleRead(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          SymbolTable symbolTable = program.getSymbolTable();
+          GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
+
+          // Apply precedence: symbol_id > address > name
+          if (args.containsKey(ARG_SYMBOL_ID)) {
+            Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
+            if (symbolId != null) {
+              Symbol symbol = symbolTable.getSymbol(symbolId);
+              if (symbol != null) {
+                return new SymbolInfo(symbol);
+              }
             }
-        });
-    }
-
-    private Mono<? extends Object> handleRead(Program program, Map<String, Object> args) {
-        return Mono.fromCallable(() -> {
-            SymbolTable symbolTable = program.getSymbolTable();
-            GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
-
-            // Apply precedence: symbol_id > address > name
-            if (args.containsKey(ARG_SYMBOL_ID)) {
-                Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-                if (symbolId != null) {
-                    Symbol symbol = symbolTable.getSymbol(symbolId);
-                    if (symbol != null) {
-                        return new SymbolInfo(symbol);
-                    }
+            throw new GhidraMcpException(
+                createSymbolNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
+          } else if (args.containsKey(ARG_ADDRESS)) {
+            String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
+            if (address != null && !address.trim().isEmpty()) {
+              try {
+                Address addr = program.getAddressFactory().getAddress(address);
+                if (addr != null) {
+                  Symbol[] symbols = symbolTable.getSymbols(addr);
+                  if (symbols.length > 0) {
+                    return new SymbolInfo(symbols[0]);
+                  }
                 }
                 throw new GhidraMcpException(
-                        createSymbolNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
-            } else if (args.containsKey(ARG_ADDRESS)) {
-                String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
-                if (address != null && !address.trim().isEmpty()) {
-                    try {
-                        Address addr = program.getAddressFactory().getAddress(address);
-                        if (addr != null) {
-                            Symbol[] symbols = symbolTable.getSymbols(addr);
-                            if (symbols.length > 0) {
-                                return new SymbolInfo(symbols[0]);
-                            }
-                        }
-                        throw new GhidraMcpException(
-                                createSymbolNotFoundError(annotation.mcpName(), "address", address));
-                    } catch (Exception e) {
-                        throw new GhidraMcpException(createInvalidAddressError(address, e));
-                    }
-                }
-                throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
-            } else if (args.containsKey(ARG_NAME)) {
-                String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
-                if (name != null && !name.trim().isEmpty()) {
-                    // Use native SymbolTable.getSymbols() for efficient exact name lookup
-                    SymbolIterator exactIter = symbolTable.getSymbols(name);
-                    if (exactIter.hasNext()) {
-                        return new SymbolInfo(exactIter.next());
-                    }
-
-                    // Try wildcard search using SymbolTable's native * and ? support
-                    if (name.contains("*") || name.contains("?")) {
-                        SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
-                        Symbol firstMatch = null;
-                        int matchCount = 0;
-
-                        while (wildcardIter.hasNext()) {
-                            Symbol symbol = wildcardIter.next();
-                            if (firstMatch == null) {
-                                firstMatch = symbol;
-                            }
-                            matchCount++;
-                            if (matchCount > 1) {
-                                throw new GhidraMcpException(
-                                        GhidraMcpError.conflict("Multiple symbols found for wildcard pattern: " + name));
-                            }
-                        }
-
-                        if (firstMatch != null) {
-                            return new SymbolInfo(firstMatch);
-                        }
-                    }
-
-                    // Fallback: try as regex pattern (for backwards compatibility)
-                    try {
-                        Pattern pattern = Pattern.compile(name);
-                        Symbol firstMatch = null;
-                        int matchCount = 0;
-
-                        SymbolIterator allIter = symbolTable.getAllSymbols(true);
-                        while (allIter.hasNext()) {
-                            Symbol symbol = allIter.next();
-                            if (pattern.matcher(symbol.getName()).matches()) {
-                                if (firstMatch == null) {
-                                    firstMatch = symbol;
-                                }
-                                matchCount++;
-                                if (matchCount > 1) {
-                                    throw new GhidraMcpException(
-                                            GhidraMcpError.conflict("Multiple symbols found for regex pattern: " + name));
-                                }
-                            }
-                        }
-
-                        if (firstMatch != null) {
-                            return new SymbolInfo(firstMatch);
-                        }
-                    } catch (PatternSyntaxException e) {
-                        throw new GhidraMcpException(createInvalidRegexError(name, e));
-                    } catch (GhidraMcpException e) {
-                        throw e;
-                    }
-
-                    throw new GhidraMcpException(createSymbolNotFoundError(annotation.mcpName(), "name", name));
-                }
-                throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
-            } else {
-                throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
+                    createSymbolNotFoundError(annotation.mcpName(), "address", address));
+              } catch (Exception e) {
+                throw new GhidraMcpException(createInvalidAddressError(address, e));
+              }
             }
+            throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
+          } else if (args.containsKey(ARG_NAME)) {
+            String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+            if (name != null && !name.trim().isEmpty()) {
+              // Use native SymbolTable.getSymbols() for efficient exact name lookup
+              SymbolIterator exactIter = symbolTable.getSymbols(name);
+              if (exactIter.hasNext()) {
+                return new SymbolInfo(exactIter.next());
+              }
+
+              // Try wildcard search using SymbolTable's native * and ? support
+              if (name.contains("*") || name.contains("?")) {
+                SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
+                Symbol firstMatch = null;
+                int matchCount = 0;
+
+                while (wildcardIter.hasNext()) {
+                  Symbol symbol = wildcardIter.next();
+                  if (firstMatch == null) {
+                    firstMatch = symbol;
+                  }
+                  matchCount++;
+                  if (matchCount > 1) {
+                    throw new GhidraMcpException(
+                        GhidraMcpError.conflict(
+                            "Multiple symbols found for wildcard pattern: " + name));
+                  }
+                }
+
+                if (firstMatch != null) {
+                  return new SymbolInfo(firstMatch);
+                }
+              }
+
+              // Fallback: try as regex pattern (for backwards compatibility)
+              try {
+                Pattern pattern = Pattern.compile(name);
+                Symbol firstMatch = null;
+                int matchCount = 0;
+
+                SymbolIterator allIter = symbolTable.getAllSymbols(true);
+                while (allIter.hasNext()) {
+                  Symbol symbol = allIter.next();
+                  if (pattern.matcher(symbol.getName()).matches()) {
+                    if (firstMatch == null) {
+                      firstMatch = symbol;
+                    }
+                    matchCount++;
+                    if (matchCount > 1) {
+                      throw new GhidraMcpException(
+                          GhidraMcpError.conflict(
+                              "Multiple symbols found for regex pattern: " + name));
+                    }
+                  }
+                }
+
+                if (firstMatch != null) {
+                  return new SymbolInfo(firstMatch);
+                }
+              } catch (PatternSyntaxException e) {
+                throw new GhidraMcpException(createInvalidRegexError(name, e));
+              } catch (GhidraMcpException e) {
+                throw e;
+              }
+
+              throw new GhidraMcpException(
+                  createSymbolNotFoundError(annotation.mcpName(), "name", name));
+            }
+            throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
+          } else {
+            throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
+          }
         });
+  }
+
+  private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
+      throws GhidraMcpException {
+    SymbolTable symbolTable = program.getSymbolTable();
+
+    Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
+    Optional<String> symbolTypeOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE);
+    Optional<String> sourceTypeOpt = getOptionalStringArgument(args, ARG_SOURCE_TYPE);
+    Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+
+    // Map symbol type string to SymbolType enum
+    SymbolType symbolTypeFilter = symbolTypeOpt.map(this::parseSymbolType).orElse(null);
+
+    // Parse cursor to get starting name
+    String cursorName = null;
+    String cursorAddress = null;
+    if (cursorOpt.isPresent()) {
+      String[] parts = cursorOpt.get().split(":", 2);
+      cursorName = parts[0];
+      cursorAddress = parts.length > 1 ? parts[1] : null;
     }
 
-    private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
-            throws GhidraMcpException {
-        SymbolTable symbolTable = program.getSymbolTable();
+    // Use native scanSymbolsByName for efficient lexicographic iteration
+    // This avoids loading all symbols into memory
+    SymbolIterator symbolIter;
+    if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
+      // Use native wildcard support: convert substring filter to wildcard pattern
+      String wildcardPattern = "*" + nameFilterOpt.get() + "*";
+      symbolIter = symbolTable.getSymbolIterator(wildcardPattern, false);
+    } else if (cursorName != null) {
+      // Use scanSymbolsByName for cursor-based pagination (lexicographic order)
+      symbolIter = symbolTable.scanSymbolsByName(cursorName);
+    } else {
+      // Get all symbols sorted by name (native order)
+      symbolIter = symbolTable.getAllSymbols(true);
+    }
 
-        Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
-        Optional<String> symbolTypeOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE);
-        Optional<String> sourceTypeOpt = getOptionalStringArgument(args, ARG_SOURCE_TYPE);
-        Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
-        Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    List<SymbolInfo> results = new ArrayList<>();
+    boolean skipPastCursor = (cursorName != null);
+    final String finalCursorName = cursorName;
+    final String finalCursorAddress = cursorAddress;
 
-        // Map symbol type string to SymbolType enum
-        SymbolType symbolTypeFilter = symbolTypeOpt.map(this::parseSymbolType).orElse(null);
+    while (symbolIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+      Symbol symbol = symbolIter.next();
 
-        // Parse cursor to get starting name
-        String cursorName = null;
-        String cursorAddress = null;
-        if (cursorOpt.isPresent()) {
-            String[] parts = cursorOpt.get().split(":", 2);
-            cursorName = parts[0];
-            cursorAddress = parts.length > 1 ? parts[1] : null;
+      // Skip past cursor position
+      if (skipPastCursor) {
+        int nameCompare = symbol.getName().compareToIgnoreCase(finalCursorName);
+        if (nameCompare < 0) {
+          continue;
         }
-
-        // Use native scanSymbolsByName for efficient lexicographic iteration
-        // This avoids loading all symbols into memory
-        SymbolIterator symbolIter;
-        if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-            // Use native wildcard support: convert substring filter to wildcard pattern
-            String wildcardPattern = "*" + nameFilterOpt.get() + "*";
-            symbolIter = symbolTable.getSymbolIterator(wildcardPattern, false);
-        } else if (cursorName != null) {
-            // Use scanSymbolsByName for cursor-based pagination (lexicographic order)
-            symbolIter = symbolTable.scanSymbolsByName(cursorName);
-        } else {
-            // Get all symbols sorted by name (native order)
-            symbolIter = symbolTable.getAllSymbols(true);
+        if (nameCompare == 0) {
+          if (finalCursorAddress != null
+              && symbol.getAddress().toString().compareTo(finalCursorAddress) <= 0) {
+            continue;
+          }
         }
+        skipPastCursor = false;
+      }
 
-        List<SymbolInfo> results = new ArrayList<>();
-        boolean skipPastCursor = (cursorName != null);
-        final String finalCursorName = cursorName;
-        final String finalCursorAddress = cursorAddress;
+      // Apply symbol type filter
+      if (symbolTypeFilter != null && symbol.getSymbolType() != symbolTypeFilter) {
+        continue;
+      }
 
-        while (symbolIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
-            Symbol symbol = symbolIter.next();
-
-            // Skip past cursor position
-            if (skipPastCursor) {
-                int nameCompare = symbol.getName().compareToIgnoreCase(finalCursorName);
-                if (nameCompare < 0) {
-                    continue;
-                }
-                if (nameCompare == 0) {
-                    if (finalCursorAddress != null &&
-                        symbol.getAddress().toString().compareTo(finalCursorAddress) <= 0) {
-                        continue;
-                    }
-                }
-                skipPastCursor = false;
-            }
-
-            // Apply symbol type filter
-            if (symbolTypeFilter != null && symbol.getSymbolType() != symbolTypeFilter) {
-                continue;
-            }
-
-            // Apply source type filter
-            if (sourceTypeOpt.isPresent() && !sourceTypeOpt.get().isEmpty()) {
-                if (!symbol.getSource().toString().equalsIgnoreCase(sourceTypeOpt.get())) {
-                    continue;
-                }
-            }
-
-            // Apply namespace filter
-            if (namespaceOpt.isPresent() && !namespaceOpt.get().isEmpty()) {
-                if (!symbol.getParentNamespace().getName(false).equalsIgnoreCase(namespaceOpt.get())) {
-                    continue;
-                }
-            }
-
-            // Apply name filter (for exact substring match if wildcard didn't work)
-            if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-                if (!symbol.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
-                    continue;
-                }
-            }
-
-            results.add(new SymbolInfo(symbol));
+      // Apply source type filter
+      if (sourceTypeOpt.isPresent() && !sourceTypeOpt.get().isEmpty()) {
+        if (!symbol.getSource().toString().equalsIgnoreCase(sourceTypeOpt.get())) {
+          continue;
         }
+      }
 
-        // Determine if there are more results
-        boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-        if (hasMore) {
-            results = results.subList(0, DEFAULT_PAGE_LIMIT);
+      // Apply namespace filter
+      if (namespaceOpt.isPresent() && !namespaceOpt.get().isEmpty()) {
+        if (!symbol.getParentNamespace().getName(false).equalsIgnoreCase(namespaceOpt.get())) {
+          continue;
         }
+      }
 
-        String nextCursor = null;
-        if (hasMore && !results.isEmpty()) {
-            SymbolInfo lastItem = results.get(results.size() - 1);
-            nextCursor = lastItem.getName() + ":" + lastItem.getAddr();
+      // Apply name filter (for exact substring match if wildcard didn't work)
+      if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
+        if (!symbol.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
+          continue;
         }
+      }
 
-        return new PaginatedResult<>(results, nextCursor);
+      results.add(new SymbolInfo(symbol));
     }
 
-    private SymbolType parseSymbolType(String typeStr) {
-        if (typeStr == null) return null;
-        String upperType = typeStr.toUpperCase();
-        switch (upperType) {
-            case "NAMESPACE": return SymbolType.NAMESPACE;
-            case "CLASS": return SymbolType.CLASS;
-            case "FUNCTION": return SymbolType.FUNCTION;
-            case "LABEL": return SymbolType.LABEL;
-            case "PARAMETER": return SymbolType.PARAMETER;
-            case "LOCAL_VAR": return SymbolType.LOCAL_VAR;
-            case "GLOBAL_VAR": return SymbolType.GLOBAL_VAR;
-            case "GLOBAL": return SymbolType.GLOBAL;
-            case "LIBRARY": return SymbolType.LIBRARY;
-            default: return null;
-        }
+    // Determine if there are more results
+    boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+    if (hasMore) {
+      results = results.subList(0, DEFAULT_PAGE_LIMIT);
     }
 
-    private GhidraMcpError createSymbolNotFoundError(String toolOperation, String searchType, String searchValue) {
-        return GhidraMcpError.notFound("symbol", searchValue,
-                "Verify the symbol exists using " + searchType);
+    String nextCursor = null;
+    if (hasMore && !results.isEmpty()) {
+      SymbolInfo lastItem = results.get(results.size() - 1);
+      nextCursor = lastItem.getName() + ":" + lastItem.getAddr();
     }
 
-    private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
-        return GhidraMcpError.parse("address", addressStr);
-    }
+    return new PaginatedResult<>(results, nextCursor);
+  }
 
-    private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
-        return GhidraMcpError.invalid(ARG_NAME, pattern, "Invalid regex pattern: " + cause.getMessage());
+  private SymbolType parseSymbolType(String typeStr) {
+    if (typeStr == null) return null;
+    String upperType = typeStr.toUpperCase();
+    switch (upperType) {
+      case "NAMESPACE":
+        return SymbolType.NAMESPACE;
+      case "CLASS":
+        return SymbolType.CLASS;
+      case "FUNCTION":
+        return SymbolType.FUNCTION;
+      case "LABEL":
+        return SymbolType.LABEL;
+      case "PARAMETER":
+        return SymbolType.PARAMETER;
+      case "LOCAL_VAR":
+        return SymbolType.LOCAL_VAR;
+      case "GLOBAL_VAR":
+        return SymbolType.GLOBAL_VAR;
+      case "GLOBAL":
+        return SymbolType.GLOBAL;
+      case "LIBRARY":
+        return SymbolType.LIBRARY;
+      default:
+        return null;
     }
+  }
 
-    private GhidraMcpError createMissingParameterError(String toolOperation) {
-        return GhidraMcpError.of("No search parameters provided",
-                "Provide symbol_id, address, or name parameter");
-    }
+  private GhidraMcpError createSymbolNotFoundError(
+      String toolOperation, String searchType, String searchValue) {
+    return GhidraMcpError.notFound(
+        "symbol", searchValue, "Verify the symbol exists using " + searchType);
+  }
+
+  private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
+    return GhidraMcpError.parse("address", addressStr);
+  }
+
+  private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
+    return GhidraMcpError.invalid(
+        ARG_NAME, pattern, "Invalid regex pattern: " + cause.getMessage());
+  }
+
+  private GhidraMcpError createMissingParameterError(String toolOperation) {
+    return GhidraMcpError.of(
+        "No search parameters provided", "Provide symbol_id, address, or name parameter");
+  }
 }
