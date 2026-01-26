@@ -19,6 +19,8 @@ jobs:
         Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar
         Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar
         Features/MicrosoftDmang/lib/MicrosoftDmang.jar
+        Features/VersionTracking/lib/VersionTracking.jar
+        Framework/DB/lib/DB.jar
         Framework/Docking/lib/Docking.jar
         Framework/Generic/lib/Generic.jar
         Framework/Project/lib/Project.jar
