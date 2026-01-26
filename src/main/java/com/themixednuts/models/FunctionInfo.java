@@ -2,58 +2,46 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import ghidra.app.util.NamespaceUtils;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionInfo {
   private final String name;
-  private final String qualifiedName;
-  private final String address;
-  private final String signature;
-  private final String callingConvention;
-  private final String namespace;
-  private final String bodyMinAddress;
-  private final String bodyMaxAddress;
+  private final String addr;
+  private final String sig;
+  private final String cc;
+  private final String ns;
+  private final String start;
+  private final String end;
 
   public FunctionInfo(Function function) {
     this.name = function.getName();
 
     if (function.getEntryPoint() != null) {
-      this.address = function.getEntryPoint().toString();
+      this.addr = function.getEntryPoint().toString();
     } else {
-      this.address = null;
+      this.addr = null;
     }
 
-    this.signature = function.getSignature(true).getPrototypeString();
-    this.callingConvention = function.getCallingConventionName();
+    this.sig = function.getSignature(true).getPrototypeString();
+    this.cc = function.getCallingConventionName();
 
     Namespace parentNs = function.getParentNamespace();
-    if (parentNs != null) {
-      this.namespace = parentNs.getName(true);
-      // Get fully qualified name using NamespaceUtils
-      this.qualifiedName =
-          NamespaceUtils.getNamespaceQualifiedName(parentNs, function.getName(), false);
-    } else {
-      this.namespace = null;
-      this.qualifiedName = function.getName();
-    }
+    this.ns = (parentNs != null) ? parentNs.getName(true) : null;
 
     if (function.getBody() != null) {
-      if (function.getBody().getMinAddress() != null) {
-        this.bodyMinAddress = function.getBody().getMinAddress().toString();
-      } else {
-        this.bodyMinAddress = null;
-      }
-      if (function.getBody().getMaxAddress() != null) {
-        this.bodyMaxAddress = function.getBody().getMaxAddress().toString();
-      } else {
-        this.bodyMaxAddress = null;
-      }
+      this.start =
+          function.getBody().getMinAddress() != null
+              ? function.getBody().getMinAddress().toString()
+              : null;
+      this.end =
+          function.getBody().getMaxAddress() != null
+              ? function.getBody().getMaxAddress().toString()
+              : null;
     } else {
-      this.bodyMinAddress = null;
-      this.bodyMaxAddress = null;
+      this.start = null;
+      this.end = null;
     }
   }
 
@@ -62,38 +50,33 @@ public class FunctionInfo {
     return name;
   }
 
-  @JsonProperty("qualified_name")
-  public String getQualifiedName() {
-    return qualifiedName;
-  }
-
-  @JsonProperty("address")
+  @JsonProperty("addr")
   public String getAddress() {
-    return address;
+    return addr;
   }
 
-  @JsonProperty("signature")
+  @JsonProperty("sig")
   public String getSignature() {
-    return signature;
+    return sig;
   }
 
-  @JsonProperty("calling_convention")
+  @JsonProperty("cc")
   public String getCallingConvention() {
-    return callingConvention;
+    return cc;
   }
 
-  @JsonProperty("namespace")
+  @JsonProperty("ns")
   public String getNamespace() {
-    return namespace;
+    return ns;
   }
 
-  @JsonProperty("body_min_address")
-  public String getBodyMinAddress() {
-    return bodyMinAddress;
+  @JsonProperty("start")
+  public String getStart() {
+    return start;
   }
 
-  @JsonProperty("body_max_address")
-  public String getBodyMaxAddress() {
-    return bodyMaxAddress;
+  @JsonProperty("end")
+  public String getEnd() {
+    return end;
   }
 }

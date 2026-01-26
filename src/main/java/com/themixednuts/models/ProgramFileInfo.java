@@ -1,6 +1,7 @@
 package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Represents information about a program file in a Ghidra project, including both open and closed
@@ -11,82 +12,85 @@ public class ProgramFileInfo {
 
   private final String name;
   private final String path;
-  private final String programId;
   private final int version;
-  private final boolean isOpen;
-  private final boolean isChanged;
-  private final boolean isReadOnly;
-  private final String architecture;
-  private final String imageBase;
-  private final Long programSize;
-  private final String executableFormat;
+  private final boolean open;
+  private final boolean changed;
+  private final boolean readOnly;
+  private final String arch;
+  private final String base;
+  private final Long size;
+  private final String format;
 
   public ProgramFileInfo(
       String name,
       String path,
-      String programId,
       int version,
-      boolean isOpen,
-      boolean isChanged,
-      boolean isReadOnly,
-      String architecture,
-      String imageBase,
-      Long programSize,
-      String executableFormat) {
+      boolean open,
+      boolean changed,
+      boolean readOnly,
+      String arch,
+      String base,
+      Long size,
+      String format) {
     this.name = name;
     this.path = path;
-    this.programId = programId;
     this.version = version;
-    this.isOpen = isOpen;
-    this.isChanged = isChanged;
-    this.isReadOnly = isReadOnly;
-    this.architecture = architecture;
-    this.imageBase = imageBase;
-    this.programSize = programSize;
-    this.executableFormat = executableFormat;
+    this.open = open;
+    this.changed = changed;
+    this.readOnly = readOnly;
+    this.arch = arch;
+    this.base = base;
+    this.size = size;
+    this.format = format;
   }
 
+  @JsonProperty("name")
   public String getName() {
     return name;
   }
 
+  @JsonProperty("path")
   public String getPath() {
     return path;
   }
 
-  public String getProgramId() {
-    return programId;
-  }
-
+  @JsonProperty("ver")
   public int getVersion() {
     return version;
   }
 
+  @JsonProperty("open")
   public boolean isOpen() {
-    return isOpen;
+    return open;
   }
 
+  @JsonProperty("changed")
   public boolean isChanged() {
-    return isChanged;
+    return changed;
   }
 
+  @JsonProperty("ro")
   public boolean isReadOnly() {
-    return isReadOnly;
+    return readOnly;
   }
 
-  public String getArchitecture() {
-    return architecture;
+  @JsonProperty("arch")
+  public String getArch() {
+    return arch;
   }
 
-  public String getImageBase() {
-    return imageBase;
+  @JsonProperty("base")
+  public String getBase() {
+    return base;
   }
 
-  public Long getProgramSize() {
-    return programSize;
+  @JsonProperty("size")
+  public Long getSize() {
+    return size;
   }
 
-  public String getExecutableFormat() {
-    return executableFormat;
+  @JsonProperty("format")
+  public String getFormat() {
+    return format;
   }
 }

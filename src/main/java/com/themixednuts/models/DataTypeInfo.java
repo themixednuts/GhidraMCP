@@ -15,98 +15,53 @@ import ghidra.program.model.data.Union;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataTypeInfo {
 
-  // Fields duplicated in BaseDataTypeDetails are removed:
-  // name, pathName, categoryPath, length, alignment, description
-
-  private final String displayName;
-  private final int alignedLength;
-  private final boolean isZeroLength;
-  private final boolean isStructure;
-  private final boolean isUnion;
-  private final boolean isEnum;
-  private final boolean isTypeDef;
-  private final boolean isPointer;
-  private final boolean isFunctionDefinition;
+  private final String name;
+  private final String type;
+  private final int len;
   private BaseDataTypeDetails details;
 
   public DataTypeInfo(DataType dataType) {
-    // Initialize fields unique to DataTypeInfo
-    this.displayName = dataType.getDisplayName();
-    this.alignedLength = dataType.getAlignedLength();
-    this.isZeroLength = dataType.isZeroLength();
+    this.name = dataType.getDisplayName();
+    this.len = dataType.getAlignedLength();
 
-    // Set type flags
-    this.isStructure = dataType instanceof Structure;
-    this.isUnion = dataType instanceof Union;
-    this.isEnum = dataType instanceof Enum;
-    this.isTypeDef = dataType instanceof TypeDef;
-    this.isPointer = dataType instanceof Pointer;
-    this.isFunctionDefinition = dataType instanceof FunctionDefinitionDataType;
-
-    // Populate details based on the type - this now creates the object containing
-    // the previously duplicated fields.
-    if (this.isStructure) {
+    // Determine type string
+    if (dataType instanceof Structure) {
+      this.type = "struct";
       this.details = new StructureDetails((Structure) dataType);
-    } else if (this.isUnion) {
+    } else if (dataType instanceof Union) {
+      this.type = "union";
       this.details = new UnionDetails((Union) dataType);
-    } else if (this.isEnum) {
+    } else if (dataType instanceof Enum) {
+      this.type = "enum";
       this.details = new EnumDetails((Enum) dataType);
-    } else if (this.isTypeDef) {
+    } else if (dataType instanceof TypeDef) {
+      this.type = "typedef";
       this.details = new TypedefDetails((TypeDef) dataType);
-    } else if (this.isFunctionDefinition) {
+    } else if (dataType instanceof FunctionDefinitionDataType) {
+      this.type = "funcdef";
       this.details = new FunctionDefinitionDetails((FunctionDefinitionDataType) dataType);
-    } else if (this.isPointer) {
+    } else if (dataType instanceof Pointer) {
+      this.type = "ptr";
       this.details = new PointerDetails((Pointer) dataType);
     } else {
+      this.type = "other";
       this.details = new OtherDataTypeDetails(dataType);
     }
   }
 
-  // Getters for fields unique to DataTypeInfo
-  @JsonProperty("display_name")
-  public String getDisplayName() {
-    return displayName;
+  @JsonProperty("name")
+  public String getName() {
+    return name;
   }
 
-  @JsonProperty("aligned_length")
-  public int getAlignedLength() {
-    return alignedLength;
+  @JsonProperty("type")
+  public String getType() {
+    return type;
   }
 
-  @JsonProperty("is_zero_length")
-  public boolean isZeroLength() {
-    return isZeroLength;
-  }
-
-  // Getters for type flags
-  @JsonProperty("is_structure")
-  public boolean isStructure() {
-    return isStructure;
-  }
-
-  @JsonProperty("is_union")
-  public boolean isUnion() {
-    return isUnion;
-  }
-
-  @JsonProperty("is_enum")
-  public boolean isEnum() {
-    return isEnum;
-  }
-
-  @JsonProperty("is_type_def")
-  public boolean isTypeDef() {
-    return isTypeDef;
-  }
-
-  @JsonProperty("is_pointer")
-  public boolean isPointer() {
-    return isPointer;
-  }
-
-  @JsonProperty("is_function_definition")
-  public boolean isFunctionDefinition() {
-    return isFunctionDefinition;
+  @JsonProperty("len")
+  public int getLen() {
+    return len;
   }
 
   @JsonProperty("details")
@@ -114,7 +69,4 @@ public class DataTypeInfo {
   public BaseDataTypeDetails getDetails() {
     return details;
   }
-
-  // Removed getters for name, pathName, categoryPath, length, alignment,
-  // description
 }

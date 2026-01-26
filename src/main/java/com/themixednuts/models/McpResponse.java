@@ -13,33 +13,33 @@ import java.util.Optional;
  * @param <T> The type of data contained in the response
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({"ok", "data", "cursor", "ms", "err"})
+@JsonPropertyOrder({"data", "cursor", "ms", "msg", "hint"})
 public class McpResponse<T> {
 
-  private final boolean ok; // success
   private final T data; // result data
   private final String cursor; // next page cursor
   private final Long ms; // duration in milliseconds
-  private final GhidraMcpError err; // error details
+  private final String msg; // error message
+  private final String hint; // error hint
 
   private McpResponse(Builder<T> builder) {
-    this.ok = builder.ok;
     this.data = builder.data;
     this.cursor = builder.cursor;
     this.ms = builder.ms;
-    this.err = builder.err;
+    this.msg = builder.msg;
+    this.hint = builder.hint;
   }
 
   // =================== Getters ===================
 
-  @JsonProperty("ok")
+  /** Checks if the response is successful (has no error message). */
   public boolean isOk() {
-    return ok;
+    return msg == null;
   }
 
   // Alias for compatibility
   public boolean isSuccess() {
-    return ok;
+    return isOk();
   }
 
   @JsonProperty("data")
@@ -67,69 +67,59 @@ public class McpResponse<T> {
     return ms;
   }
 
-  @JsonProperty("err")
-  public GhidraMcpError getErr() {
-    return err;
+  @JsonProperty("msg")
+  public String getMsg() {
+    return msg;
   }
 
-  // Alias
-  public GhidraMcpError getError() {
-    return err;
+  @JsonProperty("hint")
+  public String getHint() {
+    return hint;
   }
 
   // =================== Static Factory Methods ===================
 
   /** Creates a successful response with data. */
   public static <T> McpResponse<T> success(String tool, String operation, T data) {
-    return new Builder<T>().ok(true).data(data).build();
+    return new Builder<T>().data(data).build();
   }
 
   /** Creates a successful response with data and timing. */
   public static <T> McpResponse<T> success(String tool, String operation, T data, long ms) {
-    return new Builder<T>().ok(true).data(data).ms(ms).build();
+    return new Builder<T>().data(data).ms(ms).build();
   }
 
   /** Creates a successful paginated response. */
   public static <T> McpResponse<List<T>> paginated(
       String tool, String operation, List<T> items, String cursor, Integer totalCount) {
-    return new Builder<List<T>>().ok(true).data(items).cursor(cursor).build();
+    return new Builder<List<T>>().data(items).cursor(cursor).build();
   }
 
   /** Creates a successful paginated response with timing. */
   public static <T> McpResponse<List<T>> paginated(
       String tool, String operation, List<T> items, String cursor, Integer totalCount, long ms) {
-    return new Builder<List<T>>().ok(true).data(items).cursor(cursor).ms(ms).build();
+    return new Builder<List<T>>().data(items).cursor(cursor).ms(ms).build();
   }
 
   /** Creates an error response. */
   public static <T> McpResponse<T> error(String tool, String operation, GhidraMcpError err) {
-    return new Builder<T>().ok(false).err(err).build();
+    return new Builder<T>().msg(err.getMsg()).hint(err.getHint()).build();
   }
 
   /** Creates an error response with timing. */
   public static <T> McpResponse<T> error(
       String tool, String operation, GhidraMcpError err, long ms) {
-    return new Builder<T>().ok(false).err(err).ms(ms).build();
+    return new Builder<T>().msg(err.getMsg()).hint(err.getHint()).ms(ms).build();
   }
 
   // =================== Builder ===================
 
   public static class Builder<T> {
-    private boolean ok;
     private T data;
     private String cursor;
     private Long ms;
-    private GhidraMcpError err;
-
-    public Builder<T> ok(boolean ok) {
-      this.ok = ok;
-      return this;
-    }
-
-    // Alias
-    public Builder<T> success(boolean ok) {
-      return ok(ok);
-    }
+    private String msg;
+    private String hint;
 
     public Builder<T> data(T data) {
       this.data = data;
@@ -156,27 +146,14 @@ public class McpResponse<T> {
       return ms(ms);
     }
 
-    public Builder<T> err(GhidraMcpError err) {
-      this.err = err;
+    public Builder<T> msg(String msg) {
+      this.msg = msg;
       return this;
     }
 
-    // Alias
-    public Builder<T> error(GhidraMcpError err) {
-      return err(err);
-    }
-
-    // Ignored - tool/operation not included in output
-    public Builder<T> tool(String tool) {
+    public Builder<T> hint(String hint) {
+      this.hint = hint;
       return this;
-    }
-
-    public Builder<T> operation(String operation) {
-      return this;
-    }
-
-    public Builder<T> totalCount(Integer count) {
-      return this; // Not included in streamlined output
     }
 
     public McpResponse<T> build() {
@@ -196,8 +173,8 @@ public class McpResponse<T> {
     return Optional.ofNullable(data);
   }
 
-  /** Gets error as Optional. */
-  public Optional<GhidraMcpError> getErrorOptional() {
-    return Optional.ofNullable(err);
+  /** Gets error message as Optional. */
+  public Optional<String> getMsgOptional() {
+    return Optional.ofNullable(msg);
   }
 }
