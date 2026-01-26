@@ -136,6 +136,20 @@
       <scope>system</scope>
       <systemPath>${project.basedir}/lib/MicrosoftDmang.jar</systemPath>
     </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>VersionTracking</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/VersionTracking.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>DB</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/DB.jar</systemPath>
+    </dependency>
     <!-- Add the jakarta.servlet-api dependency -->
     <dependency>
       <groupId>jakarta.servlet</groupId>
