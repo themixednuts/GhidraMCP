@@ -31,7 +31,7 @@ import reactor.core.publisher.Mono;
         </use_case>
 
         <important_notes>
-        - Requires an open program; provide fileName for every request.
+        - Requires an open program; provide file_name for every request.
         - Bookmark operations execute within transactions and can modify the database.
         - Navigation relies on GoToService being available in the active tool.
         - Analysis option listing reflects current values and flags options still using defaults.
@@ -135,7 +135,7 @@ public class ManageProjectTool extends BaseMcpTool {
    * Executes the project management operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, action, and action-specific parameters
+   * @param args The tool arguments containing file_name, action, and action-specific parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting the result of the project operation
    */

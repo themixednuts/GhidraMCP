@@ -17,6 +17,7 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOp;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
 import java.util.Spliterator;
@@ -166,7 +167,7 @@ public class DecompileCodeTool extends BaseMcpTool {
    * Executes the code decompilation operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, target_type, target_value, and optional
+   * @param args The tool arguments containing file_name, target_type, target_value, and optional
    *     parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a DecompileResult object
@@ -321,8 +322,7 @@ public class DecompileCodeTool extends BaseMcpTool {
     DecompInterface decomp = new DecompInterface();
     try {
       decomp.openProgram(program);
-      GhidraMcpTaskMonitor monitor =
-          new GhidraMcpTaskMonitor(null, "Decompiling " + function.getName());
+      TaskMonitor monitor = new GhidraMcpTaskMonitor(null, "Decompiling " + function.getName());
 
       DecompileResults decompResult = decomp.decompileFunction(function, timeout, monitor);
 
@@ -427,19 +427,25 @@ public class DecompileCodeTool extends BaseMcpTool {
           FunctionManager functionManager = program.getFunctionManager();
           int maxFunctions = 20;
 
-          List<DecompilationResult> results =
-              StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-                  .limit(maxFunctions)
-                  .map(
-                      function -> {
-                        try {
-                          return performDecompilation(
-                              program, function, includePcode, includeAst, timeout, annotation);
-                        } catch (GhidraMcpException e) {
-                          throw new RuntimeException(e);
-                        }
-                      })
-                  .collect(Collectors.toList());
+          List<DecompilationResult> results = new ArrayList<>();
+          Iterator<Function> iterator = functionManager.getFunctions(true).iterator();
+          while (iterator.hasNext() && results.size() < maxFunctions) {
+            Function function = iterator.next();
+            try {
+              results.add(
+                  performDecompilation(
+                      program, function, includePcode, includeAst, timeout, annotation));
+            } catch (GhidraMcpException e) {
+              results.add(
+                  new DecompilationResult(
+                      "function",
+                      function.getName(),
+                      function.getEntryPoint().toString(),
+                      false,
+                      "// Decompilation failed: " + e.getMessage(),
+                      e.getMessage()));
+            }
+          }
 
           return Map.of(
               "functions",

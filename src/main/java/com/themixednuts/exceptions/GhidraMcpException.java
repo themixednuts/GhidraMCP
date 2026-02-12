@@ -8,12 +8,12 @@ public class GhidraMcpException extends RuntimeException {
   private final GhidraMcpError err;
 
   public GhidraMcpException(GhidraMcpError err) {
-    super(err != null ? err.getMsg() : "Unknown error");
+    super(err != null ? err.getMessage() : "Unknown error");
     this.err = err;
   }
 
   public GhidraMcpException(GhidraMcpError err, Throwable cause) {
-    super(err != null ? err.getMsg() : "Unknown error", cause);
+    super(err != null ? err.getMessage() : "Unknown error", cause);
     this.err = err;
   }
 
@@ -70,17 +70,18 @@ public class GhidraMcpException extends RuntimeException {
   public static GhidraMcpException fromException(Throwable t, String operation, String toolClass) {
     if (t == null) {
       return new GhidraMcpException(
-          GhidraMcpError.internal().msg("Unknown error during " + operation).build());
+          GhidraMcpError.internal().message("Unknown error during " + operation).build());
     }
     String msg = t.getMessage();
     if (msg == null) msg = t.getClass().getSimpleName();
-    return new GhidraMcpException(GhidraMcpError.internal().msg(operation + ": " + msg).build(), t);
+    return new GhidraMcpException(
+        GhidraMcpError.internal().message(operation + ": " + msg).build(), t);
   }
 
   @Override
   public String toString() {
     String type = err != null ? err.getErrorType().name() : "UNKNOWN";
-    String msg = err != null ? err.getMsg() : getMessage();
+    String msg = err != null ? err.getMessage() : getMessage();
     String hint = err != null ? err.getHint() : null;
     return hint != null
         ? "GhidraMcpException[" + type + "]: " + msg + " [" + hint + "]"

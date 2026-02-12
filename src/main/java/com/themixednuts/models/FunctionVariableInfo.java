@@ -18,17 +18,17 @@ import ghidra.program.model.symbol.Symbol;
  * within a function.
  */
 @JsonPropertyOrder({
-  "effectiveName",
-  "listingName",
-  "decompilerName",
-  "variableCategory",
-  "isParameter",
-  "dataType",
+  "effective_name",
+  "listing_name",
+  "decompiler_name",
+  "variable_category",
+  "is_parameter",
+  "data_type",
   "storage",
-  "sourceType",
+  "source_type",
   "comment",
   "address",
-  "symbolID"
+  "symbol_id"
 })
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionVariableInfo {
@@ -137,7 +137,7 @@ public class FunctionVariableInfo {
   }
 
   // Getter for the name that should be primarily used for display/identification
-  @JsonGetter("effectiveName")
+  @JsonGetter("effective_name")
   public String getEffectiveName() {
     if (decompilerName != null && !decompilerName.trim().isEmpty()) {
       return decompilerName;
@@ -195,7 +195,7 @@ public class FunctionVariableInfo {
   }
 
   @JsonProperty("symbol_id")
-  public Long getSymbolID() {
+  public Long getSymbolId() {
     return symbolID;
   }
 

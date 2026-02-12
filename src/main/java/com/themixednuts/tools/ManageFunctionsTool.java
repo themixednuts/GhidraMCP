@@ -20,7 +20,6 @@ import ghidra.app.services.DataTypeQueryService;
 import ghidra.app.util.NamespaceUtils;
 import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
@@ -88,7 +87,7 @@ import reactor.core.publisher.Mono;
         <examples>
         Create a function at an address with custom name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "address": "0x401000",
           "function_name": "decrypt_data"
@@ -96,14 +95,14 @@ import reactor.core.publisher.Mono;
 
         Create a function at an address (auto-generated name):
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "address": "0x401000"
         }
 
         List variables in a function:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "list_variables",
           "target_type": "name",
           "target_value": "main"
@@ -111,7 +110,7 @@ import reactor.core.publisher.Mono;
 
         Get function control-flow graph:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "get_graph",
           "name": "main"
         }
@@ -124,6 +123,13 @@ public class ManageFunctionsTool extends BaseMcpTool {
   public static final String ARG_ADDRESS = "address";
   public static final String ARG_NAME = "name";
   public static final String ARG_PROTOTYPE = "prototype";
+  public static final String ARG_RETURN_TYPE = "return_type";
+  public static final String ARG_CALLING_CONVENTION = "calling_convention";
+  public static final String ARG_NEW_FUNCTION_NAME = "new_function_name";
+  public static final String ARG_PARAMETERS = "parameters";
+  public static final String ARG_NO_RETURN = "no_return";
+  public static final String ARG_PARAMETER_NAME = "name";
+  public static final String ARG_PARAMETER_DATA_TYPE = "data_type";
 
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_UPDATE_PROTOTYPE = "update_prototype";
@@ -201,21 +207,22 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Full function prototype string (C syntax)"))
                     .property(
-                        "returnType",
+                        ARG_RETURN_TYPE,
                         SchemaBuilder.string(mapper)
                             .description("Return type name (required if prototype not provided)"))
                     .property(
-                        "callingConvention",
+                        ARG_CALLING_CONVENTION,
                         SchemaBuilder.string(mapper)
                             .description("Calling convention (e.g., __cdecl, __stdcall)"))
                     .property(
-                        "newFunctionName",
+                        ARG_NEW_FUNCTION_NAME,
                         SchemaBuilder.string(mapper).description("New name for the function"))
                     .property(
-                        "parameters",
-                        SchemaBuilder.array(mapper).description("Function parameters"))
+                        ARG_PARAMETERS,
+                        SchemaBuilder.array(mapper)
+                            .description("Function parameters with 'name' and 'data_type' fields"))
                     .property(
-                        "noReturn",
+                        ARG_NO_RETURN,
                         SchemaBuilder.bool(mapper).description("Whether function does not return"))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
@@ -245,6 +252,17 @@ public class ManageFunctionsTool extends BaseMcpTool {
                             .description("Function name for identification"))
                     .property(
                         ARG_CURSOR, SchemaBuilder.string(mapper).description("Pagination cursor"))
+                    .property(
+                        ARG_PAGE_SIZE,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Number of variables to return per page (default: "
+                                    + DEFAULT_PAGE_LIMIT
+                                    + ", max: "
+                                    + MAX_PAGE_LIMIT
+                                    + ")")
+                            .minimum(1)
+                            .maximum(MAX_PAGE_LIMIT))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
@@ -281,7 +299,7 @@ public class ManageFunctionsTool extends BaseMcpTool {
    * Executes the function management operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, action, and action-specific parameters
+   * @param args The tool arguments containing file_name, action, and action-specific parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting the result of the function operation
    */
@@ -406,12 +424,13 @@ public class ManageFunctionsTool extends BaseMcpTool {
           .flatMap(context -> executePrototypeUpdate(program, annotation, tool, context));
     } else {
       // Build prototype from structured arguments
-      String returnTypeName = getRequiredStringArgument(args, "returnType");
-      Optional<String> callingConventionOpt = getOptionalStringArgument(args, "callingConvention");
-      Optional<String> newFunctionNameOpt = getOptionalStringArgument(args, "newFunctionName");
+      String returnTypeName = getRequiredStringArgument(args, ARG_RETURN_TYPE);
+      Optional<String> callingConventionOpt =
+          getOptionalStringArgument(args, ARG_CALLING_CONVENTION);
+      Optional<String> newFunctionNameOpt = getOptionalStringArgument(args, ARG_NEW_FUNCTION_NAME);
       Optional<List<Map<String, Object>>> parametersOpt =
-          getOptionalListArgument(args, "parameters");
-      boolean noReturn = getOptionalBooleanArgument(args, "noReturn").orElse(false);
+          getOptionalListArgument(args, ARG_PARAMETERS);
+      boolean noReturn = getOptionalBooleanArgument(args, ARG_NO_RETURN).orElse(false);
 
       return Mono.fromCallable(
               () ->
@@ -574,14 +593,15 @@ public class ManageFunctionsTool extends BaseMcpTool {
       throws GhidraMcpException {
     StringBuilder prototype = new StringBuilder();
 
-    DataType returnType = DataTypeUtilities.getCPrimitiveDataType(returnTypeName);
+    DataType returnType = resolveDataTypeWithFallback(program.getDataTypeManager(), returnTypeName);
     if (returnType == null) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(
-              "returnType", returnTypeName, "not a valid C primitive data type"));
+          GhidraMcpError.invalid(ARG_RETURN_TYPE, returnTypeName, "could not be resolved"));
     }
 
-    prototype.append(returnType.getName());
+    String normalizedReturnType = normalizeTypeExpressionForPrototype(returnTypeName);
+
+    prototype.append(normalizedReturnType);
     callingConventionOpt.ifPresent(cc -> prototype.append(" ").append(cc));
     prototype.append(" ").append(functionName).append("(");
 
@@ -603,25 +623,34 @@ public class ManageFunctionsTool extends BaseMcpTool {
 
   private String parameterToString(Program program, PluginTool tool, Map<String, Object> paramMap)
       throws GhidraMcpException {
-    String name = (String) paramMap.get("name");
-    String dataType = (String) paramMap.get("dataType");
+    String name = getOptionalStringArgument(paramMap, ARG_PARAMETER_NAME).orElse(null);
+    String dataType = getOptionalStringArgument(paramMap, ARG_PARAMETER_DATA_TYPE).orElse(null);
 
     if (name == null || dataType == null) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid("parameter", "must include both 'name' and 'dataType' fields"));
+          GhidraMcpError.invalid("parameter", "must include both 'name' and 'data_type' fields"));
     }
 
     if ("...".equals(dataType)) {
       return "...";
     }
 
-    DataType resolved = DataTypeUtilities.getCPrimitiveDataType(dataType);
+    DataType resolved = resolveDataTypeWithFallback(program.getDataTypeManager(), dataType);
     if (resolved == null) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(
-              "parameter dataType", dataType, "not a valid C primitive data type"));
+          GhidraMcpError.invalid("parameter.data_type", dataType, "could not be resolved"));
     }
-    return resolved.getName() + " " + name;
+
+    String normalizedDataType = normalizeTypeExpressionForPrototype(dataType);
+    return normalizedDataType + " " + name;
+  }
+
+  private String normalizeTypeExpressionForPrototype(String typeExpression) {
+    if (typeExpression == null) {
+      return "";
+    }
+    String collapsed = typeExpression.replaceAll("\\s+", " ").trim();
+    return collapsed.replaceAll("\\s*\\[\\s*", "[").replaceAll("\\s*\\]\\s*", "]");
   }
 
   private record UpdatePrototypeContext(
@@ -695,6 +724,11 @@ public class ManageFunctionsTool extends BaseMcpTool {
   private PaginatedResult<FunctionVariableInfo> listFunctionVariables(
       Function function, Program program, Map<String, Object> args) {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     // Get listing variables
     Stream<FunctionVariableInfo> listingVarStream =
@@ -771,12 +805,12 @@ public class ManageFunctionsTool extends BaseMcpTool {
                   }
                   return false;
                 })
-            .limit(DEFAULT_PAGE_LIMIT + 1)
+            .limit(pageSize + 1L)
             .collect(Collectors.toList());
 
-    boolean hasMore = paginatedVariables.size() > DEFAULT_PAGE_LIMIT;
+    boolean hasMore = paginatedVariables.size() > pageSize;
     List<FunctionVariableInfo> resultsForPage =
-        paginatedVariables.subList(0, Math.min(paginatedVariables.size(), DEFAULT_PAGE_LIMIT));
+        paginatedVariables.subList(0, Math.min(paginatedVariables.size(), pageSize));
     String nextCursor = null;
     if (hasMore && !resultsForPage.isEmpty()) {
       FunctionVariableInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);

@@ -34,7 +34,7 @@ import reactor.core.publisher.Mono;
         <use_case>
         List all program files within the active Ghidra project, including both currently open programs
         and programs that exist in the project but are not currently loaded. Use this to discover
-        available programs before performing operations that require a fileName parameter.
+        available programs before performing operations that require a file_name parameter.
         </use_case>
 
         <return_value_summary>
@@ -46,9 +46,9 @@ import reactor.core.publisher.Mono;
         - Requires an active project in the current PluginTool context.
         - Only lists files with program content type (executables, libraries, etc.).
         - If no programs exist in the project, returns an empty list without raising an error.
-        - Closed programs can be opened by providing their fileName to other tools.
+        - Closed programs can be opened by providing their file_name to other tools.
         - Results are paginated (default 100 per page). Use the next_cursor to retrieve subsequent pages.
-        - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'nameFilter' to search by filename.
+        - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'name_filter' to search by filename.
         </important_notes>
         """)
 public class ListProgramsTool extends BaseMcpTool {
@@ -220,7 +220,7 @@ public class ListProgramsTool extends BaseMcpTool {
                       CONTEXT_OPERATION,
                       Map.of(),
                       Map.of(),
-                      Map.of("projectAvailable", false)))
+                      Map.of("project_available", false)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(
@@ -401,7 +401,7 @@ public class ListProgramsTool extends BaseMcpTool {
                     this.getMcpName(),
                     CONTEXT_OPERATION,
                     Map.of(),
-                    Map.of("exceptionType", throwable.getClass().getSimpleName()),
+                    Map.of("exception_type", throwable.getClass().getSimpleName()),
                     Map.of()))
             .suggestions(
                 List.of(

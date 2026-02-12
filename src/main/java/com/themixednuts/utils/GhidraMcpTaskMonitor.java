@@ -41,6 +41,9 @@ public class GhidraMcpTaskMonitor extends TaskMonitorAdapter {
   }
 
   private void sendLog(LoggingLevel level, String message) {
+    if (exchange == null) {
+      return;
+    }
     exchange
         .loggingNotification(
             LoggingMessageNotification.builder()

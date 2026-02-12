@@ -38,8 +38,8 @@ import reactor.core.publisher.Mono;
         </ghidra_specific_notes>
 
         <parameters_summary>
-        - 'mangledSymbol': The mangled symbol string to demangle (e.g., '_Z3fooi')
-        - 'demanglerName': (Optional) Specific demangler to use (e.g., 'GNU', 'Microsoft')
+        - 'mangled_symbol': The mangled symbol string to demangle (e.g., '_Z3fooi')
+        - 'demangler_name': (Optional) Specific demangler to use (e.g., 'GNU', 'Microsoft')
         </parameters_summary>
 
         <return_value_summary>
@@ -214,7 +214,8 @@ public class DemanglerTool extends BaseMcpTool {
    * Executes the symbol demangling operation.
    *
    * @param ex The MCP transport context
-   * @param args The tool arguments containing fileName, mangledSymbol, and optional demanglerName
+   * @param args The tool arguments containing file_name, mangled_symbol, and optional
+   *     demangler_name
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a DemangleResult object
    */
@@ -241,7 +242,7 @@ public class DemanglerTool extends BaseMcpTool {
                                         "mangled symbol validation",
                                         args,
                                         Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
-                                        Map.of("symbolLength", mangledSymbol.length())))
+                                        Map.of("symbol_length", mangledSymbol.length())))
                                 .build());
                       }
 
@@ -313,8 +314,8 @@ public class DemanglerTool extends BaseMcpTool {
                       getMcpName(),
                       "demangling execution",
                       Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
-                      Map.of("demanglerName", demanglerNameOpt.orElse("auto")),
-                      Map.of("programName", program.getName())))
+                      Map.of("demangler_name", demanglerNameOpt.orElse("auto")),
+                      Map.of("program_name", program.getName())))
               .build());
     }
   }

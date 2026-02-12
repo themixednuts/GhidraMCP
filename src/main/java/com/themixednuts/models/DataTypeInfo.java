@@ -38,10 +38,10 @@ public class DataTypeInfo {
       this.type = "typedef";
       this.details = new TypedefDetails((TypeDef) dataType);
     } else if (dataType instanceof FunctionDefinitionDataType) {
-      this.type = "funcdef";
+      this.type = "function_definition";
       this.details = new FunctionDefinitionDetails((FunctionDefinitionDataType) dataType);
     } else if (dataType instanceof Pointer) {
-      this.type = "ptr";
+      this.type = "pointer";
       this.details = new PointerDetails((Pointer) dataType);
     } else {
       this.type = "other";
@@ -59,8 +59,8 @@ public class DataTypeInfo {
     return type;
   }
 
-  @JsonProperty("len")
-  public int getLen() {
+  @JsonProperty("length")
+  public int getLength() {
     return len;
   }
 

@@ -36,7 +36,7 @@ import reactor.core.publisher.Mono;
             </use_case>
 
             <parameters_summary>
-            - fileName: The program file to analyze (required)
+            - file_name: The program file to analyze (required)
             - address: Address string (e.g., 0x401000) to probe for RTTI structures
             </parameters_summary>
 

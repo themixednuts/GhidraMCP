@@ -239,7 +239,7 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                       "category validation",
                       args,
                       Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
-                      Map.of("isRoot", true)))
+                      Map.of("is_root", true)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(
@@ -264,7 +264,7 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                       "category lookup",
                       args,
                       Map.of(ARG_CATEGORY_PATH, targetPath.getPath()),
-                      Map.of("categoryExists", false)))
+                      Map.of("category_exists", false)))
               .build();
       throw new GhidraMcpException(error);
     }
@@ -296,8 +296,8 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                       annotation.mcpName(),
                       "category deletion",
                       args,
-                      Map.of("attemptedCategory", targetPath.getPath()),
-                      Map.of("categoryEmpty", false)))
+                      Map.of("attempted_category", targetPath.getPath()),
+                      Map.of("category_empty", false)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(
@@ -343,7 +343,7 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                 this.getMcpName(),
                 context,
                 args,
-                Map.of("failedTypeName", failedTypeName),
+                Map.of("failed_type_name", failedTypeName),
                 Map.of()))
         .suggestions(
             List.of(

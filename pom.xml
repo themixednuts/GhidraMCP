@@ -17,7 +17,7 @@
       <dependency>
         <groupId>io.modelcontextprotocol.sdk</groupId>
         <artifactId>mcp-bom</artifactId>
-        <version>0.17.0</version>
+        <version>${mcp.bom.version}</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -25,13 +25,13 @@
       <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter-api</artifactId>
-        <version>5.12.2</version>
+        <version>${junit.jupiter.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter-engine</artifactId>
-        <version>5.12.2</version>
+        <version>${junit.jupiter.version}</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
@@ -41,9 +41,36 @@
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <!-- Ghidra version configuration - single source of truth -->
+    <!-- Ghidra version configuration - keep in sync with bootstrap.xml -->
     <ghidra.version>12.0</ghidra.version>
     <ghidra.release.date>20251205</ghidra.release.date>
+    <ghidra.lib.dir>${project.basedir}/lib</ghidra.lib.dir>
+    <ghidra.lib.check.skip>false</ghidra.lib.check.skip>
+    <ghidra.version.check.skip>false</ghidra.version.check.skip>
+    <mcp.bom.version>0.17.2</mcp.bom.version>
+    <jackson.version>2.21.0</jackson.version>
+    <jackson.annotations.version>2.21</jackson.annotations.version>
+    <jakarta.servlet.version>6.1.0</jakarta.servlet.version>
+    <junit.jupiter.version>5.13.4</junit.jupiter.version>
+    <junit.platform.version>1.13.4</junit.platform.version>
+    <jetty.version>12.1.6</jetty.version>
+    <reflections.version>0.10.2</reflections.version>
+    <mockito.version>5.21.0</mockito.version>
+    <slf4j.simple.version>2.0.17</slf4j.simple.version>
+    <everit.json.schema.version>1.14.6</everit.json.schema.version>
+    <json.org.version>20251224</json.org.version>
+    <maven.resources.plugin.version>3.4.0</maven.resources.plugin.version>
+    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
+    <maven.antrun.plugin.version>3.2.0</maven.antrun.plugin.version>
+    <maven.jar.plugin.version>3.5.0</maven.jar.plugin.version>
+    <maven.assembly.plugin.version>3.8.0</maven.assembly.plugin.version>
+    <maven.dependency.plugin.version>3.10.0</maven.dependency.plugin.version>
+    <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
+    <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
+    <maven.surefire.plugin.version>3.5.4</maven.surefire.plugin.version>
+    <spotless.maven.plugin.version>2.46.1</spotless.maven.plugin.version>
+    <google.java.format.version>1.33.0</google.java.format.version>
+    <xml.format.maven.plugin.version>4.2.0</xml.format.maven.plugin.version>
     <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
     <!-- Add any necessary properties here -->
   </properties>
@@ -56,7 +83,22 @@
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jdk8</artifactId>
-      <version>2.19.0</version>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>${jackson.annotations.version}</version>
     </dependency>
     <!-- Ghidra JARs using file repository -->
     <dependency>
@@ -64,114 +106,114 @@
       <artifactId>Generic</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Generic.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Generic.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>SoftwareModeling</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/SoftwareModeling.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/SoftwareModeling.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Project</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Project.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Project.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Docking</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Docking.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Docking.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Decompiler</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Decompiler.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Decompiler.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Utility</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Utility.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Utility.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Base</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Base.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Base.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Gui</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Gui.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/Gui.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>MicrosoftCodeAnalyzer</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/MicrosoftCodeAnalyzer.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/MicrosoftCodeAnalyzer.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>MicrosoftDemangler</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/MicrosoftDemangler.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/MicrosoftDemangler.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>MicrosoftDmang</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/MicrosoftDmang.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/MicrosoftDmang.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>VersionTracking</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/VersionTracking.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/VersionTracking.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>DB</artifactId>
       <version>${ghidra.version}</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/DB.jar</systemPath>
+      <systemPath>${ghidra.lib.dir}/DB.jar</systemPath>
     </dependency>
     <!-- Add the jakarta.servlet-api dependency -->
     <dependency>
       <groupId>jakarta.servlet</groupId>
       <artifactId>jakarta.servlet-api</artifactId>
-      <version>6.1.0</version>
+      <version>${jakarta.servlet.version}</version>
     </dependency>
     <!-- Jetty Embedded Server Dependencies -->
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-server</artifactId>
-      <version>12.0.21</version>
+      <version>${jetty.version}</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.ee10</groupId>
       <artifactId>jetty-ee10-servlet</artifactId>
-      <version>12.0.21</version>
+      <version>${jetty.version}</version>
     </dependency>
     <!-- Other dependencies -->
     <dependency>
       <groupId>org.reflections</groupId>
       <artifactId>reflections</artifactId>
-      <version>0.10.2</version>
+      <version>${reflections.version}</version>
       <scope>test</scope>
     </dependency>
     <!-- Add JUnit 5 dependencies (version/scope managed) -->
@@ -189,34 +231,40 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
-      <version>5.18.0</version>
+      <version>${mockito.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-junit-jupiter</artifactId>
-      <version>5.18.0</version>
+      <version>${mockito.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.simple.version}</version>
       <scope>test</scope>
     </dependency>
     <!-- JUnit Platform Suite for test suites -->
     <dependency>
       <groupId>org.junit.platform</groupId>
       <artifactId>junit-platform-suite-api</artifactId>
-      <version>1.12.2</version>
+      <version>${junit.platform.version}</version>
       <scope>test</scope>
     </dependency>
     <!-- JSON Schema validator for headless test framework -->
     <dependency>
       <groupId>com.github.erosb</groupId>
       <artifactId>everit-json-schema</artifactId>
-      <version>1.14.6</version>
+      <version>${everit.json.schema.version}</version>
       <scope>test</scope>
     </dependency>
     <!-- JSON library for schema validation -->
     <dependency>
       <groupId>org.json</groupId>
       <artifactId>json</artifactId>
-      <version>20250517</version>
+      <version>${json.org.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -228,10 +276,93 @@
       </resource>
     </resources>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven.resources.plugin.version}</version>
+        <configuration>
+          <encoding>${project.build.sourceEncoding}</encoding>
+          <propertiesEncoding>${project.build.sourceEncoding}</propertiesEncoding>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-build-prerequisites</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <skip>${ghidra.lib.check.skip}</skip>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.6.3,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[21,)</version>
+                </requireJavaVersion>
+                <requireFilesExist>
+                  <files>
+                    <file>${ghidra.lib.dir}/Base.jar</file>
+                    <file>${ghidra.lib.dir}/DB.jar</file>
+                    <file>${ghidra.lib.dir}/Decompiler.jar</file>
+                    <file>${ghidra.lib.dir}/Docking.jar</file>
+                    <file>${ghidra.lib.dir}/Generic.jar</file>
+                    <file>${ghidra.lib.dir}/Gui.jar</file>
+                    <file>${ghidra.lib.dir}/MicrosoftCodeAnalyzer.jar</file>
+                    <file>${ghidra.lib.dir}/MicrosoftDemangler.jar</file>
+                    <file>${ghidra.lib.dir}/MicrosoftDmang.jar</file>
+                    <file>${ghidra.lib.dir}/Project.jar</file>
+                    <file>${ghidra.lib.dir}/SoftwareModeling.jar</file>
+                    <file>${ghidra.lib.dir}/Utility.jar</file>
+                    <file>${ghidra.lib.dir}/VersionTracking.jar</file>
+                    <file>${ghidra.lib.dir}/.ghidra-bootstrap.properties</file>
+                  </files>
+                  <message>Missing required Ghidra build artifacts in ${ghidra.lib.dir}. Run 'mvn -f bootstrap.xml initialize' first.</message>
+                </requireFilesExist>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>${maven.antrun.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>verify-ghidra-version-alignment</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <property file="${ghidra.lib.dir}/.ghidra-bootstrap.properties"/>
+                <condition property="ghidra.bootstrap.version.present">
+                  <isset property="ghidra.bootstrap.version"/>
+                </condition>
+                <fail unless="ghidra.bootstrap.version.present" message="Missing ghidra.bootstrap.version in ${ghidra.lib.dir}/.ghidra-bootstrap.properties. Re-run: mvn -f bootstrap.xml initialize"/>
+                <condition property="ghidra.version.matches">
+                  <or>
+                    <equals arg1="${ghidra.version.check.skip}" arg2="true"/>
+                    <equals arg1="${ghidra.bootstrap.version}" arg2="${ghidra.version}"/>
+                  </or>
+                </condition>
+                <fail unless="ghidra.version.matches" message="Ghidra jar version mismatch. pom.xml expects ${ghidra.version}, but bootstrap prepared ${ghidra.bootstrap.version}. Re-run bootstrap with -Dghidra.release=${ghidra.version}, or build with -Dghidra.version=&lt;resolvedVersion&gt;, or bypass with -Dghidra.version.check.skip=true."/>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <!-- Use custom MANIFEST.MF -->
       <plugin>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>3.2.2</version>
+        <version>${maven.jar.plugin.version}</version>
         <configuration>
           <archive>
             <manifestFile>src/main/resources/META-INF/MANIFEST.MF</manifestFile>
@@ -250,7 +381,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
-        <version>3.3.0</version>
+        <version>${maven.assembly.plugin.version}</version>
         <executions>
           <execution>
             <id>make-extension</id>
@@ -272,7 +403,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
-        <version>3.1.2</version>
+        <version>${maven.dependency.plugin.version}</version>
         <executions>
           <execution>
             <id>copy-dependencies</id>
@@ -290,7 +421,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.8.1</version>
+        <version>${maven.compiler.plugin.version}</version>
         <configuration>
           <source>${maven.compiler.source}</source>
           <target>${maven.compiler.target}</target>
@@ -300,7 +431,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>3.1.0</version>
+        <version>${exec.maven.plugin.version}</version>
         <configuration>
           <mainClass>com.themixednuts.TestConfigGenerator</mainClass>
           <classpathScope>test</classpathScope>
@@ -310,7 +441,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
+        <version>${maven.surefire.plugin.version}</version>
         <configuration>
           <excludes>
             <exclude>**/headless/**</exclude>
@@ -320,11 +451,11 @@
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
-        <version>2.46.1</version>
+        <version>${spotless.maven.plugin.version}</version>
         <configuration>
           <java>
             <googleJavaFormat>
-              <version>1.33.0</version>
+              <version>${google.java.format.version}</version>
               <style>GOOGLE</style>
             </googleJavaFormat>
           </java>
@@ -342,7 +473,7 @@
       <plugin>
         <groupId>com.github.hazendaz.maven</groupId>
         <artifactId>xml-format-maven-plugin</artifactId>
-        <version>4.2.0</version>
+        <version>${xml.format.maven.plugin.version}</version>
         <executions>
           <execution>
             <id>xml-check</id>

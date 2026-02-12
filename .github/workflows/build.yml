@@ -10,23 +10,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      GHIDRA_VERSION: "12.0"
-      GHIDRA_DATE: "20251205"
-      GHIDRA_LIBS: >-
-        Features/Base/lib/Base.jar
-        Features/Decompiler/lib/Decompiler.jar
-        Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar
-        Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar
-        Features/MicrosoftDmang/lib/MicrosoftDmang.jar
-        Features/VersionTracking/lib/VersionTracking.jar
-        Framework/DB/lib/DB.jar
-        Framework/Docking/lib/Docking.jar
-        Framework/Generic/lib/Generic.jar
-        Framework/Project/lib/Project.jar
-        Framework/SoftwareModeling/lib/SoftwareModeling.jar
-        Framework/Utility/lib/Utility.jar
-        Framework/Gui/lib/Gui.jar
 
     steps:
       - uses: actions/checkout@v4
@@ -37,18 +20,15 @@ jobs:
           distribution: "temurin"
           cache: maven
 
-      - name: Download Ghidra
+      - name: Resolve pinned Ghidra version from pom
         run: |
-          wget --no-verbose -O ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${{ env.GHIDRA_VERSION }}_build/ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC_${{ env.GHIDRA_DATE }}.zip
-          7z x -bd ghidra.zip
+          GHIDRA_RELEASE=$(mvn -q -DforceStdout help:evaluate -Dexpression=ghidra.version)
+          echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
+          echo "Using Ghidra release selector: ${GHIDRA_RELEASE}"
 
-      - name: Copy Ghidra libs
+      - name: Bootstrap Ghidra jars
         run: |
-          mkdir -p ./lib
-          for libfile in ${{ env.GHIDRA_LIBS }}
-            do echo "Copying ${libfile} to lib/"
-            cp ghidra_${{ env.GHIDRA_VERSION }}_PUBLIC/Ghidra/${libfile} ./lib/
-          done
+          mvn -f bootstrap.xml initialize -Dghidra.release=${GHIDRA_RELEASE}
 
       - name: Build with Maven
         run: mvn clean package

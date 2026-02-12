@@ -10,14 +10,11 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.DataTypeDependencyException;
 import ghidra.program.model.listing.Program;
 import ghidra.util.InvalidNameException;
-import ghidra.util.data.DataTypeParser;
-import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
@@ -54,7 +51,6 @@ import reactor.core.publisher.Mono;
         For struct/union members, data type resolution follows this precedence order:
         1. PRIMARY: 'data_type_id' - Direct lookup by internal ID (most efficient)
         2. SECONDARY: 'data_type_path' - String-based resolution (e.g., "int", "char *", "/MyCategory/MyStruct")
-        3. FALLBACK: Category path + name combination (legacy support)
 
         At least one of 'data_type_id' or 'data_type_path' must be provided for each member.
         Use 'data_type_id' when available for better performance and reliability.
@@ -63,7 +59,7 @@ import reactor.core.publisher.Mono;
         <examples>
         Create a struct with members (using data_type_path):
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "data_type_kind": "struct",
           "name": "MyStruct",
@@ -75,7 +71,7 @@ import reactor.core.publisher.Mono;
 
         Create a struct with members (using data_type_id for better performance):
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "data_type_kind": "struct",
           "name": "MyStruct",
@@ -87,7 +83,7 @@ import reactor.core.publisher.Mono;
 
         Update an existing struct (RECOMMENDED over delete+create):
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "update",
           "data_type_kind": "struct",
           "name": "MyStruct",
@@ -449,7 +445,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
    * Executes the data type management operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, action, and action-specific parameters
+   * @param args The tool arguments containing file_name, action, and action-specific parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting the result of the data type operation
    */
@@ -462,7 +458,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
         .flatMap(
             program -> {
               String action = getRequiredStringArgument(args, ARG_ACTION);
-              String dataTypeKind = getRequiredStringArgument(args, ARG_DATA_TYPE_KIND);
+              String dataTypeKind =
+                  getRequiredStringArgument(args, ARG_DATA_TYPE_KIND).toLowerCase(Locale.ROOT);
 
               return switch (action.toLowerCase()) {
                 case ACTION_CREATE -> handleCreate(program, args, annotation, dataTypeKind);
@@ -495,7 +492,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
       case "function_definition" ->
           updateFunctionDefinition(dtm, (FunctionDefinition) existing, args, annotation);
       case "category" -> updateCategory(dtm, args, annotation);
-      case "rtti" -> updateRTTI(dtm, (RTTI0DataType) existing, args, annotation);
+      case "rtti0" -> updateRTTI(dtm, (RTTI0DataType) existing, args, annotation);
       default ->
           OperationResult.failure(
               "update_data_type",
@@ -780,47 +777,39 @@ public class ManageDataTypesTool extends BaseMcpTool {
     // Add parameters if provided
     List<Map<String, Object>> parameters =
         getOptionalListArgument(args, ARG_PARAMETERS).orElse(null);
-    try {
-      Optional.ofNullable(parameters)
-          .filter(list -> !list.isEmpty())
-          .ifPresent(
-              paramList -> {
-                // Pre-validate all parameter types first to avoid partial state
-                paramList.forEach(
-                    param -> {
-                      String paramType = getRequiredStringArgument(param, ARG_TYPE);
-                      if (resolveDataTypeWithFallback(dtm, paramType) == null) {
-                        throw new RuntimeException(
-                            new GhidraMcpException(
-                                GhidraMcpError.parse("parameter type", paramType)));
-                      }
-                    });
+    Optional.ofNullable(parameters)
+        .filter(list -> !list.isEmpty())
+        .ifPresent(
+            paramList -> {
+              // Pre-validate all parameter types first to avoid partial state
+              paramList.forEach(
+                  param -> {
+                    String paramType = getRequiredStringArgument(param, ARG_TYPE);
+                    if (resolveDataTypeWithFallback(dtm, paramType) == null) {
+                      throw new GhidraMcpException(
+                          GhidraMcpError.parse("parameter type", paramType));
+                    }
+                  });
 
-                // Now build the parameter definitions
-                List<ParameterDefinition> defs =
-                    IntStream.range(0, paramList.size())
-                        .mapToObj(
-                            i -> {
-                              Map<String, Object> param = paramList.get(i);
-                              String paramName =
-                                  getOptionalStringArgument(param, ARG_NAME)
-                                      .orElse("param" + (i + 1));
-                              String paramType = getRequiredStringArgument(param, ARG_TYPE);
+              // Now build the parameter definitions
+              List<ParameterDefinition> defs =
+                  IntStream.range(0, paramList.size())
+                      .mapToObj(
+                          i -> {
+                            Map<String, Object> param = paramList.get(i);
+                            String paramName =
+                                getOptionalStringArgument(param, ARG_NAME)
+                                    .orElse("param" + (i + 1));
+                            String paramType = getRequiredStringArgument(param, ARG_TYPE);
 
-                              // This should not fail since we pre-validated
-                              DataType paramDataType = resolveDataTypeWithFallback(dtm, paramType);
-                              return new ParameterDefinitionImpl(paramName, paramDataType, null);
-                            })
-                        .collect(Collectors.toList());
+                            // This should not fail since we pre-validated
+                            DataType paramDataType = resolveDataTypeWithFallback(dtm, paramType);
+                            return new ParameterDefinitionImpl(paramName, paramDataType, null);
+                          })
+                      .collect(Collectors.toList());
 
-                funcDef.setArguments(defs.toArray(new ParameterDefinition[0]));
-              });
-    } catch (RuntimeException e) {
-      if (e.getCause() instanceof GhidraMcpException ghidraMcpException) {
-        throw ghidraMcpException;
-      }
-      throw e;
-    }
+              funcDef.setArguments(defs.toArray(new ParameterDefinition[0]));
+            });
 
     DataType addedFuncDef = dtm.addDataType(funcDef, DataTypeConflictHandler.REPLACE_HANDLER);
     if (addedFuncDef == null) {
@@ -853,12 +842,14 @@ public class ManageDataTypesTool extends BaseMcpTool {
     CategoryPath newCategoryPath = new CategoryPath(parentPath, name);
 
     if (dtm.getCategory(newCategoryPath) != null) {
-      throw new RuntimeException("Category already exists: " + newCategoryPath.getPath());
+      throw new GhidraMcpException(
+          GhidraMcpError.conflict("Category already exists: " + newCategoryPath.getPath()));
     }
 
     Category category = dtm.createCategory(newCategoryPath);
     if (category == null) {
-      throw new RuntimeException("Failed to create category: " + newCategoryPath.getPath());
+      throw new GhidraMcpException(
+          GhidraMcpError.failed("create category", newCategoryPath.getPath()));
     }
 
     return new CreateDataTypeResult(
@@ -971,7 +962,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
     if (dtm.getCategory(categoryPath) == null) {
       Category created = dtm.createCategory(categoryPath);
       if (created == null && dtm.getCategory(categoryPath) == null) {
-        throw new RuntimeException("Failed to create category: " + categoryPath.getPath());
+        throw new GhidraMcpException(
+            GhidraMcpError.failed("create category", categoryPath.getPath()));
       }
     }
   }
@@ -1077,7 +1069,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
               try {
                 dtm.replaceDataType(finalEnumType, updated, true);
               } catch (DataTypeDependencyException e) {
-                throw new RuntimeException("Failed to update enum entries: " + e.getMessage());
+                throw new GhidraMcpException(
+                    GhidraMcpError.failed("update enum entries", e.getMessage()));
               }
             });
 
@@ -1208,8 +1201,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
 
                             DataType paramType = resolveDataTypeWithFallback(dtm, paramTypeName);
                             if (paramType == null) {
-                              throw new RuntimeException(
-                                  "Could not resolve parameter type: " + paramTypeName);
+                              throw new GhidraMcpException(
+                                  GhidraMcpError.parse("parameter type", paramTypeName));
                             }
 
                             String paramName =
@@ -1280,8 +1273,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
         try {
           destinationParent.moveCategory(category, TaskMonitor.DUMMY);
         } catch (DuplicateNameException e) {
-          throw new RuntimeException(
-              new GhidraMcpException(GhidraMcpError.failed("move category", e.getMessage())));
+          throw new GhidraMcpException(GhidraMcpError.failed("move category", e.getMessage()));
         }
 
         CategoryPath destination = buildCategoryPath(targetParentPath, category.getName());
@@ -1312,7 +1304,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
     getOptionalStringArgument(args, ARG_COMMENT).ifPresent(existing::setDescription);
 
     return OperationResult.success(
-        "update_data_type", "rtti", "RTTI data type updated successfully");
+        "update_data_type", "rtti0", "RTTI data type updated successfully");
   }
 
   private static CategoryPath normalizeParentPath(String path) {
@@ -1424,10 +1416,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
     }
   }
 
-  /**
-   * Enhanced member data type resolution with priority: dataTypeId > dataTypePath > categoryPath +
-   * name Supports multiple ways to specify member data types for maximum flexibility.
-   */
+  /** Enhanced member data type resolution with priority: dataTypeId > dataTypePath. */
   private DataType resolveMemberDataType(
       DataTypeManager dtm, Map<String, Object> member, String memberName)
       throws GhidraMcpException {
@@ -1455,27 +1444,11 @@ public class ManageDataTypesTool extends BaseMcpTool {
       }
     }
 
-    // 2. PRIMARY: Try data type path (string-based resolution)
+    // 2. SECONDARY: Try data type path (string-based resolution)
     if (dataTypePathOpt.isPresent()) {
       DataType result = resolveDataTypeWithFallback(dtm, dataTypePathOpt.get());
       if (result != null) {
         return result;
-      }
-    }
-
-    // 3. FALLBACK: Try category path + name combination
-    Optional<String> categoryPathOpt = getOptionalStringArgument(member, ARG_CATEGORY_PATH);
-    Optional<String> typeNameOpt = getOptionalStringArgument(member, ARG_NAME);
-
-    if (categoryPathOpt.isPresent() && typeNameOpt.isPresent()) {
-      try {
-        CategoryPath categoryPath = new CategoryPath(categoryPathOpt.get());
-        DataType result = dtm.getDataType(categoryPath, typeNameOpt.get());
-        if (result != null) {
-          return result;
-        }
-      } catch (Exception e) {
-        // Continue
       }
     }
 
@@ -1507,118 +1480,5 @@ public class ManageDataTypesTool extends BaseMcpTool {
       throw new GhidraMcpException(
           GhidraMcpError.failed("analyze RTTI at address", e.getMessage()));
     }
-  }
-
-  /**
-   * Resolves a data type using Ghidra's DataTypeParser. Supports all standard Ghidra data type
-   * syntax including: - Basic types: byte, int, long, etc. - Pointers: byte*, byte**, pointer32* -
-   * Arrays: byte[5], byte[10][20] - Templated names: templated_name<int, void*, custom_type> -
-   * Namespaced types: A::B::C::typename - Category paths: /MyCategory/MyStruct (MCP client format)
-   *
-   * <p>MCP clients may send paths starting with "/" which need special handling.
-   */
-  private DataType resolveDataTypeWithFallback(DataTypeManager dtm, String typeName) {
-    if (dtm == null || typeName == null || typeName.trim().isEmpty()) {
-      return null;
-    }
-
-    String trimmedName = typeName.trim();
-
-    // PRIMARY: Use Ghidra's DataTypeParser for standard type resolution
-    // This handles: pointers, arrays, templates, namespaces, primitives, category
-    // paths, etc.
-    try {
-      DataTypeParser parser = new DataTypeParser(dtm, dtm, null, AllowedDataTypes.ALL);
-      DataType result = parser.parse(trimmedName);
-      if (result != null) {
-        return result;
-      }
-    } catch (Exception e) {
-      // If DataTypeParser fails, continue to fallback methods
-    }
-
-    // FALLBACK 1: Try without leading slash if it was present
-    // DataTypeParser may not handle leading slashes in some contexts
-    if (trimmedName.startsWith("/")) {
-      String nameWithoutSlash = trimmedName.substring(1);
-      try {
-        DataTypeParser parser = new DataTypeParser(dtm, dtm, null, AllowedDataTypes.ALL);
-        DataType result = parser.parse(nameWithoutSlash);
-        if (result != null) {
-          return result;
-        }
-      } catch (Exception e) {
-        // Continue to next fallback
-      }
-    }
-
-    // FALLBACK 2: Direct DTM lookup (for exact matches)
-    try {
-      DataType result = dtm.getDataType(trimmedName);
-      if (result != null) {
-        return result;
-      }
-    } catch (Exception e) {
-      // Continue to next fallback
-    }
-
-    // FALLBACK 3: Use DataTypeUtilities for namespace-qualified types
-    // This handles cases like "ns1::ns2::type"
-    if (trimmedName.contains("::")) {
-      DataType result = DataTypeUtilities.findNamespaceQualifiedDataType(dtm, trimmedName, null);
-      if (result != null) {
-        return result;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Gets count of available data types for context. Uses native DataTypeManager.getDataTypeCount()
-   * for efficiency.
-   */
-  private int getAvailableTypeCount(DataTypeManager dtm) {
-    try {
-      // Use native count method instead of iterating all types
-      return dtm.getDataTypeCount(true); // true = include pointers and arrays
-    } catch (Exception e) {
-      return -1; // Unknown count
-    }
-  }
-
-  /**
-   * Gets a human-readable description of the data type kind. Uses DataTypeUtilities for enhanced
-   * type analysis.
-   */
-  private String getDataTypeKind(DataType dataType) {
-    if (dataType == null) {
-      return "unknown";
-    }
-
-    // Use DataTypeUtilities to get base type for better classification
-    DataType baseType = DataTypeUtilities.getBaseDataType(dataType);
-    DataType typeToAnalyze = baseType != null ? baseType : dataType;
-
-    if (typeToAnalyze instanceof Structure) return "struct";
-    if (typeToAnalyze instanceof ghidra.program.model.data.Enum) return "enum";
-    if (typeToAnalyze instanceof Union) return "union";
-    if (typeToAnalyze instanceof TypeDef) return "typedef";
-    if (typeToAnalyze instanceof Pointer) return "pointer";
-    if (typeToAnalyze instanceof FunctionDefinitionDataType) return "function_definition";
-    if (typeToAnalyze instanceof Array) return "array";
-
-    // Check if it's a conflict data type
-    if (DataTypeUtilities.isConflictDataType(typeToAnalyze)) {
-      return "conflict_" + getBaseDataTypeKind(typeToAnalyze);
-    }
-
-    return getBaseDataTypeKind(typeToAnalyze);
-  }
-
-  /** Gets the base data type kind without conflict information. */
-  private String getBaseDataTypeKind(DataType dataType) {
-    String className = dataType.getClass().getSimpleName();
-    return className.toLowerCase().replace("datatype", "").replace("db", "");
   }
 }

@@ -1,7 +1,6 @@
 package com.themixednuts.tools;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -11,16 +10,22 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
+import com.themixednuts.utils.GhidraStateUtils;
+import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
-import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import ghidra.util.Swing;
+import ghidra.util.data.DataTypeParser;
+import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -29,12 +34,13 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -60,20 +66,38 @@ import reactor.core.scheduler.Schedulers;
 public abstract class BaseMcpTool {
 
   // =================== Static Configuration ===================
+  protected static final ObjectMapper mapper = JsonMapperHolder.getMapper();
 
-  private static ObjectMapper createAndConfigureMapper() {
-    ObjectMapper configuredMapper = new ObjectMapper();
-    configuredMapper
-        .getFactory()
-        .configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
-    configuredMapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
-    return configuredMapper;
+  private static final Object PROGRAM_TRACKER_CONTEXT_KEY = new Object();
+
+  private static final class ProgramResourceTracker {
+    private final List<Program> programs = new CopyOnWriteArrayList<>();
+
+    void track(Program program) {
+      if (program != null) {
+        programs.add(program);
+      }
+    }
+
+    void releaseAll(Object consumer) {
+      for (Program program : programs) {
+        try {
+          program.release(consumer);
+        } catch (Throwable t) {
+          Msg.error(BaseMcpTool.class, "Failed to release program resource", t);
+        }
+      }
+      programs.clear();
+    }
   }
-
-  protected static final ObjectMapper mapper = createAndConfigureMapper();
 
   /** Default page size for paginated results */
   protected static final int DEFAULT_PAGE_LIMIT = 50;
+
+  protected static final int MAX_PAGE_LIMIT = 500;
+
+  private static final int INLINE_RESPONSE_CHAR_LIMIT = 32_000;
+  private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
 
   // =================== Argument Name Constants (snake_case) ===================
 
@@ -113,6 +137,8 @@ public abstract class BaseMcpTool {
   public static final String ARG_ACTION = "action";
   public static final String ARG_NAMESPACE = "namespace";
   public static final String ARG_NAME_PATTERN = "name_pattern";
+  public static final String ARG_PAGE_SIZE = "page_size";
+  public static final String ARG_TOOL_OUTPUT_SESSION_ID = "tool_output_session_id";
 
   // =================== Abstract Methods ===================
 
@@ -212,6 +238,7 @@ public abstract class BaseMcpTool {
     long startTime = System.currentTimeMillis();
     String toolName = annotation.mcpName();
     String operation = getOperationFromArgs(args);
+    ProgramResourceTracker tracker = new ProgramResourceTracker();
 
     return execute(ctx, args, tool)
         .map(
@@ -233,7 +260,7 @@ public abstract class BaseMcpTool {
                 response = McpResponse.success(toolName, operation, result, duration);
               }
 
-              return createSuccessResultInternal(response);
+              return createSuccessResultInternal(response, args, toolName, operation);
             })
         .onErrorResume(
             t -> {
@@ -242,7 +269,9 @@ public abstract class BaseMcpTool {
               McpResponse<?> response =
                   McpResponse.error(toolName, operation, normalized.getErr(), duration);
               return createErrorResultInternal(response, normalized);
-            });
+            })
+        .contextWrite(context -> context.put(PROGRAM_TRACKER_CONTEXT_KEY, tracker))
+        .doFinally(signal -> tracker.releaseAll(this));
   }
 
   /** Extracts operation type from args (for action-based tools). */
@@ -288,7 +317,7 @@ public abstract class BaseMcpTool {
                       operation,
                       null,
                       null,
-                      Map.of("exceptionType", "IllegalArgumentException")))
+                      Map.of("exception_type", "IllegalArgumentException")))
               .build();
       return new GhidraMcpException(error);
     }
@@ -305,7 +334,7 @@ public abstract class BaseMcpTool {
                       operation,
                       null,
                       null,
-                      Map.of("exceptionType", "NullPointerException")))
+                      Map.of("exception_type", "NullPointerException")))
               .build();
       return new GhidraMcpException(error);
     }
@@ -317,9 +346,20 @@ public abstract class BaseMcpTool {
 
   // =================== Result Creation ===================
 
-  private CallToolResult createSuccessResultInternal(McpResponse<?> response) {
+  private CallToolResult createSuccessResultInternal(
+      McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
     try {
       String jsonResult = mapper.writeValueAsString(response);
+
+      if (jsonResult.length() > INLINE_RESPONSE_CHAR_LIMIT) {
+        String requestedSessionId =
+            getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
+        ToolOutputStore.StoredOutputRef outputRef =
+            ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult);
+        McpResponse<?> wrappedResponse = wrapOversizedOutput(response, outputRef);
+        jsonResult = mapper.writeValueAsString(wrappedResponse);
+      }
+
       return CallToolResult.builder()
           .content(Collections.singletonList(new TextContent(jsonResult)))
           .isError(Boolean.FALSE)
@@ -333,6 +373,37 @@ public abstract class BaseMcpTool {
           .isError(Boolean.TRUE)
           .build();
     }
+  }
+
+  private McpResponse<?> wrapOversizedOutput(
+      McpResponse<?> originalResponse, ToolOutputStore.StoredOutputRef outputRef) {
+    Map<String, Object> inlineNotice =
+        Map.of(
+            "message",
+            "Output exceeded inline size and was stored for chunked retrieval.",
+            "retrieval_tool",
+            TOOL_OUTPUT_READER_NAME,
+            "session_id",
+            outputRef.sessionId(),
+            "output_id",
+            outputRef.outputId(),
+            "output_file_name",
+            outputRef.fileName(),
+            "tool_name",
+            outputRef.toolName(),
+            "operation",
+            outputRef.operation(),
+            "total_chars",
+            outputRef.totalChars(),
+            "inline_limit_chars",
+            INLINE_RESPONSE_CHAR_LIMIT);
+
+    return new McpResponse.Builder<Object>()
+        .data(inlineNotice)
+        .nextCursor(originalResponse.getNextCursor())
+        .durationMs(originalResponse.getDurationMs())
+        .error(originalResponse.getError())
+        .build();
   }
 
   private Mono<CallToolResult> createErrorResultInternal(
@@ -594,94 +665,36 @@ public abstract class BaseMcpTool {
    * @return A Mono emitting the active Program
    */
   protected Mono<Program> getProgram(Map<String, Object> args, PluginTool tool) {
-    return Mono.fromCallable(
-        () -> {
-          DomainFile domainFile = getDomainFile(args, tool);
-          return getProgramFromDomainFile(domainFile);
-        });
+    return Mono.deferContextual(
+        contextView ->
+            Mono.fromCallable(
+                () -> {
+                  DomainFile domainFile = getDomainFile(args, tool);
+                  Program program = getProgramFromDomainFile(domainFile);
+                  ProgramResourceTracker tracker =
+                      contextView.getOrDefault(PROGRAM_TRACKER_CONTEXT_KEY, null);
+                  if (tracker != null) {
+                    tracker.track(program);
+                  }
+                  return program;
+                }));
   }
 
   /** Retrieves a DomainFile based on the "file_name" argument. */
   protected DomainFile getDomainFile(Map<String, Object> args, PluginTool tool)
       throws GhidraMcpException {
-    ghidra.framework.model.Project project = ghidra.framework.main.AppInfo.getActiveProject();
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.permissionState()
-              .errorCode(GhidraMcpError.ErrorCode.PROGRAM_NOT_OPEN)
-              .message("No active project found in the application")
-              .build());
-    }
-    String fileName = getRequiredStringArgument(args, ARG_FILE_NAME);
-    return findDomainFile(project, fileName);
-  }
-
-  private DomainFile findDomainFile(ghidra.framework.model.Project project, String fileNameStr)
-      throws GhidraMcpException {
-    // First check if the file is already open (fast path)
-    Optional<DomainFile> openFile =
-        project.getOpenData().stream().filter(f -> f.getName().equals(fileNameStr)).findFirst();
-
-    if (openFile.isPresent()) {
-      return openFile.get();
-    }
-
-    // Search the entire project recursively
-    List<DomainFile> allFiles = new ArrayList<>();
-    collectDomainFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
-
-    return allFiles.stream()
-        .filter(f -> f.getName().equals(fileNameStr))
-        .findFirst()
-        .orElseThrow(() -> createFileNotFoundError(project, fileNameStr));
-  }
-
-  private void collectDomainFilesRecursive(DomainFolder folder, List<DomainFile> files) {
-    files.addAll(List.of(folder.getFiles()));
-    for (DomainFolder subfolder : folder.getFolders()) {
-      collectDomainFilesRecursive(subfolder, files);
-    }
-  }
-
-  private GhidraMcpException createFileNotFoundError(
-      ghidra.framework.model.Project project, String fileNameStr) {
-    List<String> openFiles =
-        project.getOpenData().stream()
-            .map(DomainFile::getName)
-            .sorted()
-            .collect(Collectors.toList());
-
-    GhidraMcpError error = GhidraMcpErrorUtils.fileNotFound(fileNameStr, openFiles, getMcpName());
-    return new GhidraMcpException(error);
+    String fileName =
+        getOptionalStringArgument(args, ARG_FILE_NAME)
+            .orElseThrow(
+                () ->
+                    new GhidraMcpException(
+                        GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), ARG_FILE_NAME)));
+    return GhidraStateUtils.findDomainFile(fileName);
   }
 
   /** Retrieves the Program object from a DomainFile. */
   protected Program getProgramFromDomainFile(DomainFile domainFile) throws GhidraMcpException {
-    try {
-      DomainObject obj = domainFile.getDomainObject(this, true, false, null);
-      if (obj instanceof Program) {
-        return (Program) obj;
-      }
-      String actualType = obj != null ? obj.getClass().getName() : "null";
-      if (obj != null) {
-        obj.release(this);
-      }
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message(
-                  "File '"
-                      + domainFile.getName()
-                      + "' does not contain a Program. Found: "
-                      + actualType)
-              .build());
-    } catch (Exception e) {
-      if (e instanceof GhidraMcpException) {
-        throw (GhidraMcpException) e;
-      }
-      throw new GhidraMcpException(
-          GhidraMcpErrorUtils.unexpectedError(getMcpName(), "file access", e));
-    }
+    return GhidraStateUtils.getProgramFromFile(domainFile, this);
   }
 
   // =================== Transaction Management ===================
@@ -725,6 +738,252 @@ public abstract class BaseMcpTool {
                   });
             })
         .subscribeOn(Schedulers.boundedElastic());
+  }
+
+  /**
+   * Executes read/write work on the Swing EDT without opening a transaction.
+   *
+   * <p>Use this for operations that must run on EDT but should not create nested or synthetic
+   * transactions (e.g. undo/redo).
+   */
+  protected <T> Mono<T> executeOnEdt(String operationName, Callable<T> work) {
+    return Mono.<T>create(
+            sink -> {
+              Swing.runNow(
+                  () -> {
+                    try {
+                      T result = work.call();
+                      sink.success(result);
+                    } catch (Throwable t) {
+                      sink.error(normalizeException(t, getMcpName(), operationName));
+                    }
+                  });
+            })
+        .subscribeOn(Schedulers.boundedElastic());
+  }
+
+  /**
+   * Resolves a data type name/path using Ghidra's parser with conservative fallbacks.
+   *
+   * <p>Supports primitives, pointers, arrays, templates, namespace-qualified names, and category
+   * paths.
+   */
+  protected DataType resolveDataTypeWithFallback(DataTypeManager dtm, String typeName) {
+    if (dtm == null || typeName == null || typeName.trim().isEmpty()) {
+      return null;
+    }
+
+    String trimmedName = typeName.trim();
+    LinkedHashSet<String> attempted = new LinkedHashSet<>();
+
+    // Phase 1: native resolution of exact user input.
+    DataType exact = tryResolveNativeCandidate(dtm, trimmedName, attempted);
+    if (exact != null) {
+      return exact;
+    }
+
+    // Phase 2: native resolution of conservative syntax normalization.
+    String collapsedWhitespace = collapseWhitespace(trimmedName);
+    DataType collapsed = tryResolveNativeCandidate(dtm, collapsedWhitespace, attempted);
+    if (collapsed != null) {
+      return collapsed;
+    }
+
+    String normalizedArraySpacing = normalizeArraySpacing(collapsedWhitespace);
+    DataType normalizedArray = tryResolveNativeCandidate(dtm, normalizedArraySpacing, attempted);
+    if (normalizedArray != null) {
+      return normalizedArray;
+    }
+
+    // Phase 3: extension layer on top of native helpers (slash/no-slash variants).
+    LinkedHashSet<String> extensionCandidates =
+        buildExtendedDataTypeCandidates(collapsedWhitespace, normalizedArraySpacing);
+    for (String candidate : extensionCandidates) {
+      DataType resolved = tryResolveNativeCandidate(dtm, candidate, attempted);
+      if (resolved != null) {
+        return resolved;
+      }
+    }
+
+    // Phase 4: array reconstruction for edge forms (e.g. "/MyStruct [2]").
+    LinkedHashSet<String> arrayCandidates = new LinkedHashSet<>();
+    addCandidate(arrayCandidates, trimmedName);
+    addCandidate(arrayCandidates, collapsedWhitespace);
+    addCandidate(arrayCandidates, normalizedArraySpacing);
+    arrayCandidates.addAll(extensionCandidates);
+
+    for (String candidate : arrayCandidates) {
+      DataType arrayResolved = tryResolveArrayExpression(dtm, candidate);
+      if (arrayResolved != null) {
+        return arrayResolved;
+      }
+    }
+
+    return null;
+  }
+
+  private LinkedHashSet<String> buildExtendedDataTypeCandidates(
+      String collapsedWhitespace, String normalizedArraySpacing) {
+    LinkedHashSet<String> candidates = new LinkedHashSet<>();
+
+    addCandidate(candidates, collapsedWhitespace);
+    addCandidate(candidates, normalizedArraySpacing);
+
+    if (collapsedWhitespace.startsWith("/")) {
+      addCandidate(candidates, collapsedWhitespace.substring(1));
+    } else {
+      addCandidate(candidates, "/" + collapsedWhitespace);
+    }
+
+    if (normalizedArraySpacing.startsWith("/")) {
+      addCandidate(candidates, normalizedArraySpacing.substring(1));
+    } else {
+      addCandidate(candidates, "/" + normalizedArraySpacing);
+    }
+
+    return candidates;
+  }
+
+  private DataType tryResolveNativeCandidate(
+      DataTypeManager dtm, String expression, LinkedHashSet<String> attempted) {
+    if (expression == null) {
+      return null;
+    }
+
+    String candidate = expression.trim();
+    if (candidate.isEmpty() || !attempted.add(candidate)) {
+      return null;
+    }
+
+    DataType parsed = tryParseDataType(dtm, candidate);
+    if (parsed != null) {
+      return parsed;
+    }
+
+    DataType primitive = DataTypeUtilities.getCPrimitiveDataType(candidate);
+    if (primitive != null) {
+      return primitive;
+    }
+
+    DataType direct = tryLookupDataType(dtm, candidate);
+    if (direct != null) {
+      return direct;
+    }
+
+    if (candidate.contains("::")) {
+      DataType namespaceQualified =
+          DataTypeUtilities.findNamespaceQualifiedDataType(dtm, candidate, null);
+      if (namespaceQualified != null) {
+        return namespaceQualified;
+      }
+    }
+
+    return null;
+  }
+
+  private void addCandidate(LinkedHashSet<String> candidates, String candidate) {
+    if (candidate == null) {
+      return;
+    }
+    String value = candidate.trim();
+    if (!value.isEmpty()) {
+      candidates.add(value);
+    }
+  }
+
+  private String collapseWhitespace(String expression) {
+    return expression.replaceAll("\\s+", " ").trim();
+  }
+
+  private String normalizeArraySpacing(String expression) {
+    return expression.replaceAll("\\s*\\[\\s*", "[").replaceAll("\\s*\\]\\s*", "]");
+  }
+
+  private DataType tryParseDataType(DataTypeManager dtm, String expression) {
+    try {
+      DataTypeParser parser = new DataTypeParser(dtm, dtm, null, AllowedDataTypes.ALL);
+      return parser.parse(expression);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private DataType tryLookupDataType(DataTypeManager dtm, String expression) {
+    try {
+      return dtm.getDataType(expression);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private DataType tryResolveArrayExpression(DataTypeManager dtm, String expression) {
+    String normalized = normalizeArraySpacing(expression);
+    int firstBracket = normalized.indexOf('[');
+    if (firstBracket <= 0 || !normalized.endsWith("]")) {
+      return null;
+    }
+
+    String baseExpression = normalized.substring(0, firstBracket).trim();
+    String arraySuffix = normalized.substring(firstBracket);
+    if (baseExpression.isEmpty() || !arraySuffix.matches("(\\[[0-9]+\\])+")) {
+      return null;
+    }
+
+    DataType baseType = resolveBaseDataTypeExpression(dtm, baseExpression);
+    if (baseType == null) {
+      return null;
+    }
+
+    LinkedHashSet<String> arrayCandidates = new LinkedHashSet<>();
+    addCandidate(arrayCandidates, baseType.getPathName() + arraySuffix);
+    addCandidate(arrayCandidates, baseType.getDisplayName() + arraySuffix);
+    addCandidate(arrayCandidates, baseType.getName() + arraySuffix);
+
+    for (String arrayCandidate : arrayCandidates) {
+      DataType parsed = tryParseDataType(dtm, arrayCandidate);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  private DataType resolveBaseDataTypeExpression(DataTypeManager dtm, String baseExpression) {
+    if (baseExpression == null || baseExpression.trim().isEmpty()) {
+      return null;
+    }
+
+    String trimmedBase = baseExpression.trim();
+    String collapsedWhitespace = collapseWhitespace(trimmedBase);
+    String normalizedArraySpacing = normalizeArraySpacing(collapsedWhitespace);
+    LinkedHashSet<String> attempted = new LinkedHashSet<>();
+
+    DataType exact = tryResolveNativeCandidate(dtm, trimmedBase, attempted);
+    if (exact != null) {
+      return exact;
+    }
+
+    DataType collapsed = tryResolveNativeCandidate(dtm, collapsedWhitespace, attempted);
+    if (collapsed != null) {
+      return collapsed;
+    }
+
+    DataType normalized = tryResolveNativeCandidate(dtm, normalizedArraySpacing, attempted);
+    if (normalized != null) {
+      return normalized;
+    }
+
+    LinkedHashSet<String> extensionCandidates =
+        buildExtendedDataTypeCandidates(collapsedWhitespace, normalizedArraySpacing);
+    for (String candidate : extensionCandidates) {
+      DataType resolved = tryResolveNativeCandidate(dtm, candidate, attempted);
+      if (resolved != null) {
+        return resolved;
+      }
+    }
+
+    return null;
   }
 
   // =================== Address Parsing ===================

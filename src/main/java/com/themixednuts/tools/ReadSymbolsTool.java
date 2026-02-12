@@ -43,36 +43,36 @@ import reactor.core.publisher.Mono;
         <examples>
         Read a single symbol by ID:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "symbol_id": 12345
         }
 
         Read a single symbol at an address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "address": "0x401000"
         }
 
         Read a single symbol by name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name": "main"
         }
 
         List all symbols (first page):
         {
-          "fileName": "program.exe"
+          "file_name": "program.exe"
         }
 
         List symbols with name filter:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name_filter": "decrypt"
         }
 
         Get next page of results:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "cursor": "main:0x401000"
         }
         </examples>
@@ -129,6 +129,18 @@ public class ReadSymbolsTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_CURSOR,
         SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of symbols to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
@@ -267,6 +279,11 @@ public class ReadSymbolsTool extends BaseMcpTool {
   private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
       throws GhidraMcpException {
     SymbolTable symbolTable = program.getSymbolTable();
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
     Optional<String> symbolTypeOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE);
@@ -286,83 +303,83 @@ public class ReadSymbolsTool extends BaseMcpTool {
       cursorAddress = parts.length > 1 ? parts[1] : null;
     }
 
-    // Use native scanSymbolsByName for efficient lexicographic iteration
-    // This avoids loading all symbols into memory
-    SymbolIterator symbolIter;
-    if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-      // Use native wildcard support: convert substring filter to wildcard pattern
-      String wildcardPattern = "*" + nameFilterOpt.get() + "*";
-      symbolIter = symbolTable.getSymbolIterator(wildcardPattern, false);
-    } else if (cursorName != null) {
-      // Use scanSymbolsByName for cursor-based pagination (lexicographic order)
-      symbolIter = symbolTable.scanSymbolsByName(cursorName);
-    } else {
-      // Get all symbols sorted by name (native order)
-      symbolIter = symbolTable.getAllSymbols(true);
-    }
-
-    List<SymbolInfo> results = new ArrayList<>();
-    boolean skipPastCursor = (cursorName != null);
     final String finalCursorName = cursorName;
     final String finalCursorAddress = cursorAddress;
 
-    while (symbolIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
-      Symbol symbol = symbolIter.next();
+    String normalizedNameFilter = nameFilterOpt.map(String::toLowerCase).orElse(null);
+    String normalizedSourceType = sourceTypeOpt.map(String::toLowerCase).orElse(null);
+    String normalizedNamespace = namespaceOpt.map(String::toLowerCase).orElse(null);
 
-      // Skip past cursor position
-      if (skipPastCursor) {
-        int nameCompare = symbol.getName().compareToIgnoreCase(finalCursorName);
-        if (nameCompare < 0) {
-          continue;
-        }
-        if (nameCompare == 0) {
-          if (finalCursorAddress != null
-              && symbol.getAddress().toString().compareTo(finalCursorAddress) <= 0) {
-            continue;
-          }
-        }
-        skipPastCursor = false;
-      }
+    List<SymbolInfo> allMatches = new ArrayList<>();
+    SymbolIterator symbolIterator = symbolTable.getAllSymbols(true);
+    while (symbolIterator.hasNext()) {
+      Symbol symbol = symbolIterator.next();
 
-      // Apply symbol type filter
       if (symbolTypeFilter != null && symbol.getSymbolType() != symbolTypeFilter) {
         continue;
       }
 
-      // Apply source type filter
-      if (sourceTypeOpt.isPresent() && !sourceTypeOpt.get().isEmpty()) {
-        if (!symbol.getSource().toString().equalsIgnoreCase(sourceTypeOpt.get())) {
-          continue;
-        }
+      if (normalizedSourceType != null
+          && !symbol.getSource().toString().toLowerCase().equals(normalizedSourceType)) {
+        continue;
       }
 
-      // Apply namespace filter
-      if (namespaceOpt.isPresent() && !namespaceOpt.get().isEmpty()) {
-        if (!symbol.getParentNamespace().getName(false).equalsIgnoreCase(namespaceOpt.get())) {
-          continue;
-        }
+      if (normalizedNamespace != null
+          && !symbol
+              .getParentNamespace()
+              .getName(false)
+              .toLowerCase()
+              .equals(normalizedNamespace)) {
+        continue;
       }
 
-      // Apply name filter (for exact substring match if wildcard didn't work)
-      if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty()) {
-        if (!symbol.getName().toLowerCase().contains(nameFilterOpt.get().toLowerCase())) {
-          continue;
-        }
+      if (normalizedNameFilter != null
+          && !symbol.getName().toLowerCase().contains(normalizedNameFilter)) {
+        continue;
       }
 
-      results.add(new SymbolInfo(symbol));
+      allMatches.add(new SymbolInfo(symbol));
     }
 
-    // Determine if there are more results
-    boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-    if (hasMore) {
-      results = results.subList(0, DEFAULT_PAGE_LIMIT);
-    }
+    allMatches.sort(
+        Comparator.comparing(SymbolInfo::getName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(SymbolInfo::getAddress, String.CASE_INSENSITIVE_ORDER));
+
+    List<SymbolInfo> paginatedMatches =
+        allMatches.stream()
+            .dropWhile(
+                symbolInfo -> {
+                  if (finalCursorName == null || finalCursorName.isEmpty()) {
+                    return false;
+                  }
+
+                  int nameCompare = symbolInfo.getName().compareToIgnoreCase(finalCursorName);
+                  if (nameCompare < 0) {
+                    return true;
+                  }
+                  if (nameCompare > 0) {
+                    return false;
+                  }
+
+                  if (finalCursorAddress == null || finalCursorAddress.isEmpty()) {
+                    return true;
+                  }
+
+                  return symbolInfo.getAddress().compareToIgnoreCase(finalCursorAddress) <= 0;
+                })
+            .limit(pageSize + 1L)
+            .toList();
+
+    boolean hasMore = paginatedMatches.size() > pageSize;
+    List<SymbolInfo> results =
+        hasMore
+            ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
+            : new ArrayList<>(paginatedMatches);
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
       SymbolInfo lastItem = results.get(results.size() - 1);
-      nextCursor = lastItem.getName() + ":" + lastItem.getAddr();
+      nextCursor = lastItem.getName() + ":" + lastItem.getAddress();
     }
 
     return new PaginatedResult<>(results, nextCursor);

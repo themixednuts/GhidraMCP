@@ -22,6 +22,7 @@ com.themixednuts.tools.ExecuteScriptTool
 com.themixednuts.tools.AnalyzeRttiTool
 com.themixednuts.tools.UndoRedoTool
 com.themixednuts.tools.BatchOperationsTool
+com.themixednuts.tools.ReadToolOutputTool
 com.themixednuts.tools.versiontracking.ManageVTSessionTool
 com.themixednuts.tools.versiontracking.RunVTCorrelatorTool
 com.themixednuts.tools.versiontracking.ReadVTMatchesTool

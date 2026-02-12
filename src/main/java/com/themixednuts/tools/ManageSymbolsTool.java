@@ -52,7 +52,7 @@ import reactor.core.publisher.Mono;
         <examples>
         Create a label at a specific address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "symbol_type": "label",
           "address": "0x401000",
@@ -61,7 +61,7 @@ import reactor.core.publisher.Mono;
 
         Create a namespace:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "create",
           "symbol_type": "namespace",
           "name": "MyNamespace",
@@ -70,7 +70,7 @@ import reactor.core.publisher.Mono;
 
         Rename a symbol by its current name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "update",
           "current_name": "FUN_00401000",
           "new_name": "main_function"
@@ -78,7 +78,7 @@ import reactor.core.publisher.Mono;
 
         Convert a namespace to a class:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "convert_to_class",
           "name": "AutoClass3",
           "namespace": "optional::parent::namespace"
@@ -209,7 +209,7 @@ public class ManageSymbolsTool extends BaseMcpTool {
    * Executes the symbol management operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, action, and action-specific parameters
+   * @param args The tool arguments containing file_name, action, and action-specific parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting the result of the symbol operation
    */

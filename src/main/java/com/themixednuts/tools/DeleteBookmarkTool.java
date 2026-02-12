@@ -158,7 +158,7 @@ public class DeleteBookmarkTool extends BaseMcpTool {
                                           "bookmark lookup",
                                           args,
                                           Map.of(ARG_ADDRESS, normalizedAddress),
-                                          Map.of("bookmarkCount", 0)))
+                                          Map.of("bookmark_count", 0)))
                                   .suggestions(
                                       List.of(
                                           new GhidraMcpError.ErrorSuggestion(
@@ -218,7 +218,7 @@ public class DeleteBookmarkTool extends BaseMcpTool {
                                               bookmarkCategoryOpt.orElse("any"),
                                               ARG_COMMENT_CONTAINS,
                                               commentContainsOpt.orElse("none")),
-                                          Map.of("bookmarksInspected", bookmarks.length)))
+                                          Map.of("bookmarks_inspected", bookmarks.length)))
                                   .suggestions(
                                       List.of(
                                           new GhidraMcpError.ErrorSuggestion(
@@ -241,7 +241,7 @@ public class DeleteBookmarkTool extends BaseMcpTool {
                                 "Deleted " + matched.size() + " bookmark(s).")
                             .setMetadata(
                                 Map.of(
-                                    "deletedCount",
+                                    "deleted_count",
                                     matched.size(),
                                     ARG_BOOKMARK_TYPE,
                                     bookmarkTypeOpt.orElse("any"),
@@ -258,7 +258,7 @@ public class DeleteBookmarkTool extends BaseMcpTool {
                                         "bookmark deletion",
                                         args,
                                         Map.of("address", addressStr),
-                                        Map.of("exceptionType", e.getClass().getSimpleName())))
+                                        Map.of("exception_type", e.getClass().getSimpleName())))
                                 .suggestions(
                                     List.of(
                                         new GhidraMcpError.ErrorSuggestion(

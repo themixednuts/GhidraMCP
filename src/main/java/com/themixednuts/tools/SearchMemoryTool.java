@@ -48,10 +48,10 @@ import reactor.core.publisher.Mono;
         </ghidra_specific_notes>
 
         <parameters_summary>
-        - 'searchType': Type of search (string, hex, binary, decimal, float, double, regex)
-        - 'searchValue': The pattern/value to search for (format depends on search type)
-        - 'caseSensitive': Whether string/regex searches are case sensitive (default false)
-        - 'maxResults': Maximum number of results to return (default 100, max 1000)
+        - 'search_type': Type of search (string, hex, binary, decimal, float, double, regex)
+        - 'search_value': The pattern/value to search for (format depends on search type)
+        - 'case_sensitive': Whether string/regex searches are case sensitive (default false)
+        - 'max_results': Maximum number of results to return (default/max: 50)
         </parameters_summary>
 
         <agent_response_guidance>
@@ -215,7 +215,7 @@ public class SearchMemoryTool extends BaseMcpTool {
    * Executes the memory search operation.
    *
    * @param ex The MCP transport context
-   * @param args The tool arguments containing fileName, searchType, searchValue, and optional
+   * @param args The tool arguments containing file_name, search_type, search_value, and optional
    *     parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a SearchResult object
@@ -248,7 +248,7 @@ public class SearchMemoryTool extends BaseMcpTool {
                                         "search value validation",
                                         args,
                                         Map.of(ARG_SEARCH_VALUE, searchValue),
-                                        Map.of("valueLength", searchValue.length())))
+                                        Map.of("value_length", searchValue.length())))
                                 .build());
                       }
 
@@ -307,9 +307,9 @@ public class SearchMemoryTool extends BaseMcpTool {
                   new GhidraMcpError.ErrorContext(
                       getMcpName(),
                       "memory region check",
-                      Map.of("searchValue", searchValue, "searchType", searchType.getValue()),
-                      Map.of("addressSetSize", addressSet.getNumAddresses()),
-                      Map.of("programName", program.getName())))
+                      Map.of("search_value", searchValue, "search_type", searchType.getValue()),
+                      Map.of("address_set_size", addressSet.getNumAddresses()),
+                      Map.of("program_name", program.getName())))
               .build());
     }
 
@@ -339,11 +339,14 @@ public class SearchMemoryTool extends BaseMcpTool {
                   new GhidraMcpError.ErrorContext(
                       getMcpName(),
                       "search execution",
-                      Map.of("searchValue", searchValue, "searchType", searchType.getValue()),
+                      Map.of("search_value", searchValue, "search_type", searchType.getValue()),
                       Map.of(
-                          "addressSetSize", addressSet.getNumAddresses(), "maxResults", maxResults),
+                          "address_set_size",
+                          addressSet.getNumAddresses(),
+                          "max_results",
+                          maxResults),
                       Map.of(
-                          "programName",
+                          "program_name",
                           program.getName(),
                           "endianness",
                           program.getMemory().isBigEndian() ? "big" : "little")))
@@ -384,7 +387,7 @@ public class SearchMemoryTool extends BaseMcpTool {
                       "hex format validation",
                       args,
                       Map.of(ARG_SEARCH_VALUE, searchValue),
-                      Map.of("detectedPrefix", "0x", "suggestedFormat", suggested)))
+                      Map.of("detected_prefix", "0x", "suggested_format", suggested)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(
@@ -409,7 +412,7 @@ public class SearchMemoryTool extends BaseMcpTool {
                       "hex format validation",
                       args,
                       Map.of(ARG_SEARCH_VALUE, searchValue),
-                      Map.of("detectedFormat", "continuous", "suggestedFormat", suggested)))
+                      Map.of("detected_format", "continuous", "suggested_format", suggested)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(

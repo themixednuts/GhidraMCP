@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.themixednuts</groupId>
+  <artifactId>GhidraMCP-bootstrap</artifactId>
+  <packaging>pom</packaging>
+  <version>0.5.2</version>
+  <name>GhidraMCP Bootstrap</name>
+  <description>Downloads Ghidra jars required for building GhidraMCP</description>
+  <properties>
+    <ghidra.cache.dir>${project.basedir}/.cache</ghidra.cache.dir>
+    <ghidra.lib.output.dir>${project.basedir}/lib</ghidra.lib.output.dir>
+    <gmavenplus.plugin.version>4.3.0</gmavenplus.plugin.version>
+    <download.maven.plugin.version>1.13.0</download.maven.plugin.version>
+    <maven.antrun.plugin.version>3.2.0</maven.antrun.plugin.version>
+    <groovy.version>4.0.29</groovy.version>
+  </properties>
+  <build>
+    <plugins>
+      <!-- Resolve Ghidra version and download URL -->
+      <plugin>
+        <groupId>org.codehaus.gmavenplus</groupId>
+        <artifactId>gmavenplus-plugin</artifactId>
+        <version>${gmavenplus.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>resolve-ghidra-version</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>execute</goal>
+            </goals>
+            <configuration>
+              <scripts>
+                <script><![CDATA[
+                  import groovy.json.JsonSlurper
+                  import java.net.HttpURLConnection
+
+                  def cacheDir = new File(project.properties['ghidra.cache.dir'])
+                  cacheDir.mkdirs()
+
+                  def normalizeVersion = { v ->
+                    if (!v) return null
+                    def matcher = java.util.regex.Pattern.compile('(\\d+\\.\\d+(?:\\.\\d+)?)').matcher(v)
+                    return matcher.find() ? matcher.group(1) : null
+                  }
+
+                  def readPomGhidraVersion = {
+                    try {
+                      def pomFile = new File(project.basedir, 'pom.xml')
+                      if (!pomFile.exists()) {
+                        return null
+                      }
+                      def pomText = pomFile.getText('UTF-8')
+                      def matcher = (pomText =~ /<ghidra\.version>\s*([^<\s]+)\s*<\/ghidra\.version>/)
+                      return matcher.find() ? matcher.group(1).trim() : null
+                    } catch (Exception ignored) {
+                      return null
+                    }
+                  }
+
+                  def fetchJson = { apiUrl, description ->
+                    HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection()
+                    conn.setRequestMethod('GET')
+                    conn.setRequestProperty('Accept', 'application/vnd.github.v3+json')
+                    conn.setRequestProperty('User-Agent', 'GhidraMCP-Bootstrap')
+
+                    def githubToken = System.getenv('GITHUB_TOKEN')?.trim()
+                    if (githubToken) {
+                      conn.setRequestProperty('Authorization', 'Bearer ' + githubToken)
+                    }
+
+                    int status = conn.responseCode
+                    if (status >= 400) {
+                      def details = conn.errorStream != null ? conn.errorStream.text : 'no response body'
+                      throw new RuntimeException(
+                          "Failed to fetch " + description + " (HTTP " + status + "): " + details)
+                    }
+
+                    return new JsonSlurper().parse(conn.inputStream)
+                  }
+
+                  def defaultPomVersion = readPomGhidraVersion()
+                  def requestedRelease = System.getProperty('ghidra.release')?.trim()
+                  if (!requestedRelease) {
+                    requestedRelease = defaultPomVersion ?: 'latest'
+                  }
+
+                  boolean useLatest = requestedRelease.equalsIgnoreCase('latest')
+                  String ghidraVer = null
+                  String tagName = null
+                  def releaseInfo = null
+
+                  if (useLatest) {
+                    log.info('Fetching latest Ghidra release...')
+                    releaseInfo =
+                        fetchJson(
+                            'https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest',
+                            'latest Ghidra release metadata')
+                    tagName = releaseInfo.tag_name
+                    ghidraVer = normalizeVersion(tagName)
+                  } else {
+                    ghidraVer = normalizeVersion(requestedRelease)
+                    if (!ghidraVer) {
+                      throw new RuntimeException(
+                          "Invalid ghidra.release value: "
+                              + requestedRelease
+                              + ". Use 'latest', '12.0', or 'Ghidra_12.0_build'.")
+                    }
+                    tagName =
+                        requestedRelease.startsWith('Ghidra_')
+                            ? requestedRelease
+                            : ('Ghidra_' + ghidraVer + '_build')
+                    log.info('Fetching Ghidra release ' + tagName + '...')
+                    releaseInfo =
+                        fetchJson(
+                            'https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/tags/'
+                                + tagName,
+                            'Ghidra release metadata for ' + tagName)
+                  }
+
+                  if (!ghidraVer) {
+                    throw new RuntimeException(
+                        'Unable to resolve Ghidra version from release metadata: ' + releaseInfo)
+                  }
+
+                  def zipAsset =
+                      releaseInfo.assets?.find { asset ->
+                        def n = asset?.name?.toLowerCase()
+                        n != null && n.matches('ghidra_.*_public_.*\\.zip')
+                      }
+                  if (!zipAsset) {
+                    throw new RuntimeException(
+                        'Could not find a Ghidra PUBLIC zip asset in release ' + releaseInfo.tag_name)
+                  }
+
+                  def zipName = zipAsset.name
+                  def downloadUrl = zipAsset.browser_download_url
+                  def dateMatch = (zipName =~ /(?i)PUBLIC_(\d+)\.zip$/)
+                  def releaseDate = dateMatch ? dateMatch[0][1] : 'unknown'
+
+                  if (defaultPomVersion && ghidraVer != defaultPomVersion) {
+                    log.warn(
+                        'Resolved Ghidra version '
+                            + ghidraVer
+                            + ' differs from pom.xml ghidra.version '
+                            + defaultPomVersion
+                            + '. Build with -Dghidra.version='
+                            + ghidraVer
+                            + ' or re-bootstrap with -Dghidra.release='
+                            + defaultPomVersion
+                            + '.')
+                  }
+
+                  log.info('Requested release selector: ' + requestedRelease)
+                  log.info('Resolved tag: ' + releaseInfo.tag_name)
+                  log.info('Ghidra version: ' + ghidraVer)
+                  log.info('Release date: ' + releaseDate)
+                  log.info('Download URL: ' + downloadUrl)
+
+                  project.properties['ghidra.resolution.mode'] = useLatest ? 'latest' : 'pinned'
+                  project.properties['ghidra.requested.selector'] = requestedRelease
+                  project.properties['ghidra.resolved.version'] = ghidraVer
+                  project.properties['ghidra.resolved.date'] = releaseDate
+                  project.properties['ghidra.resolved.url'] = downloadUrl
+                  project.properties['ghidra.resolved.zip'] = zipName
+                  project.properties['ghidra.resolved.tag'] = releaseInfo.tag_name
+                ]]></script>
+              </scripts>
+            </configuration>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <version>${groovy.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy-ant</artifactId>
+            <version>${groovy.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy-json</artifactId>
+            <version>${groovy.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <!-- Download Ghidra release -->
+      <plugin>
+        <groupId>com.googlecode.maven-download-plugin</groupId>
+        <artifactId>download-maven-plugin</artifactId>
+        <version>${download.maven.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>download-ghidra</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>wget</goal>
+            </goals>
+            <configuration>
+              <url>${ghidra.resolved.url}</url>
+              <outputDirectory>${ghidra.cache.dir}</outputDirectory>
+              <outputFileName>${ghidra.resolved.zip}</outputFileName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Extract Ghidra jars to lib/ -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>${maven.antrun.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>extract-ghidra-jars</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <mkdir dir="${ghidra.lib.output.dir}"/>
+                <echo level="info" message="Extracting Ghidra ${ghidra.resolved.version} jars to ${ghidra.lib.output.dir}..."/>
+                <unzip src="${ghidra.cache.dir}/${ghidra.resolved.zip}" dest="${ghidra.cache.dir}/extract">
+                  <patternset>
+                    <include name="*/Ghidra/Features/Base/lib/Base.jar"/>
+                    <include name="*/Ghidra/Features/Decompiler/lib/Decompiler.jar"/>
+                    <include name="*/Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar"/>
+                    <include name="*/Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar"/>
+                    <include name="*/Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar"/>
+                    <include name="*/Ghidra/Features/VersionTracking/lib/VersionTracking.jar"/>
+                    <include name="*/Ghidra/Framework/DB/lib/DB.jar"/>
+                    <include name="*/Ghidra/Framework/Docking/lib/Docking.jar"/>
+                    <include name="*/Ghidra/Framework/Generic/lib/Generic.jar"/>
+                    <include name="*/Ghidra/Framework/Project/lib/Project.jar"/>
+                    <include name="*/Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar"/>
+                    <include name="*/Ghidra/Framework/Utility/lib/Utility.jar"/>
+                    <include name="*/Ghidra/Framework/Gui/lib/Gui.jar"/>
+                  </patternset>
+                  <mapper type="flatten"/>
+                </unzip>
+                <delete includeemptydirs="true">
+                  <fileset dir="${ghidra.lib.output.dir}" includes="*.jar"/>
+                </delete>
+                <copy todir="${ghidra.lib.output.dir}" overwrite="true">
+                  <fileset dir="${ghidra.cache.dir}/extract" includes="*.jar"/>
+                </copy>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="false" message="ghidra.bootstrap.version=${ghidra.resolved.version}${line.separator}"/>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="true" message="ghidra.bootstrap.releaseDate=${ghidra.resolved.date}${line.separator}"/>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="true" message="ghidra.bootstrap.tag=${ghidra.resolved.tag}${line.separator}"/>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="true" message="ghidra.bootstrap.selector=${ghidra.requested.selector}${line.separator}"/>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="true" message="ghidra.bootstrap.mode=${ghidra.resolution.mode}${line.separator}"/>
+                <echo file="${ghidra.lib.output.dir}/.ghidra-bootstrap.properties" append="true" message="ghidra.bootstrap.zip=${ghidra.resolved.zip}${line.separator}"/>
+                <delete dir="${ghidra.cache.dir}/extract" quiet="true"/>
+                <echo level="info" message="Ghidra ${ghidra.resolved.version} jars ready in ${ghidra.lib.output.dir}"/>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

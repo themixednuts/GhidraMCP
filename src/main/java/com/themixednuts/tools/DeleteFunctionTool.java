@@ -155,7 +155,7 @@ public class DeleteFunctionTool extends BaseMcpTool {
                     "function identifier validation",
                     args,
                     providedIdentifiers,
-                    Map.of("identifiersProvided", 0, "minimumRequired", 1)))
+                    Map.of("identifiers_provided", 0, "minimum_required", 1)))
             .suggestions(
                 List.of(
                     new GhidraMcpError.ErrorSuggestion(
@@ -274,8 +274,8 @@ public class DeleteFunctionTool extends BaseMcpTool {
                             toolOperation,
                             "function deletion command",
                             Map.of(ARG_ADDRESS, entryPointStr),
-                            Map.of("commandStatus", status),
-                            Map.of("commandSuccess", false)))
+                            Map.of("command_status", status),
+                            Map.of("command_success", false)))
                     .suggestions(
                         List.of(
                             new GhidraMcpError.ErrorSuggestion(
@@ -305,7 +305,7 @@ public class DeleteFunctionTool extends BaseMcpTool {
                 "function resolution",
                 Map.of(searchType, searchValue),
                 Map.of(),
-                Map.of("searchMethod", searchType)))
+                Map.of("search_method", searchType)))
         .suggestions(
             List.of(
                 new GhidraMcpError.ErrorSuggestion(
@@ -331,8 +331,8 @@ public class DeleteFunctionTool extends BaseMcpTool {
                 toolOperation,
                 "function resolution",
                 Map.of("name", searchValue),
-                Map.of("matchCount", functions.size()),
-                Map.of("firstFiveMatches", functionNames)))
+                Map.of("match_count", functions.size()),
+                Map.of("first_five_matches", functionNames)))
         .suggestions(
             List.of(
                 new GhidraMcpError.ErrorSuggestion(

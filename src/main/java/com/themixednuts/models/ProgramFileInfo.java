@@ -13,11 +13,11 @@ public class ProgramFileInfo {
   private final String name;
   private final String path;
   private final int version;
-  private final boolean open;
+  private final boolean isOpen;
   private final boolean changed;
   private final boolean readOnly;
-  private final String arch;
-  private final String base;
+  private final String architecture;
+  private final String imageBase;
   private final Long size;
   private final String format;
 
@@ -28,18 +28,18 @@ public class ProgramFileInfo {
       boolean open,
       boolean changed,
       boolean readOnly,
-      String arch,
-      String base,
+      String architecture,
+      String imageBase,
       Long size,
       String format) {
     this.name = name;
     this.path = path;
     this.version = version;
-    this.open = open;
+    this.isOpen = open;
     this.changed = changed;
     this.readOnly = readOnly;
-    this.arch = arch;
-    this.base = base;
+    this.architecture = architecture;
+    this.imageBase = imageBase;
     this.size = size;
     this.format = format;
   }
@@ -54,14 +54,14 @@ public class ProgramFileInfo {
     return path;
   }
 
-  @JsonProperty("ver")
+  @JsonProperty("version")
   public int getVersion() {
     return version;
   }
 
-  @JsonProperty("open")
+  @JsonProperty("is_open")
   public boolean isOpen() {
-    return open;
+    return isOpen;
   }
 
   @JsonProperty("changed")
@@ -69,19 +69,19 @@ public class ProgramFileInfo {
     return changed;
   }
 
-  @JsonProperty("ro")
+  @JsonProperty("read_only")
   public boolean isReadOnly() {
     return readOnly;
   }
 
-  @JsonProperty("arch")
-  public String getArch() {
-    return arch;
+  @JsonProperty("architecture")
+  public String getArchitecture() {
+    return architecture;
   }
 
-  @JsonProperty("base")
-  public String getBase() {
-    return base;
+  @JsonProperty("image_base")
+  public String getImageBase() {
+    return imageBase;
   }
 
   @JsonProperty("size")

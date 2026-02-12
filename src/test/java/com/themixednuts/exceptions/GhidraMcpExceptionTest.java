@@ -16,7 +16,7 @@ class GhidraMcpExceptionTest {
 
   @BeforeEach
   void setUp() {
-    error = GhidraMcpError.validation().msg("Test error message").hint("Fix it").build();
+    error = GhidraMcpError.validation().message("Test error message").hint("Fix it").build();
   }
 
   @Nested
@@ -73,7 +73,7 @@ class GhidraMcpExceptionTest {
     @Test
     @DisplayName("Should correctly identify validation error")
     void shouldCorrectlyIdentifyValidationError() {
-      exception = new GhidraMcpException(GhidraMcpError.validation().msg("x").build());
+      exception = new GhidraMcpException(GhidraMcpError.validation().message("x").build());
 
       assertTrue(exception.isValidationError());
       assertFalse(exception.isResourceNotFoundError());
@@ -84,7 +84,7 @@ class GhidraMcpExceptionTest {
     @Test
     @DisplayName("Should correctly identify resource not found error")
     void shouldCorrectlyIdentifyResourceNotFoundError() {
-      exception = new GhidraMcpException(GhidraMcpError.resourceNotFound().msg("x").build());
+      exception = new GhidraMcpException(GhidraMcpError.resourceNotFound().message("x").build());
 
       assertFalse(exception.isValidationError());
       assertTrue(exception.isResourceNotFoundError());
@@ -95,7 +95,7 @@ class GhidraMcpExceptionTest {
     @Test
     @DisplayName("Should correctly identify data type parsing error")
     void shouldCorrectlyIdentifyDataTypeParsingError() {
-      exception = new GhidraMcpException(GhidraMcpError.dataTypeParsing().msg("x").build());
+      exception = new GhidraMcpException(GhidraMcpError.dataTypeParsing().message("x").build());
 
       assertFalse(exception.isValidationError());
       assertFalse(exception.isResourceNotFoundError());
@@ -106,7 +106,7 @@ class GhidraMcpExceptionTest {
     @Test
     @DisplayName("Should correctly identify execution error")
     void shouldCorrectlyIdentifyExecutionError() {
-      exception = new GhidraMcpException(GhidraMcpError.execution().msg("x").build());
+      exception = new GhidraMcpException(GhidraMcpError.execution().message("x").build());
 
       assertFalse(exception.isValidationError());
       assertFalse(exception.isResourceNotFoundError());
@@ -237,7 +237,7 @@ class GhidraMcpExceptionTest {
     @Test
     @DisplayName("Should handle error with null message")
     void shouldHandleErrorWithNullMessage() {
-      GhidraMcpError nullMsgError = GhidraMcpError.validation().msg(null).build();
+      GhidraMcpError nullMsgError = GhidraMcpError.validation().message(null).build();
       exception = new GhidraMcpException(nullMsgError);
 
       assertNotNull(exception);

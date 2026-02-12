@@ -35,14 +35,14 @@ import reactor.core.publisher.Mono;
         </ghidra_specific_notes>
 
         <parameters_summary>
-        - 'scriptName': Name of the script you want guidance on (e.g., 'DemangleAllScript')
-        - 'guidanceType': Type of guidance needed (e.g., 'access', 'usage', 'troubleshooting')
+        - 'script_name': Name of the script you want guidance on (e.g., 'DemangleAllScript')
+        - 'guidance_type': Type of guidance needed (e.g., 'access', 'usage', 'troubleshooting')
         </parameters_summary>
 
         <return_value_summary>
         Returns a ScriptGuidance object containing:
-        - 'scriptName': The script you requested guidance for
-        - 'guidanceType': The type of guidance provided
+        - 'script_name': The script you requested guidance for
+        - 'guidance_type': The type of guidance provided
         - 'instructions': Step-by-step instructions
         - 'tips': Additional tips and best practices
         - 'troubleshooting': Common issues and solutions
@@ -135,7 +135,7 @@ public class ExecuteScriptTool extends BaseMcpTool {
    * Executes the script guidance operation.
    *
    * @param ex The MCP transport context
-   * @param args The tool arguments containing fileName, scriptName, and guidanceType
+   * @param args The tool arguments containing file_name, script_name, and guidance_type
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a ScriptGuidance object
    */
@@ -162,7 +162,7 @@ public class ExecuteScriptTool extends BaseMcpTool {
                                         "script name validation",
                                         args,
                                         Map.of(ARG_SCRIPT_NAME, scriptName),
-                                        Map.of("scriptNameLength", scriptName.length())))
+                                        Map.of("script_name_length", scriptName.length())))
                                 .build());
                       }
 

@@ -77,7 +77,9 @@
 
 - **Batch Operations** - Execute multiple tool operations in a single
   transaction with automatic rollback on failure
-- **Undo/Redo** - Transaction-based undo/redo operations
+- **Undo/Redo** - Program history undo/redo operations
+- **Read Tool Output** - Retrieve oversized tool responses from session-based
+  temp storage in chunked, composable calls
 
 ---
 
@@ -104,9 +106,9 @@ MCP Client is configured to connect (see 'Configuring an MCP Client' below).
 > closed, or the server will hang and become unresponsive.
 
 > [!TIP]
-> **Missing fileName Parameter:** When tools request a `fileName` parameter, use
-> the `list_programs` tool to see available programs. Most tools provide this
-> context automatically on failed calls.
+> **Missing file_name Parameter:** When tools request a `file_name` parameter,
+> use the `list_programs` tool to see available programs. Most tools provide
+> this context automatically on failed calls.
 
 ## ⚙️ Configuration
 
@@ -122,33 +124,67 @@ settings:
      Ghidra launches
 4. Click **OK** to save your settings.
 
+## 🔄 Dependency Automation
+
+- `/.github/dependabot.yml` manages regular Maven and GitHub Actions dependency
+  update PRs.
+- `/renovate.json` + `/.github/workflows/renovate-bootstrap.yml` manage
+  `bootstrap.xml` version properties via regex-based updates.
+- `/.github/workflows/dependency-update-validation.yml` runs stricter validation
+  for bot-authored dependency PRs (pinned build + latest-bootstrap smoke test).
+- You can run the Renovate bootstrap updater on demand from the Actions tab using
+  the **Renovate Bootstrap Dependencies** workflow.
+
 ## 🛠️ Building from Source
+
+If you are installing from a GitHub release zip, you can skip this section.
+The steps below are only for building from source.
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/themixednuts/GhidraMCP.git
    ```
-2. Ensure you have [Apache Maven](https://maven.apache.org/install.html) and JDK
-   21 or later installed.
-3. Copy the following required JAR files from your Ghidra installation directory
-   into the `lib/` directory (create it if needed):
-   - `Ghidra/Features/Base/lib/Base.jar`
-   - `Ghidra/Features/Decompiler/lib/Decompiler.jar`
-   - `Ghidra/Framework/Docking/lib/Docking.jar`
-   - `Ghidra/Framework/Generic/lib/Generic.jar`
-   - `Ghidra/Framework/Project/lib/Project.jar`
-   - `Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar`
-   - `Ghidra/Framework/Utility/lib/Utility.jar`
-   - `Ghidra/Framework/Gui/lib/Gui.jar`
-   - `Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar`
-   - `Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar`
-   - `Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar`
-4. Build the project using Maven:
+2. Ensure you have [Apache Maven](https://maven.apache.org/install.html)
+   **3.6.3+** and JDK 21 or later installed.
+3. Download the required Ghidra jars (first time only, ~350MB):
+
+   Recommended (reproducible, matches `pom.xml` `ghidra.version`):
+   ```bash
+   mvn -f bootstrap.xml initialize
+   ```
+
+   Pin to a specific version:
+   ```bash
+   mvn -f bootstrap.xml initialize -Dghidra.release=12.0
+   ```
+
+   Track latest release:
+   ```bash
+   mvn -f bootstrap.xml initialize -Dghidra.release=latest
+   ```
+
+   This writes jars to `lib/` and records metadata in
+   `lib/.ghidra-bootstrap.properties` for version checks.
+
+   If you bootstrap with `latest` and it differs from `pom.xml`'s
+   `ghidra.version`, either:
+
+   - build with a matching version override, e.g.
+     `mvn clean package -Dghidra.version=<resolved-version>`
+   - or bypass the guard (not recommended):
+     `mvn clean package -Dghidra.version.check.skip=true`
+
+   Optional advanced override:
+
+   - bootstrap output directory: `-Dghidra.lib.output.dir=/path/to/lib`
+   - compile-time library directory: `-Dghidra.lib.dir=/path/to/lib`
+
+4. Build the project:
    ```bash
    mvn clean package
    ```
 5. The installable `zip` file will be in the `target/` directory (e.g.,
-   `target/GhidraMCP-0.5.0.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.5.2.zip`). Install it using the steps above.
 
 > [!TIP]
 > **CI Test JAR:** The test JAR with dependencies is only built when explicitly

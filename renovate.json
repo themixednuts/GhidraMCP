@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabledManagers": ["regex"],
+  "labels": ["dependencies", "bootstrap"],
+  "commitMessagePrefix": "build(deps)",
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": true,
+  "automerge": false,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
+  "rangeStrategy": "pin",
+  "regexManagers": [
+    {
+      "description": "gmavenplus plugin version in bootstrap.xml",
+      "fileMatch": ["^bootstrap\\.xml$"],
+      "matchStrings": [
+        "<gmavenplus\\.plugin\\.version>(?<currentValue>[^<]+)</gmavenplus\\.plugin\\.version>"
+      ],
+      "depNameTemplate": "org.codehaus.gmavenplus:gmavenplus-plugin",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    },
+    {
+      "description": "download-maven-plugin version in bootstrap.xml",
+      "fileMatch": ["^bootstrap\\.xml$"],
+      "matchStrings": [
+        "<download\\.maven\\.plugin\\.version>(?<currentValue>[^<]+)</download\\.maven\\.plugin\\.version>"
+      ],
+      "depNameTemplate": "com.googlecode.maven-download-plugin:download-maven-plugin",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    },
+    {
+      "description": "maven-antrun-plugin version in bootstrap.xml",
+      "fileMatch": ["^bootstrap\\.xml$"],
+      "matchStrings": [
+        "<maven\\.antrun\\.plugin\\.version>(?<currentValue>[^<]+)</maven\\.antrun\\.plugin\\.version>"
+      ],
+      "depNameTemplate": "org.apache.maven.plugins:maven-antrun-plugin",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    },
+    {
+      "description": "groovy dependencies version in bootstrap.xml",
+      "fileMatch": ["^bootstrap\\.xml$"],
+      "matchStrings": ["<groovy\\.version>(?<currentValue>[^<]+)</groovy\\.version>"],
+      "depNameTemplate": "org.apache.groovy:groovy",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["regex"],
+      "groupName": "bootstrap-build-dependencies"
+    }
+  ]
+}

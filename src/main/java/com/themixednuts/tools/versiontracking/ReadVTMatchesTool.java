@@ -28,6 +28,7 @@ import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -122,6 +123,18 @@ public class ReadVTMatchesTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
 
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of matches to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_SESSION_NAME);
 
     return schemaRoot.build();
@@ -190,6 +203,11 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     Optional<Double> minConfidence = getOptionalDoubleArgument(args, ARG_MIN_CONFIDENCE);
     Optional<String> correlatorFilter = getOptionalStringArgument(args, ARG_CORRELATOR);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     Program sourceProgram = session.getSourceProgram();
     Program destProgram = session.getDestinationProgram();
@@ -229,6 +247,13 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
       Collection<VTMatch> matches = matchSet.getMatches();
       List<VTMatch> matchList = new ArrayList<>(matches);
+      matchList.sort(
+          Comparator.comparing(
+                  (VTMatch match) -> match.getAssociation().getSourceAddress().toString(),
+                  String.CASE_INSENSITIVE_ORDER)
+              .thenComparing(
+                  match -> match.getAssociation().getDestinationAddress().toString(),
+                  String.CASE_INSENSITIVE_ORDER));
 
       int startIdx = (msIdx == startMatchSetIndex) ? startMatchIndex : 0;
       for (int mIdx = startIdx; mIdx < matchList.size(); mIdx++) {
@@ -239,7 +264,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
           continue;
         }
 
-        if (results.size() >= DEFAULT_PAGE_LIMIT) {
+        if (results.size() >= pageSize) {
           hasMore = true;
           lastMatchSetIndex = msIdx;
           lastMatchIndex = mIdx;

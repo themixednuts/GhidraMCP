@@ -49,7 +49,7 @@ import reactor.core.publisher.Mono;
         <examples>
         Read memory bytes:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "read",
           "address": "0x401000",
           "length": 16
@@ -57,7 +57,7 @@ import reactor.core.publisher.Mono;
 
         Write bytes to memory:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "write",
           "address": "0x401000",
           "bytes_hex": "4889e5"
@@ -65,14 +65,14 @@ import reactor.core.publisher.Mono;
 
         Undefine code unit at address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "undefine",
           "address": "0x401000"
         }
 
         List memory segments:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "action": "list_segments"
         }
         </examples>
@@ -186,7 +186,7 @@ public class ManageMemoryTool extends BaseMcpTool {
    * Executes the memory management operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName, action, and action-specific parameters
+   * @param args The tool arguments containing file_name, action, and action-specific parameters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting the result of the memory operation
    */

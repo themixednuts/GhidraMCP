@@ -49,14 +49,14 @@ import reactor.core.publisher.Mono;
         <examples>
         Read a single data type by ID:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "data_type_kind": "struct",
           "data_type_id": 12345
         }
 
         Read a single data type by name:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "data_type_kind": "struct",
           "name": "MyStruct",
           "category_path": "/MyTypes"
@@ -64,25 +64,25 @@ import reactor.core.publisher.Mono;
 
         Analyze RTTI at address:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "data_type_kind": "rtti0",
           "address": "0x401000"
         }
 
         List all data types (first page):
         {
-          "fileName": "program.exe"
+          "file_name": "program.exe"
         }
 
         List data types with name filter:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "name_filter": "struct"
         }
 
         Get next page of results:
         {
-          "fileName": "program.exe",
+          "file_name": "program.exe",
           "cursor": "struct_name:/winapi/STRUCT"
         }
         </examples>
@@ -148,6 +148,18 @@ public class ReadDataTypesTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
             .description("Pagination cursor from previous request (list mode)"));
+
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of data types to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
@@ -276,6 +288,11 @@ public class ReadDataTypesTool extends BaseMcpTool {
   private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args)
       throws GhidraMcpException {
     DataTypeManager dtm = program.getDataTypeManager();
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
     Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
@@ -289,107 +306,73 @@ public class ReadDataTypesTool extends BaseMcpTool {
       cursorPath = parts.length > 1 ? parts[1] : parts[0];
     }
 
-    // Use type-specific iterators when type_kind is specified for better performance
     Iterator<? extends DataType> dataTypeIterator = getTypeSpecificIterator(dtm, typeKindOpt);
 
-    // If name filter is specified, use native findDataTypes with wildcard support
-    List<DataType> searchResults = null;
+    List<DataType> candidates = new ArrayList<>();
     if (nameFilterOpt.isPresent() && !nameFilterOpt.get().isEmpty() && typeKindOpt.isEmpty()) {
-      searchResults = new ArrayList<>();
-      // Use wildcard pattern for native search - supports * and ?
       String searchPattern = "*" + nameFilterOpt.get() + "*";
-      dtm.findDataTypes(searchPattern, searchResults, false, TaskMonitor.DUMMY);
-    }
-
-    List<DataTypeInfo> results = new ArrayList<>();
-    final String finalCursorPath = cursorPath;
-    final String finalCategoryFilter = categoryFilterOpt.orElse(null);
-    final String finalNameFilter = nameFilterOpt.orElse(null);
-    final String finalTypeKind = typeKindOpt.orElse(null);
-    boolean passedCursor = (cursorPath == null);
-
-    // Process either search results or iterator
-    if (searchResults != null) {
-      // Sort search results by path name for consistent ordering
-      searchResults.sort((dt1, dt2) -> dt1.getPathName().compareToIgnoreCase(dt2.getPathName()));
-
-      for (DataType dataType : searchResults) {
-        if (results.size() > DEFAULT_PAGE_LIMIT) break;
-
-        // Skip past cursor
-        if (!passedCursor) {
-          if (dataType.getPathName().compareToIgnoreCase(finalCursorPath) <= 0) {
-            continue;
-          }
-          passedCursor = true;
-        }
-
-        // Apply category filter
-        if (finalCategoryFilter != null && !finalCategoryFilter.isEmpty()) {
-          if (!dataType
-              .getCategoryPath()
-              .getPath()
-              .toLowerCase()
-              .contains(finalCategoryFilter.toLowerCase())) {
-            continue;
-          }
-        }
-
-        DataTypeInfo info = new DataTypeInfo(dataType);
-        info.getDetails().setDataTypeId(dtm.getID(dataType));
-        results.add(info);
-      }
+      dtm.findDataTypes(searchPattern, candidates, false, TaskMonitor.DUMMY);
     } else {
-      // Process iterator directly
-      while (dataTypeIterator.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
-        DataType dataType = dataTypeIterator.next();
-
-        // Skip past cursor (comparing by path name)
-        if (!passedCursor) {
-          if (dataType.getPathName().compareToIgnoreCase(finalCursorPath) <= 0) {
-            continue;
-          }
-          passedCursor = true;
-        }
-
-        // Apply name filter if not using search
-        if (finalNameFilter != null && !finalNameFilter.isEmpty()) {
-          if (!dataType.getName().toLowerCase().contains(finalNameFilter.toLowerCase())) {
-            continue;
-          }
-        }
-
-        // Apply category filter
-        if (finalCategoryFilter != null && !finalCategoryFilter.isEmpty()) {
-          if (!dataType
-              .getCategoryPath()
-              .getPath()
-              .toLowerCase()
-              .contains(finalCategoryFilter.toLowerCase())) {
-            continue;
-          }
-        }
-
-        // Apply type kind filter for non-specialized iterators
-        if (finalTypeKind != null && !matchesTypeKind(dataType, finalTypeKind)) {
-          continue;
-        }
-
-        DataTypeInfo info = new DataTypeInfo(dataType);
-        info.getDetails().setDataTypeId(dtm.getID(dataType));
-        results.add(info);
-      }
+      dataTypeIterator.forEachRemaining(candidates::add);
     }
 
-    // Sort results by path name for consistent ordering
-    results.sort(
-        (d1, d2) -> d1.getDetails().getPath().compareToIgnoreCase(d2.getDetails().getPath()));
+    String normalizedNameFilter = nameFilterOpt.map(String::toLowerCase).orElse(null);
+    String normalizedCategoryFilter = categoryFilterOpt.map(String::toLowerCase).orElse(null);
+    String normalizedTypeKind = typeKindOpt.map(String::toLowerCase).orElse(null);
+    final String finalCursorPath = cursorPath;
 
-    // Determine if there are more results
-    boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-    if (hasMore) {
-      results = results.subList(0, DEFAULT_PAGE_LIMIT);
-    }
+    List<DataTypeInfo> allMatches =
+        candidates.stream()
+            .filter(
+                dataType -> {
+                  if (normalizedNameFilter != null
+                      && !dataType.getName().toLowerCase().contains(normalizedNameFilter)) {
+                    return false;
+                  }
+
+                  if (normalizedCategoryFilter != null
+                      && !dataType
+                          .getCategoryPath()
+                          .getPath()
+                          .toLowerCase()
+                          .contains(normalizedCategoryFilter)) {
+                    return false;
+                  }
+
+                  if (normalizedTypeKind != null
+                      && !matchesTypeKind(dataType, normalizedTypeKind)) {
+                    return false;
+                  }
+
+                  return true;
+                })
+            .map(
+                dataType -> {
+                  DataTypeInfo info = new DataTypeInfo(dataType);
+                  info.getDetails().setDataTypeId(dtm.getID(dataType));
+                  return info;
+                })
+            .sorted(
+                Comparator.comparing(
+                    dataTypeInfo -> dataTypeInfo.getDetails().getPath(),
+                    String.CASE_INSENSITIVE_ORDER))
+            .toList();
+
+    List<DataTypeInfo> paginatedMatches =
+        allMatches.stream()
+            .dropWhile(
+                info ->
+                    finalCursorPath != null
+                        && !finalCursorPath.isEmpty()
+                        && info.getDetails().getPath().compareToIgnoreCase(finalCursorPath) <= 0)
+            .limit(pageSize + 1L)
+            .toList();
+
+    boolean hasMore = paginatedMatches.size() > pageSize;
+    List<DataTypeInfo> results =
+        hasMore
+            ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
+            : new ArrayList<>(paginatedMatches);
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {

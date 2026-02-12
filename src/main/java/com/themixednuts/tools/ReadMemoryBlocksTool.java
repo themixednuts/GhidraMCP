@@ -12,6 +12,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,7 +59,7 @@ import reactor.core.publisher.Mono;
         Get next page of results:
         {
           "file_name": "program.exe",
-          "cursor": ".text:0x401000"
+          "cursor": "0x401000"
         }
         </examples>
         """)
@@ -102,6 +103,18 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
 
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of memory blocks to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
     return schemaRoot.build();
@@ -128,6 +141,11 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
     Optional<Long> minSizeOpt = getOptionalLongArgument(args, ARG_MIN_SIZE);
     Optional<Long> maxSizeOpt = getOptionalLongArgument(args, ARG_MAX_SIZE);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     // Get all memory blocks and apply filters
     List<MemoryBlockInfo> allMemoryBlocks =
@@ -173,41 +191,50 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
             .map(MemoryBlockInfo::new)
             .collect(Collectors.toList());
 
-    // Apply cursor-based pagination
-    final String finalCursorStr = cursorOpt.orElse(null);
+    String cursorAddress = cursorOpt.map(this::extractCursorAddress).orElse(null);
 
-    List<MemoryBlockInfo> paginatedMemoryBlocks =
-        allMemoryBlocks.stream()
-            .dropWhile(
-                blockInfo -> {
-                  if (finalCursorStr == null) return false;
+    int startIndex = 0;
+    if (cursorAddress != null && !cursorAddress.isBlank()) {
+      for (int i = 0; i < allMemoryBlocks.size(); i++) {
+        if (cursorAddress.equals(allMemoryBlocks.get(i).getStartAddress())) {
+          startIndex = i + 1;
+          break;
+        }
+      }
+    }
 
-                  // Cursor format: "name:startAddress"
-                  String[] parts = finalCursorStr.split(":", 2);
-                  String cursorName = parts[0];
-                  String cursorAddress = parts.length > 1 ? parts[1] : "";
+    List<MemoryBlockInfo> paginatedMemoryBlocks;
+    if (startIndex >= allMemoryBlocks.size()) {
+      paginatedMemoryBlocks = Collections.emptyList();
+    } else {
+      paginatedMemoryBlocks =
+          allMemoryBlocks.stream()
+              .skip(startIndex)
+              .limit(pageSize + 1L)
+              .collect(Collectors.toList());
+    }
 
-                  int nameCompare = blockInfo.getName().compareToIgnoreCase(cursorName);
-                  if (nameCompare < 0) return true;
-                  if (nameCompare == 0) {
-                    return blockInfo.getStartAddress().compareTo(cursorAddress) <= 0;
-                  }
-                  return false;
-                })
-            .limit(DEFAULT_PAGE_LIMIT + 1)
-            .collect(Collectors.toList());
-
-    boolean hasMore = paginatedMemoryBlocks.size() > DEFAULT_PAGE_LIMIT;
+    boolean hasMore = paginatedMemoryBlocks.size() > pageSize;
     List<MemoryBlockInfo> resultsForPage =
-        paginatedMemoryBlocks.subList(
-            0, Math.min(paginatedMemoryBlocks.size(), DEFAULT_PAGE_LIMIT));
+        paginatedMemoryBlocks.subList(0, Math.min(paginatedMemoryBlocks.size(), pageSize));
 
     String nextCursor = null;
     if (hasMore && !resultsForPage.isEmpty()) {
       MemoryBlockInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
-      nextCursor = lastItem.getName() + ":" + lastItem.getStartAddress();
+      nextCursor = lastItem.getStartAddress();
     }
 
     return new PaginatedResult<>(resultsForPage, nextCursor);
+  }
+
+  private String extractCursorAddress(String cursor) {
+    if (cursor == null || cursor.isBlank()) {
+      return "";
+    }
+    int separator = cursor.indexOf(':');
+    if (separator >= 0 && separator < cursor.length() - 1) {
+      return cursor.substring(separator + 1);
+    }
+    return cursor;
   }
 }

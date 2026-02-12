@@ -117,7 +117,7 @@ public class UndoRedoTool extends BaseMcpTool {
                                   args,
                                   Map.of(ARG_ACTION, action),
                                   Map.of(
-                                      "validActions",
+                                      "valid_actions",
                                       List.of(ACTION_UNDO, ACTION_REDO, ACTION_INFO))))
                           .suggestions(
                               List.of(
@@ -136,9 +136,8 @@ public class UndoRedoTool extends BaseMcpTool {
 
   private Mono<? extends Object> handleUndo(
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-    return executeInTransaction(
-        program,
-        "MCP - Undo Operation",
+    return executeOnEdt(
+        "undo operation",
         () -> {
           if (!program.canUndo()) {
             GhidraMcpError error =
@@ -150,8 +149,8 @@ public class UndoRedoTool extends BaseMcpTool {
                             annotation.mcpName(),
                             "undo operation",
                             args,
-                            Map.of("canUndo", false),
-                            Map.of("undoAvailable", false)))
+                            Map.of("can_undo", false),
+                            Map.of("undo_available", false)))
                     .suggestions(
                         List.of(
                             new GhidraMcpError.ErrorSuggestion(
@@ -174,9 +173,8 @@ public class UndoRedoTool extends BaseMcpTool {
 
   private Mono<? extends Object> handleRedo(
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-    return executeInTransaction(
-        program,
-        "MCP - Redo Operation",
+    return executeOnEdt(
+        "redo operation",
         () -> {
           if (!program.canRedo()) {
             GhidraMcpError error =
@@ -188,8 +186,8 @@ public class UndoRedoTool extends BaseMcpTool {
                             annotation.mcpName(),
                             "redo operation",
                             args,
-                            Map.of("canRedo", false),
-                            Map.of("redoAvailable", false)))
+                            Map.of("can_redo", false),
+                            Map.of("redo_available", false)))
                     .suggestions(
                         List.of(
                             new GhidraMcpError.ErrorSuggestion(

@@ -223,7 +223,7 @@ public class ReadListingTool extends BaseMcpTool {
                             "function lookup",
                             args,
                             Map.of(ARG_FUNCTION, functionName),
-                            Map.of("availableFunctions", availableFunctions.size())))
+                            Map.of("available_functions", availableFunctions.size())))
                     .relatedResources(availableFunctions)
                     .build());
           }

@@ -124,6 +124,18 @@ public class ReadFunctionsTool extends BaseMcpTool {
         SchemaBuilder.string(mapper)
             .description("Pagination cursor from previous request (list mode)"));
 
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of functions to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
     return schemaRoot.build();
@@ -295,6 +307,11 @@ public class ReadFunctionsTool extends BaseMcpTool {
 
   private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
     FunctionManager functionManager = program.getFunctionManager();
+    int pageSize =
+        getOptionalIntArgument(args, ARG_PAGE_SIZE)
+            .filter(size -> size > 0)
+            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+            .orElse(DEFAULT_PAGE_LIMIT);
 
     Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
@@ -337,7 +354,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
     boolean skipFirst = (startAddress != null && cursorName != null);
     final Pattern finalNamePattern = namePattern;
 
-    while (funcIter.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+    while (funcIter.hasNext() && results.size() <= pageSize) {
       Function function = funcIter.next();
 
       // Skip past cursor position (same address, name <= cursor name)
@@ -360,15 +377,15 @@ public class ReadFunctionsTool extends BaseMcpTool {
     }
 
     // Determine if there are more results and create next cursor
-    boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
+    boolean hasMore = results.size() > pageSize;
     if (hasMore) {
-      results = results.subList(0, DEFAULT_PAGE_LIMIT);
+      results = results.subList(0, pageSize);
     }
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
       FunctionInfo lastFunc = results.get(results.size() - 1);
-      nextCursor = lastFunc.getAddress() + ":" + lastFunc.getName();
+      nextCursor = lastFunc.getEntryPoint() + ":" + lastFunc.getName();
     }
 
     return new PaginatedResult<>(results, nextCursor);

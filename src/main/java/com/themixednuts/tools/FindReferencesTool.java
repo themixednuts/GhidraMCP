@@ -17,6 +17,7 @@ import ghidra.program.model.symbol.ReferenceManager;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -118,6 +119,18 @@ public class FindReferencesTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
 
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of references to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_FILE_NAME);
     schemaRoot.requiredProperty(ARG_ADDRESS);
     schemaRoot.requiredProperty(ARG_DIRECTION);
@@ -151,6 +164,11 @@ public class FindReferencesTool extends BaseMcpTool {
               }
               String referenceType = getOptionalStringArgument(args, ARG_REFERENCE_TYPE).orElse("");
               Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+              int pageSize =
+                  getOptionalIntArgument(args, ARG_PAGE_SIZE)
+                      .filter(size -> size > 0)
+                      .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+                      .orElse(DEFAULT_PAGE_LIMIT);
 
               Direction direction = Direction.fromValue(directionStr);
 
@@ -164,6 +182,7 @@ public class FindReferencesTool extends BaseMcpTool {
                                 addressResult.getAddress(),
                                 referenceType,
                                 cursorOpt,
+                                pageSize,
                                 args,
                                 annotation);
                           }
@@ -173,6 +192,7 @@ public class FindReferencesTool extends BaseMcpTool {
                                 addressResult.getAddress(),
                                 referenceType,
                                 cursorOpt,
+                                pageSize,
                                 args,
                                 annotation);
                           }
@@ -194,6 +214,7 @@ public class FindReferencesTool extends BaseMcpTool {
       Address address,
       String referenceType,
       Optional<String> cursorOpt,
+      int pageSize,
       Map<String, Object> args,
       GhidraMcpTool annotation) {
     return Mono.fromCallable(
@@ -214,48 +235,52 @@ public class FindReferencesTool extends BaseMcpTool {
               // Invalid cursor, start from beginning
             }
           }
-
-          List<ReferenceInfo> results = new ArrayList<>();
-          boolean passedCursor = (cursorAddress == null);
-          final Address finalCursorAddress = cursorAddress;
+          final String finalCursorAddress = cursorAddress != null ? cursorAddress.toString() : null;
 
           try {
             ReferenceIterator refIterator = refManager.getReferencesTo(address);
-            while (refIterator.hasNext() && results.size() <= DEFAULT_PAGE_LIMIT) {
+            List<ReferenceInfo> allReferences = new ArrayList<>();
+            while (refIterator.hasNext()) {
               Reference ref = refIterator.next();
-
-              // Skip past cursor position
-              if (!passedCursor) {
-                if (ref.getFromAddress().compareTo(finalCursorAddress) <= 0) {
-                  continue;
-                }
-                passedCursor = true;
-              }
 
               // Apply reference type filter
               if (referenceType.isEmpty()
                   || ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
-                results.add(new ReferenceInfo(program, ref));
+                allReferences.add(new ReferenceInfo(program, ref));
               }
             }
+
+            allReferences.sort(
+                Comparator.comparing(ReferenceInfo::getFromAddress, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(ReferenceInfo::getToAddress, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(ReferenceInfo::getReferenceType, String.CASE_INSENSITIVE_ORDER));
+
+            List<ReferenceInfo> paginatedReferences =
+                allReferences.stream()
+                    .dropWhile(
+                        info ->
+                            finalCursorAddress != null
+                                && info.getFromAddress().compareToIgnoreCase(finalCursorAddress)
+                                    <= 0)
+                    .limit(pageSize + 1L)
+                    .toList();
+
+            boolean hasMore = paginatedReferences.size() > pageSize;
+            List<ReferenceInfo> results =
+                hasMore
+                    ? new ArrayList<>(paginatedReferences.subList(0, pageSize))
+                    : new ArrayList<>(paginatedReferences);
+
+            String nextCursor = null;
+            if (hasMore && !results.isEmpty()) {
+              nextCursor = results.get(results.size() - 1).getFromAddress();
+            }
+
+            return new PaginatedResult<>(results, nextCursor);
           } catch (Exception e) {
             throw buildXrefAnalysisException(
-                annotation, args, "find_references_to", address.toString(), results.size(), e);
+                annotation, args, "find_references_to", address.toString(), 0, e);
           }
-
-          // Determine if there are more results
-          boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-          if (hasMore) {
-            results = results.subList(0, DEFAULT_PAGE_LIMIT);
-          }
-
-          String nextCursor = null;
-          if (hasMore && !results.isEmpty()) {
-            // Cursor is the source address of the last reference
-            nextCursor = results.get(results.size() - 1).getFromAddress();
-          }
-
-          return new PaginatedResult<>(results, nextCursor);
         });
   }
 
@@ -264,6 +289,7 @@ public class FindReferencesTool extends BaseMcpTool {
       Address address,
       String referenceType,
       Optional<String> cursorOpt,
+      int pageSize,
       Map<String, Object> args,
       GhidraMcpTool annotation) {
     return Mono.fromCallable(
@@ -284,50 +310,52 @@ public class FindReferencesTool extends BaseMcpTool {
               // Invalid cursor, start from beginning
             }
           }
+          final String finalCursorAddress = cursorAddress != null ? cursorAddress.toString() : null;
 
           Reference[] referencesArray = refManager.getReferencesFrom(address);
-          List<ReferenceInfo> results = new ArrayList<>();
-          boolean passedCursor = (cursorAddress == null);
-          final Address finalCursorAddress = cursorAddress;
 
           try {
+            List<ReferenceInfo> allReferences = new ArrayList<>();
             if (referencesArray != null) {
               for (Reference ref : referencesArray) {
-                if (results.size() > DEFAULT_PAGE_LIMIT) break;
-
-                // Skip past cursor position
-                if (!passedCursor) {
-                  if (ref.getToAddress().compareTo(finalCursorAddress) <= 0) {
-                    continue;
-                  }
-                  passedCursor = true;
-                }
-
                 // Apply reference type filter
                 if (referenceType.isEmpty()
                     || ref.getReferenceType().toString().equalsIgnoreCase(referenceType)) {
-                  results.add(new ReferenceInfo(program, ref));
+                  allReferences.add(new ReferenceInfo(program, ref));
                 }
               }
             }
+
+            allReferences.sort(
+                Comparator.comparing(ReferenceInfo::getToAddress, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(ReferenceInfo::getFromAddress, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(ReferenceInfo::getReferenceType, String.CASE_INSENSITIVE_ORDER));
+
+            List<ReferenceInfo> paginatedReferences =
+                allReferences.stream()
+                    .dropWhile(
+                        info ->
+                            finalCursorAddress != null
+                                && info.getToAddress().compareToIgnoreCase(finalCursorAddress) <= 0)
+                    .limit(pageSize + 1L)
+                    .toList();
+
+            boolean hasMore = paginatedReferences.size() > pageSize;
+            List<ReferenceInfo> results =
+                hasMore
+                    ? new ArrayList<>(paginatedReferences.subList(0, pageSize))
+                    : new ArrayList<>(paginatedReferences);
+
+            String nextCursor = null;
+            if (hasMore && !results.isEmpty()) {
+              nextCursor = results.get(results.size() - 1).getToAddress();
+            }
+
+            return new PaginatedResult<>(results, nextCursor);
           } catch (Exception e) {
             throw buildXrefAnalysisException(
-                annotation, args, "find_references_from", address.toString(), results.size(), e);
+                annotation, args, "find_references_from", address.toString(), 0, e);
           }
-
-          // Determine if there are more results
-          boolean hasMore = results.size() > DEFAULT_PAGE_LIMIT;
-          if (hasMore) {
-            results = results.subList(0, DEFAULT_PAGE_LIMIT);
-          }
-
-          String nextCursor = null;
-          if (hasMore && !results.isEmpty()) {
-            // Cursor is the target address of the last reference
-            nextCursor = results.get(results.size() - 1).getToAddress();
-          }
-
-          return new PaginatedResult<>(results, nextCursor);
         });
   }
 
@@ -348,7 +376,7 @@ public class FindReferencesTool extends BaseMcpTool {
                     operation,
                     args,
                     Map.of(ARG_ADDRESS, normalizedAddress),
-                    Map.of("referencesCollected", referencesCollected)))
+                    Map.of("references_collected", referencesCollected)))
             .suggestions(
                 List.of(
                     new GhidraMcpError.ErrorSuggestion(

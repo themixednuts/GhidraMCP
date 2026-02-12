@@ -20,9 +20,9 @@ class GhidraMcpErrorTest {
       GhidraMcpError error = GhidraMcpError.notFound("Function", "main");
 
       assertEquals(GhidraMcpError.ErrorType.RESOURCE_NOT_FOUND, error.getErrorType());
-      assertTrue(error.getMsg().contains("Function"));
-      assertTrue(error.getMsg().contains("main"));
-      assertTrue(error.getMsg().contains("not found"));
+      assertTrue(error.getMessage().contains("Function"));
+      assertTrue(error.getMessage().contains("main"));
+      assertTrue(error.getMessage().contains("not found"));
     }
 
     @Test
@@ -30,48 +30,48 @@ class GhidraMcpErrorTest {
     void shouldCreateNotFoundErrorWithHint() {
       GhidraMcpError error = GhidraMcpError.notFound("Symbol", "foo", "See: read_symbols");
 
-      assertTrue(error.getMsg().contains("Symbol"));
+      assertTrue(error.getMessage().contains("Symbol"));
       assertEquals("See: read_symbols", error.getHint());
     }
 
     @Test
-    @DisplayName("Should create missingArg error")
+    @DisplayName("Should create missing error")
     void shouldCreateMissingArgError() {
-      GhidraMcpError error = GhidraMcpError.missingArg("file_name");
+      GhidraMcpError error = GhidraMcpError.missing("file_name");
 
       assertEquals(GhidraMcpError.ErrorType.VALIDATION, error.getErrorType());
-      assertTrue(error.getMsg().contains("Missing"));
-      assertTrue(error.getMsg().contains("file_name"));
+      assertTrue(error.getMessage().contains("Missing"));
+      assertTrue(error.getMessage().contains("file_name"));
     }
 
     @Test
-    @DisplayName("Should create invalidArg error with value")
+    @DisplayName("Should create invalid error with value")
     void shouldCreateInvalidArgErrorWithValue() {
-      GhidraMcpError error = GhidraMcpError.invalidArg("offset", -1, "must be positive");
+      GhidraMcpError error = GhidraMcpError.invalid("offset", -1, "must be positive");
 
       assertEquals(GhidraMcpError.ErrorType.VALIDATION, error.getErrorType());
-      assertTrue(error.getMsg().contains("offset"));
-      assertTrue(error.getMsg().contains("-1"));
-      assertTrue(error.getMsg().contains("must be positive"));
+      assertTrue(error.getMessage().contains("offset"));
+      assertTrue(error.getMessage().contains("-1"));
+      assertTrue(error.getMessage().contains("must be positive"));
     }
 
     @Test
-    @DisplayName("Should create invalidArg error simple")
+    @DisplayName("Should create invalid error simple")
     void shouldCreateInvalidArgErrorSimple() {
-      GhidraMcpError error = GhidraMcpError.invalidArg("action", "must be create or update");
+      GhidraMcpError error = GhidraMcpError.invalid("action", "must be create or update");
 
-      assertTrue(error.getMsg().contains("action"));
-      assertTrue(error.getMsg().contains("must be"));
+      assertTrue(error.getMessage().contains("action"));
+      assertTrue(error.getMessage().contains("must be"));
     }
 
     @Test
     @DisplayName("Should create parseError")
     void shouldCreateParseError() {
-      GhidraMcpError error = GhidraMcpError.parseError("address", "xyz");
+      GhidraMcpError error = GhidraMcpError.parse("address", "xyz");
 
       assertEquals(GhidraMcpError.ErrorType.DATA_TYPE_PARSING, error.getErrorType());
-      assertTrue(error.getMsg().contains("Cannot parse"));
-      assertTrue(error.getMsg().contains("address"));
+      assertTrue(error.getMessage().contains("Cannot parse"));
+      assertTrue(error.getMessage().contains("address"));
     }
 
     @Test
@@ -80,9 +80,9 @@ class GhidraMcpErrorTest {
       GhidraMcpError error = GhidraMcpError.failed("rename", "symbol already exists");
 
       assertEquals(GhidraMcpError.ErrorType.EXECUTION, error.getErrorType());
-      assertTrue(error.getMsg().contains("rename"));
-      assertTrue(error.getMsg().contains("failed"));
-      assertTrue(error.getMsg().contains("symbol already exists"));
+      assertTrue(error.getMessage().contains("rename"));
+      assertTrue(error.getMessage().contains("failed"));
+      assertTrue(error.getMessage().contains("symbol already exists"));
     }
 
     @Test
@@ -91,7 +91,7 @@ class GhidraMcpErrorTest {
       GhidraMcpError error = GhidraMcpError.noResults("pattern=.*main.*");
 
       assertEquals(GhidraMcpError.ErrorType.SEARCH_NO_RESULTS, error.getErrorType());
-      assertTrue(error.getMsg().contains("No results"));
+      assertTrue(error.getMessage().contains("No results"));
       assertEquals("Broaden search criteria", error.getHint());
     }
 
@@ -101,7 +101,7 @@ class GhidraMcpErrorTest {
       GhidraMcpError error = GhidraMcpError.conflict("Multiple matches found");
 
       assertEquals(GhidraMcpError.ErrorType.VALIDATION, error.getErrorType());
-      assertEquals("Multiple matches found", error.getMsg());
+      assertEquals("Multiple matches found", error.getMessage());
     }
 
     @Test
@@ -110,7 +110,7 @@ class GhidraMcpErrorTest {
       GhidraMcpError error = GhidraMcpError.internal("unexpected null");
 
       assertEquals(GhidraMcpError.ErrorType.INTERNAL, error.getErrorType());
-      assertTrue(error.getMsg().contains("Internal error"));
+      assertTrue(error.getMessage().contains("Internal error"));
     }
 
     @Test
@@ -118,7 +118,7 @@ class GhidraMcpErrorTest {
     void shouldCreateGenericErrorWithHint() {
       GhidraMcpError error = GhidraMcpError.error("Something went wrong", "Try again");
 
-      assertEquals("Something went wrong", error.getMsg());
+      assertEquals("Something went wrong", error.getMessage());
       assertEquals("Try again", error.getHint());
     }
 
@@ -126,10 +126,10 @@ class GhidraMcpErrorTest {
     @DisplayName("Should truncate long values")
     void shouldTruncateLongValues() {
       String longValue = "a".repeat(100);
-      GhidraMcpError error = GhidraMcpError.invalidArg("data", longValue, "too long");
+      GhidraMcpError error = GhidraMcpError.invalid("data", longValue, "too long");
 
-      assertTrue(error.getMsg().contains("..."));
-      assertTrue(error.getMsg().length() < 200);
+      assertTrue(error.getMessage().contains("..."));
+      assertTrue(error.getMessage().length() < 200);
     }
   }
 
@@ -141,9 +141,9 @@ class GhidraMcpErrorTest {
     @DisplayName("Should build error using builder")
     void shouldBuildErrorUsingBuilder() {
       GhidraMcpError error =
-          GhidraMcpError.validation().msg("Test message").hint("Do something").build();
+          GhidraMcpError.validation().message("Test message").hint("Do something").build();
 
-      assertEquals("Test message", error.getMsg());
+      assertEquals("Test message", error.getMessage());
       assertEquals("Do something", error.getHint());
       assertEquals(GhidraMcpError.ErrorType.VALIDATION, error.getErrorType());
     }
@@ -151,9 +151,9 @@ class GhidraMcpErrorTest {
     @Test
     @DisplayName("Should build minimal error")
     void shouldBuildMinimalError() {
-      GhidraMcpError error = GhidraMcpError.internal().msg("Error occurred").build();
+      GhidraMcpError error = GhidraMcpError.internal().message("Error occurred").build();
 
-      assertEquals("Error occurred", error.getMsg());
+      assertEquals("Error occurred", error.getMessage());
       assertNull(error.getHint());
     }
 
@@ -161,7 +161,7 @@ class GhidraMcpErrorTest {
     @DisplayName("Should support fix as alias for hint")
     void shouldSupportFixAsAlias() {
       GhidraMcpError error =
-          GhidraMcpError.validation().msg("Invalid").fix("Use correct format").build();
+          GhidraMcpError.validation().message("Invalid").fix("Use correct format").build();
 
       assertEquals("Use correct format", error.getHint());
     }
@@ -170,7 +170,7 @@ class GhidraMcpErrorTest {
     @DisplayName("Should support see() to build hint")
     void shouldSupportSeeAsHint() {
       GhidraMcpError error =
-          GhidraMcpError.resourceNotFound().msg("Not found").see("tool1", "tool2").build();
+          GhidraMcpError.resourceNotFound().message("Not found").see("tool1", "tool2").build();
 
       assertEquals("See: tool1, tool2", error.getHint());
     }
@@ -187,7 +187,7 @@ class GhidraMcpErrorTest {
               null);
 
       GhidraMcpError error =
-          GhidraMcpError.validation().msg("Test").suggestions(List.of(suggestion)).build();
+          GhidraMcpError.validation().message("Test").suggestions(List.of(suggestion)).build();
 
       assertEquals("Do this", error.getHint());
     }
@@ -213,13 +213,13 @@ class GhidraMcpErrorTest {
     void shouldSetCorrectTypeViaFactoryMethods() {
       assertEquals(
           GhidraMcpError.ErrorType.VALIDATION,
-          GhidraMcpError.validation().msg("x").build().getErrorType());
+          GhidraMcpError.validation().message("x").build().getErrorType());
       assertEquals(
           GhidraMcpError.ErrorType.RESOURCE_NOT_FOUND,
-          GhidraMcpError.resourceNotFound().msg("x").build().getErrorType());
+          GhidraMcpError.resourceNotFound().message("x").build().getErrorType());
       assertEquals(
           GhidraMcpError.ErrorType.EXECUTION,
-          GhidraMcpError.execution().msg("x").build().getErrorType());
+          GhidraMcpError.execution().message("x").build().getErrorType());
     }
   }
 
@@ -252,18 +252,18 @@ class GhidraMcpErrorTest {
   class AccessorTests {
 
     @Test
-    @DisplayName("getMessage should alias getMsg")
-    void getMessageShouldAliasGetMsg() {
+    @DisplayName("getMessage should return message")
+    void getMessageShouldReturnMessage() {
       GhidraMcpError error = GhidraMcpError.error("Test");
-      assertEquals(error.getMsg(), error.getMessage());
+      assertEquals("Test", error.getMessage());
     }
 
     @Test
-    @DisplayName("getCode should return ErrorType name")
+    @DisplayName("getCode should return payload error code")
     void getCodeShouldReturnTypeName() {
-      GhidraMcpError error = GhidraMcpError.validation().msg("x").build();
-      assertEquals("VALIDATION", error.getCode());
-      assertEquals("VALIDATION", error.getErrorCode());
+      GhidraMcpError error = GhidraMcpError.validation().message("x").build();
+      assertEquals("INVALID_ARGUMENT_VALUE", error.getCode());
+      assertEquals("INVALID_ARGUMENT_VALUE", error.getErrorCode());
     }
 
     @Test
@@ -279,11 +279,11 @@ class GhidraMcpErrorTest {
   class JsonOutputTests {
 
     @Test
-    @DisplayName("Should only have msg and hint fields")
+    @DisplayName("Should expose structured error fields")
     void shouldOnlyOutputMsgAndHintFields() {
       GhidraMcpError error = GhidraMcpError.error("Test message", "Test hint");
 
-      assertEquals("Test message", error.getMsg());
+      assertEquals("Test message", error.getMessage());
       assertEquals("Test hint", error.getHint());
       assertNull(error.getDetails());
       assertNull(error.getSee());
@@ -294,7 +294,7 @@ class GhidraMcpErrorTest {
     void hintShouldBeNullWhenNotProvided() {
       GhidraMcpError error = GhidraMcpError.error("Just a message");
 
-      assertEquals("Just a message", error.getMsg());
+      assertEquals("Just a message", error.getMessage());
       assertNull(error.getHint());
     }
   }

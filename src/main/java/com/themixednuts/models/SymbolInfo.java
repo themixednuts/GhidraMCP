@@ -13,10 +13,10 @@ import ghidra.program.model.symbol.SymbolType;
 public class SymbolInfo {
 
   private final String name;
-  private final String addr;
+  private final String address;
   private final String type;
-  private final String src;
-  private final String ns;
+  private final String source;
+  private final String namespace;
   private final boolean primary;
   private final boolean global;
   private final boolean external;
@@ -25,16 +25,16 @@ public class SymbolInfo {
     this.name = symbol.getName();
 
     Address symAddr = symbol.getAddress();
-    this.addr = (symAddr != null) ? symAddr.toString() : null;
+    this.address = (symAddr != null) ? symAddr.toString() : null;
 
     SymbolType symType = symbol.getSymbolType();
     this.type = (symType != null) ? symType.toString() : null;
 
     SourceType srcType = symbol.getSource();
-    this.src = (srcType != null) ? srcType.toString() : null;
+    this.source = (srcType != null) ? srcType.toString() : null;
 
     Namespace parentNs = symbol.getParentNamespace();
-    this.ns = (parentNs != null) ? parentNs.getName(true) : null;
+    this.namespace = (parentNs != null) ? parentNs.getName(true) : null;
 
     this.primary = symbol.isPrimary();
     this.global = symbol.isGlobal();
@@ -46,9 +46,9 @@ public class SymbolInfo {
     return name;
   }
 
-  @JsonProperty("addr")
-  public String getAddr() {
-    return addr;
+  @JsonProperty("address")
+  public String getAddress() {
+    return address;
   }
 
   @JsonProperty("type")
@@ -56,14 +56,14 @@ public class SymbolInfo {
     return type;
   }
 
-  @JsonProperty("src")
-  public String getSrc() {
-    return src;
+  @JsonProperty("source")
+  public String getSource() {
+    return source;
   }
 
-  @JsonProperty("ns")
-  public String getNs() {
-    return ns;
+  @JsonProperty("namespace")
+  public String getNamespace() {
+    return namespace;
   }
 
   @JsonProperty("primary")

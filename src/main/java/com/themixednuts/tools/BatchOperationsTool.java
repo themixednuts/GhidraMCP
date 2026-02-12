@@ -38,11 +38,11 @@ import reactor.core.publisher.Mono;
         - If ANY operation fails, ALL changes are reverted (transaction rollback)
         - The failing operation's error details are included in the response
         - Each operation must specify a valid tool mcpName and its required arguments
-        - The 'fileName' argument is required at the batch level and applies to all operations
+        - The 'file_name' argument is required at the batch level and applies to all operations
         </important_notes>
 
         <parameters_summary>
-        - 'fileName': The program file to operate on (required, applies to all operations)
+        - 'file_name': The program file to operate on (required, applies to all operations)
         - 'operations': Array of operations to execute (required), each containing:
           - 'tool': The mcpName of the tool to execute (e.g., "manage_symbols", "manage_data_types")
           - 'arguments': Map of arguments to pass to the tool (each tool has its own schema)
@@ -228,7 +228,7 @@ public class BatchOperationsTool extends BaseMcpTool {
                       "operations validation",
                       args,
                       Map.of(ARG_OPERATIONS, operations),
-                      Map.of("operationsProvided", 0, "minimumRequired", 1)))
+                      Map.of("operations_provided", 0, "minimum_required", 1)))
               .suggestions(
                   List.of(
                       new GhidraMcpError.ErrorSuggestion(
@@ -260,8 +260,8 @@ public class BatchOperationsTool extends BaseMcpTool {
                         annotation.mcpName(),
                         "tool validation",
                         operation,
-                        Map.of(ARG_TOOL, toolName, "operationIndex", i),
-                        Map.of("availableTools", toolCache.keySet())))
+                        Map.of(ARG_TOOL, toolName, "operation_index", i),
+                        Map.of("available_tools", toolCache.keySet())))
                 .relatedResources(new ArrayList<>(toolCache.keySet()))
                 .suggestions(
                     List.of(
@@ -315,7 +315,7 @@ public class BatchOperationsTool extends BaseMcpTool {
                                             toolName,
                                             "tool execution",
                                             toolArgs,
-                                            Map.of("operationIndex", i),
+                                            Map.of("operation_index", i),
                                             Map.of("exception", e.getClass().getSimpleName())))
                                     .build();
                           }

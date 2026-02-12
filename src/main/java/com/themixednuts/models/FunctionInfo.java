@@ -8,40 +8,40 @@ import ghidra.program.model.symbol.Namespace;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionInfo {
   private final String name;
-  private final String addr;
-  private final String sig;
-  private final String cc;
-  private final String ns;
-  private final String start;
-  private final String end;
+  private final String entryPoint;
+  private final String signature;
+  private final String callingConvention;
+  private final String namespace;
+  private final String startAddress;
+  private final String endAddress;
 
   public FunctionInfo(Function function) {
     this.name = function.getName();
 
     if (function.getEntryPoint() != null) {
-      this.addr = function.getEntryPoint().toString();
+      this.entryPoint = function.getEntryPoint().toString();
     } else {
-      this.addr = null;
+      this.entryPoint = null;
     }
 
-    this.sig = function.getSignature(true).getPrototypeString();
-    this.cc = function.getCallingConventionName();
+    this.signature = function.getSignature(true).getPrototypeString();
+    this.callingConvention = function.getCallingConventionName();
 
     Namespace parentNs = function.getParentNamespace();
-    this.ns = (parentNs != null) ? parentNs.getName(true) : null;
+    this.namespace = (parentNs != null) ? parentNs.getName(true) : null;
 
     if (function.getBody() != null) {
-      this.start =
+      this.startAddress =
           function.getBody().getMinAddress() != null
               ? function.getBody().getMinAddress().toString()
               : null;
-      this.end =
+      this.endAddress =
           function.getBody().getMaxAddress() != null
               ? function.getBody().getMaxAddress().toString()
               : null;
     } else {
-      this.start = null;
-      this.end = null;
+      this.startAddress = null;
+      this.endAddress = null;
     }
   }
 
@@ -50,33 +50,33 @@ public class FunctionInfo {
     return name;
   }
 
-  @JsonProperty("addr")
-  public String getAddress() {
-    return addr;
+  @JsonProperty("entry_point")
+  public String getEntryPoint() {
+    return entryPoint;
   }
 
-  @JsonProperty("sig")
+  @JsonProperty("signature")
   public String getSignature() {
-    return sig;
+    return signature;
   }
 
-  @JsonProperty("cc")
+  @JsonProperty("calling_convention")
   public String getCallingConvention() {
-    return cc;
+    return callingConvention;
   }
 
-  @JsonProperty("ns")
+  @JsonProperty("namespace")
   public String getNamespace() {
-    return ns;
+    return namespace;
   }
 
-  @JsonProperty("start")
-  public String getStart() {
-    return start;
+  @JsonProperty("start_address")
+  public String getStartAddress() {
+    return startAddress;
   }
 
-  @JsonProperty("end")
-  public String getEnd() {
-    return end;
+  @JsonProperty("end_address")
+  public String getEndAddress() {
+    return endAddress;
   }
 }

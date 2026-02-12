@@ -76,6 +76,18 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
 
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Number of options to return per page (default: "
+                    + DEFAULT_PAGE_LIMIT
+                    + ", max: "
+                    + MAX_PAGE_LIMIT
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
     return schemaRoot.build();
@@ -85,7 +97,7 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
    * Executes the analysis options listing operation.
    *
    * @param context The MCP transport context
-   * @param args The tool arguments containing fileName and optional filters
+   * @param args The tool arguments containing file_name and optional filters
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a paginated list of AnalysisOptionInfo objects
    */
@@ -100,8 +112,14 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
               boolean defaultsOnly =
                   getOptionalBooleanArgument(args, ARG_DEFAULTS_ONLY).orElse(false);
               Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+              int pageSize =
+                  getOptionalIntArgument(args, ARG_PAGE_SIZE)
+                      .filter(size -> size > 0)
+                      .map(size -> Math.min(size, MAX_PAGE_LIMIT))
+                      .orElse(DEFAULT_PAGE_LIMIT);
 
-              return listAnalysisOptions(program, filter, optionType, defaultsOnly, cursorOpt);
+              return listAnalysisOptions(
+                  program, filter, optionType, defaultsOnly, cursorOpt, pageSize);
             });
   }
 
@@ -110,7 +128,8 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
       String filter,
       String optionType,
       boolean defaultsOnly,
-      Optional<String> cursorOpt) {
+      Optional<String> cursorOpt,
+      int pageSize) {
     return Mono.fromCallable(
         () -> {
           Options analysisOptions =
@@ -129,7 +148,7 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
                                           "list_analysis_options",
                                           Map.of(ARG_FILE_NAME, program.getName()),
                                           Map.of(),
-                                          Map.of("analysisOptionsAvailable", false)))
+                                          Map.of("analysis_options_available", false)))
                                   .build()));
 
           // Get cursor for pagination
@@ -169,15 +188,14 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
             allOptions.add(option);
 
             // Stop if we have enough for pagination check
-            if (allOptions.size() > DEFAULT_PAGE_LIMIT) {
+            if (allOptions.size() > pageSize) {
               break;
             }
           }
 
           // Determine if there are more results
-          boolean hasMore = allOptions.size() > DEFAULT_PAGE_LIMIT;
-          List<AnalysisOptionInfo> results =
-              hasMore ? allOptions.subList(0, DEFAULT_PAGE_LIMIT) : allOptions;
+          boolean hasMore = allOptions.size() > pageSize;
+          List<AnalysisOptionInfo> results = hasMore ? allOptions.subList(0, pageSize) : allOptions;
 
           String nextCursor = null;
           if (hasMore && !results.isEmpty()) {
