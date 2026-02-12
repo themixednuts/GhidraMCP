@@ -16,6 +16,9 @@
 
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
 
+If your browser/GitHub blocks custom URI handlers, use the web fallback:
+[Cursor install fallback](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
 </div>
 <h1 align="center">GhidraMCP</h1>
 
@@ -209,15 +212,6 @@ anchors (see GitHub docs for
 and
 [custom anchors](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors)).
 
-Quick links:
-
-- [Claude Desktop](#client-claude-desktop)
-- [Claude Code (CLI)](#client-claude-code-cli)
-- [Cursor](#client-cursor)
-- [OpenCode](#client-opencode)
-- [Codex CLI](#client-codex-cli)
-- [Custom MCP Client](#client-custom-mcp)
-
 <a name="client-claude-desktop"></a>
 
 <details>
@@ -263,8 +257,19 @@ claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
 <details>
 <summary><strong>⚡ Cursor</strong></summary>
 
-For Cursor, you can
-[install via this link](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D).
+Use the direct Cursor deep link:
+
+- [Install via deep link](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
+If your browser/GitHub blocks custom URI handlers, use the web fallback:
+
+- [Install via web fallback](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
+Or copy this deep link directly into your browser address bar:
+
+```text
+cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D
+```
 
 Or manually add to your MCP configuration:
 
