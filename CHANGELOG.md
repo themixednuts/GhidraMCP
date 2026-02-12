@@ -7,6 +7,32 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-02-11
+
+### Added
+- **Oversized Output Sessions** - Added session-based tool output storage and retrieval
+  - New `read_tool_output` MCP tool for listing sessions, listing stored outputs, and chunked reads
+  - New `ToolOutputStore` with temp-file backing, cursor pagination, TTL cleanup, and bounded storage
+  - Automatic oversized-response wrapping in `BaseMcpTool` with session/output references for composable follow-up calls
+- **Dependency Automation Hardening**
+  - Added scoped Dependabot configuration for Maven and GitHub Actions updates
+  - Added Renovate regex manager for `bootstrap.xml` version properties and scheduled workflow
+  - Added bot-PR dependency validation workflow that verifies pinned bootstrap, formatting, and full package build
+
+### Changed
+- **Pagination Coverage** - Extended `page_size` controls and normalized pagination behavior across listing/reference tools
+- **Build/Bootstrap Reliability**
+  - Added build prerequisite checks and Ghidra version-alignment verification
+  - Improved bootstrap version resolution for pinned/latest flows and metadata output
+  - Centralized dependency/plugin version properties for easier upgrades
+- **Dependency Updates**
+  - Updated MCP BOM, Maven plugins, JUnit/Mockito/Jetty and related dependencies
+  - Upgraded Jackson stack to 2.21.x with aligned core/databind/annotations/jdk8 module versions
+
+### Fixed
+- Fixed classpath mismatch during Jackson 2.21.x updates by explicitly aligning all Jackson modules
+- Fixed bootstrap metadata file generation to write line-delimited properties for reliable parsing
+
 ## [0.5.2] - 2026-01-14
 
 ### Fixed

@@ -184,7 +184,7 @@ The steps below are only for building from source.
    mvn clean package
    ```
 5. The installable `zip` file will be in the `target/` directory (e.g.,
-   `target/GhidraMCP-0.5.2.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.5.3.zip`). Install it using the steps above.
 
 > [!TIP]
 > **CI Test JAR:** The test JAR with dependencies is only built when explicitly
