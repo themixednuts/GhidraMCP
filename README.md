@@ -16,10 +16,15 @@
 
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
 
+If your browser/GitHub blocks custom URI handlers, use the web fallback:
+[Cursor install fallback](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
 </div>
 <h1 align="center">GhidraMCP</h1>
 
 > Ghidra integration for the Model Context Protocol (MCP)
+
+Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-server)
 
 ---
 
@@ -203,8 +208,16 @@ configured port).
 
 ### Agent-Specific Setup Instructions
 
+GitHub README deep links are supported for both section headings and custom
+anchors (see GitHub docs for
+[section links](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links)
+and
+[custom anchors](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors)).
+
+<a name="client-claude-desktop"></a>
+
 <details>
-<summary><strong>🤖 Claude Desktop</strong></summary>
+<summary><strong><img src="https://claude.ai/favicon.ico" alt="Claude" width="16" height="16" valign="middle" />&nbsp;Claude Desktop</strong></summary>
 
 Add the following to your `claude_desktop_config.json`:
 
@@ -228,8 +241,10 @@ After updating the configuration, restart Claude Desktop to apply the changes.
 
 </details>
 
+<a name="client-claude-code-cli"></a>
+
 <details>
-<summary><strong>🔧 Claude Code (CLI)</strong></summary>
+<summary><strong><img src="https://claude.ai/favicon.ico" alt="Claude" width="16" height="16" valign="middle" />&nbsp;Claude Code (CLI)</strong></summary>
 
 For Claude Code, use the following command to add the GhidraMCP server:
 
@@ -239,11 +254,24 @@ claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
 
 </details>
 
-<details>
-<summary><strong>⚡ Cursor</strong></summary>
+<a name="client-cursor"></a>
 
-For Cursor, you can
-[install via this link](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D).
+<details>
+<summary><strong><img src="https://cursor.com/favicon.ico" alt="Cursor" width="16" height="16" valign="middle" />&nbsp;Cursor</strong></summary>
+
+Use the direct Cursor deep link:
+
+- [Install via deep link](cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
+If your browser/GitHub blocks custom URI handlers, use the web fallback:
+
+- [Install via web fallback](https://cursor.com/install-mcp?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D)
+
+Or copy this deep link directly into your browser address bar:
+
+```text
+cursor://anysphere.cursor-deeplink/mcp/install?name=ghidra&config=eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjgwODAvbWNwIn0%3D
+```
 
 Or manually add to your MCP configuration:
 
@@ -262,6 +290,60 @@ Or manually add to your MCP configuration:
 - `~/.cursor/mcp_settings.json` (or your Cursor configuration directory)
 
 </details>
+
+<a name="client-opencode"></a>
+
+<details>
+<summary><strong><img src="https://opencode.ai/favicon.ico" alt="OpenCode" width="16" height="16" valign="middle" />&nbsp;OpenCode</strong></summary>
+
+Add GhidraMCP to your OpenCode config under `mcp`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ghidra": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+**Configuration file location:**
+
+- Global: `~/.config/opencode/opencode.json`
+- Project override: `opencode.json` in your project root
+
+</details>
+
+<a name="client-codex-cli"></a>
+
+<details>
+<summary><strong><img src="https://openai.com/favicon.ico" alt="Codex" width="16" height="16" valign="middle" />&nbsp;Codex CLI</strong></summary>
+
+You can add/manage MCP servers interactively from the Codex CLI:
+
+```bash
+codex mcp
+```
+
+Or configure it directly in `config.toml`:
+
+```toml
+[mcp_servers.ghidra]
+url = "http://127.0.0.1:8080/mcp"
+```
+
+**Configuration file location:**
+
+- User-level: `~/.codex/config.toml`
+- Project-level (trusted projects): `.codex/config.toml`
+
+</details>
+
+<a name="client-custom-mcp"></a>
 
 <details>
 <summary><strong>🛠️ Custom MCP Client</strong></summary>
