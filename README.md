@@ -215,7 +215,7 @@ and
 <a name="client-claude-desktop"></a>
 
 <details>
-<summary><strong>🤖 Claude Desktop</strong></summary>
+<summary><strong><img src="https://claude.ai/favicon.ico" alt="Claude" width="16" height="16" /> Claude Desktop</strong></summary>
 
 Add the following to your `claude_desktop_config.json`:
 
@@ -242,7 +242,7 @@ After updating the configuration, restart Claude Desktop to apply the changes.
 <a name="client-claude-code-cli"></a>
 
 <details>
-<summary><strong>🔧 Claude Code (CLI)</strong></summary>
+<summary><strong><img src="https://claude.ai/favicon.ico" alt="Claude" width="16" height="16" /> Claude Code (CLI)</strong></summary>
 
 For Claude Code, use the following command to add the GhidraMCP server:
 
@@ -255,7 +255,7 @@ claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
 <a name="client-cursor"></a>
 
 <details>
-<summary><strong>⚡ Cursor</strong></summary>
+<summary><strong><img src="https://cursor.com/favicon.ico" alt="Cursor" width="16" height="16" /> Cursor</strong></summary>
 
 Use the direct Cursor deep link:
 
@@ -292,7 +292,7 @@ Or manually add to your MCP configuration:
 <a name="client-opencode"></a>
 
 <details>
-<summary><strong>🧩 OpenCode</strong></summary>
+<summary><strong><img src="https://opencode.ai/favicon.ico" alt="OpenCode" width="16" height="16" /> OpenCode</strong></summary>
 
 Add GhidraMCP to your OpenCode config under `mcp`:
 
@@ -319,7 +319,7 @@ Add GhidraMCP to your OpenCode config under `mcp`:
 <a name="client-codex-cli"></a>
 
 <details>
-<summary><strong>🧠 Codex CLI</strong></summary>
+<summary><strong><img src="https://openai.com/favicon.ico" alt="Codex" width="16" height="16" /> Codex CLI</strong></summary>
 
 You can add/manage MCP servers interactively from the Codex CLI:
 
