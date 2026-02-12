@@ -203,6 +203,23 @@ configured port).
 
 ### Agent-Specific Setup Instructions
 
+GitHub README deep links are supported for both section headings and custom
+anchors (see GitHub docs for
+[section links](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links)
+and
+[custom anchors](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors)).
+
+Quick links:
+
+- [Claude Desktop](#client-claude-desktop)
+- [Claude Code (CLI)](#client-claude-code-cli)
+- [Cursor](#client-cursor)
+- [OpenCode](#client-opencode)
+- [Codex CLI](#client-codex-cli)
+- [Custom MCP Client](#client-custom-mcp)
+
+<a name="client-claude-desktop"></a>
+
 <details>
 <summary><strong>🤖 Claude Desktop</strong></summary>
 
@@ -228,6 +245,8 @@ After updating the configuration, restart Claude Desktop to apply the changes.
 
 </details>
 
+<a name="client-claude-code-cli"></a>
+
 <details>
 <summary><strong>🔧 Claude Code (CLI)</strong></summary>
 
@@ -238,6 +257,8 @@ claude mcp add ghidra "http://127.0.0.1:8080/mcp" --transport http
 ```
 
 </details>
+
+<a name="client-cursor"></a>
 
 <details>
 <summary><strong>⚡ Cursor</strong></summary>
@@ -262,6 +283,60 @@ Or manually add to your MCP configuration:
 - `~/.cursor/mcp_settings.json` (or your Cursor configuration directory)
 
 </details>
+
+<a name="client-opencode"></a>
+
+<details>
+<summary><strong>🧩 OpenCode</strong></summary>
+
+Add GhidraMCP to your OpenCode config under `mcp`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ghidra": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+**Configuration file location:**
+
+- Global: `~/.config/opencode/opencode.json`
+- Project override: `opencode.json` in your project root
+
+</details>
+
+<a name="client-codex-cli"></a>
+
+<details>
+<summary><strong>🧠 Codex CLI</strong></summary>
+
+You can add/manage MCP servers interactively from the Codex CLI:
+
+```bash
+codex mcp
+```
+
+Or configure it directly in `config.toml`:
+
+```toml
+[mcp_servers.ghidra]
+url = "http://127.0.0.1:8080/mcp"
+```
+
+**Configuration file location:**
+
+- User-level: `~/.codex/config.toml`
+- Project-level (trusted projects): `.codex/config.toml`
+
+</details>
+
+<a name="client-custom-mcp"></a>
 
 <details>
 <summary><strong>🛠️ Custom MCP Client</strong></summary>
