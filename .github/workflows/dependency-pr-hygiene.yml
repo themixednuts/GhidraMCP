@@ -1,0 +1,105 @@
+name: Dependency PR Hygiene
+
+on:
+  schedule:
+    - cron: "20 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  close-superseded-bot-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close superseded dependency PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const botLogins = new Set([
+              'dependabot[bot]',
+              'app/dependabot',
+              'renovate[bot]',
+              'app/renovate',
+            ]);
+
+            function keyFor(pr) {
+              const title = pr.title.toLowerCase();
+              const groupMatch = title.match(/bump\s+the\s+(.+?)\s+group\b/);
+              if (groupMatch) {
+                return `${pr.base.ref}:group:${groupMatch[1]}`;
+              }
+
+              const depMatch = title.match(/bump\s+([^\s]+)\s+from\s+/);
+              if (depMatch) {
+                return `${pr.base.ref}:dep:${depMatch[1]}`;
+              }
+
+              const normalizedBranch =
+                pr.head.ref
+                  .replace(/-[0-9][0-9a-zA-Z._-]*$/, '')
+                  .replace(/[0-9a-f]{7,}$/i, '')
+                  .replace(/[-_/]+$/, '') || pr.head.ref;
+
+              return `${pr.base.ref}:branch:${normalizedBranch}`;
+            }
+
+            const candidates = prs.filter(
+              (pr) =>
+                botLogins.has((pr.user?.login || '').toLowerCase()) &&
+                !pr.draft &&
+                !pr.locked
+            );
+
+            const grouped = new Map();
+            for (const pr of candidates) {
+              const key = keyFor(pr);
+              if (!grouped.has(key)) {
+                grouped.set(key, []);
+              }
+              grouped.get(key).push(pr);
+            }
+
+            let closedCount = 0;
+            for (const [key, items] of grouped.entries()) {
+              if (items.length < 2) {
+                continue;
+              }
+
+              items.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+              const keeper = items[0];
+              const superseded = items.slice(1);
+
+              core.info(`Keeping #${keeper.number} for key '${key}', closing ${superseded.length} older PR(s).`);
+
+              for (const pr of superseded) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  body:
+                    `Closing as superseded by #${keeper.number} to keep only the latest dependency update open for this target.`,
+                });
+
+                await github.rest.pulls.update({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                  state: 'closed',
+                });
+                closedCount += 1;
+              }
+            }
+
+            core.info(`Dependency PR hygiene complete. Closed ${closedCount} superseded PR(s).`);

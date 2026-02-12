@@ -135,8 +135,11 @@ settings:
   update PRs.
 - `/renovate.json` + `/.github/workflows/renovate-bootstrap.yml` manage
   `bootstrap.xml` version properties via regex-based updates.
-- `/.github/workflows/dependency-update-validation.yml` runs stricter validation
-  for bot-authored dependency PRs (pinned build + latest-bootstrap smoke test).
+- `/.github/workflows/dependency-update-validation.yml` runs strict validation for
+  Dependabot/Renovate PRs (pinned build + latest-bootstrap smoke test) and exits
+  cleanly for non-bot PRs.
+- `/.github/workflows/dependency-pr-hygiene.yml` closes superseded bot dependency
+  PRs so only the latest update stays open per dependency/group.
 - You can run the Renovate bootstrap updater on demand from the Actions tab using
   the **Renovate Bootstrap Dependencies** workflow.
 

@@ -6,13 +6,25 @@ on:
 
 jobs:
   validate-dependency-updates:
-    if: github.actor == 'dependabot[bot]' || github.actor == 'renovate[bot]'
     runs-on: ubuntu-latest
 
     steps:
+      - name: Determine whether this is a bot dependency PR
+        run: |
+          ACTOR="${{ github.actor }}"
+          if [ "$ACTOR" = "dependabot[bot]" ] || [ "$ACTOR" = "renovate[bot]" ] || [ "$ACTOR" = "app/dependabot" ] || [ "$ACTOR" = "app/renovate" ]; then
+            echo "BOT_DEP_PR=true" >> "$GITHUB_ENV"
+            echo "Running full dependency validation for bot PR actor: $ACTOR"
+          else
+            echo "BOT_DEP_PR=false" >> "$GITHUB_ENV"
+            echo "Skipping dependency-only validation for actor: $ACTOR"
+          fi
+
       - uses: actions/checkout@v6
+        if: env.BOT_DEP_PR == 'true'
 
       - name: Set up JDK 21
+        if: env.BOT_DEP_PR == 'true'
         uses: actions/setup-java@v5
         with:
           java-version: "21"
@@ -20,18 +32,21 @@ jobs:
           cache: maven
 
       - name: Resolve pinned Ghidra release selector
+        if: env.BOT_DEP_PR == 'true'
         run: |
           GHIDRA_RELEASE=$(mvn -q -DforceStdout help:evaluate -Dexpression=ghidra.version)
           echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
           echo "Pinned selector from pom.xml: ${GHIDRA_RELEASE}"
 
       - name: Validate pinned bootstrap + full build
+        if: env.BOT_DEP_PR == 'true'
         run: |
           mvn -f bootstrap.xml initialize -Dghidra.release=${GHIDRA_RELEASE}
           mvn spotless:check com.github.hazendaz.maven:xml-format-maven-plugin:xml-check
           mvn clean package
 
       - name: Validate latest bootstrap path
+        if: env.BOT_DEP_PR == 'true'
         run: |
           mvn -f bootstrap.xml initialize -Dghidra.release=latest
           LATEST_GHIDRA=$(grep '^ghidra.bootstrap.version=' lib/.ghidra-bootstrap.properties | cut -d'=' -f2)
@@ -39,4 +54,9 @@ jobs:
           mvn -Dghidra.version=${LATEST_GHIDRA} -DskipTests compile
 
       - name: Restore pinned bootstrap state
+        if: env.BOT_DEP_PR == 'true'
         run: mvn -f bootstrap.xml initialize -Dghidra.release=${GHIDRA_RELEASE}
+
+      - name: Dependency validation not required for this PR actor
+        if: env.BOT_DEP_PR != 'true'
+        run: echo "Dependency update validation only runs for Dependabot/Renovate PRs."
