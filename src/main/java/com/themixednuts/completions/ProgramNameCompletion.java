@@ -32,7 +32,10 @@ public class ProgramNameCompletion extends BaseMcpCompletion {
 
   @Override
   public Mono<CompleteResult> complete(
-      McpTransportContext context, String argumentValue, PluginTool tool) {
+      McpTransportContext context,
+      String argumentValue,
+      java.util.Map<String, String> completionContext,
+      PluginTool tool) {
     return Mono.fromCallable(
         () -> {
           List<String> programNames = getProgramNames(argumentValue);

@@ -2,6 +2,7 @@ package com.themixednuts.completions;
 
 import com.themixednuts.annotation.GhidraMcpCompletion;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraStateUtils;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
@@ -14,6 +15,7 @@ import io.modelcontextprotocol.spec.McpSchema.PromptReference;
 import io.modelcontextprotocol.spec.McpSchema.ResourceReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import reactor.core.publisher.Mono;
 
 /**
@@ -34,11 +36,15 @@ public abstract class BaseMcpCompletion {
    *
    * @param context The MCP transport context
    * @param argumentValue The current value of the argument (partial input)
+   * @param completionContext Context arguments provided by the MCP client
    * @param tool The Ghidra plugin tool
    * @return Mono emitting the CompleteResult
    */
   public abstract Mono<CompleteResult> complete(
-      McpTransportContext context, String argumentValue, PluginTool tool);
+      McpTransportContext context,
+      String argumentValue,
+      Map<String, String> completionContext,
+      PluginTool tool);
 
   // =================== Annotation Accessors ===================
 
@@ -55,11 +61,14 @@ public abstract class BaseMcpCompletion {
     }
 
     if ("prompt".equals(annotation.refType())) {
-      return new PromptReference("ref/prompt", annotation.refName());
+      return new PromptReference(annotation.refName());
     } else if ("resource".equals(annotation.refType())) {
-      return new ResourceReference("ref/resource", annotation.refName());
+      return new ResourceReference(annotation.refName());
     }
-    return null;
+
+    throw new GhidraMcpException(
+        GhidraMcpError.invalid(
+            "refType", annotation.refType(), "must be either 'prompt' or 'resource'"));
   }
 
   /** Gets the name of the argument this completion handles. */
@@ -81,19 +90,68 @@ public abstract class BaseMcpCompletion {
       McpTransportContext ctx, CompleteRequest request, PluginTool tool) {
     // Check if this is the right argument
     if (request.argument() == null || !getArgumentName().equals(request.argument().name())) {
-      // Return empty completions for arguments we don't handle
-      return Mono.just(
-          new CompleteResult(new CompleteResult.CompleteCompletion(List.of(), 0, false)));
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  "argument",
+                  request.argument() != null ? request.argument().name() : null,
+                  "completion handler does not support this argument")));
     }
 
     String value = request.argument().value();
-    return complete(ctx, value != null ? value : "", tool)
-        .onErrorResume(
-            t -> {
-              // On error, return empty completions
-              return Mono.just(
-                  new CompleteResult(new CompleteResult.CompleteCompletion(List.of(), 0, false)));
-            });
+    Map<String, String> completionContext =
+        request.context() != null && request.context().arguments() != null
+            ? request.context().arguments()
+            : Map.of();
+
+    return complete(ctx, value != null ? value : "", completionContext, tool)
+        .onErrorMap(t -> normalizeCompletionException(t, request));
+  }
+
+  private RuntimeException normalizeCompletionException(
+      Throwable throwable, CompleteRequest request) {
+    if (throwable instanceof RuntimeException runtimeException
+        && runtimeException.getCause() instanceof GhidraMcpException gme) {
+      return gme;
+    }
+    if (throwable instanceof GhidraMcpException gme) {
+      return gme;
+    }
+
+    if (throwable instanceof IllegalArgumentException iae) {
+      return new GhidraMcpException(
+          GhidraMcpError.validation()
+              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+              .message(iae.getMessage())
+              .context(
+                  new GhidraMcpError.ErrorContext(
+                      request.ref() != null ? request.ref().identifier() : "unknown",
+                      "completion",
+                      null,
+                      null,
+                      Map.of("exception_type", iae.getClass().getSimpleName())))
+              .build(),
+          iae);
+    }
+
+    GhidraMcpError error =
+        GhidraMcpError.execution()
+            .errorCode(GhidraMcpError.ErrorCode.OPERATION_FAILED)
+            .message(
+                "Failed to compute completion for reference '"
+                    + (request.ref() != null ? request.ref().identifier() : "unknown")
+                    + "': "
+                    + throwable.getMessage())
+            .context(
+                new GhidraMcpError.ErrorContext(
+                    request.ref() != null ? request.ref().identifier() : "unknown",
+                    "completion",
+                    null,
+                    null,
+                    Map.of("exception_type", throwable.getClass().getSimpleName())))
+            .build();
+
+    return new GhidraMcpException(error, throwable);
   }
 
   // =================== Ghidra Helpers ===================

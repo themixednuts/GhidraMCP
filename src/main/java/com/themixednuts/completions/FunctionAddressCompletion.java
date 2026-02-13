@@ -13,6 +13,7 @@ import io.modelcontextprotocol.spec.McpSchema.CompleteResult;
 import io.modelcontextprotocol.spec.McpSchema.PromptReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import reactor.core.publisher.Mono;
 
 /**
@@ -39,29 +40,42 @@ public class FunctionAddressCompletion extends BaseMcpCompletion {
 
   @Override
   public Mono<CompleteResult> complete(
-      McpTransportContext context, String argumentValue, PluginTool tool) {
+      McpTransportContext context,
+      String argumentValue,
+      Map<String, String> completionContext,
+      PluginTool tool) {
     return Mono.fromCallable(
         () -> {
           List<String> suggestions = new ArrayList<>();
 
           try {
-            // Get all files from project
-            List<DomainFile> files = GhidraStateUtils.getAllFiles();
+            String scopedProgramName =
+                completionContext != null ? completionContext.get("file_name") : null;
 
-            // Search first available program
-            if (!files.isEmpty()) {
-              DomainFile file = files.get(0);
+            if (scopedProgramName != null && !scopedProgramName.isBlank()) {
+              Program program = GhidraStateUtils.getProgramByName(scopedProgramName, this);
               try {
-                var obj = file.getDomainObject(this, true, false, null);
-                if (obj instanceof Program program) {
-                  try {
-                    collectFunctionSuggestions(program, argumentValue, suggestions);
-                  } finally {
-                    program.release(this);
+                collectFunctionSuggestions(program, argumentValue, suggestions);
+              } finally {
+                program.release(this);
+              }
+            } else {
+              // Fallback: search first available program if caller did not provide file_name context
+              List<DomainFile> files = GhidraStateUtils.getAllFiles();
+              if (!files.isEmpty()) {
+                DomainFile file = files.get(0);
+                try {
+                  var obj = file.getDomainObject(this, true, false, null);
+                  if (obj instanceof Program program) {
+                    try {
+                      collectFunctionSuggestions(program, argumentValue, suggestions);
+                    } finally {
+                      program.release(this);
+                    }
                   }
+                } catch (Exception e) {
+                  // Ignore and return empty suggestions
                 }
-              } catch (Exception e) {
-                // Ignore and return empty suggestions
               }
             }
           } catch (GhidraMcpException e) {

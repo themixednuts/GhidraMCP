@@ -1,0 +1,3 @@
+com.themixednuts.completions.AnalyzeFunctionFileNameCompletion
+com.themixednuts.completions.AnalyzeFunctionAddressCompletion
+com.themixednuts.completions.FindVulnerabilitiesFileNameCompletion
