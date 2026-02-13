@@ -7,6 +7,24 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-12
+
+### Added
+- **Structured Tool Output** - Tools now return typed `structuredContent` with `outputSchema` per MCP 2025-06-18 spec
+  - Opaque cursor encoding (`OpaqueCursorCodec`) replaces raw cursor values in paginated responses
+- **Per-Component Enable/Disable** - Individual tools, resources, prompts, and completions can be toggled in Ghidra options UI
+- **ServiceLoader Completions** - Completions overhauled to ServiceLoader discovery with grouped routing by `CompleteReference`
+- **Server Enhancements** - Transport context extraction, server instructions, and 180-second request timeout
+- **Enriched Error Model** - `GhidraMcpError` now carries context, related resources, and actionable suggestions
+- **Tool Output Storage UI** - Temp directory path displayed in Ghidra options for easy cleanup
+- **E2E Test Coverage** - `ReadToolOutputTool` e2e tests exercise full store-and-retrieve workflow against real tool output
+
+### Changed
+- **Inline Response Limit** - Lowered from 32k to 16k chars (~4k tokens) for better context budget management
+- **Test Layout** - Tests reorganized into `unit/` and `e2e/` directories
+- **Build Infrastructure** - Added Ghidra system dependencies and e2e test execution support
+- **CI** - Pinned `github-script@v7` and added MCP BOM drift check
+
 ## [0.5.3] - 2026-02-11
 
 ### Added

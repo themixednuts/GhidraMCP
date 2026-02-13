@@ -4,7 +4,7 @@
   <groupId>com.themixednuts</groupId>
   <artifactId>GhidraMCP-bootstrap</artifactId>
   <packaging>pom</packaging>
-  <version>0.5.3</version>
+  <version>0.6.0</version>
   <name>GhidraMCP Bootstrap</name>
   <description>Downloads Ghidra jars required for building GhidraMCP</description>
   <properties>
