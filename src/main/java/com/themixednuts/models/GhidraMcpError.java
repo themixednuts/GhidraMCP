@@ -14,12 +14,25 @@ public class GhidraMcpError {
   private final String hint;
   private final ErrorType errorType;
   private final ErrorCode payloadCode;
+  private final ErrorContext context;
+  private final List<String> relatedResources;
+  private final List<ErrorSuggestion> suggestions;
 
-  private GhidraMcpError(String message, String hint, ErrorType errorType, ErrorCode payloadCode) {
+  private GhidraMcpError(
+      String message,
+      String hint,
+      ErrorType errorType,
+      ErrorCode payloadCode,
+      ErrorContext context,
+      List<String> relatedResources,
+      List<ErrorSuggestion> suggestions) {
     this.message = message;
     this.hint = hint;
     this.errorType = errorType != null ? errorType : ErrorType.INTERNAL;
     this.payloadCode = payloadCode != null ? payloadCode : defaultPayloadCode(this.errorType);
+    this.context = context;
+    this.relatedResources = relatedResources;
+    this.suggestions = suggestions;
   }
 
   // =================== JSON Output ===================
@@ -42,6 +55,21 @@ public class GhidraMcpError {
   @JsonProperty("error_code")
   public String getPayloadErrorCode() {
     return payloadCode.name().toLowerCase(Locale.ROOT);
+  }
+
+  @JsonProperty("context")
+  public ErrorContext getContext() {
+    return context;
+  }
+
+  @JsonProperty("related_resources")
+  public List<String> getRelatedResources() {
+    return relatedResources;
+  }
+
+  @JsonProperty("suggestions")
+  public List<ErrorSuggestion> getSuggestions() {
+    return suggestions;
   }
 
   // =================== Internal Accessors ===================
@@ -79,34 +107,56 @@ public class GhidraMcpError {
   // =================== Factory Methods ===================
 
   public static GhidraMcpError of(String msg) {
-    return new GhidraMcpError(msg, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+    return new GhidraMcpError(
+        msg, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null, null);
   }
 
   public static GhidraMcpError of(String msg, String hint) {
-    return new GhidraMcpError(msg, hint, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+    return new GhidraMcpError(
+        msg, hint, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null, null);
   }
 
   public static GhidraMcpError error(String msg) {
-    return new GhidraMcpError(msg, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+    return new GhidraMcpError(
+        msg, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null, null);
   }
 
   public static GhidraMcpError error(String msg, String hint) {
-    return new GhidraMcpError(msg, hint, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+    return new GhidraMcpError(
+        msg, hint, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null, null);
   }
 
   public static GhidraMcpError notFound(String what, String id) {
     return new GhidraMcpError(
-        what + " '" + id + "' not found", null, ErrorType.RESOURCE_NOT_FOUND, ErrorCode.NOT_FOUND);
+        what + " '" + id + "' not found",
+        null,
+        ErrorType.RESOURCE_NOT_FOUND,
+        ErrorCode.NOT_FOUND,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError notFound(String what, String id, String hint) {
     return new GhidraMcpError(
-        what + " '" + id + "' not found", hint, ErrorType.RESOURCE_NOT_FOUND, ErrorCode.NOT_FOUND);
+        what + " '" + id + "' not found",
+        hint,
+        ErrorType.RESOURCE_NOT_FOUND,
+        ErrorCode.NOT_FOUND,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError missing(String arg) {
     return new GhidraMcpError(
-        "Missing: " + arg, null, ErrorType.VALIDATION, ErrorCode.MISSING_REQUIRED_ARGUMENT);
+        "Missing: " + arg,
+        null,
+        ErrorType.VALIDATION,
+        ErrorCode.MISSING_REQUIRED_ARGUMENT,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError invalid(String arg, String reason) {
@@ -114,7 +164,10 @@ public class GhidraMcpError {
         "Invalid " + arg + ": " + reason,
         null,
         ErrorType.VALIDATION,
-        ErrorCode.INVALID_ARGUMENT_VALUE);
+        ErrorCode.INVALID_ARGUMENT_VALUE,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError invalid(String arg, Object val, String reason) {
@@ -122,7 +175,10 @@ public class GhidraMcpError {
         "Invalid " + arg + "=" + truncate(val, 50) + ": " + reason,
         null,
         ErrorType.VALIDATION,
-        ErrorCode.INVALID_ARGUMENT_VALUE);
+        ErrorCode.INVALID_ARGUMENT_VALUE,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError parse(String what, String input) {
@@ -130,12 +186,15 @@ public class GhidraMcpError {
         "Cannot parse " + what + ": " + truncate(input, 30),
         null,
         ErrorType.DATA_TYPE_PARSING,
-        ErrorCode.PARSE_ERROR);
+        ErrorCode.PARSE_ERROR,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError failed(String op, String reason) {
     return new GhidraMcpError(
-        op + " failed: " + reason, null, ErrorType.EXECUTION, ErrorCode.FAILED);
+        op + " failed: " + reason, null, ErrorType.EXECUTION, ErrorCode.FAILED, null, null, null);
   }
 
   public static GhidraMcpError noResults(String search) {
@@ -143,22 +202,33 @@ public class GhidraMcpError {
         "No results: " + search,
         "Broaden search criteria",
         ErrorType.SEARCH_NO_RESULTS,
-        ErrorCode.NO_SEARCH_RESULTS);
+        ErrorCode.NO_SEARCH_RESULTS,
+        null,
+        null,
+        null);
   }
 
   public static GhidraMcpError conflict(String msg) {
-    return new GhidraMcpError(msg, null, ErrorType.VALIDATION, ErrorCode.CONFLICTING_ARGUMENTS);
+    return new GhidraMcpError(
+        msg, null, ErrorType.VALIDATION, ErrorCode.CONFLICTING_ARGUMENTS, null, null, null);
   }
 
   public static GhidraMcpError internal(Throwable t) {
     String m = t != null ? t.getMessage() : "unknown";
     return new GhidraMcpError(
-        "Internal error: " + m, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+        "Internal error: " + m, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null,
+        null);
   }
 
   public static GhidraMcpError internal(String msg) {
     return new GhidraMcpError(
-        "Internal error: " + msg, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR);
+        "Internal error: " + msg,
+        null,
+        ErrorType.INTERNAL,
+        ErrorCode.UNEXPECTED_ERROR,
+        null,
+        null,
+        null);
   }
 
   // =================== Builder Factory Methods ===================
@@ -198,6 +268,9 @@ public class GhidraMcpError {
     private String message;
     private String hint;
     private ErrorCode payloadCode;
+    private ErrorContext context;
+    private List<String> relatedResources;
+    private List<ErrorSuggestion> suggestions;
 
     Builder(ErrorType errorType) {
       this.errorType = errorType;
@@ -236,6 +309,7 @@ public class GhidraMcpError {
 
     /** Extracts action from first suggestion as hint */
     public Builder suggestions(List<ErrorSuggestion> suggestions) {
+      this.suggestions = suggestions;
       if (suggestions != null && !suggestions.isEmpty()) {
         ErrorSuggestion first = suggestions.get(0);
         if (first.action() != null) {
@@ -245,18 +319,19 @@ public class GhidraMcpError {
       return this;
     }
 
-    /** Ignored - context not used in output */
     public Builder context(ErrorContext context) {
+      this.context = context;
       return this;
     }
 
-    /** Ignored - relatedResources not used in output */
     public Builder relatedResources(List<String> resources) {
+      this.relatedResources = resources;
       return this;
     }
 
     public GhidraMcpError build() {
-      return new GhidraMcpError(message, hint, errorType, payloadCode);
+      return new GhidraMcpError(
+          message, hint, errorType, payloadCode, context, relatedResources, suggestions);
     }
   }
 
