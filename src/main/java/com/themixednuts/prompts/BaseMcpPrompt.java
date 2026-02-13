@@ -88,14 +88,48 @@ public abstract class BaseMcpPrompt {
   protected Mono<GetPromptResult> handleGetPrompt(
       McpTransportContext ctx, GetPromptRequest request, PluginTool tool) {
     return generate(ctx, request.arguments(), tool)
-        .onErrorResume(
-            t -> {
-              String errorMsg =
-                  t instanceof GhidraMcpException
-                      ? t.getMessage()
-                      : "Error generating prompt: " + t.getMessage();
-              return Mono.error(new RuntimeException(errorMsg));
-            });
+        .onErrorMap(t -> normalizePromptException(t, request.name()));
+  }
+
+  private RuntimeException normalizePromptException(Throwable throwable, String promptName) {
+    if (throwable instanceof RuntimeException runtimeException
+        && runtimeException.getCause() instanceof GhidraMcpException gme) {
+      return gme;
+    }
+    if (throwable instanceof GhidraMcpException gme) {
+      return gme;
+    }
+
+    if (throwable instanceof IllegalArgumentException iae) {
+      return new GhidraMcpException(
+          GhidraMcpError.validation()
+              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+              .message(iae.getMessage())
+              .context(
+                  new GhidraMcpError.ErrorContext(
+                      promptName,
+                      "get_prompt",
+                      null,
+                      null,
+                      Map.of("exception_type", iae.getClass().getSimpleName())))
+              .build(),
+          iae);
+    }
+
+    GhidraMcpError error =
+        GhidraMcpError.execution()
+            .errorCode(GhidraMcpError.ErrorCode.OPERATION_FAILED)
+            .message("Failed to generate prompt '" + promptName + "': " + throwable.getMessage())
+            .context(
+                new GhidraMcpError.ErrorContext(
+                    promptName,
+                    "get_prompt",
+                    null,
+                    null,
+                    Map.of("exception_type", throwable.getClass().getSimpleName())))
+            .build();
+
+    return new GhidraMcpException(error, throwable);
   }
 
   // =================== Ghidra Helpers ===================

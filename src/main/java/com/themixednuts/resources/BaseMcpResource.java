@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.annotation.GhidraMcpResource;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
@@ -136,15 +137,50 @@ public abstract class BaseMcpResource {
             content ->
                 new ReadResourceResult(
                     List.of(new TextResourceContents(uri, getMimeType(), content))))
-        .onErrorResume(
-            t -> {
-              Msg.error(this, "Error reading resource " + uri, t);
-              String errorMsg =
-                  t instanceof GhidraMcpException
-                      ? t.getMessage()
-                      : "Error reading resource: " + t.getMessage();
-              return Mono.error(new RuntimeException(errorMsg));
-            });
+        .onErrorMap(t -> normalizeResourceException(t, uri));
+  }
+
+  private RuntimeException normalizeResourceException(Throwable throwable, String uri) {
+    if (throwable instanceof RuntimeException runtimeException
+        && runtimeException.getCause() instanceof GhidraMcpException gme) {
+      return gme;
+    }
+    if (throwable instanceof GhidraMcpException gme) {
+      return gme;
+    }
+
+    if (throwable instanceof IllegalArgumentException iae) {
+      return new GhidraMcpException(
+          GhidraMcpError.validation()
+              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+              .message(iae.getMessage())
+              .context(
+                  new GhidraMcpError.ErrorContext(
+                      getName(),
+                      "read_resource",
+                      Map.of("uri", uri),
+                      null,
+                      Map.of("exception_type", iae.getClass().getSimpleName())))
+              .build(),
+          iae);
+    }
+
+    Msg.error(this, "Error reading resource " + uri, throwable);
+
+    GhidraMcpError error =
+        GhidraMcpError.execution()
+            .errorCode(GhidraMcpError.ErrorCode.OPERATION_FAILED)
+            .message("Failed to read resource '" + uri + "': " + throwable.getMessage())
+            .context(
+                new GhidraMcpError.ErrorContext(
+                    getName(),
+                    "read_resource",
+                    Map.of("uri", uri),
+                    null,
+                    Map.of("exception_type", throwable.getClass().getSimpleName())))
+            .build();
+
+    return new GhidraMcpException(error, throwable);
   }
 
   // =================== URI Template Helpers ===================

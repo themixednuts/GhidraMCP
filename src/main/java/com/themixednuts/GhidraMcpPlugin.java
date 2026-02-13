@@ -80,6 +80,9 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
 
     // Register tool enable/disable options
     GhidraMcpTools.registerOptions(options, "GhidraMCP");
+    GhidraMcpResources.registerOptions(options, "GhidraMCP");
+    GhidraMcpPrompts.registerOptions(options, "GhidraMCP");
+    GhidraMcpCompletions.registerOptions(options, "GhidraMCP");
 
     // Read current port
     currentPort = options.getInt(PORT_OPTION, DEFAULT_PORT);
