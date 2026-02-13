@@ -32,8 +32,8 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 
 ### Core Analysis
 
-- **Analyze RTTI** - Microsoft RTTI structure analysis with type detection and
-  demangling
+- **Analyze RTTI** - Microsoft and Itanium C++ RTTI plus Go runtime RTTI
+  analysis with type detection and demangling
 - **Decompile Code** - Function decompilation to C-like pseudocode with P-code
   analysis
 - **Demangle Symbols** - C++ symbol demangling with multiple format support

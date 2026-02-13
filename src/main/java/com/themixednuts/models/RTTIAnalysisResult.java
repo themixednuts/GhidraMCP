@@ -30,6 +30,12 @@ public sealed interface RTTIAnalysisResult
         RTTIAnalysisResult.Rtti3Result,
         RTTIAnalysisResult.Rtti4Result,
         RTTIAnalysisResult.VfTableResult,
+        RTTIAnalysisResult.ItaniumClassTypeInfoResult,
+        RTTIAnalysisResult.ItaniumSiClassTypeInfoResult,
+        RTTIAnalysisResult.ItaniumVmiClassTypeInfoResult,
+        RTTIAnalysisResult.ItaniumVtableResult,
+        RTTIAnalysisResult.GoTypeResult,
+        RTTIAnalysisResult.GoItabResult,
         RTTIAnalysisResult.InvalidResult {
 
   String address();
@@ -45,6 +51,12 @@ public sealed interface RTTIAnalysisResult
     RTTI3,
     RTTI4,
     VFTABLE,
+    ITANIUM_CLASS_TYPEINFO,
+    ITANIUM_SI_CLASS_TYPEINFO,
+    ITANIUM_VMI_CLASS_TYPEINFO,
+    ITANIUM_VTABLE,
+    GO_TYPE,
+    GO_ITAB,
     UNKNOWN
   }
 
@@ -182,6 +194,30 @@ public sealed interface RTTIAnalysisResult
     return new VfTableResult(address.toString(), data);
   }
 
+  static ItaniumClassTypeInfoResult from(ItaniumClassTypeInfo data, Address address) {
+    return new ItaniumClassTypeInfoResult(address.toString(), data);
+  }
+
+  static ItaniumSiClassTypeInfoResult from(ItaniumSiClassTypeInfo data, Address address) {
+    return new ItaniumSiClassTypeInfoResult(address.toString(), data);
+  }
+
+  static ItaniumVmiClassTypeInfoResult from(ItaniumVmiClassTypeInfo data, Address address) {
+    return new ItaniumVmiClassTypeInfoResult(address.toString(), data);
+  }
+
+  static ItaniumVtableResult from(ItaniumVtable data, Address address) {
+    return new ItaniumVtableResult(address.toString(), data);
+  }
+
+  static GoTypeResult from(GoTypeInfo data, Address address) {
+    return new GoTypeResult(address.toString(), data);
+  }
+
+  static GoItabResult from(GoItabInfo data, Address address) {
+    return new GoItabResult(address.toString(), data);
+  }
+
   static InvalidResult invalid(RttiType type, String address, String errorMessage) {
     return new InvalidResult(type, address, errorMessage);
   }
@@ -299,6 +335,81 @@ public sealed interface RTTIAnalysisResult
     }
   }
 
+  record ItaniumClassTypeInfoResult(String address, ItaniumClassTypeInfo data)
+      implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.ITANIUM_CLASS_TYPEINFO;
+    }
+  }
+
+  record ItaniumSiClassTypeInfoResult(String address, ItaniumSiClassTypeInfo data)
+      implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.ITANIUM_SI_CLASS_TYPEINFO;
+    }
+  }
+
+  record ItaniumVmiClassTypeInfoResult(String address, ItaniumVmiClassTypeInfo data)
+      implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.ITANIUM_VMI_CLASS_TYPEINFO;
+    }
+  }
+
+  record ItaniumVtableResult(String address, ItaniumVtable data) implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.ITANIUM_VTABLE;
+    }
+  }
+
+  record GoTypeResult(String address, GoTypeInfo data) implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.GO_TYPE;
+    }
+  }
+
+  record GoItabResult(String address, GoItabInfo data) implements RTTIAnalysisResult {
+    @Override
+    public boolean isValid() {
+      return data != null;
+    }
+
+    @Override
+    public RttiType rttiType() {
+      return RttiType.GO_ITAB;
+    }
+  }
+
   record InvalidResult(RttiType attemptedType, String address, String error)
       implements RTTIAnalysisResult {
     @Override
@@ -376,6 +487,69 @@ public sealed interface RTTIAnalysisResult
       Optional<String> rtti0FieldAddress,
       Optional<String> rtti3FieldAddress,
       List<String> baseClassTypes) {}
+
+  // Itanium ABI RTTI - __class_type_info
+  record ItaniumClassTypeInfo(
+      String symbolName,
+      Optional<String> demangledSymbol,
+      Optional<String> representedType,
+      Optional<String> typeNameAddress,
+      Optional<String> classTypeInfoVtableAddress) {}
+
+  // Itanium ABI RTTI - __si_class_type_info
+  record ItaniumSiClassTypeInfo(
+      String symbolName,
+      Optional<String> demangledSymbol,
+      Optional<String> representedType,
+      Optional<String> typeNameAddress,
+      Optional<String> classTypeInfoVtableAddress,
+      Optional<String> baseTypeInfoAddress) {}
+
+  // Itanium ABI RTTI - __vmi_class_type_info
+  record ItaniumVmiClassTypeInfo(
+      String symbolName,
+      Optional<String> demangledSymbol,
+      Optional<String> representedType,
+      Optional<String> typeNameAddress,
+      Optional<String> classTypeInfoVtableAddress,
+      long flags,
+      int numBaseClasses,
+      List<ItaniumVmiBaseClass> baseClasses) {}
+
+  record ItaniumVmiBaseClass(
+      int index,
+      Optional<String> baseTypeInfoAddress,
+      boolean isVirtual,
+      boolean isPublic,
+      long offset) {}
+
+  // Itanium ABI RTTI - vtable object
+  record ItaniumVtable(
+      String symbolName,
+      Optional<String> demangledSymbol,
+      Optional<Long> offsetToTop,
+      Optional<String> typeInfoAddress,
+      Map<Integer, String> virtualFunctionPointers) {}
+
+  // Go RTTI - runtime._type structure
+  record GoTypeInfo(
+      String name,
+      String fullyQualifiedName,
+      String kind,
+      String runtimeTypeClass,
+      String typeAddress,
+      long typeOffset,
+      Optional<String> packagePath,
+      Optional<String> declaration,
+      Optional<String> goVersion) {}
+
+  // Go RTTI - runtime.itab structure
+  record GoItabInfo(
+      String itabAddress,
+      Optional<String> concreteType,
+      Optional<String> interfaceType,
+      Optional<Long> functionCount,
+      Optional<String> goVersion) {}
 
   // VfTable - Virtual Function Table (from VfTableModel API)
   record VfTable(
