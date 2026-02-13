@@ -35,7 +35,6 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -399,10 +398,9 @@ public abstract class BaseMcpTool {
         ToolOutputStore.StoredOutputRef outputRef =
             ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult);
         response = wrapOversizedOutput(response, outputRef);
-        jsonResult = mapper.writeValueAsString(response);
       }
 
-      return buildStructuredToolResult(response, false, jsonResult);
+      return buildStructuredToolResult(response, false);
     } catch (JsonProcessingException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
 
@@ -420,26 +418,15 @@ public abstract class BaseMcpTool {
                           null,
                           Map.of("exception_type", e.getClass().getSimpleName())))
                   .build());
-      return buildStructuredToolResult(
-          errorResponse, true, serializeOrFallback(errorResponse));
+      return buildStructuredToolResult(errorResponse, true);
     }
   }
 
-  private CallToolResult buildStructuredToolResult(
-      McpResponse<?> response, boolean isError, String jsonFallback) {
+  private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
     return CallToolResult.builder()
-        .content(Collections.singletonList(new TextContent(jsonFallback)))
         .structuredContent(response)
         .isError(isError)
         .build();
-  }
-
-  private String serializeOrFallback(Object value) {
-    try {
-      return mapper.writeValueAsString(value);
-    } catch (JsonProcessingException e) {
-      return "{\"error\":\"serialization_failed\"}";
-    }
   }
 
   private McpResponse<?> wrapOversizedOutput(
@@ -484,34 +471,7 @@ public abstract class BaseMcpTool {
             + "]: "
             + exception.getMessage());
 
-    try {
-      String jsonResult = mapper.writeValueAsString(response);
-      return Mono.just(buildStructuredToolResult(response, true, jsonResult));
-    } catch (JsonProcessingException e) {
-      Msg.error(this, "Error serializing error response: " + e.getMessage());
-
-      McpResponse<?> fallbackError =
-          McpResponse.error(
-              getMcpName(),
-              "execute",
-              GhidraMcpError.internal()
-                  .message("Failed to serialize error response")
-                  .context(
-                      new GhidraMcpError.ErrorContext(
-                          getMcpName(),
-                          "execute",
-                          null,
-                          null,
-                          Map.of("exception_type", e.getClass().getSimpleName())))
-                  .build());
-      String fallbackJson = serializeOrFallback(fallbackError);
-      return Mono.just(
-          CallToolResult.builder()
-              .content(Collections.singletonList(new TextContent(fallbackJson)))
-              .structuredContent(fallbackError)
-              .isError(Boolean.TRUE)
-              .build());
-    }
+    return Mono.just(buildStructuredToolResult(response, true));
   }
 
   // =================== Argument Parsing (throws GhidraMcpException) ===================
