@@ -35,7 +35,7 @@ public final class ToolOutputStore {
   private static final int MAX_SESSIONS = 100;
   private static final int MAX_OUTPUTS_PER_SESSION = 100;
   private static final AtomicLong OUTPUT_SEQUENCE = new AtomicLong(0);
-  private static final Path ROOT_DIRECTORY =
+  public static final Path ROOT_DIRECTORY =
       Paths.get(System.getProperty("java.io.tmpdir"), "ghidra-mcp-tool-output");
 
   private static final Object LOCK = new Object();

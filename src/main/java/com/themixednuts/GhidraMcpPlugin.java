@@ -4,6 +4,7 @@ import com.themixednuts.services.IGhidraMcpCompletionProvider;
 import com.themixednuts.services.IGhidraMcpPromptProvider;
 import com.themixednuts.services.IGhidraMcpResourceProvider;
 import com.themixednuts.services.IGhidraMcpToolProvider;
+import com.themixednuts.utils.ToolOutputStore;
 import ghidra.framework.main.ApplicationLevelOnlyPlugin;
 import ghidra.framework.options.OptionType;
 import ghidra.framework.options.OptionsChangeListener;
@@ -49,6 +50,10 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
 
   private static final String PORT_OPTION = "Server Port";
   private static final String PORT_DESCRIPTION = "Port number for the embedded HTTP MCP server.";
+  private static final String TOOL_OUTPUT_DIR_OPTION = "Tool Output Storage Directory";
+  private static final String TOOL_OUTPUT_DIR_DESCRIPTION =
+      "Directory where oversized tool outputs are stored for chunked retrieval."
+          + " You can safely delete this folder when the server is not running.";
   private static final int DEFAULT_PORT = 8080;
   private static final int RESTART_DEBOUNCE_MS = 1000;
 
@@ -77,6 +82,14 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         new HelpLocation("GhidraMCP", "ServerPortOption"),
         PORT_DESCRIPTION,
         (java.util.function.Supplier<java.beans.PropertyEditor>) null);
+
+    // Register tool output directory (informational, read-only)
+    options.registerOption(
+        TOOL_OUTPUT_DIR_OPTION,
+        OptionType.STRING_TYPE,
+        ToolOutputStore.ROOT_DIRECTORY.toAbsolutePath().toString(),
+        new HelpLocation("GhidraMCP", "ToolOutputStorageOption"),
+        TOOL_OUTPUT_DIR_DESCRIPTION);
 
     // Register tool enable/disable options
     GhidraMcpTools.registerOptions(options, "GhidraMCP");
