@@ -399,9 +399,10 @@ public abstract class BaseMcpTool {
         ToolOutputStore.StoredOutputRef outputRef =
             ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult);
         response = wrapOversizedOutput(response, outputRef);
+        jsonResult = mapper.writeValueAsString(response);
       }
 
-      return buildStructuredToolResult(response, false);
+      return buildStructuredToolResult(response, false, jsonResult);
     } catch (JsonProcessingException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
 
@@ -419,16 +420,26 @@ public abstract class BaseMcpTool {
                           null,
                           Map.of("exception_type", e.getClass().getSimpleName())))
                   .build());
-      return buildStructuredToolResult(errorResponse, true);
+      return buildStructuredToolResult(
+          errorResponse, true, serializeOrFallback(errorResponse));
     }
   }
 
-  private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
+  private CallToolResult buildStructuredToolResult(
+      McpResponse<?> response, boolean isError, String jsonFallback) {
     return CallToolResult.builder()
-        .content(Collections.emptyList())
+        .content(Collections.singletonList(new TextContent(jsonFallback)))
         .structuredContent(response)
         .isError(isError)
         .build();
+  }
+
+  private String serializeOrFallback(Object value) {
+    try {
+      return mapper.writeValueAsString(value);
+    } catch (JsonProcessingException e) {
+      return "{\"error\":\"serialization_failed\"}";
+    }
   }
 
   private McpResponse<?> wrapOversizedOutput(
@@ -474,8 +485,8 @@ public abstract class BaseMcpTool {
             + exception.getMessage());
 
     try {
-      mapper.writeValueAsString(response);
-      return Mono.just(buildStructuredToolResult(response, true));
+      String jsonResult = mapper.writeValueAsString(response);
+      return Mono.just(buildStructuredToolResult(response, true, jsonResult));
     } catch (JsonProcessingException e) {
       Msg.error(this, "Error serializing error response: " + e.getMessage());
 
@@ -493,9 +504,10 @@ public abstract class BaseMcpTool {
                           null,
                           Map.of("exception_type", e.getClass().getSimpleName())))
                   .build());
+      String fallbackJson = serializeOrFallback(fallbackError);
       return Mono.just(
           CallToolResult.builder()
-              .content(Collections.emptyList())
+              .content(Collections.singletonList(new TextContent(fallbackJson)))
               .structuredContent(fallbackError)
               .isError(Boolean.TRUE)
               .build());
