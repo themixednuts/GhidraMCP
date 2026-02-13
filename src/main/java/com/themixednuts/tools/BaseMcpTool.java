@@ -98,7 +98,7 @@ public abstract class BaseMcpTool {
 
   protected static final int MAX_PAGE_LIMIT = 500;
 
-  private static final int INLINE_RESPONSE_CHAR_LIMIT = 32_000;
+  private static final int INLINE_RESPONSE_CHAR_LIMIT = 16_000;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
   private static final java.util.Set<String> SUPPORTED_TOP_LEVEL_SCHEMA_KEYS =
       java.util.Set.of(
