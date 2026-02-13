@@ -14,9 +14,13 @@ import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceSp
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceTemplateSpecification;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
+import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -33,6 +37,11 @@ public final class GhidraMcpServer {
   private static final String SERVER_NAME = "ghidra-mcp";
   private static final String SERVER_VERSION = "0.5.3";
   private static final String MCP_PATH_SPEC = "/*";
+  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(180);
+  private static final String SERVER_INSTRUCTIONS =
+      "Use tool calls for analysis and modifications. Prefer read-only tools for discovery, use"
+          + " paginated cursors for large result sets, and pass file_name explicitly when operating"
+          + " on program data.";
 
   private static final Object lock = new Object();
   private static Server jettyServer;
@@ -238,12 +247,47 @@ public final class GhidraMcpServer {
   }
 
   private static McpStatelessAsyncServer createMcpServer(McpSpecifications specs) {
-    transportProvider = HttpServletStatelessServerTransport.builder().build();
+    transportProvider =
+        HttpServletStatelessServerTransport.builder()
+            .contextExtractor(
+                request -> {
+                  Map<String, Object> contextValues = new LinkedHashMap<>();
+                  contextValues.put("http_method", request.getMethod());
+                  contextValues.put("request_uri", request.getRequestURI());
 
-    ServerCapabilities.Builder capabilities = ServerCapabilities.builder().tools(true).logging();
+                  String requestId = request.getHeader("X-Request-Id");
+                  if (requestId != null && !requestId.isBlank()) {
+                    contextValues.put("request_id", requestId);
+                  }
+
+                  String mcpSessionId = request.getHeader("MCP-Session-Id");
+                  if (mcpSessionId != null && !mcpSessionId.isBlank()) {
+                    contextValues.put("mcp_session_id", mcpSessionId);
+                  }
+
+                  String userAgent = request.getHeader("User-Agent");
+                  if (userAgent != null && !userAgent.isBlank()) {
+                    contextValues.put("user_agent", userAgent);
+                  }
+
+                  String remoteAddress = request.getRemoteAddr();
+                  if (remoteAddress != null && !remoteAddress.isBlank()) {
+                    contextValues.put("remote_address", remoteAddress);
+                  }
+
+                  contextValues.put(
+                      "has_authorization_header",
+                      request.getHeader("Authorization") != null
+                          && !request.getHeader("Authorization").isBlank());
+
+                  return McpTransportContext.create(contextValues);
+                })
+            .build();
+
+    ServerCapabilities.Builder capabilities = ServerCapabilities.builder().tools(true);
 
     if (specs.hasResources()) {
-      capabilities.resources(true, true);
+      capabilities.resources(false, false);
     }
     if (specs.hasPrompts()) {
       capabilities.prompts(true);
@@ -255,6 +299,8 @@ public final class GhidraMcpServer {
     var builder =
         McpServer.async(transportProvider)
             .serverInfo(SERVER_NAME, SERVER_VERSION)
+            .instructions(SERVER_INSTRUCTIONS)
+            .requestTimeout(REQUEST_TIMEOUT)
             .capabilities(capabilities.build())
             .tools(specs.tools);
 
