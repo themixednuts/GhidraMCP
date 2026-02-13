@@ -35,8 +35,20 @@ jobs:
         if: env.BOT_DEP_PR == 'true'
         run: |
           GHIDRA_RELEASE=$(mvn -q -DforceStdout help:evaluate -Dexpression=ghidra.version)
+          MCP_BOM_VERSION=$(mvn -q -DforceStdout help:evaluate -Dexpression=mcp.bom.version)
           echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
+          echo "MCP_BOM_VERSION=${MCP_BOM_VERSION}" >> "$GITHUB_ENV"
           echo "Pinned selector from pom.xml: ${GHIDRA_RELEASE}"
+          echo "Pinned MCP Java SDK BOM version: ${MCP_BOM_VERSION}"
+
+      - name: Check MCP SDK release drift
+        if: env.BOT_DEP_PR == 'true'
+        run: |
+          LATEST_MCP_BOM=$(curl -fsSL https://repo1.maven.org/maven2/io/modelcontextprotocol/sdk/mcp-bom/maven-metadata.xml | grep -oPm1 '(?<=<latest>)[^<]+')
+          echo "Latest MCP Java SDK BOM version from Maven Central: ${LATEST_MCP_BOM}"
+          if [ "${MCP_BOM_VERSION}" != "${LATEST_MCP_BOM}" ]; then
+            echo "::warning::MCP BOM in pom.xml (${MCP_BOM_VERSION}) is behind latest (${LATEST_MCP_BOM})."
+          fi
 
       - name: Validate pinned bootstrap + full build
         if: env.BOT_DEP_PR == 'true'
