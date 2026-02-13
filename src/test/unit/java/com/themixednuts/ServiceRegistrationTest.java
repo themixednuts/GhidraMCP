@@ -108,6 +108,9 @@ public class ServiceRegistrationTest {
         subTypes.stream()
             // Filter out abstract classes
             .filter(cls -> !Modifier.isAbstract(cls.getModifiers()))
+            // Ignore test scaffolding classes that extend BaseMcpTool for test-only coverage.
+            .filter(cls -> cls.getEnclosingClass() == null)
+            .filter(cls -> !cls.getSimpleName().endsWith("Test"))
             .map(Class::getName)
             .collect(Collectors.toSet());
 
