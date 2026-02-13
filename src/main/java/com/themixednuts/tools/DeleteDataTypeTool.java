@@ -350,9 +350,9 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                 new GhidraMcpError.ErrorSuggestion(
                     GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
                     "Browse available data types",
-                    "Use list_data_types to see what's available",
+                    "Use read_data_types to see what's available",
                     null,
-                    List.of("list_data_types"))))
+                    List.of("read_data_types"))))
         .build();
   }
 }

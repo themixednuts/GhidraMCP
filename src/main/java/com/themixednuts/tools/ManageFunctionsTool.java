@@ -9,6 +9,7 @@ import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
@@ -79,7 +80,7 @@ import reactor.core.publisher.Mono;
          - Lists both listing variables and decompiler-generated variables with detailed categorization
          - Generates control-flow graphs showing basic blocks and their connections
          - Use ReadFunctionsTool for reading/browsing functions with filtering
-         - Use FindFunctionTool for searching functions by name, address, or patterns
+         - Use ReadFunctionsTool for searching functions by name, address, or patterns
          - Use DecompileCodeTool for decompilation analysis
          - Use DeleteFunctionTool to delete functions
          </important_notes>
@@ -251,7 +252,10 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
-                        ARG_CURSOR, SchemaBuilder.string(mapper).description("Pagination cursor"))
+                        ARG_CURSOR,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Pagination cursor (format: v1:<base64url_storage>:<base64url_variable_name>)"))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -786,27 +790,33 @@ public class ManageFunctionsTool extends BaseMcpTool {
                     .thenComparing(FunctionVariableInfo::getEffectiveName))
             .collect(Collectors.toList());
 
-    final String finalCursorStr = cursorOpt.orElse(null);
+    VariableCursor cursor = cursorOpt.map(this::parseVariableCursor).orElse(null);
 
+    int startIndex = 0;
+    if (cursor != null) {
+      boolean cursorMatched = false;
+      for (int i = 0; i < variablesToList.size(); i++) {
+        FunctionVariableInfo variableInfo = variablesToList.get(i);
+        if (variableInfo.getStorage().equals(cursor.storage)
+            && variableInfo.getEffectiveName().equals(cursor.name)) {
+          startIndex = i + 1;
+          cursorMatched = true;
+          break;
+        }
+      }
+
+      if (!cursorMatched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.rawCursor,
+                "cursor is invalid or no longer present in this function variable listing"));
+      }
+    }
+
+    int endExclusive = Math.min(variablesToList.size(), startIndex + pageSize + 1);
     List<FunctionVariableInfo> paginatedVariables =
-        variablesToList.stream()
-            .dropWhile(
-                varInfo -> {
-                  if (finalCursorStr == null) return false;
-
-                  String[] parts = finalCursorStr.split(":", 2);
-                  String cursorStorage = parts[0];
-                  String cursorName = parts.length > 1 ? parts[1] : "";
-
-                  int storageCompare = varInfo.getStorage().compareTo(cursorStorage);
-                  if (storageCompare < 0) return true;
-                  if (storageCompare == 0) {
-                    return varInfo.getEffectiveName().compareTo(cursorName) <= 0;
-                  }
-                  return false;
-                })
-            .limit(pageSize + 1L)
-            .collect(Collectors.toList());
+        new ArrayList<>(variablesToList.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedVariables.size() > pageSize;
     List<FunctionVariableInfo> resultsForPage =
@@ -814,10 +824,36 @@ public class ManageFunctionsTool extends BaseMcpTool {
     String nextCursor = null;
     if (hasMore && !resultsForPage.isEmpty()) {
       FunctionVariableInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
-      nextCursor = lastItem.getStorage() + ":" + lastItem.getEffectiveName();
+      nextCursor = encodeVariableCursor(lastItem.getStorage(), lastItem.getEffectiveName());
     }
 
     return new PaginatedResult<>(resultsForPage, nextCursor);
+  }
+
+  private VariableCursor parseVariableCursor(String cursorValue) {
+    List<String> parts =
+        OpaqueCursorCodec.decodeV1(
+            cursorValue,
+            2,
+            ARG_CURSOR,
+            "v1:<base64url_storage>:<base64url_variable_name>");
+    return new VariableCursor(parts.get(0), parts.get(1), cursorValue);
+  }
+
+  private String encodeVariableCursor(String storage, String name) {
+    return OpaqueCursorCodec.encodeV1(storage, name);
+  }
+
+  private static final class VariableCursor {
+    private final String storage;
+    private final String name;
+    private final String rawCursor;
+
+    private VariableCursor(String storage, String name, String rawCursor) {
+      this.storage = storage;
+      this.name = name;
+      this.rawCursor = rawCursor;
+    }
   }
 
   private void ensureArgumentPresent(

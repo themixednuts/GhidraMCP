@@ -12,7 +12,6 @@ import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
@@ -349,10 +348,8 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
               .build());
     }
 
-    DomainFile sessionFile = findSessionFile(project, sessionName);
-    if (sessionFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("VT session", sessionName));
-    }
+    DomainFile sessionFile =
+        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     try {
       DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -376,25 +373,6 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
               .message("Failed to open VT session: " + e.getMessage())
               .build());
     }
-  }
-
-  private DomainFile findSessionFile(Project project, String sessionName) {
-    return findDomainFileRecursive(project.getProjectData().getRootFolder(), sessionName);
-  }
-
-  private DomainFile findDomainFileRecursive(DomainFolder folder, String name) {
-    for (DomainFile file : folder.getFiles()) {
-      if (file.getName().equals(name)) {
-        return file;
-      }
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      DomainFile found = findDomainFileRecursive(subfolder, name);
-      if (found != null) {
-        return found;
-      }
-    }
-    return null;
   }
 
   private AddressSetView buildAddressSet(

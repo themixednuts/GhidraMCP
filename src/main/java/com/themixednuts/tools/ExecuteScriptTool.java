@@ -17,6 +17,8 @@ import reactor.core.publisher.Mono;
     description =
         "Provides guidance on using Ghidra scripts like DemangleAllScript for advanced demangling",
     mcpName = "script_guidance",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>

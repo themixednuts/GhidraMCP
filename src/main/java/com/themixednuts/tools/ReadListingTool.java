@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -30,6 +31,8 @@ import reactor.core.publisher.Mono;
     name = "Read Listing",
     description = "View disassembly and data from Ghidra program listing.",
     mcpName = "read_listing",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -40,7 +43,7 @@ import reactor.core.publisher.Mono;
 
         <important_notes>
         - Supports three viewing modes: single address, address range, or function
-        - Results are paginated for large address ranges or functions
+        - Results are paginated for large address ranges or functions using opaque v1 cursors
         - Returns detailed instruction information including assembly text
         - Includes function context when instructions are part of functions
         - Provides labels, comments, and operand details
@@ -71,7 +74,7 @@ import reactor.core.publisher.Mono;
           "file_name": "program.exe",
           "address": "0x401000",
           "end_address": "0x402000",
-          "cursor": "0x401050"
+          "cursor": "v1:MHg0MDEwNTA"
         }
         </examples>
         """)
@@ -80,6 +83,7 @@ public class ReadListingTool extends BaseMcpTool {
   public static final String ARG_END_ADDRESS = "end_address";
   public static final String ARG_FUNCTION = "function";
   public static final String ARG_MAX_LINES = "max_lines";
+  private static final int DEFAULT_MAX_LINES = 100;
 
   @Override
   public JsonSchema schema() {
@@ -110,11 +114,14 @@ public class ReadListingTool extends BaseMcpTool {
             .description("Maximum number of lines to return (default: 100)")
             .minimum(1)
             .maximum(1000)
-            .defaultValue(DEFAULT_PAGE_LIMIT));
+            .defaultValue(DEFAULT_MAX_LINES));
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_listing_address>)"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME);
 
@@ -340,21 +347,37 @@ public class ReadListingTool extends BaseMcpTool {
       throws GhidraMcpException {
     Listing listing = program.getListing();
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-    int maxLines = getOptionalIntArgument(args, ARG_MAX_LINES).orElse(DEFAULT_PAGE_LIMIT);
+    int maxLines = getOptionalIntArgument(args, ARG_MAX_LINES).orElse(DEFAULT_MAX_LINES);
 
     // Determine effective start address based on cursor
     Address effectiveStart = startAddr;
     if (cursorOpt.isPresent()) {
+      String cursorValue = cursorOpt.get();
+      String decodedCursorAddress =
+          OpaqueCursorCodec.decodeV1(
+                  cursorValue, 1, ARG_CURSOR, "v1:<base64url_listing_address>")
+              .get(0);
+      Address cursorAddr = program.getAddressFactory().getAddress(decodedCursorAddress);
+      if (cursorAddr == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "cursor must be a valid address"));
+      }
+
+      if (cursorAddr.compareTo(startAddr) < 0 || cursorAddr.compareTo(endAddr) > 0) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorValue,
+                "cursor is outside the requested address range"));
+      }
+
+      // Start from just after the cursor address (cursor points to last item returned)
       try {
-        Address cursorAddr = program.getAddressFactory().getAddress(cursorOpt.get());
-        // Start from just after the cursor address (cursor points to last item returned)
-        if (cursorAddr != null
-            && cursorAddr.compareTo(startAddr) >= 0
-            && cursorAddr.compareTo(endAddr) <= 0) {
-          effectiveStart = cursorAddr.add(1);
-        }
+        effectiveStart = cursorAddr.add(1);
       } catch (Exception e) {
-        // Invalid cursor, start from beginning
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR, cursorValue, "cursor cannot be advanced within this address space"));
       }
     }
 
@@ -377,7 +400,22 @@ public class ReadListingTool extends BaseMcpTool {
         results.add(createListingInfo(program, codeUnit));
         codeUnit = listing.getCodeUnitAfter(codeUnit.getMaxAddress());
       } catch (Exception e) {
-        break;
+        throw new GhidraMcpException(
+            GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.OPERATION_FAILED)
+                .message(
+                    "Failed to read listing entry at address "
+                        + codeUnit.getMinAddress()
+                        + ": "
+                        + e.getMessage())
+                .context(
+                    new GhidraMcpError.ErrorContext(
+                        this.getMcpName(),
+                        "list_listing_in_range",
+                        args,
+                        Map.of("failed_address", codeUnit.getMinAddress().toString()),
+                        null))
+                .build());
       }
     }
 
@@ -389,7 +427,7 @@ public class ReadListingTool extends BaseMcpTool {
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
-      nextCursor = results.get(results.size() - 1).getAddress();
+      nextCursor = OpaqueCursorCodec.encodeV1(results.get(results.size() - 1).getAddress());
     }
 
     return new PaginatedResult<>(results, nextCursor);

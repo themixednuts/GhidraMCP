@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -49,7 +50,7 @@ import reactor.core.publisher.Mono;
         - When listing functions, returns paginated results with cursor support
         - Supports filtering by name patterns (regex) in list mode
         - Functions are sorted by entry point address for consistent ordering
-        - Name-based lookup supports regex matching with disambiguation for multiple matches
+        - Name-based lookup supports exact and wildcard (*, ?) matching
         </important_notes>
 
         <examples>
@@ -85,7 +86,7 @@ import reactor.core.publisher.Mono;
         Get next page of results:
         {
           "file_name": "program.exe",
-          "cursor": "0x401000:main"
+          "cursor": "v1:MHg0MDEwMDA:bWFpbg"
         }
         </examples>
         """)
@@ -112,7 +113,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_NAME,
         SchemaBuilder.string(mapper)
-            .description("Function name for single function lookup (supports regex matching)"));
+            .description("Function name for single function lookup (supports * and ? wildcards)"));
 
     schemaRoot.property(
         ARG_NAME_PATTERN,
@@ -122,7 +123,9 @@ public class ReadFunctionsTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
-            .description("Pagination cursor from previous request (list mode)"));
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_address>:<base64url_function_name>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -272,36 +275,6 @@ public class ReadFunctionsTool extends BaseMcpTool {
       }
     }
 
-    // Fallback: try as regex pattern (for backwards compatibility)
-    try {
-      Pattern pattern = Pattern.compile(name);
-      Function firstMatch = null;
-      int matchCount = 0;
-
-      FunctionIterator funcIter = functionManager.getFunctions(true);
-      while (funcIter.hasNext()) {
-        Function function = funcIter.next();
-        if (pattern.matcher(function.getName()).matches()) {
-          if (firstMatch == null) {
-            firstMatch = function;
-          }
-          matchCount++;
-          if (matchCount > 1) {
-            throw new GhidraMcpException(
-                GhidraMcpError.conflict("Multiple functions found for regex pattern: " + name));
-          }
-        }
-      }
-
-      if (firstMatch != null) {
-        return new FunctionInfo(firstMatch);
-      }
-    } catch (PatternSyntaxException e) {
-      throw new GhidraMcpException(GhidraMcpError.invalid("pattern", name, e.getMessage()));
-    } catch (GhidraMcpException e) {
-      throw e;
-    }
-
     throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
   }
 
@@ -316,19 +289,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
     Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-    // Parse cursor to get starting address
-    Address startAddress = null;
-    String cursorName = null;
-    if (cursorOpt.isPresent()) {
-      String cursorStr = cursorOpt.get();
-      String[] parts = cursorStr.split(":", 2);
-      try {
-        startAddress = program.getAddressFactory().getAddress(parts[0]);
-        cursorName = parts.length > 1 ? parts[1] : null;
-      } catch (Exception e) {
-        // Invalid cursor, start from beginning
-      }
-    }
+    FunctionCursor cursor = cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
 
     // Compile name pattern if provided
     Pattern namePattern = null;
@@ -341,53 +302,95 @@ public class ReadFunctionsTool extends BaseMcpTool {
       }
     }
 
-    // Use native FunctionManager.getFunctions(Address, boolean) for cursor-based iteration
-    // Functions are already returned in address order, no sorting needed
-    FunctionIterator funcIter;
-    if (startAddress != null) {
-      funcIter = functionManager.getFunctions(startAddress, true);
-    } else {
-      funcIter = functionManager.getFunctions(true);
-    }
-
-    List<FunctionInfo> results = new ArrayList<>();
-    boolean skipFirst = (startAddress != null && cursorName != null);
-    final Pattern finalNamePattern = namePattern;
-
-    while (funcIter.hasNext() && results.size() <= pageSize) {
+    List<FunctionInfo> allMatches = new ArrayList<>();
+    FunctionIterator funcIter = functionManager.getFunctions(true);
+    while (funcIter.hasNext()) {
       Function function = funcIter.next();
-
-      // Skip past cursor position (same address, name <= cursor name)
-      if (skipFirst) {
-        if (function.getEntryPoint().equals(startAddress)
-            && function.getName().compareTo(cursorName) <= 0) {
-          continue;
-        }
-        skipFirst = false;
+      if (namePattern != null && !namePattern.matcher(function.getName()).matches()) {
+        continue;
       }
-
-      // Apply name pattern filter if provided
-      if (finalNamePattern != null) {
-        if (!finalNamePattern.matcher(function.getName()).matches()) {
-          continue;
-        }
-      }
-
-      results.add(new FunctionInfo(function));
+      allMatches.add(new FunctionInfo(function));
     }
 
-    // Determine if there are more results and create next cursor
-    boolean hasMore = results.size() > pageSize;
-    if (hasMore) {
-      results = results.subList(0, pageSize);
+    int startIndex = 0;
+    if (cursor != null) {
+      boolean matched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        FunctionInfo functionInfo = allMatches.get(i);
+        if (functionInfo.getEntryPoint().equalsIgnoreCase(cursor.address)
+            && functionInfo.getName().equals(cursor.name)) {
+          startIndex = i + 1;
+          matched = true;
+          break;
+        }
+      }
+
+      if (!matched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.toCursorString(),
+                "cursor is invalid or no longer present in this function listing"));
+      }
     }
+
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<FunctionInfo> paginatedResults = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+
+    boolean hasMore = paginatedResults.size() > pageSize;
+    List<FunctionInfo> results =
+        hasMore ? new ArrayList<>(paginatedResults.subList(0, pageSize)) : paginatedResults;
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
       FunctionInfo lastFunc = results.get(results.size() - 1);
-      nextCursor = lastFunc.getEntryPoint() + ":" + lastFunc.getName();
+      nextCursor = encodeCursor(lastFunc.getEntryPoint(), lastFunc.getName());
     }
 
     return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private FunctionCursor parseFunctionCursor(Program program, String cursorValue) {
+    List<String> parts =
+        OpaqueCursorCodec.decodeV1(
+            cursorValue,
+            2,
+            ARG_CURSOR,
+            "v1:<base64url_address>:<base64url_function_name>");
+
+    Address cursorAddress = program.getAddressFactory().getAddress(parts.get(0));
+    if (cursorAddress == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
+    }
+
+    String decodedName = parts.get(1);
+
+    if (decodedName.isBlank()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an empty function name"));
+    }
+
+    return new FunctionCursor(cursorAddress.toString(), decodedName, cursorValue);
+  }
+
+  private String encodeCursor(String address, String functionName) {
+    return OpaqueCursorCodec.encodeV1(address, functionName);
+  }
+
+  private static final class FunctionCursor {
+    private final String address;
+    private final String name;
+    private final String rawCursor;
+
+    private FunctionCursor(String address, String name, String rawCursor) {
+      this.address = address;
+      this.name = name;
+      this.rawCursor = rawCursor;
+    }
+
+    private String toCursorString() {
+      return rawCursor;
+    }
   }
 }

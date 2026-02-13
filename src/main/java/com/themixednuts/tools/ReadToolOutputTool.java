@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -34,6 +35,7 @@ import reactor.core.publisher.Mono;
         - Use action=list_outputs with session_id to browse stored outputs.
         - Use action=read with session_id plus output_id or output_file_name to fetch chunks.
         - Read chunks are limited in size to keep responses token-safe.
+        - List cursors are opaque v1 values.
         </important_notes>
         """)
 public class ReadToolOutputTool extends BaseMcpTool {
@@ -72,7 +74,9 @@ public class ReadToolOutputTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
-            .description("Pagination cursor for list_sessions/list_outputs"));
+            .description(
+                "Pagination cursor for list_sessions/list_outputs (format:"
+                    + " v1:<base64url_store_cursor_key>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -136,7 +140,10 @@ public class ReadToolOutputTool extends BaseMcpTool {
   }
 
   private PaginatedResult<ToolOutputStore.SessionInfo> listSessions(Map<String, Object> args) {
-    String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
+    String cursor =
+        getOptionalStringArgument(args, ARG_CURSOR)
+            .map(value -> OpaqueCursorCodec.decodeV1(value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>").get(0))
+            .orElse(null);
     int pageSize =
         parseBoundedInt(
             args,
@@ -144,13 +151,20 @@ public class ReadToolOutputTool extends BaseMcpTool {
             ToolOutputStore.DEFAULT_LIST_PAGE_SIZE,
             1,
             ToolOutputStore.MAX_LIST_PAGE_SIZE);
-    return ToolOutputStore.listSessions(cursor, pageSize);
+
+    PaginatedResult<ToolOutputStore.SessionInfo> result = ToolOutputStore.listSessions(cursor, pageSize);
+    String nextCursor =
+        result.nextCursor != null ? OpaqueCursorCodec.encodeV1(result.nextCursor) : null;
+    return new PaginatedResult<>(result.results, nextCursor);
   }
 
   private PaginatedResult<ToolOutputStore.OutputInfo> listOutputs(Map<String, Object> args)
       throws GhidraMcpException {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
-    String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
+    String cursor =
+        getOptionalStringArgument(args, ARG_CURSOR)
+            .map(value -> OpaqueCursorCodec.decodeV1(value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>").get(0))
+            .orElse(null);
     int pageSize =
         parseBoundedInt(
             args,
@@ -158,7 +172,12 @@ public class ReadToolOutputTool extends BaseMcpTool {
             ToolOutputStore.DEFAULT_LIST_PAGE_SIZE,
             1,
             ToolOutputStore.MAX_LIST_PAGE_SIZE);
-    return ToolOutputStore.listOutputs(sessionId, cursor, pageSize);
+
+    PaginatedResult<ToolOutputStore.OutputInfo> result =
+        ToolOutputStore.listOutputs(sessionId, cursor, pageSize);
+    String nextCursor =
+        result.nextCursor != null ? OpaqueCursorCodec.encodeV1(result.nextCursor) : null;
+    return new PaginatedResult<>(result.results, nextCursor);
   }
 
   private ToolOutputStore.OutputChunk readOutput(Map<String, Object> args)

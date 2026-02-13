@@ -26,6 +26,7 @@ import reactor.core.publisher.Mono;
         "Delete bookmarks at a specified address with optional filtering by type, category, and"
             + " comment content.",
     mcpName = "delete_bookmark",
+    destructiveHint = true,
     mcpDescription =
         """
                 <use_case>
@@ -247,6 +248,8 @@ public class DeleteBookmarkTool extends BaseMcpTool {
                                     bookmarkTypeOpt.orElse("any"),
                                     ARG_BOOKMARK_CATEGORY,
                                     bookmarkCategoryOpt.orElse("any")));
+                      } catch (GhidraMcpException e) {
+                        throw e;
                       } catch (Exception e) {
                         GhidraMcpError error =
                             GhidraMcpError.execution()

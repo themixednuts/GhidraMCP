@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ProgramFileInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -47,7 +48,7 @@ import reactor.core.publisher.Mono;
         - Only lists files with program content type (executables, libraries, etc.).
         - If no programs exist in the project, returns an empty list without raising an error.
         - Closed programs can be opened by providing their file_name to other tools.
-        - Results are paginated (default 100 per page). Use the next_cursor to retrieve subsequent pages.
+        - Results are paginated (default 100 per page). Use opaque next_cursor values to retrieve subsequent pages.
         - TIP: For large projects with many files, use the 'format' parameter to filter by executable type (PE, ELF, MACH_O, COFF, RAW) or 'name_filter' to search by filename.
         </important_notes>
         """)
@@ -107,9 +108,9 @@ public class ListProgramsTool extends BaseMcpTool {
       return lowerFormat.contains(lowerFilterName) || lowerFormat.equals(name().toLowerCase());
     }
 
-    /** Get format from string value */
+    /** Parse format from string value. */
     public static ExecutableFormat fromString(String value) {
-      if (value == null) {
+      if (value == null || value.isBlank()) {
         return ALL;
       }
 
@@ -118,7 +119,15 @@ public class ListProgramsTool extends BaseMcpTool {
           return format;
         }
       }
-      return ALL;
+
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_FORMAT,
+              value,
+              "must be one of: "
+                  + java.util.Arrays.stream(values())
+                      .map(Enum::name)
+                      .collect(Collectors.joining(", "))));
     }
   }
 
@@ -146,7 +155,9 @@ public class ListProgramsTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Cursor from previous response for pagination"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Cursor from previous response for pagination (format: v1:<base64url_program_path>)"));
 
     // Add optional executable format filter
     String[] formatValues =
@@ -270,15 +281,25 @@ public class ListProgramsTool extends BaseMcpTool {
     ghidra.util.Msg.info(this, "Found " + programFiles.size() + " programs after filtering");
 
     // Apply pagination with format filter integration
-    // Find start index from cursor (using pathname for stable cursor lookup)
+    // Find start index from cursor using stable program path.
     int startIndex = 0;
     if (cursor != null && !cursor.isEmpty()) {
-      // Cursor is now just the pathname for stability
+      String cursorPath = parseCursorPath(cursor);
+      boolean cursorMatched = false;
       for (int i = 0; i < programFiles.size(); i++) {
-        if (programFiles.get(i).getPathname().equals(cursor)) {
+        if (programFiles.get(i).getPathname().equals(cursorPath)) {
           startIndex = i + 1;
+          cursorMatched = true;
           break;
         }
+      }
+
+      if (!cursorMatched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor,
+                "cursor is invalid or no longer present in this program listing"));
       }
     }
 
@@ -312,12 +333,16 @@ public class ListProgramsTool extends BaseMcpTool {
   }
 
   /**
-   * Creates a pagination cursor using the file's pathname. Using pathname alone ensures cursor
-   * stability - the old format including isOpen status would become invalid if a program was
-   * opened/closed between requests.
+   * Creates a pagination cursor using the file's pathname. Pathname-based cursors remain stable if
+   * open/closed state changes between requests.
    */
   private String createCursor(DomainFile file) {
-    return file.getPathname();
+    return OpaqueCursorCodec.encodeV1(file.getPathname());
+  }
+
+  private String parseCursorPath(String cursor) {
+    return OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_program_path>")
+        .get(0);
   }
 
   /** Check if a filename matches the name filter. */

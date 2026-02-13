@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ReferenceInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -27,6 +28,8 @@ import reactor.core.publisher.Mono;
     name = "Find References",
     description = "Find cross-references to and from addresses in the program with pagination.",
     mcpName = "find_references",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -44,7 +47,7 @@ import reactor.core.publisher.Mono;
         <important_notes>
         - Supports both "to" (incoming) and "from" (outgoing) reference searches
         - References include code references, data references, and external references
-        - Results are paginated - use cursor parameter for subsequent pages
+        - Results are paginated - use opaque v1 cursor values for subsequent pages
         - Results include reference type and operation context
         </important_notes>
         """)
@@ -117,7 +120,10 @@ public class FindReferencesTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_primary_address>:<base64url_secondary_address>:<base64url_reference_type>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -226,17 +232,6 @@ public class FindReferencesTool extends BaseMcpTool {
             return new PaginatedResult<>(List.of(), null);
           }
 
-          // Parse cursor - cursor is the source address of the last reference seen
-          Address cursorAddress = null;
-          if (cursorOpt.isPresent()) {
-            try {
-              cursorAddress = program.getAddressFactory().getAddress(cursorOpt.get());
-            } catch (Exception e) {
-              // Invalid cursor, start from beginning
-            }
-          }
-          final String finalCursorAddress = cursorAddress != null ? cursorAddress.toString() : null;
-
           try {
             ReferenceIterator refIterator = refManager.getReferencesTo(address);
             List<ReferenceInfo> allReferences = new ArrayList<>();
@@ -255,15 +250,10 @@ public class FindReferencesTool extends BaseMcpTool {
                     .thenComparing(ReferenceInfo::getToAddress, String.CASE_INSENSITIVE_ORDER)
                     .thenComparing(ReferenceInfo::getReferenceType, String.CASE_INSENSITIVE_ORDER));
 
+            int startIndex = resolveCursorStartIndex(cursorOpt, allReferences, true);
+            int endExclusive = Math.min(allReferences.size(), startIndex + pageSize + 1);
             List<ReferenceInfo> paginatedReferences =
-                allReferences.stream()
-                    .dropWhile(
-                        info ->
-                            finalCursorAddress != null
-                                && info.getFromAddress().compareToIgnoreCase(finalCursorAddress)
-                                    <= 0)
-                    .limit(pageSize + 1L)
-                    .toList();
+                new ArrayList<>(allReferences.subList(startIndex, endExclusive));
 
             boolean hasMore = paginatedReferences.size() > pageSize;
             List<ReferenceInfo> results =
@@ -273,10 +263,12 @@ public class FindReferencesTool extends BaseMcpTool {
 
             String nextCursor = null;
             if (hasMore && !results.isEmpty()) {
-              nextCursor = results.get(results.size() - 1).getFromAddress();
+              nextCursor = buildReferencesToCursor(results.get(results.size() - 1));
             }
 
             return new PaginatedResult<>(results, nextCursor);
+          } catch (GhidraMcpException e) {
+            throw e;
           } catch (Exception e) {
             throw buildXrefAnalysisException(
                 annotation, args, "find_references_to", address.toString(), 0, e);
@@ -301,17 +293,6 @@ public class FindReferencesTool extends BaseMcpTool {
             return new PaginatedResult<>(List.of(), null);
           }
 
-          // Parse cursor - cursor is the target address of the last reference seen
-          Address cursorAddress = null;
-          if (cursorOpt.isPresent()) {
-            try {
-              cursorAddress = program.getAddressFactory().getAddress(cursorOpt.get());
-            } catch (Exception e) {
-              // Invalid cursor, start from beginning
-            }
-          }
-          final String finalCursorAddress = cursorAddress != null ? cursorAddress.toString() : null;
-
           Reference[] referencesArray = refManager.getReferencesFrom(address);
 
           try {
@@ -331,14 +312,10 @@ public class FindReferencesTool extends BaseMcpTool {
                     .thenComparing(ReferenceInfo::getFromAddress, String.CASE_INSENSITIVE_ORDER)
                     .thenComparing(ReferenceInfo::getReferenceType, String.CASE_INSENSITIVE_ORDER));
 
+            int startIndex = resolveCursorStartIndex(cursorOpt, allReferences, false);
+            int endExclusive = Math.min(allReferences.size(), startIndex + pageSize + 1);
             List<ReferenceInfo> paginatedReferences =
-                allReferences.stream()
-                    .dropWhile(
-                        info ->
-                            finalCursorAddress != null
-                                && info.getToAddress().compareToIgnoreCase(finalCursorAddress) <= 0)
-                    .limit(pageSize + 1L)
-                    .toList();
+                new ArrayList<>(allReferences.subList(startIndex, endExclusive));
 
             boolean hasMore = paginatedReferences.size() > pageSize;
             List<ReferenceInfo> results =
@@ -348,10 +325,12 @@ public class FindReferencesTool extends BaseMcpTool {
 
             String nextCursor = null;
             if (hasMore && !results.isEmpty()) {
-              nextCursor = results.get(results.size() - 1).getToAddress();
+              nextCursor = buildReferencesFromCursor(results.get(results.size() - 1));
             }
 
             return new PaginatedResult<>(results, nextCursor);
+          } catch (GhidraMcpException e) {
+            throw e;
           } catch (Exception e) {
             throw buildXrefAnalysisException(
                 annotation, args, "find_references_from", address.toString(), 0, e);
@@ -386,5 +365,52 @@ public class FindReferencesTool extends BaseMcpTool {
                         null,
                         null)))
             .build());
+  }
+
+  private int resolveCursorStartIndex(
+      Optional<String> cursorOpt, List<ReferenceInfo> references, boolean referencesToMode) {
+    if (cursorOpt.isEmpty()) {
+      return 0;
+    }
+
+    String cursor = cursorOpt.get();
+    List<String> cursorParts =
+        OpaqueCursorCodec.decodeV1(
+            cursor,
+            3,
+            ARG_CURSOR,
+            "v1:<base64url_primary_address>:<base64url_secondary_address>:<base64url_reference_type>");
+
+    String cursorFirst = cursorParts.get(0);
+    String cursorSecond = cursorParts.get(1);
+    String cursorType = cursorParts.get(2);
+
+    for (int i = 0; i < references.size(); i++) {
+      ReferenceInfo info = references.get(i);
+
+      String first = referencesToMode ? info.getFromAddress() : info.getToAddress();
+      String second = referencesToMode ? info.getToAddress() : info.getFromAddress();
+      String type = info.getReferenceType();
+
+      if (first.equalsIgnoreCase(cursorFirst)
+          && second.equalsIgnoreCase(cursorSecond)
+          && type.equalsIgnoreCase(cursorType)) {
+        return i + 1;
+      }
+    }
+
+    throw new GhidraMcpException(
+        GhidraMcpError.invalid(
+            ARG_CURSOR, cursor, "cursor is invalid or no longer present in this reference set"));
+  }
+
+  private String buildReferencesToCursor(ReferenceInfo info) {
+    return OpaqueCursorCodec.encodeV1(
+        info.getFromAddress(), info.getToAddress(), info.getReferenceType());
+  }
+
+  private String buildReferencesFromCursor(ReferenceInfo info) {
+    return OpaqueCursorCodec.encodeV1(
+        info.getToAddress(), info.getFromAddress(), info.getReferenceType());
   }
 }

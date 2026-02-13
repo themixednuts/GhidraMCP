@@ -2,7 +2,9 @@ package com.themixednuts.tools;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.MemoryBlockInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -23,6 +25,8 @@ import reactor.core.publisher.Mono;
     name = "Read Memory Blocks",
     description = "List memory blocks in a Ghidra program with pagination and filtering options.",
     mcpName = "read_memory_blocks",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -35,6 +39,7 @@ import reactor.core.publisher.Mono;
         - Results are paginated to prevent overwhelming responses
         - Supports filtering by name patterns and permission flags
         - Memory blocks are sorted by start address for consistent ordering
+        - Pagination uses opaque v1 cursors
         - Returns detailed memory block information including read/write/execute permissions
         </important_notes>
 
@@ -59,7 +64,7 @@ import reactor.core.publisher.Mono;
         Get next page of results:
         {
           "file_name": "program.exe",
-          "cursor": "0x401000"
+          "cursor": "v1:MHg0MDEwMDA"
         }
         </examples>
         """)
@@ -101,7 +106,9 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format: v1:<base64url_block_start_address>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -195,11 +202,21 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
 
     int startIndex = 0;
     if (cursorAddress != null && !cursorAddress.isBlank()) {
+      boolean cursorMatched = false;
       for (int i = 0; i < allMemoryBlocks.size(); i++) {
-        if (cursorAddress.equals(allMemoryBlocks.get(i).getStartAddress())) {
+        if (cursorAddress.equalsIgnoreCase(allMemoryBlocks.get(i).getStartAddress())) {
           startIndex = i + 1;
+          cursorMatched = true;
           break;
         }
+      }
+
+      if (!cursorMatched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorAddress,
+                "cursor is invalid or no longer present in this memory block listing"));
       }
     }
 
@@ -221,7 +238,7 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
     String nextCursor = null;
     if (hasMore && !resultsForPage.isEmpty()) {
       MemoryBlockInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
-      nextCursor = lastItem.getStartAddress();
+      nextCursor = OpaqueCursorCodec.encodeV1(lastItem.getStartAddress());
     }
 
     return new PaginatedResult<>(resultsForPage, nextCursor);
@@ -231,10 +248,14 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
     if (cursor == null || cursor.isBlank()) {
       return "";
     }
-    int separator = cursor.indexOf(':');
-    if (separator >= 0 && separator < cursor.length() - 1) {
-      return cursor.substring(separator + 1);
+    String decodedAddress =
+        OpaqueCursorCodec.decodeV1(
+                cursor, 1, ARG_CURSOR, "v1:<base64url_block_start_address>")
+            .get(0);
+    if (!decodedAddress.matches("^(0x)?[0-9a-fA-F]+$")) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursor, "cursor must be a valid memory address"));
     }
-    return cursor;
+    return decodedAddress;
   }
 }

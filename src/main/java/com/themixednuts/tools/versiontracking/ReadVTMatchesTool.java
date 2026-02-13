@@ -5,6 +5,7 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.versiontracking.VTMatchInfo;
 import com.themixednuts.tools.BaseMcpTool;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -16,7 +17,6 @@ import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
@@ -39,6 +39,7 @@ import reactor.core.publisher.Mono;
     description = "Read and list Version Tracking matches with filtering and pagination.",
     mcpName = "read_vt_matches",
     readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -49,7 +50,7 @@ import reactor.core.publisher.Mono;
         <important_notes>
         - Provide both source_address and destination_address to get a single specific match
         - Omit addresses to list all matches with optional filtering
-        - Results are paginated - use cursor parameter for subsequent pages
+        - Results are paginated - use opaque v1 cursor parameter for subsequent pages
         - Similarity and confidence scores range from 0.0 to 1.0
         - Status values: AVAILABLE, ACCEPTED, REJECTED, BLOCKED
         - Match types: FUNCTION, DATA
@@ -121,7 +122,10 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_match_set_index>:<base64url_match_index>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -148,6 +152,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
           String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
           Optional<String> sourceAddr = getOptionalStringArgument(args, ARG_SOURCE_ADDRESS);
           Optional<String> destAddr = getOptionalStringArgument(args, ARG_DESTINATION_ADDRESS);
+          validateSingleMatchAddressArguments(sourceAddr, destAddr);
 
           VTSession session = openVTSession(sessionName);
           try {
@@ -162,6 +167,16 @@ public class ReadVTMatchesTool extends BaseMcpTool {
             session.release(this);
           }
         });
+  }
+
+  static void validateSingleMatchAddressArguments(
+      Optional<String> sourceAddr, Optional<String> destAddr) throws GhidraMcpException {
+    if (sourceAddr.isPresent() != destAddr.isPresent()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.conflict(
+              "source_address and destination_address must both be provided for single match"
+                  + " lookup"));
+    }
   }
 
   private VTMatchInfo getSingleMatch(VTSession session, String sourceAddrStr, String destAddrStr)
@@ -212,23 +227,55 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     Program sourceProgram = session.getSourceProgram();
     Program destProgram = session.getDestinationProgram();
 
-    // Parse cursor (format: matchSetIndex:matchIndex)
+    // Parse cursor (opaque format: v1:<base64url_match_set_index>:<base64url_match_index>)
     int startMatchSetIndex = 0;
     int startMatchIndex = 0;
     if (cursorOpt.isPresent()) {
-      String[] parts = cursorOpt.get().split(":");
-      if (parts.length == 2) {
-        try {
-          startMatchSetIndex = Integer.parseInt(parts[0]);
-          startMatchIndex = Integer.parseInt(parts[1]);
-        } catch (NumberFormatException e) {
-          // Invalid cursor, start from beginning
-        }
+      String cursorValue = cursorOpt.get();
+      List<String> parts =
+          OpaqueCursorCodec.decodeV1(
+              cursorValue,
+              2,
+              ARG_CURSOR,
+              "v1:<base64url_match_set_index>:<base64url_match_index>");
+
+      try {
+        startMatchSetIndex = Integer.parseInt(parts.get(0));
+        startMatchIndex = Integer.parseInt(parts.get(1));
+      } catch (NumberFormatException e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR, cursorValue, "must contain numeric match set and match indexes"));
+      }
+
+      if (startMatchSetIndex < 0 || startMatchIndex < 0) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR, cursorValue, "cursor indexes must be non-negative"));
       }
     }
 
     List<VTMatchInfo> results = new ArrayList<>();
     List<VTMatchSet> matchSets = session.getMatchSets();
+
+    if (cursorOpt.isPresent()) {
+      if (startMatchSetIndex >= matchSets.size()) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorOpt.orElse(null),
+                "cursor match set index is out of bounds for current result set"));
+      }
+
+      List<VTMatch> cursorMatchList = new ArrayList<>(matchSets.get(startMatchSetIndex).getMatches());
+      if (startMatchIndex > cursorMatchList.size()) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorOpt.orElse(null),
+                "cursor match index is out of bounds for the selected match set"));
+      }
+    }
 
     int lastMatchSetIndex = startMatchSetIndex;
     int lastMatchIndex = startMatchIndex;
@@ -279,7 +326,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
     String nextCursor = null;
     if (hasMore) {
-      nextCursor = lastMatchSetIndex + ":" + lastMatchIndex;
+      nextCursor = OpaqueCursorCodec.encodeV1(String.valueOf(lastMatchSetIndex), String.valueOf(lastMatchIndex));
     }
 
     return new PaginatedResult<>(results, nextCursor);
@@ -396,10 +443,8 @@ public class ReadVTMatchesTool extends BaseMcpTool {
               .build());
     }
 
-    DomainFile sessionFile = findSessionFile(project, sessionName);
-    if (sessionFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("VT session", sessionName));
-    }
+    DomainFile sessionFile =
+        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     try {
       DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -425,22 +470,4 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     }
   }
 
-  private DomainFile findSessionFile(Project project, String sessionName) {
-    return findDomainFileRecursive(project.getProjectData().getRootFolder(), sessionName);
-  }
-
-  private DomainFile findDomainFileRecursive(DomainFolder folder, String name) {
-    for (DomainFile file : folder.getFiles()) {
-      if (file.getName().equals(name)) {
-        return file;
-      }
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      DomainFile found = findDomainFileRecursive(subfolder, name);
-      if (found != null) {
-        return found;
-      }
-    }
-    return null;
-  }
 }

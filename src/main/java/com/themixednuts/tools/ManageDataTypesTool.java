@@ -484,21 +484,75 @@ public class ManageDataTypesTool extends BaseMcpTool {
       GhidraMcpTool annotation)
       throws GhidraMcpException {
     return switch (dataTypeKind.toLowerCase(Locale.ROOT)) {
-      case "struct" -> updateStruct(dtm, (Structure) existing, args, annotation);
-      case "enum" -> updateEnum(dtm, (ghidra.program.model.data.Enum) existing, args, annotation);
-      case "union" -> updateUnion(dtm, (Union) existing, args, annotation);
-      case "typedef" -> updateTypedef(dtm, (TypeDef) existing, args, annotation);
-      case "pointer" -> updatePointer(dtm, (TypeDef) existing, args, annotation);
+      case "struct" ->
+          updateStruct(
+              dtm, requireDataTypeKind(existing, Structure.class, dataTypeKind, annotation), args,
+              annotation);
+      case "enum" ->
+          updateEnum(
+              dtm,
+              requireDataTypeKind(
+                  existing, ghidra.program.model.data.Enum.class, dataTypeKind, annotation),
+              args,
+              annotation);
+      case "union" ->
+          updateUnion(
+              dtm, requireDataTypeKind(existing, Union.class, dataTypeKind, annotation), args,
+              annotation);
+      case "typedef" ->
+          updateTypedef(
+              dtm, requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation), args,
+              annotation);
+      case "pointer" ->
+          updatePointer(
+              dtm, requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation), args,
+              annotation);
       case "function_definition" ->
-          updateFunctionDefinition(dtm, (FunctionDefinition) existing, args, annotation);
+          updateFunctionDefinition(
+              dtm,
+              requireDataTypeKind(existing, FunctionDefinition.class, dataTypeKind, annotation),
+              args,
+              annotation);
       case "category" -> updateCategory(dtm, args, annotation);
-      case "rtti0" -> updateRTTI(dtm, (RTTI0DataType) existing, args, annotation);
+      case "rtti0" ->
+          updateRTTI(
+              dtm,
+              requireDataTypeKind(existing, RTTI0DataType.class, dataTypeKind, annotation),
+              args,
+              annotation);
       default ->
           OperationResult.failure(
               "update_data_type",
               dataTypeKind,
               "Update not supported for data type kind: " + dataTypeKind);
     };
+  }
+
+  private <T extends DataType> T requireDataTypeKind(
+      DataType existing, Class<T> expectedType, String requestedKind, GhidraMcpTool annotation)
+      throws GhidraMcpException {
+    if (expectedType.isInstance(existing)) {
+      return expectedType.cast(existing);
+    }
+
+    throw new GhidraMcpException(
+        GhidraMcpError.validation()
+            .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+            .message(
+                "Data type kind mismatch for '"
+                    + requestedKind
+                    + "': found "
+                    + existing.getClass().getSimpleName()
+                    + " at "
+                    + existing.getPathName())
+            .context(
+                new GhidraMcpError.ErrorContext(
+                    annotation.mcpName(),
+                    "update data type kind validation",
+                    null,
+                    Map.of("requested_kind", requestedKind, "resolved_path", existing.getPathName()),
+                    Map.of("resolved_class", existing.getClass().getName())))
+            .build());
   }
 
   private Mono<? extends Object> handleCreate(

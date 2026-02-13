@@ -388,6 +388,9 @@ public class ManageMemoryTool extends BaseMcpTool {
           Address address;
           try {
             address = program.getAddressFactory().getAddress(addressStr);
+            if (address == null) {
+              throw new IllegalArgumentException("Invalid address format");
+            }
           } catch (Exception e) {
             GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
             throw new GhidraMcpException(error);

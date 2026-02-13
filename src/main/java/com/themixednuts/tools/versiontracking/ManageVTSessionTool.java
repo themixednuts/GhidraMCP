@@ -193,8 +193,8 @@ public class ManageVTSessionTool extends BaseMcpTool {
     DomainFolder rootFolder = project.getProjectData().getRootFolder();
 
     // Get source and destination programs
-    Program sourceProgram = openProgram(project, sourceFile);
-    Program destProgram = openProgram(project, destinationFile);
+    Program sourceProgram = openProgram(project, sourceFile, ARG_SOURCE_FILE);
+    Program destProgram = openProgram(project, destinationFile, ARG_DESTINATION_FILE);
 
     try {
       // Create VT session using reflection
@@ -238,8 +238,11 @@ public class ManageVTSessionTool extends BaseMcpTool {
   private VTSessionInfo handleOpen(Map<String, Object> args) throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     VTSession session = openVTSession(sessionName);
-    VTSessionInfo info = buildSessionInfo(session);
-    return info;
+    try {
+      return buildSessionInfo(session);
+    } finally {
+      releaseSessionQuietly(session);
+    }
   }
 
   private List<String> handleList() throws GhidraMcpException {
@@ -253,37 +256,68 @@ public class ManageVTSessionTool extends BaseMcpTool {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
 
     Project project = getActiveProject();
-    DomainFile sessionFile = findSessionFile(project, sessionName);
-
-    if (sessionFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("VT session", sessionName));
-    }
+    DomainFile sessionFile =
+        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     // Check if the session is currently open
     if (!sessionFile.isOpen()) {
       return OperationResult.success(ACTION_CLOSE, sessionName, "Session was not open");
     }
 
-    // Get and release the domain object to close it
+    // Acquire and release one reference from this tool instance.
+    DomainObject sessionObject = null;
     try {
-      DomainObject obj = sessionFile.getDomainObject(this, false, false, TaskMonitor.DUMMY);
-      if (obj != null) {
-        obj.release(this);
-      }
-      return OperationResult.success(ACTION_CLOSE, sessionName, "Session closed successfully");
+      sessionObject = sessionFile.getDomainObject(this, false, false, TaskMonitor.DUMMY);
     } catch (Exception e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
               .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
               .message("Failed to close session: " + e.getMessage())
               .build());
+    } finally {
+      if (sessionObject != null) {
+        try {
+          sessionObject.release(this);
+        } catch (Exception ignored) {
+        }
+      }
     }
+
+    if (sessionFile.isOpen()) {
+      return closeResult(sessionName, true);
+    }
+
+    return closeResult(sessionName, false);
+  }
+
+  static OperationResult closeResult(String sessionName, boolean stillOpenByAnotherConsumer) {
+    if (stillOpenByAnotherConsumer) {
+      return OperationResult.success(
+          ACTION_CLOSE,
+          sessionName,
+          "Released tool reference, but session remains open by another consumer");
+    }
+    return OperationResult.success(ACTION_CLOSE, sessionName, "Session closed successfully");
   }
 
   private VTSessionInfo handleInfo(Map<String, Object> args) throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     VTSession session = openVTSession(sessionName);
-    return buildSessionInfo(session);
+    try {
+      return buildSessionInfo(session);
+    } finally {
+      releaseSessionQuietly(session);
+    }
+  }
+
+  private void releaseSessionQuietly(VTSession session) {
+    if (session == null) {
+      return;
+    }
+    try {
+      session.release(this);
+    } catch (Exception ignored) {
+    }
   }
 
   private Project getActiveProject() throws GhidraMcpException {
@@ -298,11 +332,10 @@ public class ManageVTSessionTool extends BaseMcpTool {
     return project;
   }
 
-  private Program openProgram(Project project, String fileName) throws GhidraMcpException {
-    DomainFile domainFile = findProgramFile(project, fileName);
-    if (domainFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("program", fileName));
-    }
+  private Program openProgram(Project project, String fileName, String argumentName)
+      throws GhidraMcpException {
+    DomainFile domainFile =
+        VTDomainFileResolver.resolveProgramFile(project, fileName, argumentName);
 
     try {
       DomainObject obj = domainFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -330,11 +363,8 @@ public class ManageVTSessionTool extends BaseMcpTool {
 
   private VTSession openVTSession(String sessionName) throws GhidraMcpException {
     Project project = getActiveProject();
-    DomainFile sessionFile = findSessionFile(project, sessionName);
-
-    if (sessionFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("VT session", sessionName));
-    }
+    DomainFile sessionFile =
+        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     try {
       DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -360,35 +390,12 @@ public class ManageVTSessionTool extends BaseMcpTool {
     }
   }
 
-  private DomainFile findProgramFile(Project project, String fileName) {
-    return findDomainFileRecursive(project.getProjectData().getRootFolder(), fileName, "Program");
-  }
-
-  private DomainFile findSessionFile(Project project, String sessionName) {
-    return findDomainFileRecursive(project.getProjectData().getRootFolder(), sessionName, null);
-  }
-
-  private DomainFile findDomainFileRecursive(DomainFolder folder, String name, String contentType) {
-    for (DomainFile file : folder.getFiles()) {
-      if (file.getName().equals(name)) {
-        if (contentType == null || file.getContentType().contains(contentType)) {
-          return file;
-        }
-      }
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      DomainFile found = findDomainFileRecursive(subfolder, name, contentType);
-      if (found != null) {
-        return found;
-      }
-    }
-    return null;
-  }
-
   private void collectVTSessions(DomainFolder folder, List<String> sessionNames) {
     for (DomainFile file : folder.getFiles()) {
       // VT sessions have content type containing "VersionTracking"
-      if (file.getContentType().contains("VersionTracking") || file.getName().endsWith(".vt")) {
+      String contentType = file.getContentType();
+      if ((contentType != null && contentType.contains("VersionTracking"))
+          || file.getName().endsWith(".vt")) {
         sessionNames.add(file.getName());
       }
     }

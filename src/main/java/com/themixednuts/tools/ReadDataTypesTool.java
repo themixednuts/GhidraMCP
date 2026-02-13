@@ -8,6 +8,7 @@ import com.themixednuts.models.DataTypeReadResult.DataTypeComponentDetail;
 import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RTTIAnalysisResult;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -29,6 +30,8 @@ import reactor.core.publisher.Mono;
         "Read a single data type or list data types in a Ghidra program with pagination and"
             + " filtering options.",
     mcpName = "read_data_types",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -83,7 +86,7 @@ import reactor.core.publisher.Mono;
         Get next page of results:
         {
           "file_name": "program.exe",
-          "cursor": "struct_name:/winapi/STRUCT"
+          "cursor": "v1:c3RydWN0X25hbWU:L3dpbmFwaS9TVFJVQ1Q"
         }
         </examples>
         """)
@@ -147,7 +150,9 @@ public class ReadDataTypesTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
-            .description("Pagination cursor from previous request (list mode)"));
+            .description(
+                "Pagination cursor from previous request (list mode, format:"
+                    + " v1:<base64url_data_type_name>:<base64url_data_type_path>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -299,12 +304,7 @@ public class ReadDataTypesTool extends BaseMcpTool {
     Optional<String> typeKindOpt = getOptionalStringArgument(args, ARG_TYPE_KIND);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-    // Parse cursor for pagination
-    String cursorPath = null;
-    if (cursorOpt.isPresent()) {
-      String[] parts = cursorOpt.get().split(":", 2);
-      cursorPath = parts.length > 1 ? parts[1] : parts[0];
-    }
+    String cursorPath = cursorOpt.map(this::parseCursorPath).orElse(null);
 
     Iterator<? extends DataType> dataTypeIterator = getTypeSpecificIterator(dtm, typeKindOpt);
 
@@ -319,8 +319,6 @@ public class ReadDataTypesTool extends BaseMcpTool {
     String normalizedNameFilter = nameFilterOpt.map(String::toLowerCase).orElse(null);
     String normalizedCategoryFilter = categoryFilterOpt.map(String::toLowerCase).orElse(null);
     String normalizedTypeKind = typeKindOpt.map(String::toLowerCase).orElse(null);
-    final String finalCursorPath = cursorPath;
-
     List<DataTypeInfo> allMatches =
         candidates.stream()
             .filter(
@@ -358,15 +356,28 @@ public class ReadDataTypesTool extends BaseMcpTool {
                     String.CASE_INSENSITIVE_ORDER))
             .toList();
 
-    List<DataTypeInfo> paginatedMatches =
-        allMatches.stream()
-            .dropWhile(
-                info ->
-                    finalCursorPath != null
-                        && !finalCursorPath.isEmpty()
-                        && info.getDetails().getPath().compareToIgnoreCase(finalCursorPath) <= 0)
-            .limit(pageSize + 1L)
-            .toList();
+    int startIndex = 0;
+    if (cursorPath != null && !cursorPath.isBlank()) {
+      boolean cursorMatched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        if (allMatches.get(i).getDetails().getPath().equalsIgnoreCase(cursorPath)) {
+          startIndex = i + 1;
+          cursorMatched = true;
+          break;
+        }
+      }
+
+      if (!cursorMatched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorOpt.orElse(cursorPath),
+                "cursor is invalid or no longer present in this data type listing"));
+      }
+    }
+
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<DataTypeInfo> paginatedMatches = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedMatches.size() > pageSize;
     List<DataTypeInfo> results =
@@ -377,10 +388,24 @@ public class ReadDataTypesTool extends BaseMcpTool {
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
       DataTypeInfo lastItem = results.get(results.size() - 1);
-      nextCursor = lastItem.getDetails().getName() + ":" + lastItem.getDetails().getPath();
+      nextCursor = encodeCursor(lastItem.getDetails().getName(), lastItem.getDetails().getPath());
     }
 
     return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private String parseCursorPath(String cursorValue) {
+    List<String> parts =
+        OpaqueCursorCodec.decodeV1(
+            cursorValue,
+            2,
+            ARG_CURSOR,
+            "v1:<base64url_data_type_name>:<base64url_data_type_path>");
+    return parts.get(1);
+  }
+
+  private String encodeCursor(String dataTypeName, String dataTypePath) {
+    return OpaqueCursorCodec.encodeV1(dataTypeName, dataTypePath);
   }
 
   /**

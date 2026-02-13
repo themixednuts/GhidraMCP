@@ -11,6 +11,7 @@ import ghidra.app.util.demangler.DemanglerUtil;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,6 +21,8 @@ import reactor.core.publisher.Mono;
     name = "Demangle Symbol",
     description = "Demangle C++ and other mangled symbols to their human-readable form",
     mcpName = "demangle_symbol",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -39,7 +42,6 @@ import reactor.core.publisher.Mono;
 
         <parameters_summary>
         - 'mangled_symbol': The mangled symbol string to demangle (e.g., '_Z3fooi')
-        - 'demangler_name': (Optional) Specific demangler to use (e.g., 'GNU', 'Microsoft')
         </parameters_summary>
 
         <return_value_summary>
@@ -90,12 +92,6 @@ public class DemanglerTool extends BaseMcpTool {
         ARG_MANGLED_SYMBOL,
         SchemaBuilder.string(mapper)
             .description("The mangled symbol to demangle (e.g., '_Z3fooi', '?foo@@YAXH@Z')"));
-
-    schemaRoot.property(
-        ARG_DEMANGLER_NAME,
-        SchemaBuilder.string(mapper)
-            .description(
-                "Optional: Specific demangler to use (e.g., 'GNU', 'Microsoft', 'Borland')"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME);
     schemaRoot.requiredProperty(ARG_MANGLED_SYMBOL);
@@ -214,8 +210,7 @@ public class DemanglerTool extends BaseMcpTool {
    * Executes the symbol demangling operation.
    *
    * @param ex The MCP transport context
-   * @param args The tool arguments containing file_name, mangled_symbol, and optional
-   *     demangler_name
+   * @param args The tool arguments containing file_name and mangled_symbol
    * @param tool The Ghidra PluginTool context
    * @return A Mono emitting a DemangleResult object
    */
@@ -246,12 +241,20 @@ public class DemanglerTool extends BaseMcpTool {
                                 .build());
                       }
 
-                      return performDemangling(program, mangledSymbol, demanglerNameOpt);
+                      if (demanglerNameOpt.isPresent()) {
+                        throw new GhidraMcpException(
+                            GhidraMcpError.invalid(
+                                ARG_DEMANGLER_NAME,
+                                demanglerNameOpt.get(),
+                                "is not currently supported; omit this argument to use automatic"
+                                    + " demangler selection"));
+                      }
+
+                      return performDemangling(program, mangledSymbol);
                     }));
   }
 
-  private DemangleResult performDemangling(
-      Program program, String mangledSymbol, Optional<String> demanglerNameOpt)
+  private DemangleResult performDemangling(Program program, String mangledSymbol)
       throws GhidraMcpException {
     try {
       // Use the correct, non-deprecated method: demangle(Program, String, Address)
@@ -283,7 +286,7 @@ public class DemanglerTool extends BaseMcpTool {
 
       // Extract information from the demangled result
       String demangledString = demangled.toString();
-      String actualDemanglerUsed = getDemanglerName(demangled, "Ghidra Demangler");
+      String actualDemanglerUsed = getDemanglerName(demangled);
       String demangledType = getDemangledType(demangled);
       String namespace = extractNamespace(demangled);
       String className = extractClassName(demangled);
@@ -314,17 +317,14 @@ public class DemanglerTool extends BaseMcpTool {
                       getMcpName(),
                       "demangling execution",
                       Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
-                      Map.of("demangler_name", demanglerNameOpt.orElse("auto")),
+                      null,
                       Map.of("program_name", program.getName())))
               .build());
     }
   }
 
-  private String getDemanglerName(Demangled demangled, String fallbackName) {
-    // Try to determine which demangler was used
-    // This is a simplified approach - in practice, you might need to check
-    // the specific demangler that was successful
-    return fallbackName != null ? fallbackName : "Ghidra Demangler";
+  private String getDemanglerName(Demangled demangled) {
+    return "Ghidra Demangler";
   }
 
   private String getDemangledType(Demangled demangled) {
@@ -339,25 +339,125 @@ public class DemanglerTool extends BaseMcpTool {
   }
 
   private String extractNamespace(Demangled demangled) {
-    // Extract namespace information if available
-    // This is a simplified implementation - you might need to traverse
-    // the demangled object hierarchy to get the full namespace
-    return null; // Placeholder - implement based on Demangled object structure
+    String qualifiedName = extractQualifiedName(demangled);
+    if (qualifiedName == null) {
+      return null;
+    }
+
+    int lastSeparator = qualifiedName.lastIndexOf("::");
+    if (lastSeparator <= 0) {
+      return null;
+    }
+
+    return qualifiedName.substring(0, lastSeparator);
   }
 
   private String extractClassName(Demangled demangled) {
-    // Extract class name if available
-    return null; // Placeholder - implement based on Demangled object structure
+    String qualifiedName = extractQualifiedName(demangled);
+    if (qualifiedName == null) {
+      return null;
+    }
+
+    String[] parts = qualifiedName.split("::");
+    if (parts.length < 2) {
+      return null;
+    }
+
+    return parts[parts.length - 2];
   }
 
   private String extractFunctionName(Demangled demangled) {
-    // Extract function name if available
-    return null; // Placeholder - implement based on Demangled object structure
+    String qualifiedName = extractQualifiedName(demangled);
+    if (qualifiedName == null || qualifiedName.isBlank()) {
+      return null;
+    }
+
+    int lastSeparator = qualifiedName.lastIndexOf("::");
+    return lastSeparator >= 0 ? qualifiedName.substring(lastSeparator + 2) : qualifiedName;
   }
 
   private List<String> extractParameters(Demangled demangled) {
-    // Extract function parameters if available
-    return null; // Placeholder - implement based on Demangled object structure
+    String signature = getDemangledSignature(demangled);
+    if (signature == null) {
+      return null;
+    }
+
+    int start = signature.indexOf('(');
+    int end = signature.lastIndexOf(')');
+    if (start < 0 || end <= start) {
+      return null;
+    }
+
+    String parametersSection = signature.substring(start + 1, end).trim();
+    if (parametersSection.isEmpty() || "void".equals(parametersSection)) {
+      return List.of();
+    }
+
+    List<String> parameters = new ArrayList<>();
+    StringBuilder current = new StringBuilder();
+    int angleDepth = 0;
+    int parenDepth = 0;
+    int bracketDepth = 0;
+
+    for (int i = 0; i < parametersSection.length(); i++) {
+      char ch = parametersSection.charAt(i);
+      switch (ch) {
+        case '<' -> angleDepth++;
+        case '>' -> angleDepth = Math.max(0, angleDepth - 1);
+        case '(' -> parenDepth++;
+        case ')' -> parenDepth = Math.max(0, parenDepth - 1);
+        case '[' -> bracketDepth++;
+        case ']' -> bracketDepth = Math.max(0, bracketDepth - 1);
+        default -> {}
+      }
+
+      if (ch == ',' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0) {
+        String parameter = current.toString().trim();
+        if (!parameter.isEmpty()) {
+          parameters.add(parameter);
+        }
+        current.setLength(0);
+      } else {
+        current.append(ch);
+      }
+    }
+
+    String finalParameter = current.toString().trim();
+    if (!finalParameter.isEmpty()) {
+      parameters.add(finalParameter);
+    }
+
+    return parameters;
+  }
+
+  private String getDemangledSignature(Demangled demangled) {
+    if (demangled == null) {
+      return null;
+    }
+
+    String signature = demangled.toString();
+    if (signature == null) {
+      return null;
+    }
+
+    String trimmed = signature.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private String extractQualifiedName(Demangled demangled) {
+    String signature = getDemangledSignature(demangled);
+    if (signature == null) {
+      return null;
+    }
+
+    int paramsIndex = signature.indexOf('(');
+    String beforeParams = paramsIndex >= 0 ? signature.substring(0, paramsIndex).trim() : signature;
+    if (beforeParams.isEmpty()) {
+      return null;
+    }
+
+    int lastSpace = beforeParams.lastIndexOf(' ');
+    return lastSpace >= 0 ? beforeParams.substring(lastSpace + 1).trim() : beforeParams;
   }
 
   /** Analyzes a symbol to provide helpful information about its format and potential issues. */

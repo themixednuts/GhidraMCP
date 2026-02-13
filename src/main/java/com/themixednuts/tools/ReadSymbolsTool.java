@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -14,8 +15,6 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.*;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -23,6 +22,8 @@ import reactor.core.publisher.Mono;
     description =
         "Read a single symbol or list symbols in a Ghidra program with pagination and filtering options.",
     mcpName = "read_symbols",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -37,7 +38,7 @@ import reactor.core.publisher.Mono;
         - When listing symbols, returns paginated results with cursor support
         - Supports filtering by name patterns, symbol types, and namespaces in list mode
         - Symbols are sorted by name for consistent ordering
-        - Name-based lookup supports regex matching with disambiguation
+        - Name-based lookup supports exact and wildcard (*, ?) matching
         </important_notes>
 
         <examples>
@@ -73,7 +74,7 @@ import reactor.core.publisher.Mono;
         Get next page of results:
         {
           "file_name": "program.exe",
-          "cursor": "main:0x401000"
+          "cursor": "v1:bWFpbg:MHg0MDEwMDA"
         }
         </examples>
         """)
@@ -104,7 +105,7 @@ public class ReadSymbolsTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_NAME,
         SchemaBuilder.string(mapper)
-            .description("Symbol name for single symbol lookup (supports regex matching)"));
+            .description("Symbol name for single symbol lookup (supports * and ? wildcards)"));
 
     schemaRoot.property(
         ARG_NAME_FILTER,
@@ -128,7 +129,10 @@ public class ReadSymbolsTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_symbol_name>:<base64url_address>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -175,12 +179,19 @@ public class ReadSymbolsTool extends BaseMcpTool {
 
           // Apply precedence: symbol_id > address > name
           if (args.containsKey(ARG_SYMBOL_ID)) {
-            Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-            if (symbolId != null) {
-              Symbol symbol = symbolTable.getSymbol(symbolId);
-              if (symbol != null) {
-                return new SymbolInfo(symbol);
-              }
+            Object rawSymbolId = args.get(ARG_SYMBOL_ID);
+            Long symbolId =
+                getOptionalLongArgument(args, ARG_SYMBOL_ID)
+                    .orElseThrow(
+                        () ->
+                            new GhidraMcpException(
+                                GhidraMcpError.invalid(
+                                    ARG_SYMBOL_ID,
+                                    rawSymbolId,
+                                    "must be an integer symbol identifier")));
+            Symbol symbol = symbolTable.getSymbol(symbolId);
+            if (symbol != null) {
+              return new SymbolInfo(symbol);
             }
             throw new GhidraMcpException(
                 createSymbolNotFoundError(annotation.mcpName(), "symbol_id", symbolId.toString()));
@@ -197,6 +208,8 @@ public class ReadSymbolsTool extends BaseMcpTool {
                 }
                 throw new GhidraMcpException(
                     createSymbolNotFoundError(annotation.mcpName(), "address", address));
+              } catch (GhidraMcpException e) {
+                throw e;
               } catch (Exception e) {
                 throw new GhidraMcpException(createInvalidAddressError(address, e));
               }
@@ -235,37 +248,6 @@ public class ReadSymbolsTool extends BaseMcpTool {
                 }
               }
 
-              // Fallback: try as regex pattern (for backwards compatibility)
-              try {
-                Pattern pattern = Pattern.compile(name);
-                Symbol firstMatch = null;
-                int matchCount = 0;
-
-                SymbolIterator allIter = symbolTable.getAllSymbols(true);
-                while (allIter.hasNext()) {
-                  Symbol symbol = allIter.next();
-                  if (pattern.matcher(symbol.getName()).matches()) {
-                    if (firstMatch == null) {
-                      firstMatch = symbol;
-                    }
-                    matchCount++;
-                    if (matchCount > 1) {
-                      throw new GhidraMcpException(
-                          GhidraMcpError.conflict(
-                              "Multiple symbols found for regex pattern: " + name));
-                    }
-                  }
-                }
-
-                if (firstMatch != null) {
-                  return new SymbolInfo(firstMatch);
-                }
-              } catch (PatternSyntaxException e) {
-                throw new GhidraMcpException(createInvalidRegexError(name, e));
-              } catch (GhidraMcpException e) {
-                throw e;
-              }
-
               throw new GhidraMcpException(
                   createSymbolNotFoundError(annotation.mcpName(), "name", name));
             }
@@ -294,17 +276,7 @@ public class ReadSymbolsTool extends BaseMcpTool {
     // Map symbol type string to SymbolType enum
     SymbolType symbolTypeFilter = symbolTypeOpt.map(this::parseSymbolType).orElse(null);
 
-    // Parse cursor to get starting name
-    String cursorName = null;
-    String cursorAddress = null;
-    if (cursorOpt.isPresent()) {
-      String[] parts = cursorOpt.get().split(":", 2);
-      cursorName = parts[0];
-      cursorAddress = parts.length > 1 ? parts[1] : null;
-    }
-
-    final String finalCursorName = cursorName;
-    final String finalCursorAddress = cursorAddress;
+    CursorPosition cursor = cursorOpt.map(value -> parseCursor(program, value)).orElse(null);
 
     String normalizedNameFilter = nameFilterOpt.map(String::toLowerCase).orElse(null);
     String normalizedSourceType = sourceTypeOpt.map(String::toLowerCase).orElse(null);
@@ -345,30 +317,29 @@ public class ReadSymbolsTool extends BaseMcpTool {
         Comparator.comparing(SymbolInfo::getName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(SymbolInfo::getAddress, String.CASE_INSENSITIVE_ORDER));
 
-    List<SymbolInfo> paginatedMatches =
-        allMatches.stream()
-            .dropWhile(
-                symbolInfo -> {
-                  if (finalCursorName == null || finalCursorName.isEmpty()) {
-                    return false;
-                  }
+    int startIndex = 0;
+    if (cursor != null) {
+      boolean matched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        SymbolInfo symbolInfo = allMatches.get(i);
+        if (symbolInfo.getName().equalsIgnoreCase(cursor.name)
+            && symbolInfo.getAddress().equalsIgnoreCase(cursor.address)) {
+          startIndex = i + 1;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.toCursorString(),
+                "cursor is invalid or no longer present in this symbol listing"));
+      }
+    }
 
-                  int nameCompare = symbolInfo.getName().compareToIgnoreCase(finalCursorName);
-                  if (nameCompare < 0) {
-                    return true;
-                  }
-                  if (nameCompare > 0) {
-                    return false;
-                  }
-
-                  if (finalCursorAddress == null || finalCursorAddress.isEmpty()) {
-                    return true;
-                  }
-
-                  return symbolInfo.getAddress().compareToIgnoreCase(finalCursorAddress) <= 0;
-                })
-            .limit(pageSize + 1L)
-            .toList();
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<SymbolInfo> paginatedMatches = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedMatches.size() > pageSize;
     List<SymbolInfo> results =
@@ -379,36 +350,73 @@ public class ReadSymbolsTool extends BaseMcpTool {
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
       SymbolInfo lastItem = results.get(results.size() - 1);
-      nextCursor = lastItem.getName() + ":" + lastItem.getAddress();
+      nextCursor = encodeCursor(lastItem.getName(), lastItem.getAddress());
     }
 
     return new PaginatedResult<>(results, nextCursor);
   }
 
   private SymbolType parseSymbolType(String typeStr) {
-    if (typeStr == null) return null;
-    String upperType = typeStr.toUpperCase();
-    switch (upperType) {
-      case "NAMESPACE":
-        return SymbolType.NAMESPACE;
-      case "CLASS":
-        return SymbolType.CLASS;
-      case "FUNCTION":
-        return SymbolType.FUNCTION;
-      case "LABEL":
-        return SymbolType.LABEL;
-      case "PARAMETER":
-        return SymbolType.PARAMETER;
-      case "LOCAL_VAR":
-        return SymbolType.LOCAL_VAR;
-      case "GLOBAL_VAR":
-        return SymbolType.GLOBAL_VAR;
-      case "GLOBAL":
-        return SymbolType.GLOBAL;
-      case "LIBRARY":
-        return SymbolType.LIBRARY;
-      default:
-        return null;
+    if (typeStr == null) {
+      return null;
+    }
+
+    return switch (typeStr.toUpperCase(Locale.ROOT)) {
+      case "NAMESPACE" -> SymbolType.NAMESPACE;
+      case "CLASS" -> SymbolType.CLASS;
+      case "FUNCTION" -> SymbolType.FUNCTION;
+      case "LABEL" -> SymbolType.LABEL;
+      case "PARAMETER" -> SymbolType.PARAMETER;
+      case "LOCAL_VAR" -> SymbolType.LOCAL_VAR;
+      case "GLOBAL_VAR" -> SymbolType.GLOBAL_VAR;
+      case "GLOBAL" -> SymbolType.GLOBAL;
+      case "LIBRARY" -> SymbolType.LIBRARY;
+      default ->
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_SYMBOL_TYPE,
+                  typeStr,
+                  "must be one of: NAMESPACE, CLASS, FUNCTION, LABEL, PARAMETER, LOCAL_VAR,"
+                      + " GLOBAL_VAR, GLOBAL, LIBRARY"));
+    };
+  }
+
+  private CursorPosition parseCursor(Program program, String cursorValue) {
+    List<String> parts =
+        OpaqueCursorCodec.decodeV1(
+            cursorValue,
+            2,
+            ARG_CURSOR,
+            "v1:<base64url_symbol_name>:<base64url_address>");
+    String decodedName = parts.get(0);
+    String decodedAddress = parts.get(1);
+
+    if (program.getAddressFactory().getAddress(decodedAddress) == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR, cursorValue, "contains an invalid address component"));
+    }
+
+    return new CursorPosition(decodedName, decodedAddress, cursorValue);
+  }
+
+  private String encodeCursor(String symbolName, String address) {
+    return OpaqueCursorCodec.encodeV1(symbolName, address);
+  }
+
+  private static final class CursorPosition {
+    private final String name;
+    private final String address;
+    private final String rawCursor;
+
+    private CursorPosition(String name, String address, String rawCursor) {
+      this.name = name;
+      this.address = address;
+      this.rawCursor = rawCursor;
+    }
+
+    private String toCursorString() {
+      return rawCursor;
     }
   }
 
@@ -420,11 +428,6 @@ public class ReadSymbolsTool extends BaseMcpTool {
 
   private GhidraMcpError createInvalidAddressError(String addressStr, Exception cause) {
     return GhidraMcpError.parse("address", addressStr);
-  }
-
-  private GhidraMcpError createInvalidRegexError(String pattern, Exception cause) {
-    return GhidraMcpError.invalid(
-        ARG_NAME, pattern, "Invalid regex pattern: " + cause.getMessage());
   }
 
   private GhidraMcpError createMissingParameterError(String toolOperation) {

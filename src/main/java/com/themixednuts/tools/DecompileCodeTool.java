@@ -42,7 +42,7 @@ import reactor.core.publisher.Mono;
                 </use_case>
 
                 <important_notes>
-                - Supports function-level and address-range decompilation
+                - Supports function-level and single-address decompilation
                 - Provides both high-level C code and low-level P-code analysis
                 - Configurable timeout and analysis depth
                 - Handles complex control structures and data types
@@ -92,7 +92,7 @@ public class DecompileCodeTool extends BaseMcpTool {
         ARG_TARGET_TYPE,
         schemaRoot
             .string()
-            .enumValues("function", "address", "address_range", "all_functions")
+            .enumValues("function", "address", "all_functions")
             .description("Type of target to decompile"));
 
     schemaRoot.property(
@@ -135,8 +135,7 @@ public class DecompileCodeTool extends BaseMcpTool {
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_TARGET_TYPE);
 
     // Add conditional requirements (JSON Schema Draft 7)
-    // When target_type is "function", "address", or "address_range", target_value
-    // is required
+    // When target_type is "function" or "address", target_value is required
     schemaRoot.allOf(
         schemaRoot
             .object()
@@ -151,13 +150,6 @@ public class DecompileCodeTool extends BaseMcpTool {
                 schemaRoot
                     .object()
                     .property(ARG_TARGET_TYPE, schemaRoot.string().constValue("address")),
-                schemaRoot.object().requiredProperty(ARG_TARGET_VALUE)),
-        schemaRoot
-            .object()
-            .ifThen(
-                schemaRoot
-                    .object()
-                    .property(ARG_TARGET_TYPE, schemaRoot.string().constValue("address_range")),
                 schemaRoot.object().requiredProperty(ARG_TARGET_VALUE)));
 
     return schemaRoot.build();
@@ -199,9 +191,6 @@ public class DecompileCodeTool extends BaseMcpTool {
                 case "address" ->
                     decompileAtAddress(
                         program, targetValue, includePcode, includeAst, timeout, annotation);
-                case "address_range" ->
-                    decompileAddressRange(
-                        program, targetValue, includePcode, includeAst, timeout, annotation);
                 case "all_functions" ->
                     decompileAllFunctions(program, includePcode, includeAst, timeout, annotation);
                 default -> {
@@ -209,7 +198,7 @@ public class DecompileCodeTool extends BaseMcpTool {
                       GhidraMcpError.invalid(
                           ARG_TARGET_TYPE,
                           targetType,
-                          "Must be one of: function, address, address_range, all_functions");
+                          "Must be one of: function, address, all_functions");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -239,7 +228,7 @@ public class DecompileCodeTool extends BaseMcpTool {
           if (targetFunction == null) {
             throw new GhidraMcpException(
                 GhidraMcpError.notFound(
-                    "function", functionName, "Use list_functions to see available functions"));
+                    "function", functionName, "Use read_functions to see available functions"));
           }
 
           return performDecompilation(
@@ -286,16 +275,21 @@ public class DecompileCodeTool extends BaseMcpTool {
     List<Map<String, Object>> pcodeList =
         Arrays.stream(pcodeOps)
             .map(
-                op ->
-                    Map.<String, Object>of(
-                        "opcode", op.getOpcode(),
-                        "mnemonic", op.getMnemonic(),
-                        "sequence_number", op.getSeqnum().getTime(),
-                        "inputs",
-                            Arrays.stream(op.getInputs())
-                                .map(varnode -> varnode.toString())
-                                .collect(Collectors.toList()),
-                        "output", op.getOutput() != null ? op.getOutput().toString() : null))
+                op -> {
+                  Map<String, Object> pcodeEntry = new LinkedHashMap<>();
+                  pcodeEntry.put("opcode", op.getOpcode());
+                  pcodeEntry.put("mnemonic", op.getMnemonic());
+                  pcodeEntry.put("sequence_number", op.getSeqnum().getTime());
+                  pcodeEntry.put(
+                      "inputs",
+                      Arrays.stream(op.getInputs())
+                          .map(varnode -> varnode.toString())
+                          .collect(Collectors.toList()));
+                  if (op.getOutput() != null) {
+                    pcodeEntry.put("output", op.getOutput().toString());
+                  }
+                  return pcodeEntry;
+                })
             .collect(Collectors.toList());
 
     return Map.of(
@@ -353,11 +347,11 @@ public class DecompileCodeTool extends BaseMcpTool {
     result.setReturnType(function.getReturnType().getName());
     result.setBodySize((int) function.getBody().getNumAddresses());
 
-    Optional.of(decompResult.getHighFunction())
+    Optional.ofNullable(decompResult.getHighFunction())
         .filter(hf -> includePcode)
         .ifPresent(hf -> addPcodeOperations(result, hf));
 
-    Optional.of(decompResult.getHighFunction())
+    Optional.ofNullable(decompResult.getHighFunction())
         .filter(hf -> includeAst)
         .ifPresent(hf -> addAstInformation(result, hf));
 
@@ -404,16 +398,6 @@ public class DecompileCodeTool extends BaseMcpTool {
             "has_local_symbols", highFunc.getLocalSymbolMap() != null,
             "has_global_symbols", highFunc.getGlobalSymbolMap() != null,
             "basic_blocks", highFunc.getBasicBlocks().size()));
-  }
-
-  private Mono<? extends Object> decompileAddressRange(
-      Program program,
-      String addressRange,
-      boolean includePcode,
-      boolean includeAst,
-      int timeout,
-      GhidraMcpTool annotation) {
-    return Mono.just("Address range decompilation not yet implemented");
   }
 
   private Mono<? extends Object> decompileAllFunctions(

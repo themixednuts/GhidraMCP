@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
@@ -23,6 +24,8 @@ import reactor.core.publisher.Mono;
     name = "List Analysis Options",
     description = "List program analysis options with filtering and pagination support.",
     mcpName = "list_analysis_options",
+    readOnlyHint = true,
+    idempotentHint = true,
     mcpDescription =
         """
         <use_case>
@@ -39,6 +42,7 @@ import reactor.core.publisher.Mono;
         - Requires an active program
         - Options are sorted alphabetically by name
         - Shows current values and default status for each option
+        - Pagination uses opaque v1 cursors
         </important_notes>
         """)
 public class ListAnalysisOptionsTool extends BaseMcpTool {
@@ -74,7 +78,10 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from previous request"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_option_name>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -152,8 +159,16 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
                                   .build()));
 
           // Get cursor for pagination
-          final String cursorName = cursorOpt.orElse(null);
+          final String cursorName =
+              cursorOpt
+                  .map(
+                      value ->
+                          OpaqueCursorCodec.decodeV1(
+                                  value, 1, ARG_CURSOR, "v1:<base64url_option_name>")
+                              .get(0))
+                  .orElse(null);
           boolean passedCursor = (cursorName == null);
+          boolean cursorMatched = (cursorName == null);
 
           // Get all matching options sorted by name
           List<AnalysisOptionInfo> allOptions = new ArrayList<>();
@@ -166,6 +181,9 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
             // Skip past cursor
             if (!passedCursor) {
               if (optName.compareToIgnoreCase(cursorName) <= 0) {
+                if (optName.equalsIgnoreCase(cursorName)) {
+                  cursorMatched = true;
+                }
                 continue;
               }
               passedCursor = true;
@@ -193,13 +211,21 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
             }
           }
 
+          if (!cursorMatched) {
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_CURSOR,
+                    cursorName,
+                    "cursor is invalid or no longer present in this analysis option listing"));
+          }
+
           // Determine if there are more results
           boolean hasMore = allOptions.size() > pageSize;
           List<AnalysisOptionInfo> results = hasMore ? allOptions.subList(0, pageSize) : allOptions;
 
           String nextCursor = null;
           if (hasMore && !results.isEmpty()) {
-            nextCursor = results.get(results.size() - 1).getName();
+            nextCursor = OpaqueCursorCodec.encodeV1(results.get(results.size() - 1).getName());
           }
 
           return new PaginatedResult<>(results, nextCursor);

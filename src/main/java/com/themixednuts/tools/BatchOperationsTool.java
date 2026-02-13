@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.themixednuts.GhidraMcpPlugin;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.BatchOperationResult;
@@ -7,7 +8,9 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
+import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
@@ -166,21 +169,6 @@ public class BatchOperationsTool extends BaseMcpTool {
   public static final String ARG_TOOL = "tool";
   public static final String ARG_ARGUMENTS = "arguments";
 
-  private static final Map<String, BaseMcpTool> toolCache = new HashMap<>();
-
-  static {
-    ServiceLoader.load(BaseMcpTool.class)
-        .forEach(
-            toolInstance -> {
-              GhidraMcpTool annotation = toolInstance.getClass().getAnnotation(GhidraMcpTool.class);
-              if (annotation != null) {
-                toolCache.put(annotation.mcpName(), toolInstance);
-              }
-            });
-    Msg.info(
-        BatchOperationsTool.class, "Loaded " + toolCache.size() + " tools for batch operations");
-  }
-
   @Override
   public JsonSchema schema() {
     IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
@@ -216,6 +204,8 @@ public class BatchOperationsTool extends BaseMcpTool {
     GhidraMcpTool annotation = this.getClass().getAnnotation(GhidraMcpTool.class);
 
     List<Map<String, Object>> operations = getRequiredArrayArgument(args, ARG_OPERATIONS);
+    Map<String, BaseMcpTool> availableTools = loadAvailableTools();
+    ToolOptions options = tool.getOptions(GhidraMcpPlugin.MCP_TOOL_OPTIONS_CATEGORY);
 
     if (operations.isEmpty()) {
       GhidraMcpError error =
@@ -250,7 +240,8 @@ public class BatchOperationsTool extends BaseMcpTool {
         return Mono.error(e);
       }
 
-      if (!toolCache.containsKey(toolName)) {
+      BaseMcpTool toolInstance = availableTools.get(toolName);
+      if (toolInstance == null) {
         GhidraMcpError error =
             GhidraMcpError.validation()
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
@@ -261,15 +252,42 @@ public class BatchOperationsTool extends BaseMcpTool {
                         "tool validation",
                         operation,
                         Map.of(ARG_TOOL, toolName, "operation_index", i),
-                        Map.of("available_tools", toolCache.keySet())))
-                .relatedResources(new ArrayList<>(toolCache.keySet()))
+                        Map.of("available_tools", availableTools.keySet())))
+                .relatedResources(new ArrayList<>(availableTools.keySet()))
                 .suggestions(
                     List.of(
                         new GhidraMcpError.ErrorSuggestion(
                             GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
                             "Use a valid tool name",
-                            "Available tools: " + String.join(", ", toolCache.keySet()),
+                            "Available tools: " + String.join(", ", availableTools.keySet()),
                             null,
+                            null)))
+                .build();
+        return Mono.error(new GhidraMcpException(error));
+      }
+
+      if (!isToolEnabled(toolInstance, options)) {
+        GhidraMcpError error =
+            GhidraMcpError.validation()
+                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                .message("Tool is disabled via options: " + toolName)
+                .context(
+                    new GhidraMcpError.ErrorContext(
+                        annotation.mcpName(),
+                        "tool enabled validation",
+                        operation,
+                        Map.of(ARG_TOOL, toolName, "operation_index", i),
+                        Map.of("disabled_tool", toolName)))
+                .suggestions(
+                    List.of(
+                        new GhidraMcpError.ErrorSuggestion(
+                            GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+                            "Enable the requested tool",
+                            "Enable '"
+                                + toolName
+                                + "' from Ghidra MCP tool options or remove it from batch"
+                                + " operations",
+                            List.of(ARG_TOOL),
                             null)))
                 .build();
         return Mono.error(new GhidraMcpException(error));
@@ -279,77 +297,151 @@ public class BatchOperationsTool extends BaseMcpTool {
     return getProgram(args, tool)
         .flatMap(
             program ->
-                executeInTransaction(
-                    program,
-                    "Batch Operations",
-                    () -> {
-                      List<BatchOperationResult.IndividualOperationResult> results =
-                          new ArrayList<>();
+                Mono.fromCallable(
+                    () ->
+                        executeBatchInSingleTransaction(
+                            program, context, args, operations, availableTools, tool)));
+  }
 
-                      for (int i = 0; i < operations.size(); i++) {
-                        Map<String, Object> operation = operations.get(i);
-                        String toolName = getOptionalStringArgument(operation, ARG_TOOL).orElse("");
-                        Map<String, Object> toolArgs =
-                            getRequiredMapArgument(operation, ARG_ARGUMENTS);
+  private BatchOperationResult executeBatchInSingleTransaction(
+      Program program,
+      McpTransportContext context,
+      Map<String, Object> batchArgs,
+      List<Map<String, Object>> operations,
+      Map<String, BaseMcpTool> availableTools,
+      PluginTool pluginTool) {
+    int txId = -1;
+    boolean commit = false;
+    List<BatchOperationResult.IndividualOperationResult> results = new ArrayList<>();
 
-                        toolArgs.put(ARG_FILE_NAME, args.get(ARG_FILE_NAME));
+    try {
+      txId = program.startTransaction("Batch Operations");
 
-                        BaseMcpTool toolInstance = toolCache.get(toolName);
+      for (int i = 0; i < operations.size(); i++) {
+        Map<String, Object> operation = operations.get(i);
+        String toolName = getOptionalStringArgument(operation, ARG_TOOL).orElse("");
+        Map<String, Object> operationArgs = getRequiredMapArgument(operation, ARG_ARGUMENTS);
+        Map<String, Object> toolArgs = new HashMap<>(operationArgs);
+        toolArgs.put(ARG_FILE_NAME, batchArgs.get(ARG_FILE_NAME));
 
-                        try {
-                          Object result = toolInstance.execute(context, toolArgs, tool).block();
-                          results.add(
-                              BatchOperationResult.IndividualOperationResult.success(
-                                  i, toolName, result));
-                        } catch (Exception e) {
-                          GhidraMcpError error;
-                          if (e instanceof GhidraMcpException) {
-                            error = ((GhidraMcpException) e).getErr();
-                          } else {
-                            error =
-                                GhidraMcpError.execution()
-                                    .errorCode(GhidraMcpError.ErrorCode.SCRIPT_EXECUTION_FAILED)
-                                    .message("Operation failed: " + e.getMessage())
-                                    .context(
-                                        new GhidraMcpError.ErrorContext(
-                                            toolName,
-                                            "tool execution",
-                                            toolArgs,
-                                            Map.of("operation_index", i),
-                                            Map.of("exception", e.getClass().getSimpleName())))
-                                    .build();
-                          }
-                          results.add(
-                              BatchOperationResult.IndividualOperationResult.failure(
-                                  i, toolName, error));
-                          throw new GhidraMcpException(error);
-                        }
-                      }
+        BaseMcpTool toolInstance = availableTools.get(toolName);
+        if (toolInstance == null) {
+          GhidraMcpError error =
+              GhidraMcpError.validation()
+                  .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                  .message("Unknown tool during execution: " + toolName)
+                  .context(
+                      new GhidraMcpError.ErrorContext(
+                          getMcpName(),
+                          "tool execution",
+                          operation,
+                          Map.of("operation_index", i, ARG_TOOL, toolName),
+                          null))
+                  .build();
+          results.add(BatchOperationResult.IndividualOperationResult.failure(i, toolName, error));
+          throw new GhidraMcpException(error);
+        }
 
-                      int successCount =
-                          (int)
-                              results.stream()
-                                  .filter(BatchOperationResult.IndividualOperationResult::isSuccess)
-                                  .count();
-                      int failCount = results.size() - successCount;
+        try {
+          Object result = toolInstance.execute(context, toolArgs, pluginTool).block();
+          results.add(BatchOperationResult.IndividualOperationResult.success(i, toolName, result));
+        } catch (Exception e) {
+          Throwable root = unwrapExecutionException(e);
+          GhidraMcpError error;
+          if (root instanceof GhidraMcpException gme) {
+            error = gme.getErr();
+          } else {
+            error =
+                GhidraMcpError.execution()
+                    .errorCode(GhidraMcpError.ErrorCode.SCRIPT_EXECUTION_FAILED)
+                    .message("Operation failed: " + root.getMessage())
+                    .context(
+                        new GhidraMcpError.ErrorContext(
+                            toolName,
+                            "tool execution",
+                            toolArgs,
+                            Map.of("operation_index", i),
+                            Map.of("exception", root.getClass().getSimpleName())))
+                    .build();
+          }
+          results.add(BatchOperationResult.IndividualOperationResult.failure(i, toolName, error));
+          throw new GhidraMcpException(error, root);
+        }
+      }
 
-                      return new BatchOperationResult(
-                          failCount == 0,
-                          results.size(),
-                          successCount,
-                          failCount,
-                          results,
-                          failCount == 0
-                              ? "All " + results.size() + " operations completed successfully"
-                              : "Batch operation failed at operation "
-                                  + results.stream()
-                                      .filter(r -> !r.isSuccess())
-                                      .findFirst()
-                                      .map(
-                                          BatchOperationResult.IndividualOperationResult
-                                              ::getOperationIndex)
-                                      .orElse(-1));
-                    }));
+      commit = true;
+      return buildBatchResult(results);
+    } finally {
+      if (txId != -1) {
+        try {
+          program.endTransaction(txId, commit);
+        } catch (Exception e) {
+          Msg.error(this, "Failed to end batch transaction", e);
+          if (commit) {
+            throw new IllegalStateException("Failed to commit batch transaction", e);
+          }
+        }
+      }
+    }
+  }
+
+  private BatchOperationResult buildBatchResult(
+      List<BatchOperationResult.IndividualOperationResult> results) {
+    int successCount =
+        (int) results.stream().filter(BatchOperationResult.IndividualOperationResult::isSuccess).count();
+    int failCount = results.size() - successCount;
+
+    return new BatchOperationResult(
+        failCount == 0,
+        results.size(),
+        successCount,
+        failCount,
+        results,
+        failCount == 0
+            ? "All " + results.size() + " operations completed successfully"
+            : "Batch operation failed at operation "
+                + results.stream()
+                    .filter(r -> !r.isSuccess())
+                    .findFirst()
+                    .map(BatchOperationResult.IndividualOperationResult::getOperationIndex)
+                    .orElse(-1));
+  }
+
+  private Map<String, BaseMcpTool> loadAvailableTools() {
+    Map<String, BaseMcpTool> tools = new HashMap<>();
+    ServiceLoader.load(BaseMcpTool.class)
+        .forEach(
+            toolInstance -> {
+              GhidraMcpTool toolAnnotation =
+                  toolInstance.getClass().getAnnotation(GhidraMcpTool.class);
+              if (toolAnnotation != null) {
+                tools.put(toolAnnotation.mcpName(), toolInstance);
+              }
+            });
+    return tools;
+  }
+
+  private boolean isToolEnabled(BaseMcpTool toolInstance, ToolOptions options) {
+    if (options == null) {
+      return true;
+    }
+
+    GhidraMcpTool toolAnnotation = toolInstance.getClass().getAnnotation(GhidraMcpTool.class);
+    if (toolAnnotation == null) {
+      return false;
+    }
+
+    return options.getBoolean(toolAnnotation.name(), true);
+  }
+
+  private Throwable unwrapExecutionException(Throwable throwable) {
+    Throwable current = throwable;
+    while (current.getCause() != null
+        && current != current.getCause()
+        && (current instanceof RuntimeException || current instanceof IllegalStateException)) {
+      current = current.getCause();
+    }
+    return current;
   }
 
   @SuppressWarnings("unchecked")

@@ -14,7 +14,6 @@ import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
@@ -265,8 +264,10 @@ public class ManageVTMatchesTool extends BaseMcpTool {
               .build());
     }
 
+    String actionName = actionNameForStatus(newStatus);
+
     Map<String, Object> result = new HashMap<>();
-    result.put("action", newStatus.name().toLowerCase());
+    result.put("action", actionName);
     result.put("source_address", sourceAddrStr);
     result.put("destination_address", destAddrStr);
     result.put("affected_count", 1);
@@ -275,6 +276,15 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     }
 
     return result;
+  }
+
+  static String actionNameForStatus(VTAssociationStatus status) {
+    return switch (status) {
+      case ACCEPTED -> ACTION_ACCEPT;
+      case REJECTED -> ACTION_REJECT;
+      case AVAILABLE -> ACTION_CLEAR;
+      default -> status.name().toLowerCase();
+    };
   }
 
   private Map<String, Object> handleBulkAccept(VTSession session, Map<String, Object> args)
@@ -466,10 +476,8 @@ public class ManageVTMatchesTool extends BaseMcpTool {
               .build());
     }
 
-    DomainFile sessionFile = findSessionFile(project, sessionName);
-    if (sessionFile == null) {
-      throw new GhidraMcpException(GhidraMcpError.notFound("VT session", sessionName));
-    }
+    DomainFile sessionFile =
+        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     try {
       DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
@@ -495,22 +503,4 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     }
   }
 
-  private DomainFile findSessionFile(Project project, String sessionName) {
-    return findDomainFileRecursive(project.getProjectData().getRootFolder(), sessionName);
-  }
-
-  private DomainFile findDomainFileRecursive(DomainFolder folder, String name) {
-    for (DomainFile file : folder.getFiles()) {
-      if (file.getName().equals(name)) {
-        return file;
-      }
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      DomainFile found = findDomainFileRecursive(subfolder, name);
-      if (found != null) {
-        return found;
-      }
-    }
-    return null;
-  }
 }
