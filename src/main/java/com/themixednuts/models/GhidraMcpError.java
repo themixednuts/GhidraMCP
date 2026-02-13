@@ -216,7 +216,12 @@ public class GhidraMcpError {
   public static GhidraMcpError internal(Throwable t) {
     String m = t != null ? t.getMessage() : "unknown";
     return new GhidraMcpError(
-        "Internal error: " + m, null, ErrorType.INTERNAL, ErrorCode.UNEXPECTED_ERROR, null, null,
+        "Internal error: " + m,
+        null,
+        ErrorType.INTERNAL,
+        ErrorCode.UNEXPECTED_ERROR,
+        null,
+        null,
         null);
   }
 

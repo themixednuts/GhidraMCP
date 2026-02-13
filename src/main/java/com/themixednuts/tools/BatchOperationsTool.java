@@ -388,7 +388,10 @@ public class BatchOperationsTool extends BaseMcpTool {
   private BatchOperationResult buildBatchResult(
       List<BatchOperationResult.IndividualOperationResult> results) {
     int successCount =
-        (int) results.stream().filter(BatchOperationResult.IndividualOperationResult::isSuccess).count();
+        (int)
+            results.stream()
+                .filter(BatchOperationResult.IndividualOperationResult::isSuccess)
+                .count();
     int failCount = results.size() - successCount;
 
     return new BatchOperationResult(

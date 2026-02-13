@@ -341,8 +341,7 @@ public class ListProgramsTool extends BaseMcpTool {
   }
 
   private String parseCursorPath(String cursor) {
-    return OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_program_path>")
-        .get(0);
+    return OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_program_path>").get(0);
   }
 
   /** Check if a filename matches the name filter. */

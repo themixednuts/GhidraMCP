@@ -833,10 +833,7 @@ public class ManageFunctionsTool extends BaseMcpTool {
   private VariableCursor parseVariableCursor(String cursorValue) {
     List<String> parts =
         OpaqueCursorCodec.decodeV1(
-            cursorValue,
-            2,
-            ARG_CURSOR,
-            "v1:<base64url_storage>:<base64url_variable_name>");
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_storage>:<base64url_variable_name>");
     return new VariableCursor(parts.get(0), parts.get(1), cursorValue);
   }
 

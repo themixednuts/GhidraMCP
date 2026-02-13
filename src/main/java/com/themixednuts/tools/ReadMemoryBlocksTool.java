@@ -249,8 +249,7 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
       return "";
     }
     String decodedAddress =
-        OpaqueCursorCodec.decodeV1(
-                cursor, 1, ARG_CURSOR, "v1:<base64url_block_start_address>")
+        OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_block_start_address>")
             .get(0);
     if (!decodedAddress.matches("^(0x)?[0-9a-fA-F]+$")) {
       throw new GhidraMcpException(

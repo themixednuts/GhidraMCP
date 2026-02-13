@@ -18,12 +18,12 @@ import ghidra.app.util.bin.format.golang.rtti.GoModuledata;
 import ghidra.app.util.bin.format.golang.rtti.GoRttiMapper;
 import ghidra.app.util.bin.format.golang.rtti.types.GoType;
 import ghidra.app.util.datatype.microsoft.DataValidationOptions;
-import ghidra.app.util.demangler.DemanglerUtil;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
+import ghidra.app.util.demangler.DemanglerUtil;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.address.AddressOutOfBoundsException;
+import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Program;
@@ -159,8 +159,7 @@ public class AnalyzeRttiTool extends BaseMcpTool {
   }
 
   private RTTIAnalysisResult analyzeRTTIAtAddress(
-      Program program, String addressStr, Map<String, Object> args)
-      throws GhidraMcpException {
+      Program program, String addressStr, Map<String, Object> args) throws GhidraMcpException {
     try {
       Address address = program.getAddressFactory().getAddress(addressStr);
       if (address == null) {
@@ -172,7 +171,9 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       }
 
       String requestedBackend =
-          getOptionalStringArgument(args, ARG_BACKEND).orElse(BACKEND_AUTO).toLowerCase(Locale.ROOT);
+          getOptionalStringArgument(args, ARG_BACKEND)
+              .orElse(BACKEND_AUTO)
+              .toLowerCase(Locale.ROOT);
       List<RttiBackend> backends = selectBackends(requestedBackend);
       boolean forceSelectedBackend = !BACKEND_AUTO.equals(requestedBackend);
 
@@ -223,9 +224,7 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       default ->
           throw new GhidraMcpException(
               GhidraMcpError.invalid(
-                  ARG_BACKEND,
-                  requestedBackend,
-                  "must be one of: auto, microsoft, itanium, go"));
+                  ARG_BACKEND, requestedBackend, "must be one of: auto, microsoft, itanium, go"));
     };
   }
 
@@ -240,7 +239,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     if (failures == null || failures.isEmpty()) {
       return "No valid RTTI structure found at address";
     }
-    StringBuilder summary = new StringBuilder("No valid RTTI structure found at address. Backends: ");
+    StringBuilder summary =
+        new StringBuilder("No valid RTTI structure found at address. Backends: ");
     boolean first = true;
     for (Map.Entry<String, String> entry : failures.entrySet()) {
       if (!first) {
@@ -249,7 +249,10 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       summary
           .append(entry.getKey())
           .append('=')
-          .append(entry.getValue() == null || entry.getValue().isBlank() ? "unknown error" : entry.getValue());
+          .append(
+              entry.getValue() == null || entry.getValue().isBlank()
+                  ? "unknown error"
+                  : entry.getValue());
       first = false;
     }
     return summary.toString();
@@ -392,8 +395,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
         RTTIAnalysisResult.RttiType.UNKNOWN, addressStr, buildFailureSummary(failureReasons));
   }
 
-  private RTTIAnalysisResult analyzeGoRttiAtAddress(Program program, Address address, String addressStr)
-      throws Exception {
+  private RTTIAnalysisResult analyzeGoRttiAtAddress(
+      Program program, Address address, String addressStr) throws Exception {
     GoRttiMapper goBinary = GoRttiMapper.getGoBinary(program, TaskMonitor.DUMMY);
     if (goBinary == null) {
       throw new IllegalArgumentException("program does not appear to contain Go RTTI metadata");
@@ -430,7 +433,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     }
   }
 
-  private RTTIAnalysisResult analyzeGoType(GoRttiMapper goBinary, Address address) throws Exception {
+  private RTTIAnalysisResult analyzeGoType(GoRttiMapper goBinary, Address address)
+      throws Exception {
     GoType goType = goBinary.getGoTypes().getType(address.getOffset(), false);
     if (goType == null) {
       throw new IllegalArgumentException("address is not a Go runtime._type structure");
@@ -452,7 +456,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     return RTTIAnalysisResult.from(data, address);
   }
 
-  private RTTIAnalysisResult analyzeGoItab(GoRttiMapper goBinary, Address address) throws Exception {
+  private RTTIAnalysisResult analyzeGoItab(GoRttiMapper goBinary, Address address)
+      throws Exception {
     GoItab targetItab = findGoItabAtAddress(goBinary, address);
     if (targetItab == null) {
       throw new IllegalArgumentException("address is not a Go runtime.itab structure");
@@ -498,13 +503,16 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       throw new IllegalArgumentException("typeinfo vtable pointer is null");
     }
 
-    Optional<Address> typeNameAddress = Optional.ofNullable(readPointerAddress(program, address.add(pointerSize)));
+    Optional<Address> typeNameAddress =
+        Optional.ofNullable(readPointerAddress(program, address.add(pointerSize)));
     Optional<String> representedType =
         extractTypeFromDemangledTypeInfo(demangledSymbol)
             .or(() -> typeNameAddress.flatMap(addr -> readCString(program, addr, 512)));
 
-    Symbol classTypeInfoVtableSymbol = findClassTypeInfoVtableSymbol(program, classTypeInfoVtableAddress);
-    String vtableSymbolName = classTypeInfoVtableSymbol != null ? classTypeInfoVtableSymbol.getName() : "";
+    Symbol classTypeInfoVtableSymbol =
+        findClassTypeInfoVtableSymbol(program, classTypeInfoVtableAddress);
+    String vtableSymbolName =
+        classTypeInfoVtableSymbol != null ? classTypeInfoVtableSymbol.getName() : "";
     Optional<String> demangledVtableSymbol =
         tryDemangleSymbol(program, vtableSymbolName, classTypeInfoVtableAddress);
     RTTIAnalysisResult.RttiType detectedKind =
@@ -519,7 +527,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     }
 
     Optional<String> typeNameAddressStr = typeNameAddress.map(Address::toString);
-    Optional<String> classTypeInfoVtableAddressStr = Optional.of(classTypeInfoVtableAddress.toString());
+    Optional<String> classTypeInfoVtableAddressStr =
+        Optional.of(classTypeInfoVtableAddress.toString());
 
     if (detectedKind == RTTIAnalysisResult.RttiType.ITANIUM_CLASS_TYPEINFO) {
       RTTIAnalysisResult.ItaniumClassTypeInfo data =
@@ -552,7 +561,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     long flags = readUnsignedInt(program, address.add(pointerSize * 2L));
     int numBaseClasses = (int) readUnsignedInt(program, address.add(pointerSize * 2L + 4));
     if (numBaseClasses < 0 || numBaseClasses > 512) {
-      throw new IllegalArgumentException("invalid __vmi_class_type_info base count: " + numBaseClasses);
+      throw new IllegalArgumentException(
+          "invalid __vmi_class_type_info base count: " + numBaseClasses);
     }
 
     List<RTTIAnalysisResult.ItaniumVmiBaseClass> baseClasses = new ArrayList<>();
@@ -589,7 +599,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
     return RTTIAnalysisResult.from(data, address);
   }
 
-  private RTTIAnalysisResult analyzeItaniumVtable(Program program, Address address) throws Exception {
+  private RTTIAnalysisResult analyzeItaniumVtable(Program program, Address address)
+      throws Exception {
     Symbol vtableSymbol = getPrimaryOrFirstSymbol(program, address);
     String symbolName = vtableSymbol != null ? vtableSymbol.getName() : "";
     Optional<String> demangledSymbol = tryDemangleSymbol(program, symbolName, address);
@@ -905,7 +916,8 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       return "No valid RTTI structure found at address";
     }
 
-    StringBuilder summary = new StringBuilder("No valid RTTI structure found at address. Attempts: ");
+    StringBuilder summary =
+        new StringBuilder("No valid RTTI structure found at address. Attempts: ");
     boolean first = true;
     for (Map.Entry<RTTIAnalysisResult.RttiType, String> entry : failureReasons.entrySet()) {
       if (!first) {
@@ -914,7 +926,10 @@ public class AnalyzeRttiTool extends BaseMcpTool {
       summary
           .append(entry.getKey().name())
           .append('=')
-          .append(entry.getValue() == null || entry.getValue().isBlank() ? "unknown error" : entry.getValue());
+          .append(
+              entry.getValue() == null || entry.getValue().isBlank()
+                  ? "unknown error"
+                  : entry.getValue());
       first = false;
     }
     return summary.toString();

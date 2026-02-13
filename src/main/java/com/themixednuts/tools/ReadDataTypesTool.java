@@ -377,7 +377,8 @@ public class ReadDataTypesTool extends BaseMcpTool {
     }
 
     int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<DataTypeInfo> paginatedMatches = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+    List<DataTypeInfo> paginatedMatches =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedMatches.size() > pageSize;
     List<DataTypeInfo> results =
@@ -397,10 +398,7 @@ public class ReadDataTypesTool extends BaseMcpTool {
   private String parseCursorPath(String cursorValue) {
     List<String> parts =
         OpaqueCursorCodec.decodeV1(
-            cursorValue,
-            2,
-            ARG_CURSOR,
-            "v1:<base64url_data_type_name>:<base64url_data_type_path>");
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_data_type_name>:<base64url_data_type_path>");
     return parts.get(1);
   }
 

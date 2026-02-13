@@ -289,7 +289,8 @@ public class ReadFunctionsTool extends BaseMcpTool {
     Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
 
-    FunctionCursor cursor = cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
+    FunctionCursor cursor =
+        cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
 
     // Compile name pattern if provided
     Pattern namePattern = null;
@@ -335,7 +336,8 @@ public class ReadFunctionsTool extends BaseMcpTool {
     }
 
     int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<FunctionInfo> paginatedResults = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+    List<FunctionInfo> paginatedResults =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedResults.size() > pageSize;
     List<FunctionInfo> results =
@@ -353,10 +355,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
   private FunctionCursor parseFunctionCursor(Program program, String cursorValue) {
     List<String> parts =
         OpaqueCursorCodec.decodeV1(
-            cursorValue,
-            2,
-            ARG_CURSOR,
-            "v1:<base64url_address>:<base64url_function_name>");
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_address>:<base64url_function_name>");
 
     Address cursorAddress = program.getAddressFactory().getAddress(parts.get(0));
     if (cursorAddress == null) {

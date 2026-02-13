@@ -28,8 +28,8 @@ final class VTDomainFileResolver {
 
   private VTDomainFileResolver() {}
 
-  static DomainFile resolveSessionFile(Project project, String sessionIdentifier, String argumentName)
-      throws GhidraMcpException {
+  static DomainFile resolveSessionFile(
+      Project project, String sessionIdentifier, String argumentName) throws GhidraMcpException {
     return resolveUniqueDomainFile(
         project,
         sessionIdentifier,
@@ -40,8 +40,8 @@ final class VTDomainFileResolver {
             + " inspect available project paths.");
   }
 
-  static DomainFile resolveProgramFile(Project project, String programIdentifier, String argumentName)
-      throws GhidraMcpException {
+  static DomainFile resolveProgramFile(
+      Project project, String programIdentifier, String argumentName) throws GhidraMcpException {
     return resolveUniqueDomainFile(
         project,
         programIdentifier,
@@ -65,7 +65,9 @@ final class VTDomainFileResolver {
 
     List<FileDescriptor> fileDescriptors =
         allFiles.stream()
-            .map(file -> new FileDescriptor(file.getName(), file.getPathname(), file.getContentType()))
+            .map(
+                file ->
+                    new FileDescriptor(file.getName(), file.getPathname(), file.getContentType()))
             .toList();
 
     String selectedPath =
@@ -148,7 +150,8 @@ final class VTDomainFileResolver {
     return matches.get(0).pathname;
   }
 
-  private static boolean matchesExpectedContentType(FileDescriptor file, String expectedContentType) {
+  private static boolean matchesExpectedContentType(
+      FileDescriptor file, String expectedContentType) {
     if (expectedContentType == null || expectedContentType.isBlank()) {
       return true;
     }

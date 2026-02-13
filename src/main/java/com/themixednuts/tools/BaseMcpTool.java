@@ -34,7 +34,6 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -423,10 +422,7 @@ public abstract class BaseMcpTool {
   }
 
   private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
-    return CallToolResult.builder()
-        .structuredContent(response)
-        .isError(isError)
-        .build();
+    return CallToolResult.builder().structuredContent(response).isError(isError).build();
   }
 
   private McpResponse<?> wrapOversizedOutput(
@@ -550,9 +546,7 @@ public abstract class BaseMcpTool {
 
   /** Retrieves an optional long argument from the provided map. */
   protected Optional<Long> getOptionalLongArgument(Map<String, Object> args, String argumentName) {
-    return Optional.ofNullable(args.get(argumentName))
-        .flatMap(
-            this::parseStrictIntegralValue);
+    return Optional.ofNullable(args.get(argumentName)).flatMap(this::parseStrictIntegralValue);
   }
 
   private Optional<Long> parseStrictIntegralValue(Object valueNode) {
@@ -631,8 +625,7 @@ public abstract class BaseMcpTool {
         .orElseThrow(
             () ->
                 new GhidraMcpException(
-                    GhidraMcpError.invalid(
-                        argumentName, rawValue, "must be true or false")));
+                    GhidraMcpError.invalid(argumentName, rawValue, "must be true or false")));
   }
 
   /** Retrieves an optional ObjectNode (JSON object) argument. */

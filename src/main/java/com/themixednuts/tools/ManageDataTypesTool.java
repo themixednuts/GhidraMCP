@@ -486,7 +486,9 @@ public class ManageDataTypesTool extends BaseMcpTool {
     return switch (dataTypeKind.toLowerCase(Locale.ROOT)) {
       case "struct" ->
           updateStruct(
-              dtm, requireDataTypeKind(existing, Structure.class, dataTypeKind, annotation), args,
+              dtm,
+              requireDataTypeKind(existing, Structure.class, dataTypeKind, annotation),
+              args,
               annotation);
       case "enum" ->
           updateEnum(
@@ -497,15 +499,21 @@ public class ManageDataTypesTool extends BaseMcpTool {
               annotation);
       case "union" ->
           updateUnion(
-              dtm, requireDataTypeKind(existing, Union.class, dataTypeKind, annotation), args,
+              dtm,
+              requireDataTypeKind(existing, Union.class, dataTypeKind, annotation),
+              args,
               annotation);
       case "typedef" ->
           updateTypedef(
-              dtm, requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation), args,
+              dtm,
+              requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation),
+              args,
               annotation);
       case "pointer" ->
           updatePointer(
-              dtm, requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation), args,
+              dtm,
+              requireDataTypeKind(existing, TypeDef.class, dataTypeKind, annotation),
+              args,
               annotation);
       case "function_definition" ->
           updateFunctionDefinition(
@@ -550,7 +558,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
                     annotation.mcpName(),
                     "update data type kind validation",
                     null,
-                    Map.of("requested_kind", requestedKind, "resolved_path", existing.getPathName()),
+                    Map.of(
+                        "requested_kind", requestedKind, "resolved_path", existing.getPathName()),
                     Map.of("resolved_class", existing.getClass().getName())))
             .build());
   }

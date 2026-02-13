@@ -60,7 +60,8 @@ public class FunctionAddressCompletion extends BaseMcpCompletion {
                 program.release(this);
               }
             } else {
-              // Fallback: search first available program if caller did not provide file_name context
+              // Fallback: search first available program if caller did not provide file_name
+              // context
               List<DomainFile> files = GhidraStateUtils.getAllFiles();
               if (!files.isEmpty()) {
                 DomainFile file = files.get(0);

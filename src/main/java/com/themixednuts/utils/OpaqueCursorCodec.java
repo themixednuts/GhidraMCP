@@ -25,7 +25,9 @@ public final class OpaqueCursorCodec {
         throw new IllegalArgumentException("cursor parts cannot be null or blank");
       }
       encodedParts.add(
-          Base64.getUrlEncoder().withoutPadding().encodeToString(part.getBytes(StandardCharsets.UTF_8)));
+          Base64.getUrlEncoder()
+              .withoutPadding()
+              .encodeToString(part.getBytes(StandardCharsets.UTF_8)));
     }
 
     return VERSION_PREFIX + ":" + String.join(":", encodedParts);
@@ -41,7 +43,8 @@ public final class OpaqueCursorCodec {
     String[] parts = cursorValue.split(":", -1);
     if (parts.length != expectedPartCount + 1 || !VERSION_PREFIX.equals(parts[0])) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(argumentName, cursorValue, "must be in format '" + formatDescription + "'"));
+          GhidraMcpError.invalid(
+              argumentName, cursorValue, "must be in format '" + formatDescription + "'"));
     }
 
     List<String> decodedParts = new ArrayList<>();
@@ -49,19 +52,22 @@ public final class OpaqueCursorCodec {
       String rawPart = parts[i];
       if (rawPart.isBlank()) {
         throw new GhidraMcpException(
-            GhidraMcpError.invalid(argumentName, cursorValue, "cursor contains blank encoded segments"));
+            GhidraMcpError.invalid(
+                argumentName, cursorValue, "cursor contains blank encoded segments"));
       }
 
       try {
         String decoded = new String(Base64.getUrlDecoder().decode(rawPart), StandardCharsets.UTF_8);
         if (decoded.isBlank()) {
           throw new GhidraMcpException(
-              GhidraMcpError.invalid(argumentName, cursorValue, "cursor contains empty decoded segments"));
+              GhidraMcpError.invalid(
+                  argumentName, cursorValue, "cursor contains empty decoded segments"));
         }
         decodedParts.add(decoded);
       } catch (IllegalArgumentException e) {
         throw new GhidraMcpException(
-            GhidraMcpError.invalid(argumentName, cursorValue, "contains invalid base64url encoding"));
+            GhidraMcpError.invalid(
+                argumentName, cursorValue, "contains invalid base64url encoding"));
       }
     }
 

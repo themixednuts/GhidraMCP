@@ -142,7 +142,11 @@ public class ReadToolOutputTool extends BaseMcpTool {
   private PaginatedResult<ToolOutputStore.SessionInfo> listSessions(Map<String, Object> args) {
     String cursor =
         getOptionalStringArgument(args, ARG_CURSOR)
-            .map(value -> OpaqueCursorCodec.decodeV1(value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>").get(0))
+            .map(
+                value ->
+                    OpaqueCursorCodec.decodeV1(
+                            value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>")
+                        .get(0))
             .orElse(null);
     int pageSize =
         parseBoundedInt(
@@ -152,7 +156,8 @@ public class ReadToolOutputTool extends BaseMcpTool {
             1,
             ToolOutputStore.MAX_LIST_PAGE_SIZE);
 
-    PaginatedResult<ToolOutputStore.SessionInfo> result = ToolOutputStore.listSessions(cursor, pageSize);
+    PaginatedResult<ToolOutputStore.SessionInfo> result =
+        ToolOutputStore.listSessions(cursor, pageSize);
     String nextCursor =
         result.nextCursor != null ? OpaqueCursorCodec.encodeV1(result.nextCursor) : null;
     return new PaginatedResult<>(result.results, nextCursor);
@@ -163,7 +168,11 @@ public class ReadToolOutputTool extends BaseMcpTool {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
     String cursor =
         getOptionalStringArgument(args, ARG_CURSOR)
-            .map(value -> OpaqueCursorCodec.decodeV1(value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>").get(0))
+            .map(
+                value ->
+                    OpaqueCursorCodec.decodeV1(
+                            value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>")
+                        .get(0))
             .orElse(null);
     int pageSize =
         parseBoundedInt(

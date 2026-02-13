@@ -694,5 +694,4 @@ public class ManageVTMarkupTool extends BaseMcpTool {
               .build());
     }
   }
-
 }

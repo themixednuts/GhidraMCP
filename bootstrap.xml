@@ -233,7 +233,10 @@
                     <include name="*/Ghidra/Features/VersionTracking/lib/VersionTracking.jar"/>
                     <include name="*/Ghidra/Framework/DB/lib/DB.jar"/>
                     <include name="*/Ghidra/Framework/Docking/lib/Docking.jar"/>
+                    <include name="*/Ghidra/Framework/FileSystem/lib/FileSystem.jar"/>
                     <include name="*/Ghidra/Framework/Generic/lib/Generic.jar"/>
+                    <include name="*/Ghidra/Framework/Graph/lib/Graph.jar"/>
+                    <include name="*/Ghidra/Framework/Help/lib/Help.jar"/>
                     <include name="*/Ghidra/Framework/Project/lib/Project.jar"/>
                     <include name="*/Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar"/>
                     <include name="*/Ghidra/Framework/Utility/lib/Utility.jar"/>

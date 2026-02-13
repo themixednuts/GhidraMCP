@@ -6,6 +6,7 @@ import com.themixednuts.services.IGhidraMcpResourceProvider;
 import com.themixednuts.services.IGhidraMcpToolProvider;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpStatelessAsyncServer;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncCompletionSpecification;
@@ -14,7 +15,6 @@ import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceSp
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceTemplateSpecification;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
-import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import java.time.Duration;
 import java.util.Collections;

@@ -354,8 +354,7 @@ public class ReadListingTool extends BaseMcpTool {
     if (cursorOpt.isPresent()) {
       String cursorValue = cursorOpt.get();
       String decodedCursorAddress =
-          OpaqueCursorCodec.decodeV1(
-                  cursorValue, 1, ARG_CURSOR, "v1:<base64url_listing_address>")
+          OpaqueCursorCodec.decodeV1(cursorValue, 1, ARG_CURSOR, "v1:<base64url_listing_address>")
               .get(0);
       Address cursorAddr = program.getAddressFactory().getAddress(decodedCursorAddress);
       if (cursorAddr == null) {
@@ -366,9 +365,7 @@ public class ReadListingTool extends BaseMcpTool {
       if (cursorAddr.compareTo(startAddr) < 0 || cursorAddr.compareTo(endAddr) > 0) {
         throw new GhidraMcpException(
             GhidraMcpError.invalid(
-                ARG_CURSOR,
-                cursorValue,
-                "cursor is outside the requested address range"));
+                ARG_CURSOR, cursorValue, "cursor is outside the requested address range"));
       }
 
       // Start from just after the cursor address (cursor points to last item returned)

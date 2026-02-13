@@ -234,10 +234,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
       String cursorValue = cursorOpt.get();
       List<String> parts =
           OpaqueCursorCodec.decodeV1(
-              cursorValue,
-              2,
-              ARG_CURSOR,
-              "v1:<base64url_match_set_index>:<base64url_match_index>");
+              cursorValue, 2, ARG_CURSOR, "v1:<base64url_match_set_index>:<base64url_match_index>");
 
       try {
         startMatchSetIndex = Integer.parseInt(parts.get(0));
@@ -250,8 +247,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
       if (startMatchSetIndex < 0 || startMatchIndex < 0) {
         throw new GhidraMcpException(
-            GhidraMcpError.invalid(
-                ARG_CURSOR, cursorValue, "cursor indexes must be non-negative"));
+            GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "cursor indexes must be non-negative"));
       }
     }
 
@@ -267,7 +263,8 @@ public class ReadVTMatchesTool extends BaseMcpTool {
                 "cursor match set index is out of bounds for current result set"));
       }
 
-      List<VTMatch> cursorMatchList = new ArrayList<>(matchSets.get(startMatchSetIndex).getMatches());
+      List<VTMatch> cursorMatchList =
+          new ArrayList<>(matchSets.get(startMatchSetIndex).getMatches());
       if (startMatchIndex > cursorMatchList.size()) {
         throw new GhidraMcpException(
             GhidraMcpError.invalid(
@@ -326,7 +323,9 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
     String nextCursor = null;
     if (hasMore) {
-      nextCursor = OpaqueCursorCodec.encodeV1(String.valueOf(lastMatchSetIndex), String.valueOf(lastMatchIndex));
+      nextCursor =
+          OpaqueCursorCodec.encodeV1(
+              String.valueOf(lastMatchSetIndex), String.valueOf(lastMatchIndex));
     }
 
     return new PaginatedResult<>(results, nextCursor);
@@ -469,5 +468,4 @@ public class ReadVTMatchesTool extends BaseMcpTool {
               .build());
     }
   }
-
 }

@@ -339,7 +339,8 @@ public class ReadSymbolsTool extends BaseMcpTool {
     }
 
     int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<SymbolInfo> paginatedMatches = new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+    List<SymbolInfo> paginatedMatches =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedMatches.size() > pageSize;
     List<SymbolInfo> results =
@@ -384,17 +385,13 @@ public class ReadSymbolsTool extends BaseMcpTool {
   private CursorPosition parseCursor(Program program, String cursorValue) {
     List<String> parts =
         OpaqueCursorCodec.decodeV1(
-            cursorValue,
-            2,
-            ARG_CURSOR,
-            "v1:<base64url_symbol_name>:<base64url_address>");
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_symbol_name>:<base64url_address>");
     String decodedName = parts.get(0);
     String decodedAddress = parts.get(1);
 
     if (program.getAddressFactory().getAddress(decodedAddress) == null) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(
-              ARG_CURSOR, cursorValue, "contains an invalid address component"));
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
     }
 
     return new CursorPosition(decodedName, decodedAddress, cursorValue);
