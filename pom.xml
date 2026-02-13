@@ -57,6 +57,7 @@
     <reflections.version>0.10.2</reflections.version>
     <mockito.version>5.21.0</mockito.version>
     <slf4j.simple.version>2.0.17</slf4j.simple.version>
+    <log4j2.version>2.24.3</log4j2.version>
     <everit.json.schema.version>1.14.6</everit.json.schema.version>
     <json.org.version>20251224</json.org.version>
     <maven.resources.plugin.version>3.4.0</maven.resources.plugin.version>
@@ -67,6 +68,7 @@
     <maven.dependency.plugin.version>3.10.0</maven.dependency.plugin.version>
     <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
     <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
+    <build.helper.maven.plugin.version>3.6.1</build.helper.maven.plugin.version>
     <maven.surefire.plugin.version>3.5.4</maven.surefire.plugin.version>
     <spotless.maven.plugin.version>3.2.1</spotless.maven.plugin.version>
     <google.java.format.version>1.33.0</google.java.format.version>
@@ -192,6 +194,27 @@
       <scope>system</scope>
       <systemPath>${ghidra.lib.dir}/DB.jar</systemPath>
     </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>FileSystem</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${ghidra.lib.dir}/FileSystem.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>Graph</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${ghidra.lib.dir}/Graph.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
+      <artifactId>Help</artifactId>
+      <version>${ghidra.version}</version>
+      <scope>system</scope>
+      <systemPath>${ghidra.lib.dir}/Help.jar</systemPath>
+    </dependency>
     <!-- Add the jakarta.servlet-api dependency -->
     <dependency>
       <groupId>jakarta.servlet</groupId>
@@ -244,6 +267,108 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>
       <version>${slf4j.simple.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-api</artifactId>
+      <version>${log4j2.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.netbeans.external</groupId>
+      <artifactId>isorelax</artifactId>
+      <version>RELEASE280</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>msv</groupId>
+      <artifactId>msv</artifactId>
+      <version>20050913</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>msv</groupId>
+      <artifactId>relaxngDatatype</artifactId>
+      <version>20050913</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>msv</groupId>
+      <artifactId>xsdlib</artifactId>
+      <version>20050913</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jdom</groupId>
+      <artifactId>jdom-legacy</artifactId>
+      <version>1.1.3</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.antlr</groupId>
+      <artifactId>antlr-runtime</artifactId>
+      <version>3.5.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>32.1.3-jre</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <version>3.17.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>commons-io</groupId>
+      <artifactId>commons-io</artifactId>
+      <version>2.19.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-text</artifactId>
+      <version>1.10.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>commons-codec</groupId>
+      <artifactId>commons-codec</artifactId>
+      <version>1.18.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-collections4</artifactId>
+      <version>4.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-compress</artifactId>
+      <version>1.27.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.9.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>javax.help</groupId>
+      <artifactId>javahelp</artifactId>
+      <version>2.0.05</version>
       <scope>test</scope>
     </dependency>
     <!-- JUnit Platform Suite for test suites -->
@@ -426,6 +551,26 @@
           <source>${maven.compiler.source}</source>
           <target>${maven.compiler.target}</target>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>${build.helper.maven.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>add-structured-test-sources</id>
+            <phase>generate-test-sources</phase>
+            <goals>
+              <goal>add-test-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>src/test/unit/java</source>
+                <source>src/test/e2e/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <!-- Exec plugin for running test config generator -->
       <plugin>
