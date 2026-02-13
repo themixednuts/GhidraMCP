@@ -34,7 +34,9 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,6 +100,10 @@ public abstract class BaseMcpTool {
 
   private static final int INLINE_RESPONSE_CHAR_LIMIT = 32_000;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
+  private static final java.util.Set<String> SUPPORTED_TOP_LEVEL_SCHEMA_KEYS =
+      java.util.Set.of(
+          "type", "properties", "required", "additionalProperties", "$defs", "definitions");
+  private static final Map<String, Object> DEFAULT_OUTPUT_SCHEMA = createDefaultOutputSchema();
 
   // =================== Argument Name Constants (snake_case) ===================
 
@@ -194,12 +200,48 @@ public abstract class BaseMcpTool {
                         .name(annotation.mcpName())
                         .description(annotation.mcpDescription())
                         .inputSchema(mcpSchema)
+                        .outputSchema(outputSchema())
                         .title(annotation.title().isEmpty() ? null : annotation.title())
                         .annotations(createToolAnnotations(annotation))
                         .build(),
                     (ctx, request) ->
                         executeWithEnvelope(ctx, request.arguments(), tool, annotation)))
         .orElse(null);
+  }
+
+  /** Returns the MCP output schema advertised for this tool. */
+  protected Map<String, Object> outputSchema() {
+    return DEFAULT_OUTPUT_SCHEMA;
+  }
+
+  private static Map<String, Object> createDefaultOutputSchema() {
+    Map<String, Object> errorSchema = new LinkedHashMap<>();
+    errorSchema.put("type", "object");
+    errorSchema.put(
+        "properties",
+        Map.of(
+            "message", Map.of("type", "string"),
+            "hint", Map.of("type", "string"),
+            "error_type", Map.of("type", "string"),
+            "error_code", Map.of("type", "string"),
+            "context", Map.of("type", "object"),
+            "related_resources", Map.of("type", "array"),
+            "suggestions", Map.of("type", "array")));
+    errorSchema.put("additionalProperties", true);
+
+    Map<String, Object> responseSchema = new LinkedHashMap<>();
+    responseSchema.put("type", "object");
+    responseSchema.put("required", List.of("success"));
+    responseSchema.put(
+        "properties",
+        Map.of(
+            "success", Map.of("type", "boolean"),
+            "data", Map.of(),
+            "next_cursor", Map.of("type", "string"),
+            "duration_ms", Map.of("type", "number"),
+            "error", errorSchema));
+    responseSchema.put("additionalProperties", false);
+    return responseSchema;
   }
 
   /**
@@ -356,23 +398,37 @@ public abstract class BaseMcpTool {
             getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
         ToolOutputStore.StoredOutputRef outputRef =
             ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult);
-        McpResponse<?> wrappedResponse = wrapOversizedOutput(response, outputRef);
-        jsonResult = mapper.writeValueAsString(wrappedResponse);
+        response = wrapOversizedOutput(response, outputRef);
       }
 
-      return CallToolResult.builder()
-          .content(Collections.singletonList(new TextContent(jsonResult)))
-          .isError(Boolean.FALSE)
-          .build();
+      return buildStructuredToolResult(response, false);
     } catch (JsonProcessingException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
-      return CallToolResult.builder()
-          .content(
-              Collections.singletonList(
-                  new TextContent("Error serializing response: " + e.getMessage())))
-          .isError(Boolean.TRUE)
-          .build();
+
+      McpResponse<?> errorResponse =
+          McpResponse.error(
+              toolName,
+              operation,
+              GhidraMcpError.internal()
+                  .message("Failed to serialize tool response")
+                  .context(
+                      new GhidraMcpError.ErrorContext(
+                          toolName,
+                          operation,
+                          null,
+                          null,
+                          Map.of("exception_type", e.getClass().getSimpleName())))
+                  .build());
+      return buildStructuredToolResult(errorResponse, true);
     }
+  }
+
+  private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
+    return CallToolResult.builder()
+        .content(Collections.emptyList())
+        .structuredContent(response)
+        .isError(isError)
+        .build();
   }
 
   private McpResponse<?> wrapOversizedOutput(
@@ -418,17 +474,29 @@ public abstract class BaseMcpTool {
             + exception.getMessage());
 
     try {
-      String jsonResult = mapper.writeValueAsString(response);
-      return Mono.just(
-          CallToolResult.builder()
-              .content(Collections.singletonList(new TextContent(jsonResult)))
-              .isError(Boolean.TRUE)
-              .build());
+      mapper.writeValueAsString(response);
+      return Mono.just(buildStructuredToolResult(response, true));
     } catch (JsonProcessingException e) {
       Msg.error(this, "Error serializing error response: " + e.getMessage());
+
+      McpResponse<?> fallbackError =
+          McpResponse.error(
+              getMcpName(),
+              "execute",
+              GhidraMcpError.internal()
+                  .message("Failed to serialize error response")
+                  .context(
+                      new GhidraMcpError.ErrorContext(
+                          getMcpName(),
+                          "execute",
+                          null,
+                          null,
+                          Map.of("exception_type", e.getClass().getSimpleName())))
+                  .build());
       return Mono.just(
           CallToolResult.builder()
-              .content(Collections.singletonList(new TextContent(exception.getMessage())))
+              .content(Collections.emptyList())
+              .structuredContent(fallbackError)
               .isError(Boolean.TRUE)
               .build());
     }
@@ -474,20 +542,16 @@ public abstract class BaseMcpTool {
     return Optional.ofNullable(args.get(argumentName))
         .flatMap(
             valueNode -> {
-              if (valueNode instanceof Number) {
-                return Optional.of(((Number) valueNode).intValue());
-              } else if (valueNode instanceof String) {
-                String value = (String) valueNode;
-                if (value.isBlank()) {
-                  return Optional.empty();
-                }
-                try {
-                  return Optional.of(Integer.parseInt(value));
-                } catch (NumberFormatException e) {
-                  return Optional.empty();
-                }
+              Optional<Long> strictLong = parseStrictIntegralValue(valueNode);
+              if (strictLong.isEmpty()) {
+                return Optional.empty();
               }
-              return Optional.empty();
+
+              long parsed = strictLong.get();
+              if (parsed < Integer.MIN_VALUE || parsed > Integer.MAX_VALUE) {
+                return Optional.empty();
+              }
+              return Optional.of((int) parsed);
             });
   }
 
@@ -498,33 +562,43 @@ public abstract class BaseMcpTool {
    */
   protected Integer getRequiredIntArgument(Map<String, Object> args, String argumentName)
       throws GhidraMcpException {
+    Object rawValue = args.get(argumentName);
+    if (rawValue == null) {
+      throw new GhidraMcpException(
+          GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName));
+    }
+
     return getOptionalIntArgument(args, argumentName)
         .orElseThrow(
             () ->
                 new GhidraMcpException(
-                    GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName)));
+                    GhidraMcpError.invalid(
+                        argumentName, rawValue, "must be a valid 32-bit integer value")));
   }
 
   /** Retrieves an optional long argument from the provided map. */
   protected Optional<Long> getOptionalLongArgument(Map<String, Object> args, String argumentName) {
     return Optional.ofNullable(args.get(argumentName))
         .flatMap(
-            valueNode -> {
-              if (valueNode instanceof Number) {
-                return Optional.of(((Number) valueNode).longValue());
-              } else if (valueNode instanceof String) {
-                String value = (String) valueNode;
-                if (value.isBlank()) {
-                  return Optional.empty();
-                }
-                try {
-                  return Optional.of(Long.parseLong(value));
-                } catch (NumberFormatException e) {
-                  return Optional.empty();
-                }
-              }
-              return Optional.empty();
-            });
+            this::parseStrictIntegralValue);
+  }
+
+  private Optional<Long> parseStrictIntegralValue(Object valueNode) {
+    if (valueNode == null) {
+      return Optional.empty();
+    }
+
+    String rawValue =
+        valueNode instanceof String ? ((String) valueNode).trim() : valueNode.toString().trim();
+    if (rawValue.isEmpty() || !rawValue.matches("[-+]?\\d+")) {
+      return Optional.empty();
+    }
+
+    try {
+      return Optional.of(Long.parseLong(rawValue));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
   }
 
   /**
@@ -534,11 +608,18 @@ public abstract class BaseMcpTool {
    */
   protected Long getRequiredLongArgument(Map<String, Object> args, String argumentName)
       throws GhidraMcpException {
+    Object rawValue = args.get(argumentName);
+    if (rawValue == null) {
+      throw new GhidraMcpException(
+          GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName));
+    }
+
     return getOptionalLongArgument(args, argumentName)
         .orElseThrow(
             () ->
                 new GhidraMcpException(
-                    GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName)));
+                    GhidraMcpError.invalid(
+                        argumentName, rawValue, "must be a valid 64-bit integer value")));
   }
 
   /** Retrieves an optional boolean argument from the provided map. */
@@ -568,11 +649,18 @@ public abstract class BaseMcpTool {
    */
   protected Boolean getRequiredBooleanArgument(Map<String, Object> args, String argumentName)
       throws GhidraMcpException {
+    Object rawValue = args.get(argumentName);
+    if (rawValue == null) {
+      throw new GhidraMcpException(
+          GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName));
+    }
+
     return getOptionalBooleanArgument(args, argumentName)
         .orElseThrow(
             () ->
                 new GhidraMcpException(
-                    GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), argumentName)));
+                    GhidraMcpError.invalid(
+                        argumentName, rawValue, "must be true or false")));
   }
 
   /** Retrieves an optional ObjectNode (JSON object) argument. */
@@ -1096,6 +1184,33 @@ public abstract class BaseMcpTool {
       @SuppressWarnings("unchecked")
       Map<String, Object> definitions = (Map<String, Object>) schemaMap.get("definitions");
 
+      Map<String, Object> unsupportedTopLevelKeys = new java.util.LinkedHashMap<>();
+      for (Map.Entry<String, Object> entry : schemaMap.entrySet()) {
+        if (!SUPPORTED_TOP_LEVEL_SCHEMA_KEYS.contains(entry.getKey())) {
+          unsupportedTopLevelKeys.put(entry.getKey(), entry.getValue());
+        }
+      }
+
+      if (!unsupportedTopLevelKeys.isEmpty()) {
+        Msg.warn(
+            this,
+            "Schema for tool '"
+                + annotation.mcpName()
+                + "' uses unsupported top-level JSON schema keywords for MCP conversion: "
+                + unsupportedTopLevelKeys.keySet()
+                + ". Supported keys are "
+                + SUPPORTED_TOP_LEVEL_SCHEMA_KEYS
+                + ". Tool registration will continue, but these keywords are not enforced by MCP"
+                + " input schema validation.");
+
+        Map<String, Object> definitionCopy =
+            definitions == null
+                ? new java.util.LinkedHashMap<>()
+                : new java.util.LinkedHashMap<>(definitions);
+        definitionCopy.put("x_mcp_unsupported_keywords", unsupportedTopLevelKeys);
+        definitions = definitionCopy;
+      }
+
       return Optional.of(
           new McpSchema.JsonSchema(
               type, properties, required, additionalProperties, defs, definitions));
@@ -1112,17 +1227,34 @@ public abstract class BaseMcpTool {
 
   /** Extracts text from CallToolResult content. */
   protected String getTextFromCallToolResult(CallToolResult result) {
+    String textContent =
+        Optional.ofNullable(result)
+            .map(CallToolResult::content)
+            .filter(content -> content != null && !content.isEmpty())
+            .map(
+                content ->
+                    content.stream()
+                        .filter(TextContent.class::isInstance)
+                        .map(TextContent.class::cast)
+                        .map(TextContent::text)
+                        .filter(text -> text != null)
+                        .collect(Collectors.joining("\n")))
+            .orElse("");
+
+    if (!textContent.isBlank()) {
+      return textContent;
+    }
+
     return Optional.ofNullable(result)
-        .map(CallToolResult::content)
-        .filter(content -> content != null && !content.isEmpty())
+        .map(CallToolResult::structuredContent)
         .map(
-            content ->
-                content.stream()
-                    .filter(TextContent.class::isInstance)
-                    .map(TextContent.class::cast)
-                    .map(TextContent::text)
-                    .filter(text -> text != null)
-                    .collect(Collectors.joining("\n")))
+            structured -> {
+              try {
+                return mapper.writeValueAsString(structured);
+              } catch (JsonProcessingException e) {
+                return "";
+              }
+            })
         .orElse("");
   }
 }

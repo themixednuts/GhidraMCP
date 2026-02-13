@@ -38,6 +38,7 @@ public final class ToolOutputStore {
   private static final Path ROOT_DIRECTORY =
       Paths.get(System.getProperty("java.io.tmpdir"), "ghidra-mcp-tool-output");
 
+  private static final Object LOCK = new Object();
   private static final Map<String, SessionBucket> SESSIONS = new LinkedHashMap<>();
 
   /** Reference information returned when output is stored out-of-band. */
@@ -128,10 +129,8 @@ public final class ToolOutputStore {
   }
 
   /** Stores output content in the backing temp directory. */
-  public static synchronized StoredOutputRef store(
+  public static StoredOutputRef store(
       String requestedSessionId, String toolName, String operation, String content) {
-    cleanupExpiredSessions();
-
     String sessionId =
         Optional.ofNullable(requestedSessionId)
             .map(String::trim)
@@ -140,8 +139,6 @@ public final class ToolOutputStore {
             .orElseGet(ToolOutputStore::generateSessionId);
 
     long now = System.currentTimeMillis();
-    SessionBucket bucket = SESSIONS.computeIfAbsent(sessionId, id -> new SessionBucket(id, now));
-    bucket.touch(now);
 
     ensureRootDirectory();
     Path sessionDirectory = ROOT_DIRECTORY.resolve(sessionId);
@@ -159,92 +156,115 @@ public final class ToolOutputStore {
     OutputMetadata metadata =
         new OutputMetadata(
             outputId, fileName, toolName, operation, payload.length(), now, outputFile);
-    bucket.outputs.put(outputId, metadata);
 
-    while (bucket.outputs.size() > MAX_OUTPUTS_PER_SESSION) {
-      removeOldestOutput(bucket);
+    synchronized (LOCK) {
+      cleanupExpiredSessionsLocked();
+
+      SessionBucket bucket = SESSIONS.computeIfAbsent(sessionId, id -> new SessionBucket(id, now));
+      bucket.touch(now);
+      bucket.outputs.put(outputId, metadata);
+
+      while (bucket.outputs.size() > MAX_OUTPUTS_PER_SESSION) {
+        removeOldestOutput(bucket);
+      }
+
+      while (SESSIONS.size() > MAX_SESSIONS) {
+        removeOldestSession();
+      }
+
+      return new StoredOutputRef(
+          bucket.sessionId,
+          metadata.outputId,
+          metadata.fileName,
+          metadata.toolName,
+          metadata.operation,
+          metadata.totalChars,
+          metadata.createdAtMs);
     }
-
-    while (SESSIONS.size() > MAX_SESSIONS) {
-      removeOldestSession();
-    }
-
-    return new StoredOutputRef(
-        bucket.sessionId,
-        metadata.outputId,
-        metadata.fileName,
-        metadata.toolName,
-        metadata.operation,
-        metadata.totalChars,
-        metadata.createdAtMs);
   }
 
   /** Lists sessions with cursor-based pagination. */
-  public static synchronized PaginatedResult<SessionInfo> listSessions(
-      String cursor, int pageSize) {
-    cleanupExpiredSessions();
+  public static PaginatedResult<SessionInfo> listSessions(String cursor, int pageSize) {
     int effectivePageSize = normalizePageSize(pageSize, DEFAULT_LIST_PAGE_SIZE, MAX_LIST_PAGE_SIZE);
+    List<SessionInfo> sessions;
 
-    List<SessionInfo> sessions =
-        SESSIONS.values().stream()
-            .sorted(
-                Comparator.comparingLong((SessionBucket bucket) -> bucket.lastAccessedAtMs)
-                    .reversed())
-            .map(
-                bucket ->
-                    new SessionInfo(
-                        bucket.sessionId,
-                        bucket.outputs.size(),
-                        bucket.createdAtMs,
-                        bucket.lastAccessedAtMs))
-            .toList();
+    synchronized (LOCK) {
+      cleanupExpiredSessionsLocked();
+      sessions =
+          SESSIONS.values().stream()
+              .sorted(
+                  Comparator.comparingLong((SessionBucket bucket) -> bucket.lastAccessedAtMs)
+                      .reversed())
+              .map(
+                  bucket ->
+                      new SessionInfo(
+                          bucket.sessionId,
+                          bucket.outputs.size(),
+                          bucket.createdAtMs,
+                          bucket.lastAccessedAtMs))
+              .toList();
+    }
 
     return paginateByCursor(sessions, cursor, effectivePageSize, SessionInfo::sessionId);
   }
 
   /** Lists outputs in a session with cursor-based pagination. */
-  public static synchronized PaginatedResult<OutputInfo> listOutputs(
+  public static PaginatedResult<OutputInfo> listOutputs(
       String sessionId, String cursor, int pageSize) {
-    cleanupExpiredSessions();
     int effectivePageSize = normalizePageSize(pageSize, DEFAULT_LIST_PAGE_SIZE, MAX_LIST_PAGE_SIZE);
-    SessionBucket bucket = getRequiredSession(sessionId);
-    bucket.touch(System.currentTimeMillis());
+    List<OutputInfo> outputs;
 
-    List<OutputInfo> outputs =
-        bucket.outputs.values().stream()
-            .sorted(
-                Comparator.comparingLong((OutputMetadata metadata) -> metadata.createdAtMs)
-                    .reversed())
-            .map(
-                metadata ->
-                    new OutputInfo(
-                        bucket.sessionId,
-                        metadata.outputId,
-                        metadata.fileName,
-                        metadata.toolName,
-                        metadata.operation,
-                        metadata.totalChars,
-                        metadata.createdAtMs))
-            .toList();
+    synchronized (LOCK) {
+      cleanupExpiredSessionsLocked();
+      SessionBucket bucket = getRequiredSession(sessionId);
+      bucket.touch(System.currentTimeMillis());
+
+      outputs =
+          bucket.outputs.values().stream()
+              .sorted(
+                  Comparator.comparingLong((OutputMetadata metadata) -> metadata.createdAtMs)
+                      .reversed())
+              .map(
+                  metadata ->
+                      new OutputInfo(
+                          bucket.sessionId,
+                          metadata.outputId,
+                          metadata.fileName,
+                          metadata.toolName,
+                          metadata.operation,
+                          metadata.totalChars,
+                          metadata.createdAtMs))
+              .toList();
+    }
 
     return paginateByCursor(outputs, cursor, effectivePageSize, OutputInfo::outputId);
   }
 
   /** Reads a chunk from a stored output entry. */
-  public static synchronized OutputChunk readOutput(
+  public static OutputChunk readOutput(
       String sessionId, String outputId, String fileName, int offset, int maxChars)
       throws GhidraMcpException {
-    cleanupExpiredSessions();
-    SessionBucket bucket = getRequiredSession(sessionId);
-    bucket.touch(System.currentTimeMillis());
+    SessionBucket bucket;
+    OutputMetadata metadata;
 
-    OutputMetadata metadata = resolveOutput(bucket, outputId, fileName);
+    synchronized (LOCK) {
+      cleanupExpiredSessionsLocked();
+      bucket = getRequiredSession(sessionId);
+      bucket.touch(System.currentTimeMillis());
+      metadata = resolveOutput(bucket, outputId, fileName);
+    }
 
     int effectiveOffset = Math.max(0, offset);
     int effectiveMaxChars =
         normalizePageSize(maxChars, DEFAULT_READ_CHUNK_CHARS, MAX_READ_CHUNK_CHARS);
 
-    String allContent = readFile(metadata.filePath);
+    String allContent;
+    try {
+      allContent = readFile(metadata.filePath);
+    } catch (IllegalStateException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.notFound("tool output file", bucket.sessionId + "/" + metadata.fileName));
+    }
     int totalChars = allContent.length();
 
     if (effectiveOffset > totalChars) {
@@ -311,7 +331,7 @@ public final class ToolOutputStore {
     return metadata;
   }
 
-  private static void cleanupExpiredSessions() {
+  private static void cleanupExpiredSessionsLocked() {
     long cutoff = System.currentTimeMillis() - SESSION_TTL_MS;
     List<String> expiredSessions = new ArrayList<>();
 
@@ -357,13 +377,25 @@ public final class ToolOutputStore {
   private static <T> PaginatedResult<T> paginateByCursor(
       List<T> items, String cursor, int pageSize, java.util.function.Function<T, String> keyFn) {
     int startIndex = 0;
+    boolean cursorProvided = cursor != null && !cursor.isBlank();
+    boolean cursorMatched = false;
+
     if (cursor != null && !cursor.isBlank()) {
       for (int i = 0; i < items.size(); i++) {
         if (Objects.equals(keyFn.apply(items.get(i)), cursor)) {
           startIndex = i + 1;
+          cursorMatched = true;
           break;
         }
       }
+    }
+
+    if (cursorProvided && !cursorMatched) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              "cursor",
+              cursor,
+              "cursor is invalid or expired; restart pagination without a cursor"));
     }
 
     if (startIndex >= items.size()) {
