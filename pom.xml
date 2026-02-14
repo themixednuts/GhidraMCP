@@ -44,8 +44,7 @@
     <!-- Ghidra version configuration - keep in sync with bootstrap.xml -->
     <ghidra.version>12.0</ghidra.version>
     <ghidra.release.date>20251205</ghidra.release.date>
-    <ghidra.lib.dir>${project.basedir}/lib</ghidra.lib.dir>
-    <ghidra.lib.check.skip>false</ghidra.lib.check.skip>
+    <ghidra.lib.dir>${project.basedir}${file.separator}lib</ghidra.lib.dir>
     <ghidra.version.check.skip>false</ghidra.version.check.skip>
     <mcp.bom.version>0.17.2</mcp.bom.version>
     <jackson.version>2.21.0</jackson.version>
@@ -422,7 +421,6 @@
               <goal>enforce</goal>
             </goals>
             <configuration>
-              <skip>${ghidra.lib.check.skip}</skip>
               <rules>
                 <requireMavenVersion>
                   <version>[3.6.3,)</version>
@@ -430,25 +428,6 @@
                 <requireJavaVersion>
                   <version>[21,)</version>
                 </requireJavaVersion>
-                <requireFilesExist>
-                  <files>
-                    <file>${ghidra.lib.dir}/Base.jar</file>
-                    <file>${ghidra.lib.dir}/DB.jar</file>
-                    <file>${ghidra.lib.dir}/Decompiler.jar</file>
-                    <file>${ghidra.lib.dir}/Docking.jar</file>
-                    <file>${ghidra.lib.dir}/Generic.jar</file>
-                    <file>${ghidra.lib.dir}/Gui.jar</file>
-                    <file>${ghidra.lib.dir}/MicrosoftCodeAnalyzer.jar</file>
-                    <file>${ghidra.lib.dir}/MicrosoftDemangler.jar</file>
-                    <file>${ghidra.lib.dir}/MicrosoftDmang.jar</file>
-                    <file>${ghidra.lib.dir}/Project.jar</file>
-                    <file>${ghidra.lib.dir}/SoftwareModeling.jar</file>
-                    <file>${ghidra.lib.dir}/Utility.jar</file>
-                    <file>${ghidra.lib.dir}/VersionTracking.jar</file>
-                    <file>${ghidra.lib.dir}/.ghidra-bootstrap.properties</file>
-                  </files>
-                  <message>Missing required Ghidra build artifacts in ${ghidra.lib.dir}. Run 'mvn -f bootstrap.xml initialize' first.</message>
-                </requireFilesExist>
               </rules>
             </configuration>
           </execution>
@@ -466,6 +445,7 @@
               <goal>run</goal>
             </goals>
             <configuration>
+              <skip>${ghidra.version.check.skip}</skip>
               <target>
                 <property file="${ghidra.lib.dir}/.ghidra-bootstrap.properties"/>
                 <condition property="ghidra.bootstrap.version.present">
@@ -473,10 +453,7 @@
                 </condition>
                 <fail unless="ghidra.bootstrap.version.present" message="Missing ghidra.bootstrap.version in ${ghidra.lib.dir}/.ghidra-bootstrap.properties. Re-run: mvn -f bootstrap.xml initialize"/>
                 <condition property="ghidra.version.matches">
-                  <or>
-                    <equals arg1="${ghidra.version.check.skip}" arg2="true"/>
-                    <equals arg1="${ghidra.bootstrap.version}" arg2="${ghidra.version}"/>
-                  </or>
+                  <equals arg1="${ghidra.bootstrap.version}" arg2="${ghidra.version}"/>
                 </condition>
                 <fail unless="ghidra.version.matches" message="Ghidra jar version mismatch. pom.xml expects ${ghidra.version}, but bootstrap prepared ${ghidra.bootstrap.version}. Re-run bootstrap with -Dghidra.release=${ghidra.version}, or build with -Dghidra.version=&lt;resolvedVersion&gt;, or bypass with -Dghidra.version.check.skip=true."/>
               </target>

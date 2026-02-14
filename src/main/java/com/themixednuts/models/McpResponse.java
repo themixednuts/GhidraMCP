@@ -1,5 +1,6 @@
 package com.themixednuts.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -131,11 +132,13 @@ public class McpResponse<T> {
   }
 
   /** Gets data as Optional. */
+  @JsonIgnore
   public Optional<T> getDataOptional() {
     return Optional.ofNullable(data);
   }
 
   /** Gets error message as Optional. */
+  @JsonIgnore
   public Optional<String> getErrorMessageOptional() {
     return Optional.ofNullable(error).map(GhidraMcpError::getMessage);
   }
