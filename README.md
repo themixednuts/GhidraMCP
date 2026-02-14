@@ -132,21 +132,18 @@ The steps below are only for building from source.
    ```
 2. Ensure you have [Apache Maven](https://maven.apache.org/install.html)
    **3.6.3+** and JDK 21 or later installed.
-3. Download the required Ghidra libraries (first time only):
+3. Build the project (Ghidra jars are fetched automatically on first run):
    ```bash
-   mvn -f bootstrap.xml initialize
+   ./build.sh clean package
    ```
 
-   Optional: choose a specific Ghidra release:
+   Or manually bootstrap and build with Maven directly:
    ```bash
-   mvn -f bootstrap.xml initialize -Dghidra.release=12.0
-   ```
-
-4. Build the project:
-   ```bash
+   mvn -f bootstrap.xml initialize        # first time only
    mvn clean package
    ```
-5. The installable `zip` file is written to `target/` (for example,
+
+4. The installable `zip` file is written to `target/` (for example,
    `target/GhidraMCP-0.6.1.zip`). Install it using the steps above.
 
 ---
