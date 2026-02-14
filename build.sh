@@ -7,10 +7,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MARKER="$SCRIPT_DIR/lib/.ghidra-bootstrap.properties"
+LIB_DIR="$SCRIPT_DIR/lib"
 
-if [ ! -f "$MARKER" ]; then
-  echo "Ghidra jars not found — running bootstrap..."
+needs_bootstrap=false
+if [ ! -f "$LIB_DIR/.ghidra-bootstrap.properties" ]; then
+  needs_bootstrap=true
+else
+  for jar in Base DB Generic SoftwareModeling Utility; do
+    if [ ! -f "$LIB_DIR/$jar.jar" ]; then
+      needs_bootstrap=true
+      break
+    fi
+  done
+fi
+
+if [ "$needs_bootstrap" = true ]; then
+  echo "Ghidra jars missing or incomplete — running bootstrap..."
   mvn -f "$SCRIPT_DIR/bootstrap.xml" initialize
   echo ""
 fi
