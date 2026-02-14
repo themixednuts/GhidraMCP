@@ -147,7 +147,7 @@ The steps below are only for building from source.
    mvn clean package
    ```
 5. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.6.0.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.6.1.zip`). Install it using the steps above.
 
 ---
 

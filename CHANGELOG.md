@@ -7,6 +7,16 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-02-14
+
+### Fixed
+- **Jackson Serialization Error** - `McpResponse.getDataOptional()` and `getErrorMessageOptional()` returned `Optional<T>` which Jackson treated as bean properties; the MCP SDK's ObjectMapper lacks `Jdk8Module`, causing `InvalidDefinitionException` on every tool call (#20)
+- **Git Bash Build** - Removed `RequireFilesExist` enforcer rule that failed under MSYS2/git-bash due to path resolution bugs
+
+### Added
+- **Vanilla ObjectMapper Test** - `McpResponseTest` serializes with a plain `ObjectMapper` (no `Jdk8Module`) to catch SDK-incompatible getters
+- **Build Wrapper** - `build.sh` auto-bootstraps Ghidra jars when missing or incomplete
+
 ## [0.6.0] - 2026-02-12
 
 ### Added
