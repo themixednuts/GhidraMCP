@@ -42,8 +42,8 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <!-- Ghidra version configuration - keep in sync with bootstrap.xml -->
-    <ghidra.version>12.0</ghidra.version>
-    <ghidra.release.date>20251205</ghidra.release.date>
+    <ghidra.version>12.0.3</ghidra.version>
+    <ghidra.release.date>20260210</ghidra.release.date>
     <ghidra.lib.dir>${project.basedir}${file.separator}lib</ghidra.lib.dir>
     <ghidra.version.check.skip>false</ghidra.version.check.skip>
     <mcp.bom.version>0.17.2</mcp.bom.version>

@@ -75,7 +75,7 @@ final class GhidraE2eRuntimeSupport {
       }
 
       String extractedDirName = zipName.endsWith(".zip") ? zipName.substring(0, zipName.length() - 4) : zipName;
-      Path extractedBaseDir = repoRoot.resolve(".cache").resolve("ghidra-runtime").resolve(extractedDirName);
+      Path extractedBaseDir = repoRoot.resolve(".cache").resolve(extractedDirName);
       Path installDir = findInstallDir(extractedBaseDir);
       if (installDir == null) {
         extractZip(zipPath, extractedBaseDir);
