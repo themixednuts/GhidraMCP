@@ -144,6 +144,8 @@ public abstract class BaseMcpTool {
   public static final String ARG_NAMESPACE = "namespace";
   public static final String ARG_NAME_PATTERN = "name_pattern";
   public static final String ARG_PAGE_SIZE = "page_size";
+  public static final String ARG_TARGET_TYPE = "target_type";
+  public static final String ARG_TARGET_VALUE = "target_value";
   public static final String ARG_TOOL_OUTPUT_SESSION_ID = "tool_output_session_id";
 
   // =================== Abstract Methods ===================

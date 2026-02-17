@@ -8,6 +8,7 @@ import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -116,6 +118,17 @@ public class ReadFunctionsTool extends BaseMcpTool {
             .description("Function name for single function lookup (supports * and ? wildcards)"));
 
     schemaRoot.property(
+        ARG_TARGET_TYPE,
+        SchemaBuilder.string(mapper)
+            .enumValues("symbol_id", "address", "name")
+            .description("Identifier type for target_value (single read mode)"));
+
+    schemaRoot.property(
+        ARG_TARGET_VALUE,
+        SchemaBuilder.string(mapper)
+            .description("Identifier value paired with target_type (single read mode)"));
+
+    schemaRoot.property(
         ARG_NAME_PATTERN,
         SchemaBuilder.string(mapper)
             .description("Optional regex pattern to filter function names (list mode)"));
@@ -153,7 +166,8 @@ public class ReadFunctionsTool extends BaseMcpTool {
               boolean hasSingleIdentifier =
                   args.containsKey(ARG_SYMBOL_ID)
                       || args.containsKey(ARG_ADDRESS)
-                      || args.containsKey(ARG_NAME);
+                      || args.containsKey(ARG_NAME)
+                      || (args.containsKey(ARG_TARGET_TYPE) && args.containsKey(ARG_TARGET_VALUE));
 
               if (hasSingleIdentifier) {
                 return readSingleFunction(program, args);
@@ -167,27 +181,79 @@ public class ReadFunctionsTool extends BaseMcpTool {
     return Mono.fromCallable(
         () -> {
           FunctionManager functionManager = program.getFunctionManager();
+          FunctionLookup lookup = extractFunctionLookup(args);
 
           // Apply precedence: symbol_id > address > name
-          if (args.containsKey(ARG_SYMBOL_ID)) {
-            return readBySymbolId(program, functionManager, args);
-          } else if (args.containsKey(ARG_ADDRESS)) {
-            return readByAddress(program, functionManager, args);
-          } else if (args.containsKey(ARG_NAME)) {
-            return readByName(program, functionManager, args);
+          if (lookup.symbolId() != null) {
+            return readBySymbolId(program, functionManager, lookup.symbolId());
+          } else if (lookup.address() != null) {
+            return readByAddress(program, functionManager, lookup.address());
+          } else if (lookup.name() != null) {
+            return readByName(program, functionManager, lookup.name());
           } else {
-            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+            throw new GhidraMcpException(
+                GhidraMcpError.missing("symbol_id, address, name, or target_type/target_value"));
           }
         });
   }
 
-  private FunctionInfo readBySymbolId(
-      Program program, FunctionManager functionManager, Map<String, Object> args)
-      throws GhidraMcpException {
+  private FunctionLookup extractFunctionLookup(Map<String, Object> args) throws GhidraMcpException {
     Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-    if (symbolId == null) {
-      throw new GhidraMcpException(GhidraMcpError.missing(ARG_SYMBOL_ID));
+    String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
+    String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+
+    String targetType =
+        getOptionalStringArgument(args, ARG_TARGET_TYPE)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty())
+            .orElse(null);
+    String targetValue =
+        getOptionalStringArgument(args, ARG_TARGET_VALUE)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty())
+            .orElse(null);
+
+    if (targetType != null && targetValue == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              ARG_TARGET_VALUE + " is required when target_type is provided",
+              "Provide target_value with target_type (symbol_id, address, or name)"));
     }
+    if (targetType == null && targetValue != null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              ARG_TARGET_TYPE + " is required when target_value is provided",
+              "Provide target_type with target_value (symbol_id, address, or name)"));
+    }
+
+    if (symbolId == null && address == null && name == null && targetType != null) {
+      String normalizedType = targetType.toLowerCase();
+      switch (normalizedType) {
+        case "symbol_id" -> {
+          try {
+            symbolId = Long.parseLong(targetValue);
+          } catch (NumberFormatException e) {
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_TARGET_VALUE, targetValue, "must be a valid integer symbol_id"));
+          }
+        }
+        case "address" -> address = targetValue;
+        case "name" -> name = targetValue;
+        default ->
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_TARGET_TYPE, targetType, "must be one of: symbol_id, address, name"));
+      }
+    }
+
+    return new FunctionLookup(symbolId, address, name);
+  }
+
+  private record FunctionLookup(Long symbolId, String address, String name) {}
+
+  private FunctionInfo readBySymbolId(
+      Program program, FunctionManager functionManager, Long symbolId) throws GhidraMcpException {
 
     Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
     if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
@@ -201,9 +267,8 @@ public class ReadFunctionsTool extends BaseMcpTool {
   }
 
   private FunctionInfo readByAddress(
-      Program program, FunctionManager functionManager, Map<String, Object> args)
+      Program program, FunctionManager functionManager, String addressStr)
       throws GhidraMcpException {
-    String addressStr = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
     if (addressStr == null || addressStr.isBlank()) {
       throw new GhidraMcpException(GhidraMcpError.missing(ARG_ADDRESS));
     }
@@ -211,7 +276,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
     try {
       Address functionAddress = program.getAddressFactory().getAddress(addressStr);
       if (functionAddress != null) {
-        Function function = functionManager.getFunctionAt(functionAddress);
+        Function function = functionManager.getFunctionContaining(functionAddress);
         if (function != null) {
           return new FunctionInfo(function);
         }
@@ -223,55 +288,90 @@ public class ReadFunctionsTool extends BaseMcpTool {
     throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
   }
 
-  private FunctionInfo readByName(
-      Program program, FunctionManager functionManager, Map<String, Object> args)
+  private FunctionInfo readByName(Program program, FunctionManager functionManager, String name)
       throws GhidraMcpException {
-    String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
     if (name == null || name.isBlank()) {
       throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
     }
 
     SymbolTable symbolTable = program.getSymbolTable();
 
-    // Use native SymbolTable.getSymbols() for efficient exact name lookup
-    SymbolIterator symbolIter = symbolTable.getSymbols(name);
-    while (symbolIter.hasNext()) {
-      Symbol symbol = symbolIter.next();
+    List<Function> exactMatches = new ArrayList<>();
+    SymbolIterator exactIter = symbolTable.getSymbols(name);
+    while (exactIter.hasNext()) {
+      Symbol symbol = exactIter.next();
       if (symbol.getSymbolType() == SymbolType.FUNCTION) {
         Function function = functionManager.getFunctionAt(symbol.getAddress());
-        if (function != null) {
-          return new FunctionInfo(function);
+        if (function != null
+            && exactMatches.stream()
+                .noneMatch(existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
+          exactMatches.add(function);
         }
       }
     }
 
-    // If no exact match, try wildcard search using SymbolTable's native wildcard support
-    // SymbolTable.getSymbolIterator supports * and ? wildcards
+    if (exactMatches.size() == 1) {
+      return new FunctionInfo(exactMatches.get(0));
+    }
+    if (exactMatches.size() > 1) {
+      throw new GhidraMcpException(
+          GhidraMcpError.conflict(
+              "Multiple functions found for name: "
+                  + name
+                  + ". Use symbol_id or address for an exact function."));
+    }
+
+    if (name.contains("::")) {
+      List<Function> qualifiedMatches =
+          new ArrayList<>(
+              StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+                  .filter(
+                      function -> {
+                        String qualifiedName =
+                            NamespaceUtils.getNamespaceQualifiedName(
+                                function.getParentNamespace(), function.getName(), false);
+                        return qualifiedName.equals(name);
+                      })
+                  .toList());
+
+      if (qualifiedMatches.size() == 1) {
+        return new FunctionInfo(qualifiedMatches.get(0));
+      }
+      if (qualifiedMatches.size() > 1) {
+        throw new GhidraMcpException(
+            GhidraMcpError.conflict(
+                "Multiple functions found for qualified name: "
+                    + name
+                    + ". Use symbol_id or address for an exact function."));
+      }
+    }
+
     if (name.contains("*") || name.contains("?")) {
       SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
-      Function firstMatch = null;
-      int matchCount = 0;
+      List<Function> wildcardMatches = new ArrayList<>();
 
       while (wildcardIter.hasNext()) {
         Symbol symbol = wildcardIter.next();
         if (symbol.getSymbolType() == SymbolType.FUNCTION) {
           Function function = functionManager.getFunctionAt(symbol.getAddress());
-          if (function != null) {
-            if (firstMatch == null) {
-              firstMatch = function;
-            }
-            matchCount++;
-            if (matchCount > 1) {
-              throw new GhidraMcpException(
-                  GhidraMcpError.conflict(
-                      "Multiple functions found for wildcard pattern: " + name));
-            }
+          if (function != null
+              && wildcardMatches.stream()
+                  .noneMatch(
+                      existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
+            wildcardMatches.add(function);
           }
         }
       }
 
-      if (firstMatch != null) {
-        return new FunctionInfo(firstMatch);
+      if (wildcardMatches.size() == 1) {
+        return new FunctionInfo(wildcardMatches.get(0));
+      }
+      if (wildcardMatches.size() > 1) {
+        throw new GhidraMcpException(
+            GhidraMcpError.conflict(
+                "Multiple functions found for wildcard pattern: "
+                    + name
+                    + ". Use symbol_id or address for an exact function."));
       }
     }
 

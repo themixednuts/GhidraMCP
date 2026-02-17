@@ -182,6 +182,35 @@ class AnalysisToolsE2eTest {
   }
 
   @Test
+  void decompileCodeSupportsFunctionNameIdentifierWithoutTargetValue() throws Exception {
+    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DecompileCodeTool tool = new InMemoryDecompileCodeTool(fixture.program());
+
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "target_type", "function",
+                      "name", "entry_main",
+                      "timeout", 30),
+                  null)
+              .block();
+      DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
+
+      assertTrue(result.isDecompilationSuccessful());
+      assertEquals("entry_main", result.getTargetName());
+      assertNotNull(result.getDecompiledCode());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
   void listAnalysisOptionsSupportsFilteringAndPagination() throws Exception {
     assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 

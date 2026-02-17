@@ -41,6 +41,7 @@ import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.ConsoleTaskMonitor;
@@ -204,6 +205,17 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
+                        ARG_TARGET_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .enumValues("symbol_id", "address", "name")
+                            .description(
+                                "Identifier type for target_value (symbol_id, address, or"
+                                    + " name)"))
+                    .property(
+                        ARG_TARGET_VALUE,
+                        SchemaBuilder.string(mapper)
+                            .description("Identifier value paired with target_type"))
+                    .property(
                         ARG_PROTOTYPE,
                         SchemaBuilder.string(mapper)
                             .description("Full function prototype string (C syntax)"))
@@ -228,7 +240,10 @@ public class ManageFunctionsTool extends BaseMcpTool {
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .requiredProperty(ARG_TARGET_TYPE)
+                            .requiredProperty(ARG_TARGET_VALUE))),
         // action=list_variables: requires at least one identifier (symbol_id, address,
         // name);
         // allows cursor
@@ -252,6 +267,17 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
+                        ARG_TARGET_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .enumValues("symbol_id", "address", "name")
+                            .description(
+                                "Identifier type for target_value (symbol_id, address, or"
+                                    + " name)"))
+                    .property(
+                        ARG_TARGET_VALUE,
+                        SchemaBuilder.string(mapper)
+                            .description("Identifier value paired with target_type"))
+                    .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
@@ -270,7 +296,10 @@ public class ManageFunctionsTool extends BaseMcpTool {
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .requiredProperty(ARG_TARGET_TYPE)
+                            .requiredProperty(ARG_TARGET_VALUE))),
         // action=get_graph: requires at least one identifier (symbol_id, address, name)
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -291,10 +320,24 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
+                    .property(
+                        ARG_TARGET_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .enumValues("symbol_id", "address", "name")
+                            .description(
+                                "Identifier type for target_value (symbol_id, address, or"
+                                    + " name)"))
+                    .property(
+                        ARG_TARGET_VALUE,
+                        SchemaBuilder.string(mapper)
+                            .description("Identifier value paired with target_type"))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))));
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .requiredProperty(ARG_TARGET_TYPE)
+                            .requiredProperty(ARG_TARGET_VALUE))));
 
     return schemaRoot.build();
   }
@@ -408,7 +451,12 @@ public class ManageFunctionsTool extends BaseMcpTool {
 
     // Extract function identifiers from both direct arguments and
     // target_type/target_value
-    FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
+    FunctionIdentifiers identifiers;
+    try {
+      identifiers = extractFunctionIdentifiers(args);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
 
     if (identifiers.isEmpty()) {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
@@ -548,16 +596,18 @@ public class ManageFunctionsTool extends BaseMcpTool {
     if (function == null && identifiers.name().isPresent()) {
       String functionName = identifiers.name().get();
 
-      // Try exact name match first
-      function =
+      List<Function> exactNameMatches =
           StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
               .filter(f -> f.getName(true).equals(functionName))
-              .findFirst()
-              .orElse(null);
+              .toList();
+      if (exactNameMatches.size() == 1) {
+        function = exactNameMatches.get(0);
+      } else if (exactNameMatches.size() > 1) {
+        throw buildAmbiguousFunctionNameError(functionName, exactNameMatches);
+      }
 
-      // If not found and name contains "::", try qualified name search
       if (function == null && functionName.contains("::")) {
-        function =
+        List<Function> qualifiedNameMatches =
             StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
                 .filter(
                     f -> {
@@ -566,8 +616,34 @@ public class ManageFunctionsTool extends BaseMcpTool {
                               f.getParentNamespace(), f.getName(), false);
                       return qualifiedName.equals(functionName);
                     })
-                .findFirst()
-                .orElse(null);
+                .toList();
+        if (qualifiedNameMatches.size() == 1) {
+          function = qualifiedNameMatches.get(0);
+        } else if (qualifiedNameMatches.size() > 1) {
+          throw buildAmbiguousFunctionNameError(functionName, qualifiedNameMatches);
+        }
+      }
+
+      if (function == null && (functionName.contains("*") || functionName.contains("?"))) {
+        SymbolIterator wildcardIter = symbolTable.getSymbolIterator(functionName, false);
+        List<Function> wildcardMatches = new ArrayList<>();
+        while (wildcardIter.hasNext()) {
+          Symbol symbol = wildcardIter.next();
+          if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+            Function matched = funcMan.getFunctionAt(symbol.getAddress());
+            if (matched != null
+                && wildcardMatches.stream()
+                    .noneMatch(f -> f.getEntryPoint().equals(matched.getEntryPoint()))) {
+              wildcardMatches.add(matched);
+            }
+          }
+        }
+
+        if (wildcardMatches.size() == 1) {
+          function = wildcardMatches.get(0);
+        } else if (wildcardMatches.size() > 1) {
+          throw buildAmbiguousFunctionNameError(functionName, wildcardMatches);
+        }
       }
     }
 
@@ -667,10 +743,50 @@ public class ManageFunctionsTool extends BaseMcpTool {
     }
   }
 
-  private FunctionIdentifiers extractFunctionIdentifiers(Map<String, Object> args) {
+  private FunctionIdentifiers extractFunctionIdentifiers(Map<String, Object> args)
+      throws GhidraMcpException {
     Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
     String addressValue = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
     String functionNameValue = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+
+    String targetType =
+        getOptionalStringArgument(args, ARG_TARGET_TYPE)
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .orElse(null);
+    String targetValue =
+        getOptionalStringArgument(args, ARG_TARGET_VALUE)
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .orElse(null);
+
+    if (targetType != null && targetValue == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              ARG_TARGET_VALUE + " is required when target_type is provided",
+              "Provide target_value with target_type (symbol_id, address, or name)"));
+    }
+
+    if (targetType == null && targetValue != null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              ARG_TARGET_TYPE + " is required when target_value is provided",
+              "Provide target_type with target_value (symbol_id, address, or name)"));
+    }
+
+    if (symbolId == null
+        && addressValue == null
+        && functionNameValue == null
+        && targetType != null) {
+      switch (targetType) {
+        case "symbol_id" -> symbolId = parseSymbolIdTargetValue(targetValue);
+        case "address" -> addressValue = targetValue;
+        case "name" -> functionNameValue = targetValue;
+        default ->
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_TARGET_TYPE, targetType, "must be one of: symbol_id, address, name"));
+      }
+    }
 
     return new FunctionIdentifiers(
         Optional.ofNullable(symbolId),
@@ -678,10 +794,35 @@ public class ManageFunctionsTool extends BaseMcpTool {
         Optional.ofNullable(functionNameValue));
   }
 
+  private Long parseSymbolIdTargetValue(String targetValue) throws GhidraMcpException {
+    try {
+      return Long.parseLong(targetValue);
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_TARGET_VALUE, targetValue, "must be a valid integer symbol_id"));
+    }
+  }
+
+  private GhidraMcpException buildAmbiguousFunctionNameError(
+      String searchValue, List<Function> matches) {
+    List<String> sampleMatches =
+        matches.stream().limit(5).map(f -> f.getName(true) + " @ " + f.getEntryPoint()).toList();
+    return new GhidraMcpException(
+        GhidraMcpError.conflict(
+            "Multiple functions match '"
+                + searchValue
+                + "' ("
+                + matches.size()
+                + " matches). Use symbol_id or address for an exact target. Sample matches: "
+                + String.join(", ", sampleMatches)));
+  }
+
   private GhidraMcpError createMissingIdentifierError() {
     return GhidraMcpError.of(
-        "At least one function identifier must be provided (symbol_id, address, or name)",
-        "Include at least one of: symbol_id, address, or name");
+        "At least one function identifier must be provided (symbol_id, address, name, or"
+            + " target_type/target_value)",
+        "Include one of: symbol_id, address, name, or target_type + target_value");
   }
 
   private Mono<Address> parseAddressOrThrow(
@@ -712,7 +853,12 @@ public class ManageFunctionsTool extends BaseMcpTool {
 
     // Extract function identifiers from both direct arguments and
     // target_type/target_value
-    FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
+    FunctionIdentifiers identifiers;
+    try {
+      identifiers = extractFunctionIdentifiers(args);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
 
     if (identifiers.isEmpty()) {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
@@ -863,7 +1009,12 @@ public class ManageFunctionsTool extends BaseMcpTool {
 
     // Extract function identifiers from both direct arguments and
     // target_type/target_value
-    FunctionIdentifiers identifiers = extractFunctionIdentifiers(args);
+    FunctionIdentifiers identifiers;
+    try {
+      identifiers = extractFunctionIdentifiers(args);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
 
     if (identifiers.isEmpty()) {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));

@@ -63,6 +63,31 @@ class ReadToolsE2eTest {
   }
 
   @Test
+  void readFunctionsSupportsTargetTypeTargetValueSingleLookup() throws Exception {
+    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      ReadFunctionsTool tool = new InMemoryReadFunctionsTool(fixture.program());
+
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "target_type", "name",
+                      "target_value", "entry_main"),
+                  null)
+              .block();
+      FunctionInfo result = assertInstanceOf(FunctionInfo.class, raw);
+      assertEquals("entry_main", result.getName());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
   void readSymbolsSupportsSingleLookupAndFilteredListing() throws Exception {
     assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
@@ -122,6 +147,32 @@ class ReadToolsE2eTest {
       assertTrue(
           result.results.stream().anyMatch(item -> "instruction".equals(item.getType())),
           "Expected at least one instruction listing row");
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void readListingSupportsFunctionSelectorAsAddress() throws Exception {
+    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      ReadListingTool tool = new InMemoryReadListingTool(fixture.program());
+
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "function", "0x401000", "max_lines", 10),
+                  null)
+              .block();
+
+      @SuppressWarnings("unchecked")
+      PaginatedResult<ListingInfo> result = assertInstanceOf(PaginatedResult.class, raw);
+      assertFalse(result.results.isEmpty());
+      assertTrue(
+          result.results.stream().anyMatch(item -> "entry_main".equals(item.getFunctionName())));
     } finally {
       fixture.close();
     }

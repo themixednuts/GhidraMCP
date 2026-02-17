@@ -8,6 +8,7 @@ import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -17,6 +18,10 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOp;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
@@ -102,6 +107,28 @@ public class DecompileCodeTool extends BaseMcpTool {
             .description("Target identifier (function name, address, or address range)"));
 
     schemaRoot.property(
+        ARG_SYMBOL_ID,
+        schemaRoot
+            .integer()
+            .description(
+                "Function symbol ID (optional alternative to target_value for function mode)"));
+
+    schemaRoot.property(
+        ARG_ADDRESS,
+        schemaRoot
+            .string()
+            .description(
+                "Address (optional alternative to target_value for function/address modes)"));
+
+    schemaRoot.property(
+        ARG_NAME,
+        schemaRoot
+            .string()
+            .description(
+                "Function name (optional alternative to target_value for function mode; supports *"
+                    + " and ? wildcards)"));
+
+    schemaRoot.property(
         ARG_INCLUDE_PCODE,
         schemaRoot
             .bool()
@@ -132,10 +159,10 @@ public class DecompileCodeTool extends BaseMcpTool {
             .description("Level of decompilation analysis")
             .defaultValue("standard"));
 
-    schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_TARGET_TYPE);
+    schemaRoot.requiredProperty(ARG_FILE_NAME);
 
     // Add conditional requirements (JSON Schema Draft 7)
-    // When target_type is "function" or "address", target_value is required
+    // When target_type is "function" or "address", an identifier is required
     schemaRoot.allOf(
         schemaRoot
             .object()
@@ -143,14 +170,24 @@ public class DecompileCodeTool extends BaseMcpTool {
                 schemaRoot
                     .object()
                     .property(ARG_TARGET_TYPE, schemaRoot.string().constValue("function")),
-                schemaRoot.object().requiredProperty(ARG_TARGET_VALUE)),
+                schemaRoot
+                    .object()
+                    .anyOf(
+                        schemaRoot.object().requiredProperty(ARG_TARGET_VALUE),
+                        schemaRoot.object().requiredProperty(ARG_SYMBOL_ID),
+                        schemaRoot.object().requiredProperty(ARG_ADDRESS),
+                        schemaRoot.object().requiredProperty(ARG_NAME))),
         schemaRoot
             .object()
             .ifThen(
                 schemaRoot
                     .object()
                     .property(ARG_TARGET_TYPE, schemaRoot.string().constValue("address")),
-                schemaRoot.object().requiredProperty(ARG_TARGET_VALUE)));
+                schemaRoot
+                    .object()
+                    .anyOf(
+                        schemaRoot.object().requiredProperty(ARG_TARGET_VALUE),
+                        schemaRoot.object().requiredProperty(ARG_ADDRESS))));
 
     return schemaRoot.build();
   }
@@ -172,12 +209,7 @@ public class DecompileCodeTool extends BaseMcpTool {
     return getProgram(args, tool)
         .flatMap(
             program -> {
-              String targetType;
-              try {
-                targetType = getRequiredStringArgument(args, ARG_TARGET_TYPE);
-              } catch (GhidraMcpException e) {
-                return Mono.error(e);
-              }
+              String targetType = inferTargetType(args);
               String targetValue = getOptionalStringArgument(args, ARG_TARGET_VALUE).orElse("");
               boolean includePcode =
                   getOptionalBooleanArgument(args, ARG_INCLUDE_PCODE).orElse(false);
@@ -187,10 +219,15 @@ public class DecompileCodeTool extends BaseMcpTool {
               return switch (targetType.toLowerCase()) {
                 case "function" ->
                     decompileFunction(
-                        program, targetValue, includePcode, includeAst, timeout, annotation);
+                        program, args, targetValue, includePcode, includeAst, timeout, annotation);
                 case "address" ->
                     decompileAtAddress(
-                        program, targetValue, includePcode, includeAst, timeout, annotation);
+                        program,
+                        resolveAddressTargetValue(args, targetValue),
+                        includePcode,
+                        includeAst,
+                        timeout,
+                        annotation);
                 case "all_functions" ->
                     decompileAllFunctions(program, includePcode, includeAst, timeout, annotation);
                 default -> {
@@ -205,31 +242,180 @@ public class DecompileCodeTool extends BaseMcpTool {
             });
   }
 
+  private String inferTargetType(Map<String, Object> args) {
+    return getOptionalStringArgument(args, ARG_TARGET_TYPE)
+        .map(String::trim)
+        .filter(value -> !value.isEmpty())
+        .orElseGet(
+            () -> {
+              if (args.containsKey(ARG_ADDRESS)) {
+                return "address";
+              }
+              if (args.containsKey(ARG_SYMBOL_ID)
+                  || args.containsKey(ARG_NAME)
+                  || args.containsKey(ARG_TARGET_VALUE)) {
+                return "function";
+              }
+              return "function";
+            });
+  }
+
+  private String resolveAddressTargetValue(Map<String, Object> args, String fallbackTargetValue)
+      throws GhidraMcpException {
+    String address =
+        getOptionalStringArgument(args, ARG_ADDRESS)
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .orElseGet(() -> fallbackTargetValue == null ? "" : fallbackTargetValue.trim());
+
+    if (address.isEmpty()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              "Address target is missing",
+              "Provide target_value or address when target_type is 'address'"));
+    }
+    return address;
+  }
+
+  private Function resolveFunctionForDecompilation(
+      Program program, Map<String, Object> args, String fallbackTargetValue)
+      throws GhidraMcpException {
+    FunctionManager functionManager = program.getFunctionManager();
+    SymbolTable symbolTable = program.getSymbolTable();
+
+    Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
+    String addressArg =
+        getOptionalStringArgument(args, ARG_ADDRESS)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty())
+            .orElse(null);
+    String nameArg =
+        getOptionalStringArgument(args, ARG_NAME)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty())
+            .orElse(null);
+    String targetValue = fallbackTargetValue == null ? "" : fallbackTargetValue.trim();
+
+    if (symbolId != null) {
+      Symbol symbol = symbolTable.getSymbol(symbolId);
+      if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+        Function function = functionManager.getFunctionAt(symbol.getAddress());
+        if (function != null) {
+          return function;
+        }
+      }
+      throw new GhidraMcpException(GhidraMcpError.notFound("function", "symbol_id=" + symbolId));
+    }
+
+    String addressToResolve = addressArg;
+    if (addressToResolve == null && !targetValue.isEmpty()) {
+      Address possibleAddress = program.getAddressFactory().getAddress(targetValue);
+      if (possibleAddress != null) {
+        addressToResolve = targetValue;
+      }
+    }
+    if (addressToResolve != null) {
+      Address functionAddress = program.getAddressFactory().getAddress(addressToResolve);
+      if (functionAddress == null) {
+        throw new GhidraMcpException(GhidraMcpError.parse("address", addressToResolve));
+      }
+      Function function = functionManager.getFunctionContaining(functionAddress);
+      if (function != null) {
+        return function;
+      }
+      throw new GhidraMcpException(
+          GhidraMcpError.notFound("function", "address=" + addressToResolve));
+    }
+
+    String functionName = nameArg != null ? nameArg : targetValue;
+    if (functionName == null || functionName.isBlank()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              "Function target is missing",
+              "Provide one of: symbol_id, address, name, or target_value"));
+    }
+
+    List<Function> exactMatches =
+        StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+            .filter(f -> f.getName(true).equals(functionName))
+            .toList();
+    if (exactMatches.size() == 1) {
+      return exactMatches.get(0);
+    }
+    if (exactMatches.size() > 1) {
+      throw new GhidraMcpException(
+          GhidraMcpError.conflict(
+              "Multiple functions found for name: "
+                  + functionName
+                  + ". Use symbol_id or address for an exact function."));
+    }
+
+    if (functionName.contains("::")) {
+      List<Function> qualifiedMatches =
+          StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
+              .filter(
+                  f ->
+                      NamespaceUtils.getNamespaceQualifiedName(
+                              f.getParentNamespace(), f.getName(), false)
+                          .equals(functionName))
+              .toList();
+      if (qualifiedMatches.size() == 1) {
+        return qualifiedMatches.get(0);
+      }
+      if (qualifiedMatches.size() > 1) {
+        throw new GhidraMcpException(
+            GhidraMcpError.conflict(
+                "Multiple functions found for qualified name: "
+                    + functionName
+                    + ". Use symbol_id or address for an exact function."));
+      }
+    }
+
+    if (functionName.contains("*") || functionName.contains("?")) {
+      List<Function> wildcardMatches = new ArrayList<>();
+      SymbolIterator wildcardIter = symbolTable.getSymbolIterator(functionName, false);
+      while (wildcardIter.hasNext()) {
+        Symbol symbol = wildcardIter.next();
+        if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+          Function function = functionManager.getFunctionAt(symbol.getAddress());
+          if (function != null
+              && wildcardMatches.stream()
+                  .noneMatch(
+                      existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
+            wildcardMatches.add(function);
+          }
+        }
+      }
+
+      if (wildcardMatches.size() == 1) {
+        return wildcardMatches.get(0);
+      }
+      if (wildcardMatches.size() > 1) {
+        throw new GhidraMcpException(
+            GhidraMcpError.conflict(
+                "Multiple functions found for wildcard pattern: "
+                    + functionName
+                    + ". Use symbol_id or address for an exact function."));
+      }
+    }
+
+    throw new GhidraMcpException(
+        GhidraMcpError.notFound(
+            "function", functionName, "Use read_functions to see available functions"));
+  }
+
   private Mono<? extends Object> decompileFunction(
       Program program,
-      String functionName,
+      Map<String, Object> args,
+      String fallbackTargetValue,
       boolean includePcode,
       boolean includeAst,
       int timeout,
       GhidraMcpTool annotation) {
     return Mono.fromCallable(
         () -> {
-          if (functionName.isEmpty()) {
-            throw new GhidraMcpException(GhidraMcpError.missing(ARG_TARGET_VALUE));
-          }
-
-          FunctionManager functionManager = program.getFunctionManager();
           Function targetFunction =
-              StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-                  .filter(f -> f.getName().equals(functionName))
-                  .findFirst()
-                  .orElse(null);
-
-          if (targetFunction == null) {
-            throw new GhidraMcpException(
-                GhidraMcpError.notFound(
-                    "function", functionName, "Use read_functions to see available functions"));
-          }
+              resolveFunctionForDecompilation(program, args, fallbackTargetValue);
 
           return performDecompilation(
               program, targetFunction, includePcode, includeAst, timeout, annotation);

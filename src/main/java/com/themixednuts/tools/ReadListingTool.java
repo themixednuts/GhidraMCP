@@ -9,6 +9,7 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
+import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
@@ -20,6 +21,10 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -109,6 +114,11 @@ public class ReadListingTool extends BaseMcpTool {
         SchemaBuilder.string(mapper).description("Function name to view listing for"));
 
     schemaRoot.property(
+        ARG_SYMBOL_ID,
+        SchemaBuilder.integer(mapper)
+            .description("Function symbol ID to view listing for (alternative to function name)"));
+
+    schemaRoot.property(
         ARG_MAX_LINES,
         SchemaBuilder.integer(mapper)
             .description("Maximum number of lines to return (default: 100)")
@@ -143,7 +153,7 @@ public class ReadListingTool extends BaseMcpTool {
                 } else {
                   return handleSingleAddress(program, args, annotation);
                 }
-              } else if (args.containsKey(ARG_FUNCTION)) {
+              } else if (args.containsKey(ARG_FUNCTION) || args.containsKey(ARG_SYMBOL_ID)) {
                 return handleFunction(program, args, annotation);
               } else {
                 // Default: show first page from start of program
@@ -201,14 +211,108 @@ public class ReadListingTool extends BaseMcpTool {
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
     return Mono.fromCallable(
         () -> {
-          String functionName = getRequiredStringArgument(args, ARG_FUNCTION);
           FunctionManager functionManager = program.getFunctionManager();
+          SymbolTable symbolTable = program.getSymbolTable();
+
+          Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
+          String functionSelector =
+              getOptionalStringArgument(args, ARG_FUNCTION).map(String::trim).orElse("");
 
           Function function = null;
-          for (Function f : functionManager.getFunctions(true)) {
-            if (f.getName().equals(functionName)) {
-              function = f;
-              break;
+
+          if (symbolIdOpt.isPresent()) {
+            Symbol symbol = symbolTable.getSymbol(symbolIdOpt.get());
+            if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+              function = functionManager.getFunctionAt(symbol.getAddress());
+            }
+            if (function == null && functionSelector.isBlank()) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.notFound("function", "symbol_id=" + symbolIdOpt.get()));
+            }
+          }
+
+          if (function == null && functionSelector.isBlank()) {
+            throw new GhidraMcpException(
+                GhidraMcpError.of(
+                    "Function target is missing",
+                    "Provide one of: function (name/address/pattern) or symbol_id"));
+          }
+
+          if (function == null) {
+            Address asAddress = program.getAddressFactory().getAddress(functionSelector);
+            if (asAddress != null) {
+              function = functionManager.getFunctionContaining(asAddress);
+            }
+          }
+
+          if (function == null) {
+            List<Function> exactMatches =
+                new ArrayList<>(
+                    java.util.stream.StreamSupport.stream(
+                            functionManager.getFunctions(true).spliterator(), false)
+                        .filter(f -> f.getName(true).equals(functionSelector))
+                        .toList());
+
+            if (exactMatches.size() == 1) {
+              function = exactMatches.get(0);
+            } else if (exactMatches.size() > 1) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.conflict(
+                      "Multiple functions found for name: "
+                          + functionSelector
+                          + ". Use symbol_id for an exact target."));
+            }
+          }
+
+          if (function == null && functionSelector.contains("::")) {
+            List<Function> qualifiedMatches =
+                new ArrayList<>(
+                    java.util.stream.StreamSupport.stream(
+                            functionManager.getFunctions(true).spliterator(), false)
+                        .filter(
+                            f ->
+                                NamespaceUtils.getNamespaceQualifiedName(
+                                        f.getParentNamespace(), f.getName(), false)
+                                    .equals(functionSelector))
+                        .toList());
+
+            if (qualifiedMatches.size() == 1) {
+              function = qualifiedMatches.get(0);
+            } else if (qualifiedMatches.size() > 1) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.conflict(
+                      "Multiple functions found for qualified name: "
+                          + functionSelector
+                          + ". Use symbol_id for an exact target."));
+            }
+          }
+
+          if (function == null
+              && (functionSelector.contains("*") || functionSelector.contains("?"))) {
+            SymbolIterator wildcardIter = symbolTable.getSymbolIterator(functionSelector, false);
+            List<Function> wildcardMatches = new ArrayList<>();
+            while (wildcardIter.hasNext()) {
+              Symbol symbol = wildcardIter.next();
+              if (symbol.getSymbolType() == SymbolType.FUNCTION) {
+                Function candidate = functionManager.getFunctionAt(symbol.getAddress());
+                if (candidate != null
+                    && wildcardMatches.stream()
+                        .noneMatch(
+                            existing ->
+                                existing.getEntryPoint().equals(candidate.getEntryPoint()))) {
+                  wildcardMatches.add(candidate);
+                }
+              }
+            }
+
+            if (wildcardMatches.size() == 1) {
+              function = wildcardMatches.get(0);
+            } else if (wildcardMatches.size() > 1) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.conflict(
+                      "Multiple functions found for wildcard pattern: "
+                          + functionSelector
+                          + ". Use symbol_id for an exact target."));
             }
           }
 
@@ -223,13 +327,21 @@ public class ReadListingTool extends BaseMcpTool {
             throw new GhidraMcpException(
                 GhidraMcpError.resourceNotFound()
                     .errorCode(GhidraMcpError.ErrorCode.FUNCTION_NOT_FOUND)
-                    .message("Function not found: " + functionName)
+                    .message(
+                        "Function not found: "
+                            + (functionSelector.isBlank()
+                                ? "symbol_id=" + symbolIdOpt.orElse(null)
+                                : functionSelector))
                     .context(
                         new GhidraMcpError.ErrorContext(
                             annotation.mcpName(),
                             "function lookup",
                             args,
-                            Map.of(ARG_FUNCTION, functionName),
+                            Map.of(
+                                ARG_FUNCTION,
+                                functionSelector,
+                                ARG_SYMBOL_ID,
+                                symbolIdOpt.map(Object::toString).orElse("")),
                             Map.of("available_functions", availableFunctions.size())))
                     .relatedResources(availableFunctions)
                     .build());
