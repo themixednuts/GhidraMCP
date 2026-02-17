@@ -102,9 +102,7 @@ public class ReadVTMatchesTool extends BaseVTTool {
 
     schemaRoot.property(
         ARG_MIN_CONFIDENCE,
-        SchemaBuilder.number(mapper)
-            .description("Minimum confidence score (>= 0.0)")
-            .minimum(0.0));
+        SchemaBuilder.number(mapper).description("Minimum confidence score (>= 0.0)").minimum(0.0));
 
     schemaRoot.property(
         ARG_CORRELATOR, SchemaBuilder.string(mapper).description("Filter by correlator name"));
@@ -172,13 +170,10 @@ public class ReadVTMatchesTool extends BaseVTTool {
     Program destProgram = session.getDestinationProgram();
     VTMatchResolver.ResolvedMatch resolvedMatch =
         VTMatchResolver.findMatch(
-            session,
-            sourceAddrStr,
-            destAddrStr,
-            ARG_SOURCE_ADDRESS,
-            ARG_DESTINATION_ADDRESS);
+            session, sourceAddrStr, destAddrStr, ARG_SOURCE_ADDRESS, ARG_DESTINATION_ADDRESS);
 
-    return buildMatchInfo(resolvedMatch.match(), resolvedMatch.matchSet(), sourceProgram, destProgram);
+    return buildMatchInfo(
+        resolvedMatch.match(), resolvedMatch.matchSet(), sourceProgram, destProgram);
   }
 
   private PaginatedResult<VTMatchInfo> listMatches(VTSession session, Map<String, Object> args)
@@ -383,5 +378,4 @@ public class ReadVTMatchesTool extends BaseVTTool {
 
     return null;
   }
-
 }

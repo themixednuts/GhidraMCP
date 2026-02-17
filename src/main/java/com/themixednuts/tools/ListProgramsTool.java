@@ -210,7 +210,8 @@ public class ListProgramsTool extends BaseMcpTool {
   private PaginatedResult<ProgramFileInfo> listPrograms(PluginTool tool, Map<String, Object> args)
       throws GhidraMcpException {
     // Extract parameters
-    int pageSize = getBoundedIntArgumentOrDefault(args, ARG_PAGE_SIZE, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
+    int pageSize =
+        getBoundedIntArgumentOrDefault(args, ARG_PAGE_SIZE, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
     String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
     ExecutableFormat formatFilter =
         ExecutableFormat.fromString(getOptionalStringArgument(args, ARG_FORMAT).orElse(null));

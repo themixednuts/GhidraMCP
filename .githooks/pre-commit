@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-commit] Running format checks..."
+mvn spotless:check
+
+echo "[pre-commit] Running full integration tests..."
+mvn test -De2e.integration=true
+
+echo "[pre-commit] All checks passed."

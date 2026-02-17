@@ -212,7 +212,8 @@ public class RunVTCorrelatorTool extends BaseVTTool {
               buildAddressSet(
                   sourceProgram, sourceMinAddr, sourceMaxAddr, session, excludeAccepted, true);
           AddressSetView destSet =
-              buildAddressSet(destProgram, destMinAddr, destMaxAddr, session, excludeAccepted, false);
+              buildAddressSet(
+                  destProgram, destMinAddr, destMaxAddr, session, excludeAccepted, false);
 
           VTMatchSet matchSet =
               runCorrelatorReflective(
@@ -316,14 +317,10 @@ public class RunVTCorrelatorTool extends BaseVTTool {
     if (minAddr.isPresent() && maxAddr.isPresent()) {
       Address min =
           VTMatchResolver.parseAddress(
-              program,
-              minAddr.get(),
-              isSource ? ARG_SOURCE_MIN_ADDRESS : ARG_DEST_MIN_ADDRESS);
+              program, minAddr.get(), isSource ? ARG_SOURCE_MIN_ADDRESS : ARG_DEST_MIN_ADDRESS);
       Address max =
           VTMatchResolver.parseAddress(
-              program,
-              maxAddr.get(),
-              isSource ? ARG_SOURCE_MAX_ADDRESS : ARG_DEST_MAX_ADDRESS);
+              program, maxAddr.get(), isSource ? ARG_SOURCE_MAX_ADDRESS : ARG_DEST_MAX_ADDRESS);
       if (min.compareTo(max) > 0) {
         throw new GhidraMcpException(
             GhidraMcpError.invalid(

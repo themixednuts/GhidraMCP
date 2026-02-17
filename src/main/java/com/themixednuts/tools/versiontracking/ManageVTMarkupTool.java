@@ -15,8 +15,8 @@ import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -208,8 +208,7 @@ public class ManageVTMarkupTool extends BaseVTTool {
   private Collection<Object> getMarkupItemsReflective(VTMatch match) throws GhidraMcpException {
     try {
       Object association = match.getAssociation();
-      Method getMarkupItems =
-          association.getClass().getMethod("getMarkupItems", TaskMonitor.class);
+      Method getMarkupItems = association.getClass().getMethod("getMarkupItems", TaskMonitor.class);
       return (Collection<Object>) getMarkupItems.invoke(association, TaskMonitor.DUMMY);
     } catch (NoSuchMethodException e) {
       throw new GhidraMcpException(
@@ -357,7 +356,8 @@ public class ManageVTMarkupTool extends BaseVTTool {
                     }
                   } catch (GhidraMcpException e) {
                     if (failures.size() < 10) {
-                      failures.add(match.getAssociation().getSourceAddress() + ": " + e.getMessage());
+                      failures.add(
+                          match.getAssociation().getSourceAddress() + ": " + e.getMessage());
                     }
                   }
                 }
@@ -424,13 +424,8 @@ public class ManageVTMarkupTool extends BaseVTTool {
   private VTMatch findMatch(VTSession session, Map<String, Object> args) throws GhidraMcpException {
     String sourceAddrStr = getRequiredStringArgument(args, ARG_SOURCE_ADDRESS);
     String destAddrStr = getRequiredStringArgument(args, ARG_DESTINATION_ADDRESS);
-    return VTMatchResolver
-        .findMatch(
-            session,
-            sourceAddrStr,
-            destAddrStr,
-            ARG_SOURCE_ADDRESS,
-            ARG_DESTINATION_ADDRESS)
+    return VTMatchResolver.findMatch(
+            session, sourceAddrStr, destAddrStr, ARG_SOURCE_ADDRESS, ARG_DESTINATION_ADDRESS)
         .match();
   }
 
@@ -648,5 +643,4 @@ public class ManageVTMarkupTool extends BaseVTTool {
 
     return new VTMarkupItemInfo(typeName, sourceAddr, destAddr, sourceValue, destValue, status);
   }
-
 }

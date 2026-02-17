@@ -17,8 +17,8 @@ import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
-import ghidra.util.Msg;
 import ghidra.util.InvalidNameException;
+import ghidra.util.Msg;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.lang.reflect.Constructor;
@@ -168,7 +168,8 @@ public class ManageVTSessionTool extends BaseVTTool {
 
       try {
         Constructor<?> constructor =
-            vtSessionDBClass.getConstructor(String.class, Program.class, Program.class, Object.class);
+            vtSessionDBClass.getConstructor(
+                String.class, Program.class, Program.class, Object.class);
         return constructor.newInstance(sessionName, sourceProgram, destProgram, this);
       } catch (NoSuchMethodException noConstructor) {
         Method createMethod =
@@ -203,7 +204,8 @@ public class ManageVTSessionTool extends BaseVTTool {
     DomainFile existingFile = createTarget.folder().getFile(createTarget.fileName());
     if (existingFile != null) {
       throw new GhidraMcpException(
-          GhidraMcpError.conflict("VT session already exists at path: " + existingFile.getPathname()));
+          GhidraMcpError.conflict(
+              "VT session already exists at path: " + existingFile.getPathname()));
     }
 
     DomainFile sourceDomainFile =
@@ -224,12 +226,15 @@ public class ManageVTSessionTool extends BaseVTTool {
 
     try {
       // Create VT session using reflection
-      Object session = createVTSessionReflective(createTarget.fileName(), sourceProgram, destProgram);
+      Object session =
+          createVTSessionReflective(createTarget.fileName(), sourceProgram, destProgram);
 
       try {
         // Save the session to the project
         DomainFile sessionFile =
-            createTarget.folder().createFile(createTarget.fileName(), (DomainObject) session, TaskMonitor.DUMMY);
+            createTarget
+                .folder()
+                .createFile(createTarget.fileName(), (DomainObject) session, TaskMonitor.DUMMY);
 
         Msg.info(this, "Created VT session: " + sessionFile.getPathname());
 
@@ -291,7 +296,8 @@ public class ManageVTSessionTool extends BaseVTTool {
 
     // Check if the session is currently open
     if (!sessionFile.isOpen()) {
-      return OperationResult.success(ACTION_CLOSE, sessionFile.getPathname(), "Session was not open");
+      return OperationResult.success(
+          ACTION_CLOSE, sessionFile.getPathname(), "Session was not open");
     }
 
     // Acquire and release one reference from this tool instance.
@@ -366,7 +372,8 @@ public class ManageVTSessionTool extends BaseVTTool {
   }
 
   static boolean sameDomainFilePath(DomainFile first, DomainFile second) {
-    return normalizeProjectPath(first.getPathname()).equals(normalizeProjectPath(second.getPathname()));
+    return normalizeProjectPath(first.getPathname())
+        .equals(normalizeProjectPath(second.getPathname()));
   }
 
   static String normalizeProjectPath(String path) {

@@ -58,7 +58,7 @@ final class VTDomainFileResolver {
       String argumentName,
       String objectName,
       String expectedContentType,
-    String ambiguityHint)
+      String ambiguityHint)
       throws GhidraMcpException {
     List<DomainFile> allFiles = new ArrayList<>();
     GhidraStateUtils.collectFilesRecursive(project.getProjectData().getRootFolder(), allFiles);

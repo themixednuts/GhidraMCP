@@ -158,7 +158,9 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
           final String cursorName =
               cursorOpt
                   .map(
-                      value -> decodeOpaqueCursorSingleV1(value, ARG_CURSOR, "v1:<base64url_option_name>"))
+                      value ->
+                          decodeOpaqueCursorSingleV1(
+                              value, ARG_CURSOR, "v1:<base64url_option_name>"))
                   .orElse(null);
           boolean passedCursor = (cursorName == null);
           boolean cursorMatched = (cursorName == null);

@@ -146,6 +146,19 @@ The steps below are only for building from source.
 4. The installable `zip` file is written to `target/` (for example,
    `target/GhidraMCP-0.6.2.zip`). Install it using the steps above.
 
+### Optional: Install Local Pre-commit Checks
+
+To run formatting checks and full integration tests before every commit:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+The installed pre-commit hook runs:
+
+- `mvn spotless:check`
+- `mvn test -De2e.integration=true`
+
 ---
 
 ## 🔌 Configuring an MCP Client

@@ -578,11 +578,7 @@ public abstract class BaseMcpTool {
   }
 
   protected int getBoundedIntArgumentOrDefault(
-      Map<String, Object> args,
-      String argumentName,
-      int defaultValue,
-      int minValue,
-      int maxValue)
+      Map<String, Object> args, String argumentName, int defaultValue, int minValue, int maxValue)
       throws GhidraMcpException {
     return getOptionalBoundedIntArgument(args, argumentName, minValue, maxValue)
         .orElse(defaultValue);

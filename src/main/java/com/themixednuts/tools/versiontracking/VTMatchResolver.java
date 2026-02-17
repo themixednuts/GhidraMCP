@@ -73,8 +73,8 @@ public final class VTMatchResolver {
   /**
    * Normalizes a Ghidra-style address string for robust equality checks.
    *
-   * <p>Examples that normalize to the same value: {@code 0x401000}, {@code 00401000},
-   * {@code ram:00401000}.
+   * <p>Examples that normalize to the same value: {@code 0x401000}, {@code 00401000}, {@code
+   * ram:00401000}.
    */
   public static String normalizeAddressHex(String address) {
     if (address == null) {

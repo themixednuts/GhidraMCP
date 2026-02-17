@@ -186,15 +186,12 @@ public class ManageVTMatchesTool extends BaseVTTool {
 
     VTMatchResolver.ResolvedMatch resolvedMatch =
         VTMatchResolver.findMatch(
-            session,
-            sourceAddrStr,
-            destAddrStr,
-            ARG_SOURCE_ADDRESS,
-            ARG_DESTINATION_ADDRESS);
+            session, sourceAddrStr, destAddrStr, ARG_SOURCE_ADDRESS, ARG_DESTINATION_ADDRESS);
     VTMatch targetMatch = resolvedMatch.match();
 
     int blockedCount = 0;
-    int blockedBefore = VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
+    int blockedBefore =
+        VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
 
     blockedCount =
         inSessionTransaction(
@@ -285,7 +282,8 @@ public class ManageVTMatchesTool extends BaseVTTool {
     }
 
     int acceptedCount;
-    int blockedBefore = VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
+    int blockedBefore =
+        VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
     int blockedCount;
 
     int[] transactionResult =
@@ -393,5 +391,4 @@ public class ManageVTMatchesTool extends BaseVTTool {
 
     return result;
   }
-
 }
