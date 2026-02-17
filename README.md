@@ -24,60 +24,17 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 ---
 
 ## ✨ Features
+- 30 MCP tools for reverse engineering, editing, search, and version tracking
+- Structured responses with pagination and opaque cursors for large datasets
+- In-memory and project-backed Version Tracking workflows for correlation, match triage, and markup
 
-### Core Analysis
+### Tool Commands
 
-- **Analyze RTTI** - Microsoft and Itanium C++ RTTI plus Go runtime RTTI
-  analysis with type detection and demangling
-- **Decompile Code** - Decompile functions to readable C-like pseudocode
-- **Demangle Symbols** - C++ symbol demangling with multiple format support
-- **Script Guidance** - Provides guidance on using Ghidra scripts like
-  DemangleAllScript for advanced demangling
-
-### Management Operations
-
-- **Manage Data Types** - Create and update structures, enums, unions, typedefs,
-  and categories
-- **Manage Functions** - Create, update, and manage function definitions and
-  prototypes
-- **Manage Memory** - Read/write bytes, manage segments, and analyze memory
-  layout
-- **Manage Project** - Navigate addresses, manage bookmarks, and control project
-  settings
-- **Manage Symbols** - Create, rename, and organize symbols with namespace
-  support
-
-### Read Operations
-
-- **Read Data Types** - Browse and query program data types with filtering and
-  pagination
-- **Read Functions** - Enumerate functions with detailed metadata and filtering
-- **Read Listing** - View disassembly and data from program listing with
-  address, range, or function-based viewing
-- **Read Memory Blocks** - View memory segments, permissions, and properties
-- **Read Symbols** - Browse symbols with type and namespace filtering
-
-### Delete Operations
-
-- **Delete Bookmark** - Remove bookmarks by address or category
-- **Delete Data Type** - Remove data type definitions from the program
-- **Delete Function** - Remove function definitions and associated data
-- **Delete Symbol** - Remove symbols by name, ID, or address
-
-### Discovery & Search
-
-- **List Analysis Options** - View available analysis options and settings
-- **List Programs** - Discover open and closed programs in the project with
-  pagination and filtering
-- **Find References** - Locate code and data references with pagination support
-- **Search Memory** - Pattern search with hex, string, binary, and regex support
-
-### Utilities
-
-- **Batch Operations** - Execute multiple tool operations in a single
-  transaction with automatic rollback on failure
-- **Undo/Redo** - Program history undo/redo operations
-- **Read Tool Output** - Retrieve large tool responses in follow-up chunks
+- **Core analysis:** `analyze_rtti`, `decompile_code`, `demangle_symbol`, `script_guidance`
+- **Read/query:** `read_symbols`, `read_memory_blocks`, `read_functions`, `read_data_types`, `read_listing`, `find_references`, `list_analysis_options`, `list_programs`, `search_memory`
+- **Modify/manage:** `manage_data_types`, `manage_functions`, `manage_memory`, `manage_project`, `manage_symbols`, `delete_bookmark`, `delete_data_type`, `delete_function`, `delete_symbol`
+- **Version tracking:** `manage_vt_session`, `run_vt_correlator`, `read_vt_matches`, `manage_vt_matches`, `manage_vt_markup`
+- **Utilities:** `batch_operations`, `undo_redo`, `read_tool_output`
 
 ---
 
