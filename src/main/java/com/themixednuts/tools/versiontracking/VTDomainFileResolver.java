@@ -2,8 +2,8 @@ package com.themixednuts.tools.versiontracking;
 
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.GhidraStateUtils;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.Project;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,10 +58,10 @@ final class VTDomainFileResolver {
       String argumentName,
       String objectName,
       String expectedContentType,
-      String ambiguityHint)
+    String ambiguityHint)
       throws GhidraMcpException {
     List<DomainFile> allFiles = new ArrayList<>();
-    collectFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
+    GhidraStateUtils.collectFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
 
     List<FileDescriptor> fileDescriptors =
         allFiles.stream()
@@ -101,7 +101,7 @@ final class VTDomainFileResolver {
 
     String trimmedIdentifier = identifier == null ? "" : identifier.trim();
     boolean pathLike = isPathLike(trimmedIdentifier);
-    String normalizedIdentifierPath = normalizePath(trimmedIdentifier);
+    String normalizedIdentifierPath = normalizeProjectPath(trimmedIdentifier);
 
     List<FileDescriptor> matches = new ArrayList<>();
     for (FileDescriptor file : files) {
@@ -169,29 +169,16 @@ final class VTDomainFileResolver {
   }
 
   private static boolean pathEquals(String pathname, String normalizedIdentifierPath) {
-    String normalizedPath = stripLeadingSlash(normalizePath(pathname));
-    String normalizedIdentifier = stripLeadingSlash(normalizePath(normalizedIdentifierPath));
+    String normalizedPath = normalizeProjectPath(pathname);
+    String normalizedIdentifier = normalizeProjectPath(normalizedIdentifierPath);
     return normalizedPath.equals(normalizedIdentifier);
   }
 
-  private static String normalizePath(String path) {
-    return path == null ? "" : path.trim().replace('\\', '/');
-  }
-
-  private static String stripLeadingSlash(String value) {
-    String normalized = value == null ? "" : value;
+  static String normalizeProjectPath(String path) {
+    String normalized = path == null ? "" : path.trim().replace('\\', '/');
     while (normalized.startsWith("/")) {
       normalized = normalized.substring(1);
     }
     return normalized;
-  }
-
-  private static void collectFilesRecursive(DomainFolder folder, List<DomainFile> files) {
-    for (DomainFile file : folder.getFiles()) {
-      files.add(file);
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      collectFilesRecursive(subfolder, files);
-    }
   }
 }

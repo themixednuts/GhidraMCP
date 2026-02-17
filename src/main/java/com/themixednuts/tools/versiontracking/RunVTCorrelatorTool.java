@@ -4,19 +4,13 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.versiontracking.VTCorrelatorInfo;
-import com.themixednuts.tools.BaseMcpTool;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
-import ghidra.framework.main.AppInfo;
-import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainObject;
-import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Program;
@@ -60,9 +54,7 @@ import reactor.core.publisher.Mono;
         - run: Returns match count and correlator info for the run
         </return_value_summary>
         """)
-public class RunVTCorrelatorTool extends BaseMcpTool {
-
-  public static final String ARG_SESSION_NAME = "session_name";
+public class RunVTCorrelatorTool extends BaseVTTool {
   public static final String ARG_CORRELATOR_TYPE = "correlator_type";
   public static final String ARG_SOURCE_MIN_ADDRESS = "source_min_address";
   public static final String ARG_SOURCE_MAX_ADDRESS = "source_max_address";
@@ -112,27 +104,21 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_SOURCE_MIN_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Minimum address in source program to correlate")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Minimum address in source program to correlate"));
 
     schemaRoot.property(
         ARG_SOURCE_MAX_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Maximum address in source program to correlate")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Maximum address in source program to correlate"));
 
     schemaRoot.property(
         ARG_DEST_MIN_ADDRESS,
         SchemaBuilder.string(mapper)
-            .description("Minimum address in destination program to correlate")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .description("Minimum address in destination program to correlate"));
 
     schemaRoot.property(
         ARG_DEST_MAX_ADDRESS,
         SchemaBuilder.string(mapper)
-            .description("Maximum address in destination program to correlate")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .description("Maximum address in destination program to correlate"));
 
     schemaRoot.property(
         ARG_EXCLUDE_ACCEPTED,
@@ -216,35 +202,31 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
               "must be one of: exact_bytes, exact_instructions, exact_data, symbol_name"));
     }
 
-    VTSession session = openVTSession(sessionName);
-    try {
-      Program sourceProgram = session.getSourceProgram();
-      Program destProgram = session.getDestinationProgram();
+    return withSession(
+        sessionName,
+        session -> {
+          Program sourceProgram = session.getSourceProgram();
+          Program destProgram = session.getDestinationProgram();
 
-      // Build address sets
-      AddressSetView sourceSet =
-          buildAddressSet(
-              sourceProgram, sourceMinAddr, sourceMaxAddr, session, excludeAccepted, true);
-      AddressSetView destSet =
-          buildAddressSet(destProgram, destMinAddr, destMaxAddr, session, excludeAccepted, false);
+          AddressSetView sourceSet =
+              buildAddressSet(
+                  sourceProgram, sourceMinAddr, sourceMaxAddr, session, excludeAccepted, true);
+          AddressSetView destSet =
+              buildAddressSet(destProgram, destMinAddr, destMaxAddr, session, excludeAccepted, false);
 
-      // Run correlation using reflection
-      VTMatchSet matchSet =
-          runCorrelatorReflective(
-              session, factoryClassName, sourceProgram, sourceSet, destProgram, destSet);
+          VTMatchSet matchSet =
+              runCorrelatorReflective(
+                  session, factoryClassName, sourceProgram, sourceSet, destProgram, destSet);
 
-      // Build result
-      Collection<VTMatch> matches = matchSet.getMatches();
-      Map<String, Object> result = new HashMap<>();
-      result.put("correlator", correlatorType);
-      result.put("correlator_name", matchSet.getProgramCorrelatorInfo().getName());
-      result.put("match_count", matches.size());
-      result.put("session_name", sessionName);
+          Collection<VTMatch> matches = matchSet.getMatches();
+          Map<String, Object> result = new HashMap<>();
+          result.put("correlator", correlatorType);
+          result.put("correlator_name", matchSet.getProgramCorrelatorInfo().getName());
+          result.put("match_count", matches.size());
+          result.put("session_name", sessionName);
 
-      return result;
-    } finally {
-      session.release(this);
-    }
+          return result;
+        });
   }
 
   /** Runs a correlator using reflection to avoid compile-time dependency on correlator classes. */
@@ -264,9 +246,17 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
       Constructor<?> constructor = factoryClass.getDeclaredConstructor();
       Object factory = constructor.newInstance();
 
-      // Get VTOptions class and create instance
+      // Create default options from the factory
       Class<?> vtOptionsClass = Class.forName("ghidra.feature.vt.api.util.VTOptions");
-      Object options = vtOptionsClass.getConstructor(String.class).newInstance("Options");
+      Method createDefaultOptionsMethod = factoryClass.getMethod("createDefaultOptions");
+      Object options = createDefaultOptionsMethod.invoke(factory);
+      if (!vtOptionsClass.isInstance(options)) {
+        throw new GhidraMcpException(
+            GhidraMcpError.execution()
+                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+                .message("Correlator factory returned invalid options type")
+                .build());
+      }
 
       // Get createCorrelator method
       Class<?> addressSetViewClass = AddressSetView.class;
@@ -285,42 +275,16 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
           createCorrelatorMethod.invoke(
               factory, null, sourceProgram, sourceSet, destProgram, destSet, options);
 
-      // Get VTSessionDB class for transaction handling
-      Class<?> vtSessionDBClass = Class.forName("ghidra.feature.vt.api.db.VTSessionDB");
-
-      // Start transaction
-      Method startTxMethod = vtSessionDBClass.getMethod("startTransaction", String.class);
-      int txId = (Integer) startTxMethod.invoke(session, "Run Correlator");
-
-      VTMatchSet matchSet;
-      try {
-        // Run correlation: correlator.correlate(session, TaskMonitor.DUMMY)
-        Class<?> vtSessionClass = VTSession.class;
-        Method correlateMethod =
-            correlator.getClass().getMethod("correlate", vtSessionClass, TaskMonitor.class);
-        matchSet = (VTMatchSet) correlateMethod.invoke(correlator, session, TaskMonitor.DUMMY);
-
-        // Commit transaction
-        Method endTxMethod = vtSessionDBClass.getMethod("endTransaction", int.class, boolean.class);
-        endTxMethod.invoke(session, txId, true);
-      } catch (Exception e) {
-        // Rollback transaction
-        try {
-          Method endTxMethod =
-              vtSessionDBClass.getMethod("endTransaction", int.class, boolean.class);
-          endTxMethod.invoke(session, txId, false);
-        } catch (Exception ignored) {
-        }
-
-        Throwable cause = e.getCause() != null ? e.getCause() : e;
-        throw new GhidraMcpException(
-            GhidraMcpError.execution()
-                .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-                .message("Correlation failed: " + cause.getMessage())
-                .build());
-      }
-
-      return matchSet;
+      return inSessionTransaction(
+          session,
+          "Run Correlator",
+          "Correlation failed: ",
+          () -> {
+            Class<?> vtSessionClass = VTSession.class;
+            Method correlateMethod =
+                correlator.getClass().getMethod("correlate", vtSessionClass, TaskMonitor.class);
+            return (VTMatchSet) correlateMethod.invoke(correlator, session, TaskMonitor.DUMMY);
+          });
     } catch (ClassNotFoundException e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
@@ -338,43 +302,6 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
     }
   }
 
-  private VTSession openVTSession(String sessionName) throws GhidraMcpException {
-    Project project = AppInfo.getActiveProject();
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.permissionState()
-              .errorCode(GhidraMcpError.ErrorCode.PROGRAM_NOT_OPEN)
-              .message("No active project found")
-              .build());
-    }
-
-    DomainFile sessionFile =
-        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
-
-    try {
-      DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
-      if (obj instanceof VTSession) {
-        return (VTSession) obj;
-      }
-      if (obj != null) {
-        obj.release(this);
-      }
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message("File '" + sessionName + "' is not a VT session")
-              .build());
-    } catch (GhidraMcpException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to open VT session: " + e.getMessage())
-              .build());
-    }
-  }
-
   private AddressSetView buildAddressSet(
       Program program,
       Optional<String> minAddr,
@@ -384,18 +311,27 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
       boolean isSource)
       throws GhidraMcpException {
 
-    AddressFactory factory = program.getAddressFactory();
     AddressSet set;
 
     if (minAddr.isPresent() && maxAddr.isPresent()) {
-      Address min = factory.getAddress(minAddr.get());
-      Address max = factory.getAddress(maxAddr.get());
-      if (min == null || max == null) {
+      Address min =
+          VTMatchResolver.parseAddress(
+              program,
+              minAddr.get(),
+              isSource ? ARG_SOURCE_MIN_ADDRESS : ARG_DEST_MIN_ADDRESS);
+      Address max =
+          VTMatchResolver.parseAddress(
+              program,
+              maxAddr.get(),
+              isSource ? ARG_SOURCE_MAX_ADDRESS : ARG_DEST_MAX_ADDRESS);
+      if (min.compareTo(max) > 0) {
         throw new GhidraMcpException(
-            GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-                .message("Invalid address range")
-                .build());
+            GhidraMcpError.invalid(
+                isSource
+                    ? ARG_SOURCE_MIN_ADDRESS + "/" + ARG_SOURCE_MAX_ADDRESS
+                    : ARG_DEST_MIN_ADDRESS + "/" + ARG_DEST_MAX_ADDRESS,
+                minAddr.get() + ".." + maxAddr.get(),
+                "minimum address must be less than or equal to maximum address"));
       }
       set = new AddressSet(min, max);
     } else if (minAddr.isPresent() || maxAddr.isPresent()) {
@@ -419,12 +355,34 @@ public class RunVTCorrelatorTool extends BaseMcpTool {
                 isSource
                     ? match.getAssociation().getSourceAddress()
                     : match.getAssociation().getDestinationAddress();
-            set.delete(addr, addr);
+            int matchLength = isSource ? match.getSourceLength() : match.getDestinationLength();
+            deleteAddressRange(set, addr, matchLength);
           }
         }
       }
     }
 
     return set;
+  }
+
+  private void deleteAddressRange(AddressSet set, Address start, int length) {
+    if (start == null) {
+      return;
+    }
+
+    Address end = start;
+    if (length > 1) {
+      try {
+        end = start.addNoWrap(length - 1L);
+      } catch (Exception e) {
+        try {
+          end = start.add(length - 1L);
+        } catch (Exception ignored) {
+          end = start;
+        }
+      }
+    }
+
+    set.delete(start, end);
   }
 }

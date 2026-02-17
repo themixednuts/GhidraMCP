@@ -4,7 +4,6 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.versiontracking.VTMatchInfo;
-import com.themixednuts.tools.BaseMcpTool;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -15,16 +14,11 @@ import ghidra.feature.vt.api.main.VTAssociationType;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
-import ghidra.framework.main.AppInfo;
-import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainObject;
-import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -51,7 +45,8 @@ import reactor.core.publisher.Mono;
         - Provide both source_address and destination_address to get a single specific match
         - Omit addresses to list all matches with optional filtering
         - Results are paginated - use opaque v1 cursor parameter for subsequent pages
-        - Similarity and confidence scores range from 0.0 to 1.0
+        - Similarity scores range from 0.0 to 1.0
+        - Confidence scores are non-normalized and may exceed 1.0
         - Status values: AVAILABLE, ACCEPTED, REJECTED, BLOCKED
         - Match types: FUNCTION, DATA
         </important_notes>
@@ -61,9 +56,8 @@ import reactor.core.publisher.Mono;
         correlator info, and symbol names where available.
         </return_value_summary>
         """)
-public class ReadVTMatchesTool extends BaseMcpTool {
+public class ReadVTMatchesTool extends BaseVTTool {
 
-  public static final String ARG_SESSION_NAME = "session_name";
   public static final String ARG_SOURCE_ADDRESS = "source_address";
   public static final String ARG_DESTINATION_ADDRESS = "destination_address";
   public static final String ARG_STATUS = "status";
@@ -81,15 +75,11 @@ public class ReadVTMatchesTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_SOURCE_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Source address for single match lookup")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Source address for single match lookup"));
 
     schemaRoot.property(
         ARG_DESTINATION_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Destination address for single match lookup")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Destination address for single match lookup"));
 
     schemaRoot.property(
         ARG_STATUS,
@@ -113,9 +103,8 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_MIN_CONFIDENCE,
         SchemaBuilder.number(mapper)
-            .description("Minimum confidence score (0.0 to 1.0)")
-            .minimum(0.0)
-            .maximum(1.0));
+            .description("Minimum confidence score (>= 0.0)")
+            .minimum(0.0));
 
     schemaRoot.property(
         ARG_CORRELATOR, SchemaBuilder.string(mapper).description("Filter by correlator name"));
@@ -154,18 +143,16 @@ public class ReadVTMatchesTool extends BaseMcpTool {
           Optional<String> destAddr = getOptionalStringArgument(args, ARG_DESTINATION_ADDRESS);
           validateSingleMatchAddressArguments(sourceAddr, destAddr);
 
-          VTSession session = openVTSession(sessionName);
-          try {
-            // If both addresses provided, return single match
-            if (sourceAddr.isPresent() && destAddr.isPresent()) {
-              return getSingleMatch(session, sourceAddr.get(), destAddr.get());
-            }
+          return withSession(
+              sessionName,
+              false,
+              session -> {
+                if (sourceAddr.isPresent() && destAddr.isPresent()) {
+                  return getSingleMatch(session, sourceAddr.get(), destAddr.get());
+                }
 
-            // Otherwise, list matches with filtering
-            return listMatches(session, args);
-          } finally {
-            session.release(this);
-          }
+                return listMatches(session, args);
+              });
         });
   }
 
@@ -183,30 +170,15 @@ public class ReadVTMatchesTool extends BaseMcpTool {
       throws GhidraMcpException {
     Program sourceProgram = session.getSourceProgram();
     Program destProgram = session.getDestinationProgram();
+    VTMatchResolver.ResolvedMatch resolvedMatch =
+        VTMatchResolver.findMatch(
+            session,
+            sourceAddrStr,
+            destAddrStr,
+            ARG_SOURCE_ADDRESS,
+            ARG_DESTINATION_ADDRESS);
 
-    Address sourceAddr = sourceProgram.getAddressFactory().getAddress(sourceAddrStr);
-    Address destAddr = destProgram.getAddressFactory().getAddress(destAddrStr);
-
-    if (sourceAddr == null || destAddr == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-              .message("Invalid address")
-              .build());
-    }
-
-    // Search all match sets for the specific match
-    for (VTMatchSet matchSet : session.getMatchSets()) {
-      for (VTMatch match : matchSet.getMatches()) {
-        if (match.getAssociation().getSourceAddress().equals(sourceAddr)
-            && match.getAssociation().getDestinationAddress().equals(destAddr)) {
-          return buildMatchInfo(match, matchSet, sourceProgram, destProgram);
-        }
-      }
-    }
-
-    throw new GhidraMcpException(
-        GhidraMcpError.notFound("match", sourceAddrStr + " -> " + destAddrStr));
+    return buildMatchInfo(resolvedMatch.match(), resolvedMatch.matchSet(), sourceProgram, destProgram);
   }
 
   private PaginatedResult<VTMatchInfo> listMatches(VTSession session, Map<String, Object> args)
@@ -214,15 +186,13 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     // Get filter parameters
     Optional<String> statusFilter = getOptionalStringArgument(args, ARG_STATUS);
     Optional<String> typeFilter = getOptionalStringArgument(args, ARG_MATCH_TYPE);
-    Optional<Double> minSimilarity = getOptionalDoubleArgument(args, ARG_MIN_SIMILARITY);
-    Optional<Double> minConfidence = getOptionalDoubleArgument(args, ARG_MIN_CONFIDENCE);
+    Optional<Double> minSimilarity =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_SIMILARITY, 0.0, 1.0);
+    Optional<Double> minConfidence =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_CONFIDENCE, 0.0, null);
     Optional<String> correlatorFilter = getOptionalStringArgument(args, ARG_CORRELATOR);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     Program sourceProgram = session.getSourceProgram();
     Program destProgram = session.getDestinationProgram();
@@ -233,7 +203,7 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     if (cursorOpt.isPresent()) {
       String cursorValue = cursorOpt.get();
       List<String> parts =
-          OpaqueCursorCodec.decodeV1(
+          decodeOpaqueCursorV1(
               cursorValue, 2, ARG_CURSOR, "v1:<base64url_match_set_index>:<base64url_match_index>");
 
       try {
@@ -414,58 +384,4 @@ public class ReadVTMatchesTool extends BaseMcpTool {
     return null;
   }
 
-  private Optional<Double> getOptionalDoubleArgument(
-      Map<String, Object> args, String argumentName) {
-    return Optional.ofNullable(args.get(argumentName))
-        .flatMap(
-            value -> {
-              if (value instanceof Number) {
-                return Optional.of(((Number) value).doubleValue());
-              } else if (value instanceof String) {
-                try {
-                  return Optional.of(Double.parseDouble((String) value));
-                } catch (NumberFormatException e) {
-                  return Optional.empty();
-                }
-              }
-              return Optional.empty();
-            });
-  }
-
-  private VTSession openVTSession(String sessionName) throws GhidraMcpException {
-    Project project = AppInfo.getActiveProject();
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.permissionState()
-              .errorCode(GhidraMcpError.ErrorCode.PROGRAM_NOT_OPEN)
-              .message("No active project found")
-              .build());
-    }
-
-    DomainFile sessionFile =
-        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
-
-    try {
-      DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
-      if (obj instanceof VTSession) {
-        return (VTSession) obj;
-      }
-      if (obj != null) {
-        obj.release(this);
-      }
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message("File '" + sessionName + "' is not a VT session")
-              .build());
-    } catch (GhidraMcpException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to open VT session: " + e.getMessage())
-              .build());
-    }
-  }
 }

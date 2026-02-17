@@ -3,23 +3,14 @@ package com.themixednuts.tools.versiontracking;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
-import com.themixednuts.tools.BaseMcpTool;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
-import ghidra.feature.vt.api.db.VTSessionDB;
 import ghidra.feature.vt.api.main.VTAssociation;
 import ghidra.feature.vt.api.main.VTAssociationStatus;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
-import ghidra.framework.main.AppInfo;
-import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainObject;
-import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.Program;
-import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -53,9 +44,8 @@ import reactor.core.publisher.Mono;
         for single-match operations.
         </return_value_summary>
         """)
-public class ManageVTMatchesTool extends BaseMcpTool {
+public class ManageVTMatchesTool extends BaseVTTool {
 
-  public static final String ARG_SESSION_NAME = "session_name";
   public static final String ARG_SOURCE_ADDRESS = "source_address";
   public static final String ARG_DESTINATION_ADDRESS = "destination_address";
   public static final String ARG_MIN_SIMILARITY = "min_similarity";
@@ -85,15 +75,11 @@ public class ManageVTMatchesTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_SOURCE_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Source address of the match")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Source address of the match"));
 
     schemaRoot.property(
         ARG_DESTINATION_ADDRESS,
-        SchemaBuilder.string(mapper)
-            .description("Destination address of the match")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+        SchemaBuilder.string(mapper).description("Destination address of the match"));
 
     schemaRoot.property(
         ARG_MIN_SIMILARITY,
@@ -105,9 +91,8 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_MIN_CONFIDENCE,
         SchemaBuilder.number(mapper)
-            .description("Minimum confidence score for bulk operations (0.0 to 1.0)")
-            .minimum(0.0)
-            .maximum(1.0));
+            .description("Minimum confidence score for bulk operations (>= 0.0)")
+            .minimum(0.0));
 
     schemaRoot.property(
         ARG_MAX_SIMILARITY,
@@ -119,9 +104,8 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_MAX_CONFIDENCE,
         SchemaBuilder.number(mapper)
-            .description("Maximum confidence score for bulk reject (0.0 to 1.0)")
-            .minimum(0.0)
-            .maximum(1.0));
+            .description("Maximum confidence score for bulk reject (>= 0.0)")
+            .minimum(0.0));
 
     schemaRoot.requiredProperty(ARG_ACTION);
     schemaRoot.requiredProperty(ARG_SESSION_NAME);
@@ -163,33 +147,34 @@ public class ManageVTMatchesTool extends BaseMcpTool {
           String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
           String normalizedAction = action.toLowerCase();
 
-          VTSession session = openVTSession(sessionName);
-          try {
-            return switch (normalizedAction) {
-              case ACTION_ACCEPT -> handleSingleMatch(session, args, VTAssociationStatus.ACCEPTED);
-              case ACTION_REJECT -> handleSingleMatch(session, args, VTAssociationStatus.REJECTED);
-              case ACTION_CLEAR -> handleSingleMatch(session, args, VTAssociationStatus.AVAILABLE);
-              case ACTION_ACCEPT_BULK -> handleBulkAccept(session, args);
-              case ACTION_REJECT_BULK -> handleBulkReject(session, args);
-              default ->
-                  throw new GhidraMcpException(
-                      GhidraMcpError.invalid(
-                          ARG_ACTION,
-                          action,
-                          "must be one of: "
-                              + ACTION_ACCEPT
-                              + ", "
-                              + ACTION_REJECT
-                              + ", "
-                              + ACTION_CLEAR
-                              + ", "
-                              + ACTION_ACCEPT_BULK
-                              + ", "
-                              + ACTION_REJECT_BULK));
-            };
-          } finally {
-            session.release(this);
-          }
+          return withSession(
+              sessionName,
+              session ->
+                  switch (normalizedAction) {
+                    case ACTION_ACCEPT ->
+                        handleSingleMatch(session, args, VTAssociationStatus.ACCEPTED);
+                    case ACTION_REJECT ->
+                        handleSingleMatch(session, args, VTAssociationStatus.REJECTED);
+                    case ACTION_CLEAR ->
+                        handleSingleMatch(session, args, VTAssociationStatus.AVAILABLE);
+                    case ACTION_ACCEPT_BULK -> handleBulkAccept(session, args);
+                    case ACTION_REJECT_BULK -> handleBulkReject(session, args);
+                    default ->
+                        throw new GhidraMcpException(
+                            GhidraMcpError.invalid(
+                                ARG_ACTION,
+                                action,
+                                "must be one of: "
+                                    + ACTION_ACCEPT
+                                    + ", "
+                                    + ACTION_REJECT
+                                    + ", "
+                                    + ACTION_CLEAR
+                                    + ", "
+                                    + ACTION_ACCEPT_BULK
+                                    + ", "
+                                    + ACTION_REJECT_BULK));
+                  });
         });
   }
 
@@ -199,70 +184,40 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     String sourceAddrStr = getRequiredStringArgument(args, ARG_SOURCE_ADDRESS);
     String destAddrStr = getRequiredStringArgument(args, ARG_DESTINATION_ADDRESS);
 
-    Program sourceProgram = session.getSourceProgram();
-    Program destProgram = session.getDestinationProgram();
+    VTMatchResolver.ResolvedMatch resolvedMatch =
+        VTMatchResolver.findMatch(
+            session,
+            sourceAddrStr,
+            destAddrStr,
+            ARG_SOURCE_ADDRESS,
+            ARG_DESTINATION_ADDRESS);
+    VTMatch targetMatch = resolvedMatch.match();
 
-    Address sourceAddr = sourceProgram.getAddressFactory().getAddress(sourceAddrStr);
-    Address destAddr = destProgram.getAddressFactory().getAddress(destAddrStr);
-
-    if (sourceAddr == null || destAddr == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-              .message("Invalid address")
-              .build());
-    }
-
-    // Find the match
-    VTMatch targetMatch = null;
-    for (VTMatchSet matchSet : session.getMatchSets()) {
-      for (VTMatch match : matchSet.getMatches()) {
-        if (match.getAssociation().getSourceAddress().equals(sourceAddr)
-            && match.getAssociation().getDestinationAddress().equals(destAddr)) {
-          targetMatch = match;
-          break;
-        }
-      }
-      if (targetMatch != null) break;
-    }
-
-    if (targetMatch == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.notFound("match", sourceAddrStr + " -> " + destAddrStr));
-    }
-
-    VTSessionDB sessionDB = (VTSessionDB) session;
-    int txId = sessionDB.startTransaction("Set Match Status");
     int blockedCount = 0;
+    int blockedBefore = VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
 
-    try {
-      VTAssociation association = targetMatch.getAssociation();
+    blockedCount =
+        inSessionTransaction(
+            session,
+            "Set Match Status",
+            "Failed to update match status: ",
+            () -> {
+              VTAssociation association = targetMatch.getAssociation();
 
-      if (newStatus == VTAssociationStatus.ACCEPTED) {
-        association.setAccepted();
-        // Count newly blocked matches
-        for (VTMatchSet ms : session.getMatchSets()) {
-          for (VTMatch m : ms.getMatches()) {
-            if (m.getAssociation().getStatus() == VTAssociationStatus.BLOCKED) {
-              blockedCount++;
-            }
-          }
-        }
-      } else if (newStatus == VTAssociationStatus.REJECTED) {
-        association.setRejected();
-      } else {
-        association.clearStatus();
-      }
+              if (newStatus == VTAssociationStatus.ACCEPTED) {
+                association.setAccepted();
+                int blockedAfter =
+                    VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
+                return Math.max(0, blockedAfter - blockedBefore);
+              }
 
-      sessionDB.endTransaction(txId, true);
-    } catch (Exception e) {
-      sessionDB.endTransaction(txId, false);
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to update match status: " + e.getMessage())
-              .build());
-    }
+              if (newStatus == VTAssociationStatus.REJECTED) {
+                association.setRejected();
+              } else {
+                association.clearStatus();
+              }
+              return 0;
+            });
 
     String actionName = actionNameForStatus(newStatus);
 
@@ -289,8 +244,10 @@ public class ManageVTMatchesTool extends BaseMcpTool {
 
   private Map<String, Object> handleBulkAccept(VTSession session, Map<String, Object> args)
       throws GhidraMcpException {
-    Optional<Double> minSimilarity = getOptionalDoubleArgument(args, ARG_MIN_SIMILARITY);
-    Optional<Double> minConfidence = getOptionalDoubleArgument(args, ARG_MIN_CONFIDENCE);
+    Optional<Double> minSimilarity =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_SIMILARITY, 0.0, 1.0);
+    Optional<Double> minConfidence =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_CONFIDENCE, 0.0, null);
 
     if (minSimilarity.isEmpty() && minConfidence.isEmpty()) {
       throw new GhidraMcpException(
@@ -327,39 +284,32 @@ public class ManageVTMatchesTool extends BaseMcpTool {
       }
     }
 
-    VTSessionDB sessionDB = (VTSessionDB) session;
-    int txId = sessionDB.startTransaction("Bulk Accept Matches");
-    int acceptedCount = 0;
-    int blockedCount = 0;
+    int acceptedCount;
+    int blockedBefore = VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
+    int blockedCount;
 
-    try {
-      for (VTMatch match : matchesToAccept) {
-        try {
-          match.getAssociation().setAccepted();
-          acceptedCount++;
-        } catch (Exception e) {
-          // Skip matches that can't be accepted (might be blocked by earlier accepts)
-        }
-      }
+    int[] transactionResult =
+        inSessionTransaction(
+            session,
+            "Bulk Accept Matches",
+            "Bulk accept failed: ",
+            () -> {
+              int accepted = 0;
+              for (VTMatch match : matchesToAccept) {
+                try {
+                  match.getAssociation().setAccepted();
+                  accepted++;
+                } catch (Exception e) {
+                  // Skip matches that can't be accepted (might be blocked by earlier accepts)
+                }
+              }
 
-      // Count blocked matches
-      for (VTMatchSet ms : session.getMatchSets()) {
-        for (VTMatch m : ms.getMatches()) {
-          if (m.getAssociation().getStatus() == VTAssociationStatus.BLOCKED) {
-            blockedCount++;
-          }
-        }
-      }
-
-      sessionDB.endTransaction(txId, true);
-    } catch (Exception e) {
-      sessionDB.endTransaction(txId, false);
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Bulk accept failed: " + e.getMessage())
-              .build());
-    }
+              int blockedAfter =
+                  VTMatchResolver.countMatchesWithStatus(session, VTAssociationStatus.BLOCKED);
+              return new int[] {accepted, Math.max(0, blockedAfter - blockedBefore)};
+            });
+    acceptedCount = transactionResult[0];
+    blockedCount = transactionResult[1];
 
     Map<String, Object> result = new HashMap<>();
     result.put("action", "accept_bulk");
@@ -377,8 +327,10 @@ public class ManageVTMatchesTool extends BaseMcpTool {
 
   private Map<String, Object> handleBulkReject(VTSession session, Map<String, Object> args)
       throws GhidraMcpException {
-    Optional<Double> maxSimilarity = getOptionalDoubleArgument(args, ARG_MAX_SIMILARITY);
-    Optional<Double> maxConfidence = getOptionalDoubleArgument(args, ARG_MAX_CONFIDENCE);
+    Optional<Double> maxSimilarity =
+        getOptionalBoundedDoubleArgument(args, ARG_MAX_SIMILARITY, 0.0, 1.0);
+    Optional<Double> maxConfidence =
+        getOptionalBoundedDoubleArgument(args, ARG_MAX_CONFIDENCE, 0.0, null);
 
     if (maxSimilarity.isEmpty() && maxConfidence.isEmpty()) {
       throw new GhidraMcpException(
@@ -415,25 +367,19 @@ public class ManageVTMatchesTool extends BaseMcpTool {
       }
     }
 
-    VTSessionDB sessionDB = (VTSessionDB) session;
-    int txId = sessionDB.startTransaction("Bulk Reject Matches");
-    int rejectedCount = 0;
-
-    try {
-      for (VTMatch match : matchesToReject) {
-        match.getAssociation().setRejected();
-        rejectedCount++;
-      }
-
-      sessionDB.endTransaction(txId, true);
-    } catch (Exception e) {
-      sessionDB.endTransaction(txId, false);
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Bulk reject failed: " + e.getMessage())
-              .build());
-    }
+    int rejectedCount =
+        inSessionTransaction(
+            session,
+            "Bulk Reject Matches",
+            "Bulk reject failed: ",
+            () -> {
+              int rejected = 0;
+              for (VTMatch match : matchesToReject) {
+                match.getAssociation().setRejected();
+                rejected++;
+              }
+              return rejected;
+            });
 
     Map<String, Object> result = new HashMap<>();
     result.put("action", "reject_bulk");
@@ -448,58 +394,4 @@ public class ManageVTMatchesTool extends BaseMcpTool {
     return result;
   }
 
-  private Optional<Double> getOptionalDoubleArgument(
-      Map<String, Object> args, String argumentName) {
-    return Optional.ofNullable(args.get(argumentName))
-        .flatMap(
-            value -> {
-              if (value instanceof Number) {
-                return Optional.of(((Number) value).doubleValue());
-              } else if (value instanceof String) {
-                try {
-                  return Optional.of(Double.parseDouble((String) value));
-                } catch (NumberFormatException e) {
-                  return Optional.empty();
-                }
-              }
-              return Optional.empty();
-            });
-  }
-
-  private VTSession openVTSession(String sessionName) throws GhidraMcpException {
-    Project project = AppInfo.getActiveProject();
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.permissionState()
-              .errorCode(GhidraMcpError.ErrorCode.PROGRAM_NOT_OPEN)
-              .message("No active project found")
-              .build());
-    }
-
-    DomainFile sessionFile =
-        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
-
-    try {
-      DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
-      if (obj instanceof VTSession) {
-        return (VTSession) obj;
-      }
-      if (obj != null) {
-        obj.release(this);
-      }
-      throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message("File '" + sessionName + "' is not a VT session")
-              .build());
-    } catch (GhidraMcpException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to open VT session: " + e.getMessage())
-              .build());
-    }
-  }
 }

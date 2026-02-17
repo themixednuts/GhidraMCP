@@ -5,13 +5,12 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.versiontracking.VTSessionInfo;
-import com.themixednuts.tools.BaseMcpTool;
+import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
-import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
@@ -19,8 +18,10 @@ import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
+import ghidra.util.InvalidNameException;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,15 +51,15 @@ import reactor.core.publisher.Mono;
 
         <return_value_summary>
         - create/open/info: Returns VTSessionInfo with program names and match statistics
-        - list: Returns list of available VT session names in the project
+        - list: Returns list of available VT session project paths (for example, /Folder/Session.vt)
         - close: Returns OperationResult confirming closure
         </return_value_summary>
         """)
-public class ManageVTSessionTool extends BaseMcpTool {
-
-  public static final String ARG_SESSION_NAME = "session_name";
+public class ManageVTSessionTool extends BaseVTTool {
   public static final String ARG_SOURCE_FILE = "source_file";
   public static final String ARG_DESTINATION_FILE = "destination_file";
+
+  record CreateTarget(DomainFolder folder, String fileName) {}
 
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_OPEN = "open";
@@ -164,10 +165,17 @@ public class ManageVTSessionTool extends BaseMcpTool {
       String sessionName, Program sourceProgram, Program destProgram) throws GhidraMcpException {
     try {
       Class<?> vtSessionDBClass = Class.forName("ghidra.feature.vt.api.db.VTSessionDB");
-      Method createMethod =
-          vtSessionDBClass.getMethod(
-              "createVTSession", String.class, Program.class, Program.class, Object.class);
-      return createMethod.invoke(null, sessionName, sourceProgram, destProgram, this);
+
+      try {
+        Constructor<?> constructor =
+            vtSessionDBClass.getConstructor(String.class, Program.class, Program.class, Object.class);
+        return constructor.newInstance(sessionName, sourceProgram, destProgram, this);
+      } catch (NoSuchMethodException noConstructor) {
+        Method createMethod =
+            vtSessionDBClass.getMethod(
+                "createVTSession", String.class, Program.class, Program.class, Object.class);
+        return createMethod.invoke(null, sessionName, sourceProgram, destProgram, this);
+      }
     } catch (ClassNotFoundException e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
@@ -190,20 +198,38 @@ public class ManageVTSessionTool extends BaseMcpTool {
     String destinationFile = getRequiredStringArgument(args, ARG_DESTINATION_FILE);
 
     Project project = getActiveProject();
-    DomainFolder rootFolder = project.getProjectData().getRootFolder();
+    CreateTarget createTarget = resolveCreateTarget(project, sessionName);
 
-    // Get source and destination programs
-    Program sourceProgram = openProgram(project, sourceFile, ARG_SOURCE_FILE);
-    Program destProgram = openProgram(project, destinationFile, ARG_DESTINATION_FILE);
+    DomainFile existingFile = createTarget.folder().getFile(createTarget.fileName());
+    if (existingFile != null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.conflict("VT session already exists at path: " + existingFile.getPathname()));
+    }
+
+    DomainFile sourceDomainFile =
+        VTDomainFileResolver.resolveProgramFile(project, sourceFile, ARG_SOURCE_FILE);
+    DomainFile destinationDomainFile =
+        VTDomainFileResolver.resolveProgramFile(project, destinationFile, ARG_DESTINATION_FILE);
+
+    if (sameDomainFilePath(sourceDomainFile, destinationDomainFile)) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_DESTINATION_FILE,
+              destinationFile,
+              "must reference a different program than source_file"));
+    }
+
+    Program sourceProgram = openProgram(sourceDomainFile, sourceFile, false);
+    Program destProgram = openProgram(destinationDomainFile, destinationFile, true);
 
     try {
       // Create VT session using reflection
-      Object session = createVTSessionReflective(sessionName, sourceProgram, destProgram);
+      Object session = createVTSessionReflective(createTarget.fileName(), sourceProgram, destProgram);
 
       try {
         // Save the session to the project
         DomainFile sessionFile =
-            rootFolder.createFile(sessionName, (DomainObject) session, TaskMonitor.DUMMY);
+            createTarget.folder().createFile(createTarget.fileName(), (DomainObject) session, TaskMonitor.DUMMY);
 
         Msg.info(this, "Created VT session: " + sessionFile.getPathname());
 
@@ -237,19 +263,23 @@ public class ManageVTSessionTool extends BaseMcpTool {
 
   private VTSessionInfo handleOpen(Map<String, Object> args) throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
-    VTSession session = openVTSession(sessionName);
-    try {
-      return buildSessionInfo(session);
-    } finally {
-      releaseSessionQuietly(session);
-    }
+    return readSessionInfo(sessionName);
   }
 
   private List<String> handleList() throws GhidraMcpException {
     Project project = getActiveProject();
-    List<String> sessionNames = new ArrayList<>();
-    collectVTSessions(project.getProjectData().getRootFolder(), sessionNames);
-    return sessionNames;
+    List<String> sessionPaths = new ArrayList<>();
+    List<DomainFile> allFiles = new ArrayList<>();
+    GhidraStateUtils.collectFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
+    for (DomainFile file : allFiles) {
+      String contentType = file.getContentType();
+      if ((contentType != null && contentType.contains("VersionTracking"))
+          || file.getName().endsWith(".vt")) {
+        sessionPaths.add(file.getPathname());
+      }
+    }
+    sessionPaths.sort(String.CASE_INSENSITIVE_ORDER);
+    return sessionPaths;
   }
 
   private OperationResult handleClose(Map<String, Object> args) throws GhidraMcpException {
@@ -261,7 +291,7 @@ public class ManageVTSessionTool extends BaseMcpTool {
 
     // Check if the session is currently open
     if (!sessionFile.isOpen()) {
-      return OperationResult.success(ACTION_CLOSE, sessionName, "Session was not open");
+      return OperationResult.success(ACTION_CLOSE, sessionFile.getPathname(), "Session was not open");
     }
 
     // Acquire and release one reference from this tool instance.
@@ -284,10 +314,10 @@ public class ManageVTSessionTool extends BaseMcpTool {
     }
 
     if (sessionFile.isOpen()) {
-      return closeResult(sessionName, true);
+      return closeResult(sessionFile.getPathname(), true);
     }
 
-    return closeResult(sessionName, false);
+    return closeResult(sessionFile.getPathname(), false);
   }
 
   static OperationResult closeResult(String sessionName, boolean stillOpenByAnotherConsumer) {
@@ -302,43 +332,17 @@ public class ManageVTSessionTool extends BaseMcpTool {
 
   private VTSessionInfo handleInfo(Map<String, Object> args) throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
-    VTSession session = openVTSession(sessionName);
-    try {
-      return buildSessionInfo(session);
-    } finally {
-      releaseSessionQuietly(session);
-    }
+    return readSessionInfo(sessionName);
   }
 
-  private void releaseSessionQuietly(VTSession session) {
-    if (session == null) {
-      return;
-    }
-    try {
-      session.release(this);
-    } catch (Exception ignored) {
-    }
+  private VTSessionInfo readSessionInfo(String sessionName) throws GhidraMcpException {
+    return withSession(sessionName, false, this::buildSessionInfo);
   }
 
-  private Project getActiveProject() throws GhidraMcpException {
-    Project project = AppInfo.getActiveProject();
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.permissionState()
-              .errorCode(GhidraMcpError.ErrorCode.PROGRAM_NOT_OPEN)
-              .message("No active project found")
-              .build());
-    }
-    return project;
-  }
-
-  private Program openProgram(Project project, String fileName, String argumentName)
+  private Program openProgram(DomainFile domainFile, String identifierForErrors, boolean forUpdate)
       throws GhidraMcpException {
-    DomainFile domainFile =
-        VTDomainFileResolver.resolveProgramFile(project, fileName, argumentName);
-
     try {
-      DomainObject obj = domainFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
+      DomainObject obj = domainFile.getDomainObject(this, forUpdate, false, TaskMonitor.DUMMY);
       if (obj instanceof Program) {
         return (Program) obj;
       }
@@ -348,7 +352,7 @@ public class ManageVTSessionTool extends BaseMcpTool {
       throw new GhidraMcpException(
           GhidraMcpError.validation()
               .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message("File '" + fileName + "' is not a Program")
+              .message("File '" + identifierForErrors + "' is not a Program")
               .build());
     } catch (GhidraMcpException e) {
       throw e;
@@ -356,51 +360,69 @@ public class ManageVTSessionTool extends BaseMcpTool {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
               .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to open program '" + fileName + "': " + e.getMessage())
+              .message("Failed to open program '" + identifierForErrors + "': " + e.getMessage())
               .build());
     }
   }
 
-  private VTSession openVTSession(String sessionName) throws GhidraMcpException {
-    Project project = getActiveProject();
-    DomainFile sessionFile =
-        VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
+  static boolean sameDomainFilePath(DomainFile first, DomainFile second) {
+    return normalizeProjectPath(first.getPathname()).equals(normalizeProjectPath(second.getPathname()));
+  }
 
+  static String normalizeProjectPath(String path) {
+    return VTDomainFileResolver.normalizeProjectPath(path);
+  }
+
+  private CreateTarget resolveCreateTarget(Project project, String sessionName)
+      throws GhidraMcpException {
+    String identifier = sessionName.trim();
+    String normalized = identifier.replace('\\', '/');
+
+    if (!normalized.contains("/")) {
+      validateFileName(project, identifier, ARG_SESSION_NAME);
+      return new CreateTarget(project.getProjectData().getRootFolder(), identifier);
+    }
+
+    if (!normalized.startsWith("/")) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_SESSION_NAME,
+              sessionName,
+              "path must be absolute (start with '/') when specifying a folder"));
+    }
+    if (normalized.endsWith("/")) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_SESSION_NAME,
+              sessionName,
+              "must include a session file name after the folder path"));
+    }
+
+    int lastSeparator = normalized.lastIndexOf('/');
+    String folderPath = lastSeparator == 0 ? "/" : normalized.substring(0, lastSeparator);
+    String fileName = normalized.substring(lastSeparator + 1);
+
+    validateFileName(project, fileName, ARG_SESSION_NAME);
+
+    DomainFolder folder = project.getProjectData().getFolder(folderPath);
+    if (folder == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.notFound(
+              "folder",
+              folderPath,
+              "Create the folder in Ghidra first or provide an existing folder path."));
+    }
+
+    return new CreateTarget(folder, fileName);
+  }
+
+  private void validateFileName(Project project, String fileName, String argumentName)
+      throws GhidraMcpException {
     try {
-      DomainObject obj = sessionFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
-      if (obj instanceof VTSession) {
-        return (VTSession) obj;
-      }
-      if (obj != null) {
-        obj.release(this);
-      }
+      project.getProjectData().testValidName(fileName, false);
+    } catch (InvalidNameException e) {
       throw new GhidraMcpException(
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message("File '" + sessionName + "' is not a VT session")
-              .build());
-    } catch (GhidraMcpException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("Failed to open VT session '" + sessionName + "': " + e.getMessage())
-              .build());
-    }
-  }
-
-  private void collectVTSessions(DomainFolder folder, List<String> sessionNames) {
-    for (DomainFile file : folder.getFiles()) {
-      // VT sessions have content type containing "VersionTracking"
-      String contentType = file.getContentType();
-      if ((contentType != null && contentType.contains("VersionTracking"))
-          || file.getName().endsWith(".vt")) {
-        sessionNames.add(file.getName());
-      }
-    }
-    for (DomainFolder subfolder : folder.getFolders()) {
-      collectVTSessions(subfolder, sessionNames);
+          GhidraMcpError.invalid(argumentName, fileName, "contains invalid characters"));
     }
   }
 
