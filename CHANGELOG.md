@@ -7,6 +7,16 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-02-16
+
+### Changed
+- **Tool Infrastructure Deduplication** - Consolidated repeated pagination, cursor decoding, bounded argument parsing, and active-project/session boilerplate into shared base helpers across MCP tools
+- **Version Tracking Refactor** - Introduced shared VT session/match utilities to centralize address parsing, match lookup, transaction handling, and path normalization
+
+### Added
+- **VT Edge-Case E2E Fixture** - Expanded in-memory VT fixture to exercise correlator edge conditions (minimum sizes, duplicate signatures, relocated functions, homogeneous/modified data, symbol-name matching)
+- **VT Edge-Case Test Coverage** - Added targeted assertions for expected match and non-match behavior by correlator type
+
 ## [0.6.1] - 2026-02-14
 
 ### Fixed
