@@ -12,10 +12,12 @@ import com.themixednuts.models.McpResponse;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
@@ -544,9 +546,67 @@ public abstract class BaseMcpTool {
                         argumentName, rawValue, "must be a valid 32-bit integer value")));
   }
 
+  protected Optional<Integer> getOptionalBoundedIntArgument(
+      Map<String, Object> args, String argumentName, int minValue, int maxValue)
+      throws GhidraMcpException {
+    if (!args.containsKey(argumentName)) {
+      return Optional.empty();
+    }
+
+    Object rawValue = args.get(argumentName);
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+
+    Integer value =
+        getOptionalIntArgument(args, argumentName)
+            .orElseThrow(
+                () ->
+                    new GhidraMcpException(
+                        GhidraMcpError.invalid(
+                            argumentName, rawValue, "must be a valid 32-bit integer value")));
+
+    if (value < minValue || value > maxValue) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              argumentName,
+              value,
+              "must be between " + minValue + " and " + maxValue + " (inclusive)"));
+    }
+
+    return Optional.of(value);
+  }
+
+  protected int getBoundedIntArgumentOrDefault(
+      Map<String, Object> args,
+      String argumentName,
+      int defaultValue,
+      int minValue,
+      int maxValue)
+      throws GhidraMcpException {
+    return getOptionalBoundedIntArgument(args, argumentName, minValue, maxValue)
+        .orElse(defaultValue);
+  }
+
+  protected int getPageSizeArgument(Map<String, Object> args, int defaultValue, int maxValue)
+      throws GhidraMcpException {
+    return getBoundedIntArgumentOrDefault(args, ARG_PAGE_SIZE, defaultValue, 1, maxValue);
+  }
+
   /** Retrieves an optional long argument from the provided map. */
   protected Optional<Long> getOptionalLongArgument(Map<String, Object> args, String argumentName) {
     return Optional.ofNullable(args.get(argumentName)).flatMap(this::parseStrictIntegralValue);
+  }
+
+  protected List<String> decodeOpaqueCursorV1(
+      String cursorValue, int expectedParts, String argumentName, String expectedFormat)
+      throws GhidraMcpException {
+    return OpaqueCursorCodec.decodeV1(cursorValue, expectedParts, argumentName, expectedFormat);
+  }
+
+  protected String decodeOpaqueCursorSingleV1(
+      String cursorValue, String argumentName, String expectedFormat) throws GhidraMcpException {
+    return decodeOpaqueCursorV1(cursorValue, 1, argumentName, expectedFormat).get(0);
   }
 
   private Optional<Long> parseStrictIntegralValue(Object valueNode) {
@@ -743,6 +803,10 @@ public abstract class BaseMcpTool {
                     new GhidraMcpException(
                         GhidraMcpErrorUtils.missingRequiredArgument(getMcpName(), ARG_FILE_NAME)));
     return GhidraStateUtils.findDomainFile(fileName);
+  }
+
+  protected Project getActiveProject() throws GhidraMcpException {
+    return GhidraStateUtils.getActiveProject();
   }
 
   /** Retrieves the Program object from a DomainFile. */

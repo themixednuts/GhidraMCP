@@ -261,11 +261,7 @@ public class ReadSymbolsTool extends BaseMcpTool {
   private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
       throws GhidraMcpException {
     SymbolTable symbolTable = program.getSymbolTable();
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
     Optional<String> symbolTypeOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE);
@@ -384,7 +380,7 @@ public class ReadSymbolsTool extends BaseMcpTool {
 
   private CursorPosition parseCursor(Program program, String cursorValue) {
     List<String> parts =
-        OpaqueCursorCodec.decodeV1(
+        decodeOpaqueCursorV1(
             cursorValue, 2, ARG_CURSOR, "v1:<base64url_symbol_name>:<base64url_address>");
     String decodedName = parts.get(0);
     String decodedAddress = parts.get(1);

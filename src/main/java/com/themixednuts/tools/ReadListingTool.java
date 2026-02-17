@@ -354,8 +354,7 @@ public class ReadListingTool extends BaseMcpTool {
     if (cursorOpt.isPresent()) {
       String cursorValue = cursorOpt.get();
       String decodedCursorAddress =
-          OpaqueCursorCodec.decodeV1(cursorValue, 1, ARG_CURSOR, "v1:<base64url_listing_address>")
-              .get(0);
+          decodeOpaqueCursorSingleV1(cursorValue, ARG_CURSOR, "v1:<base64url_listing_address>");
       Address cursorAddr = program.getAddressFactory().getAddress(decodedCursorAddress);
       if (cursorAddr == null) {
         throw new GhidraMcpException(

@@ -4,14 +4,13 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ProgramFileInfo;
+import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
-import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
@@ -211,43 +210,20 @@ public class ListProgramsTool extends BaseMcpTool {
   private PaginatedResult<ProgramFileInfo> listPrograms(PluginTool tool, Map<String, Object> args)
       throws GhidraMcpException {
     // Extract parameters
-    int pageSize = getOptionalIntArgument(args, ARG_PAGE_SIZE).orElse(DEFAULT_PAGE_SIZE);
+    int pageSize = getBoundedIntArgumentOrDefault(args, ARG_PAGE_SIZE, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
     String cursor = getOptionalStringArgument(args, ARG_CURSOR).orElse(null);
     ExecutableFormat formatFilter =
         ExecutableFormat.fromString(getOptionalStringArgument(args, ARG_FORMAT).orElse(null));
     String nameFilter = getOptionalStringArgument(args, ARG_NAME_FILTER).orElse(null);
     boolean openOnly = getOptionalBooleanArgument(args, ARG_OPEN_ONLY).orElse(false);
-    // Get the active project from the Application level (not from PluginTool)
-    Project project = AppInfo.getActiveProject();
-
-    if (project == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
-              .message("No active project found in the application")
-              .context(
-                  new GhidraMcpError.ErrorContext(
-                      this.getMcpName(),
-                      CONTEXT_OPERATION,
-                      Map.of(),
-                      Map.of(),
-                      Map.of("project_available", false)))
-              .suggestions(
-                  List.of(
-                      new GhidraMcpError.ErrorSuggestion(
-                          GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                          "Open or activate a Ghidra project",
-                          "Ensure a project is open in Ghidra before listing programs",
-                          null,
-                          null)))
-              .build());
-    }
+    Project project = getActiveProject();
 
     // Get all domain files from the project (recursively)
     List<DomainFile> allFiles = new ArrayList<>();
-    DomainFolder rootFolder = project.getProjectData().getRootFolder();
-    ghidra.util.Msg.info(this, "Scanning project root folder: " + rootFolder.getPathname());
-    collectDomainFiles(rootFolder, allFiles);
+    ghidra.util.Msg.info(
+        this,
+        "Scanning project root folder: " + project.getProjectData().getRootFolder().getPathname());
+    GhidraStateUtils.collectFilesRecursive(project.getProjectData().getRootFolder(), allFiles);
     ghidra.util.Msg.info(this, "Found " + allFiles.size() + " total domain files");
 
     // Filter for program files and sort: open programs first, then by last modified
@@ -341,7 +317,7 @@ public class ListProgramsTool extends BaseMcpTool {
   }
 
   private String parseCursorPath(String cursor) {
-    return OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_program_path>").get(0);
+    return decodeOpaqueCursorSingleV1(cursor, ARG_CURSOR, "v1:<base64url_program_path>");
   }
 
   /** Check if a filename matches the name filter. */
@@ -350,17 +326,6 @@ public class ListProgramsTool extends BaseMcpTool {
       return true;
     }
     return filename.toLowerCase().contains(nameFilter.toLowerCase());
-  }
-
-  /** Recursively collect all domain files from a folder and its subfolders. */
-  private void collectDomainFiles(DomainFolder folder, List<DomainFile> files) {
-    // Add files in current folder
-    files.addAll(List.of(folder.getFiles()));
-
-    // Recursively process subfolders
-    for (DomainFolder subfolder : folder.getFolders()) {
-      collectDomainFiles(subfolder, files);
-    }
   }
 
   /** Create a ProgramFileInfo object from a DomainFile. */

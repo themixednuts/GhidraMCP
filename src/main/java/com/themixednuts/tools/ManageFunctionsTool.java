@@ -728,11 +728,7 @@ public class ManageFunctionsTool extends BaseMcpTool {
   private PaginatedResult<FunctionVariableInfo> listFunctionVariables(
       Function function, Program program, Map<String, Object> args) {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     // Get listing variables
     Stream<FunctionVariableInfo> listingVarStream =
@@ -832,7 +828,7 @@ public class ManageFunctionsTool extends BaseMcpTool {
 
   private VariableCursor parseVariableCursor(String cursorValue) {
     List<String> parts =
-        OpaqueCursorCodec.decodeV1(
+        decodeOpaqueCursorV1(
             cursorValue, 2, ARG_CURSOR, "v1:<base64url_storage>:<base64url_variable_name>");
     return new VariableCursor(parts.get(0), parts.get(1), cursorValue);
   }

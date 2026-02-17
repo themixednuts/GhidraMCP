@@ -293,11 +293,7 @@ public class ReadDataTypesTool extends BaseMcpTool {
   private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args)
       throws GhidraMcpException {
     DataTypeManager dtm = program.getDataTypeManager();
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     Optional<String> nameFilterOpt = getOptionalStringArgument(args, ARG_NAME_FILTER);
     Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_FILTER);
@@ -397,7 +393,7 @@ public class ReadDataTypesTool extends BaseMcpTool {
 
   private String parseCursorPath(String cursorValue) {
     List<String> parts =
-        OpaqueCursorCodec.decodeV1(
+        decodeOpaqueCursorV1(
             cursorValue, 2, ARG_CURSOR, "v1:<base64url_data_type_name>:<base64url_data_type_path>");
     return parts.get(1);
   }

@@ -119,11 +119,7 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
               boolean defaultsOnly =
                   getOptionalBooleanArgument(args, ARG_DEFAULTS_ONLY).orElse(false);
               Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-              int pageSize =
-                  getOptionalIntArgument(args, ARG_PAGE_SIZE)
-                      .filter(size -> size > 0)
-                      .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-                      .orElse(DEFAULT_PAGE_LIMIT);
+              int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
               return listAnalysisOptions(
                   program, filter, optionType, defaultsOnly, cursorOpt, pageSize);
@@ -162,10 +158,7 @@ public class ListAnalysisOptionsTool extends BaseMcpTool {
           final String cursorName =
               cursorOpt
                   .map(
-                      value ->
-                          OpaqueCursorCodec.decodeV1(
-                                  value, 1, ARG_CURSOR, "v1:<base64url_option_name>")
-                              .get(0))
+                      value -> decodeOpaqueCursorSingleV1(value, ARG_CURSOR, "v1:<base64url_option_name>"))
                   .orElse(null);
           boolean passedCursor = (cursorName == null);
           boolean cursorMatched = (cursorName == null);

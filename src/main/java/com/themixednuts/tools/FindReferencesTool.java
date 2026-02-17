@@ -170,11 +170,7 @@ public class FindReferencesTool extends BaseMcpTool {
               }
               String referenceType = getOptionalStringArgument(args, ARG_REFERENCE_TYPE).orElse("");
               Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-              int pageSize =
-                  getOptionalIntArgument(args, ARG_PAGE_SIZE)
-                      .filter(size -> size > 0)
-                      .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-                      .orElse(DEFAULT_PAGE_LIMIT);
+              int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
               Direction direction = Direction.fromValue(directionStr);
 
@@ -375,7 +371,7 @@ public class FindReferencesTool extends BaseMcpTool {
 
     String cursor = cursorOpt.get();
     List<String> cursorParts =
-        OpaqueCursorCodec.decodeV1(
+        decodeOpaqueCursorV1(
             cursor,
             3,
             ARG_CURSOR,

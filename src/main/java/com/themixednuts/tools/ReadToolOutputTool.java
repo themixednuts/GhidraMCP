@@ -142,14 +142,10 @@ public class ReadToolOutputTool extends BaseMcpTool {
   private PaginatedResult<ToolOutputStore.SessionInfo> listSessions(Map<String, Object> args) {
     String cursor =
         getOptionalStringArgument(args, ARG_CURSOR)
-            .map(
-                value ->
-                    OpaqueCursorCodec.decodeV1(
-                            value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>")
-                        .get(0))
+            .map(value -> decodeOpaqueCursorSingleV1(value, ARG_CURSOR, "v1:<base64url_store_cursor_key>"))
             .orElse(null);
     int pageSize =
-        parseBoundedInt(
+        getBoundedIntArgumentOrDefault(
             args,
             ARG_PAGE_SIZE,
             ToolOutputStore.DEFAULT_LIST_PAGE_SIZE,
@@ -168,14 +164,10 @@ public class ReadToolOutputTool extends BaseMcpTool {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
     String cursor =
         getOptionalStringArgument(args, ARG_CURSOR)
-            .map(
-                value ->
-                    OpaqueCursorCodec.decodeV1(
-                            value, 1, ARG_CURSOR, "v1:<base64url_store_cursor_key>")
-                        .get(0))
+            .map(value -> decodeOpaqueCursorSingleV1(value, ARG_CURSOR, "v1:<base64url_store_cursor_key>"))
             .orElse(null);
     int pageSize =
-        parseBoundedInt(
+        getBoundedIntArgumentOrDefault(
             args,
             ARG_PAGE_SIZE,
             ToolOutputStore.DEFAULT_LIST_PAGE_SIZE,
@@ -195,9 +187,9 @@ public class ReadToolOutputTool extends BaseMcpTool {
     String outputId = getOptionalStringArgument(args, ARG_OUTPUT_ID).orElse(null);
     String outputFileName = getOptionalStringArgument(args, ARG_OUTPUT_FILE_NAME).orElse(null);
 
-    int offset = parseBoundedInt(args, ARG_OFFSET, 0, 0, Integer.MAX_VALUE);
+    int offset = getBoundedIntArgumentOrDefault(args, ARG_OFFSET, 0, 0, Integer.MAX_VALUE);
     int maxChars =
-        parseBoundedInt(
+        getBoundedIntArgumentOrDefault(
             args,
             ARG_MAX_CHARS,
             ToolOutputStore.DEFAULT_READ_CHUNK_CHARS,
@@ -205,18 +197,5 @@ public class ReadToolOutputTool extends BaseMcpTool {
             ToolOutputStore.MAX_READ_CHUNK_CHARS);
 
     return ToolOutputStore.readOutput(sessionId, outputId, outputFileName, offset, maxChars);
-  }
-
-  private int parseBoundedInt(
-      Map<String, Object> args, String argumentName, int defaultValue, int minValue, int maxValue) {
-    int value = getOptionalIntArgument(args, argumentName).orElse(defaultValue);
-    if (value < minValue || value > maxValue) {
-      throw new GhidraMcpException(
-          GhidraMcpError.invalid(
-              argumentName,
-              value,
-              "must be between " + minValue + " and " + maxValue + " (inclusive)"));
-    }
-    return value;
   }
 }

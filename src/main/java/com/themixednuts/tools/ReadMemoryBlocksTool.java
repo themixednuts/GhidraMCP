@@ -148,11 +148,7 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
     Optional<Long> minSizeOpt = getOptionalLongArgument(args, ARG_MIN_SIZE);
     Optional<Long> maxSizeOpt = getOptionalLongArgument(args, ARG_MAX_SIZE);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     // Get all memory blocks and apply filters
     List<MemoryBlockInfo> allMemoryBlocks =
@@ -249,8 +245,7 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
       return "";
     }
     String decodedAddress =
-        OpaqueCursorCodec.decodeV1(cursor, 1, ARG_CURSOR, "v1:<base64url_block_start_address>")
-            .get(0);
+        decodeOpaqueCursorSingleV1(cursor, ARG_CURSOR, "v1:<base64url_block_start_address>");
     if (!decodedAddress.matches("^(0x)?[0-9a-fA-F]+$")) {
       throw new GhidraMcpException(
           GhidraMcpError.invalid(ARG_CURSOR, cursor, "cursor must be a valid memory address"));

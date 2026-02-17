@@ -280,11 +280,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
 
   private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
     FunctionManager functionManager = program.getFunctionManager();
-    int pageSize =
-        getOptionalIntArgument(args, ARG_PAGE_SIZE)
-            .filter(size -> size > 0)
-            .map(size -> Math.min(size, MAX_PAGE_LIMIT))
-            .orElse(DEFAULT_PAGE_LIMIT);
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
     Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
@@ -354,7 +350,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
 
   private FunctionCursor parseFunctionCursor(Program program, String cursorValue) {
     List<String> parts =
-        OpaqueCursorCodec.decodeV1(
+        decodeOpaqueCursorV1(
             cursorValue, 2, ARG_CURSOR, "v1:<base64url_address>:<base64url_function_name>");
 
     Address cursorAddress = program.getAddressFactory().getAddress(parts.get(0));
