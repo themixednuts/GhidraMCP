@@ -46,8 +46,8 @@
     <ghidra.release.date>20260210</ghidra.release.date>
     <ghidra.lib.dir>${project.basedir}${file.separator}lib</ghidra.lib.dir>
     <ghidra.version.check.skip>false</ghidra.version.check.skip>
-    <mcp.bom.version>0.17.2</mcp.bom.version>
-    <jackson.version>2.21.0</jackson.version>
+    <mcp.bom.version>0.18.1</mcp.bom.version>
+    <jackson.version>2.21.1</jackson.version>
     <jackson.annotations.version>2.21</jackson.annotations.version>
     <jakarta.servlet.version>6.1.0</jakarta.servlet.version>
     <junit.jupiter.version>6.0.3</junit.jupiter.version>
