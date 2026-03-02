@@ -39,7 +39,7 @@ jobs:
           cp target/GhidraMCP-*.zip release/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: GhidraMCP-artifact
           path: |
