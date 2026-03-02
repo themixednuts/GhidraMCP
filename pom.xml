@@ -54,7 +54,7 @@
     <junit.platform.version>6.0.3</junit.platform.version>
     <jetty.version>12.1.6</jetty.version>
     <reflections.version>0.10.2</reflections.version>
-    <mockito.version>5.21.0</mockito.version>
+    <mockito.version>5.22.0</mockito.version>
     <slf4j.simple.version>2.0.17</slf4j.simple.version>
     <log4j2.version>2.24.3</log4j2.version>
     <everit.json.schema.version>1.14.6</everit.json.schema.version>
