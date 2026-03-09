@@ -110,6 +110,12 @@ The steps below are only for building from source.
 
    Ghidra jars are fetched automatically from the official release zip on first run.
 
+   Useful development entrypoints:
+
+   - `just test` runs the unit suite
+   - `just test-e2e` runs the end-to-end suite
+   - `just update-verification-metadata` refreshes Gradle dependency verification checksums after dependency changes
+
 4. The installable `zip` file is written to `target/` (for example,
    `target/GhidraMCP-0.6.2.zip`). Install it using the steps above.
 
@@ -123,7 +129,8 @@ just install-hooks
 
 The installed pre-commit hook runs:
 
-- `just fmt-build-check`
+- `just fmt-check`
+- `just test`
 - `just test-e2e`
 
 ---

@@ -2,7 +2,6 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 gradlew := if os_family() == "windows" { ".\\gradlew.bat" } else { "bash ./gradlew" }
-gradlew_e2e := if os_family() == "windows" { ".\\gradlew.bat --%" } else { "bash ./gradlew" }
 
 default:
   just --list
@@ -29,7 +28,7 @@ test:
   {{gradlew}} test
 
 test-e2e:
-  {{gradlew_e2e}} test -De2e.integration=true
+  {{gradlew}} e2eTest
 
 fmt:
   {{gradlew}} spotlessApply
@@ -48,3 +47,6 @@ clean:
 
 versions:
   {{gradlew}} printGhidraVersion printMcpBomVersion
+
+update-verification-metadata:
+  {{gradlew}} --write-verification-metadata sha256 build e2eTest spotlessCheck

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: format-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   format:
     runs-on: ubuntu-latest
@@ -20,10 +24,6 @@ jobs:
           java-version: "21"
           distribution: "temurin"
       - uses: gradle/actions/setup-gradle@v5
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
 
       - name: Check formatting
-        run: just fmt-check
+        run: ./gradlew spotlessCheck

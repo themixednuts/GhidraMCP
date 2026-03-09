@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -22,13 +26,22 @@ jobs:
           java-version: "21"
           distribution: "temurin"
       - uses: gradle/actions/setup-gradle@v5
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
 
-      - name: Build with just
-        run: just ci
+      - name: Build with Gradle
+        run: ./gradlew ci
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GhidraMCP-test-reports
+          path: |
+            target/test-results/test/**
+            target/test-results/e2eTest/**
+            target/reports/tests/test/**
+            target/reports/tests/e2eTest/**
+            target/reports/problems/problems-report.html
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

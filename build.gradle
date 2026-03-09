@@ -140,10 +140,6 @@ def ghidraReleaseSelector =
   (System.getProperty('ghidra.release')
     ?: providers.gradleProperty('ghidraRelease').orElse(providers.gradleProperty('ghidraVersion')).get())
     .toString()
-def e2eIntegrationEnabled =
-  (System.getProperty('e2e.integration')
-    ?: providers.gradleProperty('e2eIntegration').orElse('false').get())
-    .toString()
 def effectiveGhidraVersion = providers.gradleProperty('ghidraVersion').get()
 def extensionProjectMetadata = [
   name: project.name,
@@ -215,9 +211,20 @@ sourceSets {
     resources.srcDirs = ['src/main/resources']
   }
   test {
-    java.srcDirs = ['src/test/unit/java', 'src/test/e2e/java']
+    java.srcDirs = ['src/test/unit/java']
     resources.srcDirs = ['src/test/resources']
   }
+  e2e {
+    java.srcDirs = ['src/test/e2e/java']
+    resources.srcDirs = ['src/test/resources']
+    compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+    runtimeClasspath += output + compileClasspath
+  }
+}
+
+configurations {
+  e2eImplementation.extendsFrom testImplementation
+  e2eRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 tasks.register('bootstrapGhidra') {
@@ -385,15 +392,22 @@ tasks.register('package') {
   dependsOn extensionZip
 }
 
+def e2eTest =
+  tasks.register('e2eTest', Test) {
+    description = 'Runs the end-to-end test suite.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2e.output.classesDirs
+    classpath = sourceSets.e2e.runtimeClasspath
+    shouldRunAfter tasks.named('test')
+    useJUnitPlatform()
+    systemProperty 'e2e.integration', 'true'
+  }
+
 tasks.register('ci') {
   group = 'verification'
-  description = 'Runs the local CI-equivalent build checks.'
-  dependsOn tasks.named('clean')
+  description = 'Runs the local build and test checks used in CI.'
   dependsOn tasks.named('build')
-}
-
-tasks.named('build') {
-  mustRunAfter tasks.named('clean')
+  dependsOn e2eTest
 }
 
 tasks.register('printGhidraVersion') {
@@ -415,7 +429,6 @@ tasks.register('printMcpBomVersion') {
 tasks.named('test') {
   useJUnitPlatform()
   exclude '**/headless/**'
-  systemProperty 'e2e.integration', e2eIntegrationEnabled
 }
 
 tasks.named('wrapper') {

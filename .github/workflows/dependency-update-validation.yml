@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: dependency-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-dependency-updates:
     runs-on: ubuntu-latest
@@ -35,17 +39,12 @@ jobs:
       - name: Set up Gradle
         if: env.BOT_DEP_PR == 'true'
         uses: gradle/actions/setup-gradle@v5
-      - name: Install just
-        if: env.BOT_DEP_PR == 'true'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
 
       - name: Resolve pinned dependency versions
         if: env.BOT_DEP_PR == 'true'
         run: |
-          GHIDRA_RELEASE=$(bash ./gradlew -q printGhidraVersion)
-          MCP_BOM_VERSION=$(bash ./gradlew -q printMcpBomVersion)
+          GHIDRA_RELEASE=$(./gradlew -q printGhidraVersion)
+          MCP_BOM_VERSION=$(./gradlew -q printMcpBomVersion)
           echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
           echo "MCP_BOM_VERSION=${MCP_BOM_VERSION}" >> "$GITHUB_ENV"
           echo "Pinned Ghidra version from Gradle: ${GHIDRA_RELEASE}"
@@ -60,23 +59,42 @@ jobs:
             echo "::warning::MCP BOM in gradle/libs.versions.toml (${MCP_BOM_VERSION}) is behind latest (${LATEST_MCP_BOM})."
           fi
 
-      - name: Validate pinned bootstrap + full build
+      - name: Validate pinned bootstrap, checks, and verification metadata
+        if: env.BOT_DEP_PR == 'true'
+        run: ./gradlew --write-verification-metadata sha256 spotlessCheck ci
+
+      - name: Ensure dependency verification metadata is committed
         if: env.BOT_DEP_PR == 'true'
         run: |
-          just fmt-check
-          just ci
+          if ! git diff --exit-code -- gradle/verification-metadata.xml; then
+            echo "::error::Dependency verification metadata changed. Run 'just update-verification-metadata' and commit gradle/verification-metadata.xml."
+            exit 1
+          fi
 
       - name: Validate latest bootstrap path
         if: env.BOT_DEP_PR == 'true'
         run: |
-          just bootstrap-latest
+          ./gradlew bootstrapGhidra -PghidraRelease=latest
           LATEST_GHIDRA=$(grep '^ghidra.bootstrap.version=' lib/.ghidra-bootstrap.properties | cut -d'=' -f2)
           echo "Latest resolved Ghidra version: ${LATEST_GHIDRA}"
-          bash ./gradlew compileJava -PghidraRelease=latest -PghidraVersion=${LATEST_GHIDRA} -x test --no-daemon
+          ./gradlew compileJava -PghidraRelease=latest -PghidraVersion=${LATEST_GHIDRA} -x test --no-daemon
 
       - name: Restore pinned bootstrap state
         if: env.BOT_DEP_PR == 'true'
-        run: just bootstrap
+        run: ./gradlew bootstrap
+
+      - name: Upload dependency-validation test reports
+        if: always() && env.BOT_DEP_PR == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-validation-test-reports
+          path: |
+            target/test-results/test/**
+            target/test-results/e2eTest/**
+            target/reports/tests/test/**
+            target/reports/tests/e2eTest/**
+            target/reports/problems/problems-report.html
+          if-no-files-found: ignore
 
       - name: Dependency validation not required for this PR actor
         if: env.BOT_DEP_PR != 'true'
