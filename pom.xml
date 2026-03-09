@@ -46,13 +46,13 @@
     <ghidra.release.date>20260210</ghidra.release.date>
     <ghidra.lib.dir>${project.basedir}${file.separator}lib</ghidra.lib.dir>
     <ghidra.version.check.skip>false</ghidra.version.check.skip>
-    <mcp.bom.version>0.17.2</mcp.bom.version>
-    <jackson.version>2.21.0</jackson.version>
+    <mcp.bom.version>1.0.0</mcp.bom.version>
+    <jackson.version>2.21.1</jackson.version>
     <jackson.annotations.version>2.21</jackson.annotations.version>
     <jakarta.servlet.version>6.1.0</jakarta.servlet.version>
     <junit.jupiter.version>6.0.3</junit.jupiter.version>
     <junit.platform.version>6.0.3</junit.platform.version>
-    <jetty.version>12.1.6</jetty.version>
+    <jetty.version>12.1.7</jetty.version>
     <reflections.version>0.10.2</reflections.version>
     <mockito.version>5.21.0</mockito.version>
     <slf4j.simple.version>2.0.17</slf4j.simple.version>
