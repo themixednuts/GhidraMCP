@@ -77,7 +77,7 @@ jobs:
           ./gradlew bootstrapGhidra -PghidraRelease=latest
           LATEST_GHIDRA=$(grep '^ghidra.bootstrap.version=' lib/.ghidra-bootstrap.properties | cut -d'=' -f2)
           echo "Latest resolved Ghidra version: ${LATEST_GHIDRA}"
-          ./gradlew compileJava -PghidraRelease=latest -PghidraVersion=${LATEST_GHIDRA} -x test --no-daemon
+          ./gradlew compileJava -PghidraRelease=latest -PghidraVersion="${LATEST_GHIDRA}" -x test --no-daemon
 
       - name: Restore pinned bootstrap state
         if: env.BOT_DEP_PR == 'true'
