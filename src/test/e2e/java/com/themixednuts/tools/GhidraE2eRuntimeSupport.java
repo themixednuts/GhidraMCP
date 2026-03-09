@@ -8,6 +8,7 @@ import ghidra.framework.Application;
 import ghidra.framework.ApplicationConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,6 +93,10 @@ final class GhidraE2eRuntimeSupport {
               + extractedBaseDir
               + ". Set -Dghidra.install.dir to a valid Ghidra install root.");
 
+      if (installDir != null) {
+        restoreExecutableBits(installDir);
+      }
+
       return installDir.toFile();
     } catch (Throwable t) {
       assumeTrue(false, "Failed to resolve install dir from bootstrap assets: " + t.getMessage());
@@ -122,6 +127,65 @@ final class GhidraE2eRuntimeSupport {
         Files.createDirectories(outputPath.getParent());
         Files.copy(zis, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
       }
+    }
+  }
+
+  private static void restoreExecutableBits(Path installDir) throws IOException {
+    if (installDir == null || !Files.isDirectory(installDir)) {
+      return;
+    }
+
+    String os = System.getProperty("os.name", "").toLowerCase();
+    if (os.contains("win")) {
+      return;
+    }
+
+    String arch = System.getProperty("os.arch", "").toLowerCase();
+    String platformDirName =
+        switch (os.contains("mac") ? "mac" : os.contains("linux") ? "linux" : "other") {
+          case "linux" ->
+              arch.contains("aarch64") || arch.contains("arm64") ? "linux_arm_64" : "linux_x86_64";
+          case "mac" ->
+              arch.contains("aarch64") || arch.contains("arm64") ? "mac_arm_64" : "mac_x86_64";
+          default -> null;
+        };
+
+    setExecutableIfPresent(installDir.resolve("ghidraRun"));
+
+    if (platformDirName != null) {
+      try (java.util.stream.Stream<Path> stream = Files.walk(installDir)) {
+        stream
+            .filter(Files::isRegularFile)
+            .filter(
+                path ->
+                    path.toString()
+                        .contains(
+                            File.separator
+                                + "os"
+                                + File.separator
+                                + platformDirName
+                                + File.separator))
+            .forEach(GhidraE2eRuntimeSupport::setExecutableIfPresent);
+      }
+    }
+
+    Path supportDir = installDir.resolve("support");
+    if (Files.isDirectory(supportDir)) {
+      try (java.util.stream.Stream<Path> stream = Files.walk(supportDir)) {
+        stream
+            .filter(Files::isRegularFile)
+            .forEach(GhidraE2eRuntimeSupport::setExecutableIfPresent);
+      }
+    }
+  }
+
+  private static void setExecutableIfPresent(Path path) {
+    try {
+      if (Files.isRegularFile(path)) {
+        path.toFile().setExecutable(true, false);
+      }
+    } catch (SecurityException ignored) {
+      // Best-effort only; failures are surfaced later if the runtime still cannot execute helpers.
     }
   }
 
