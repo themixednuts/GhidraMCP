@@ -51,7 +51,8 @@ final class GhidraE2eRuntimeSupport {
       if (!Files.exists(bootstrapPropertiesPath)) {
         assumeTrue(
             false,
-            "Missing lib/.ghidra-bootstrap.properties. Run bootstrap first or set -Dghidra.install.dir");
+            "Missing lib/.ghidra-bootstrap.properties. Run bootstrap first or set"
+                + " -Dghidra.install.dir");
         return null;
       }
 
@@ -64,7 +65,8 @@ final class GhidraE2eRuntimeSupport {
       if (zipName.isEmpty()) {
         assumeTrue(
             false,
-            "ghidra.bootstrap.zip missing in lib/.ghidra-bootstrap.properties. Set -Dghidra.install.dir");
+            "ghidra.bootstrap.zip missing in lib/.ghidra-bootstrap.properties. Set"
+                + " -Dghidra.install.dir");
         return null;
       }
 

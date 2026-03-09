@@ -156,7 +156,8 @@ public class ListProgramsTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
             .description(
-                "Cursor from previous response for pagination (format: v1:<base64url_program_path>)"));
+                "Cursor from previous response for pagination (format:"
+                    + " v1:<base64url_program_path>)"));
 
     // Add optional executable format filter
     String[] formatValues =
@@ -166,7 +167,8 @@ public class ListProgramsTool extends BaseMcpTool {
         ARG_FORMAT,
         SchemaBuilder.string(mapper)
             .description(
-                "Filter by executable format: ALL (default), PE (Windows), ELF (Linux/Unix), MACH_O (macOS), COFF (object files), RAW (raw binary)")
+                "Filter by executable format: ALL (default), PE (Windows), ELF (Linux/Unix), MACH_O"
+                    + " (macOS), COFF (object files), RAW (raw binary)")
             .enumValues(formatValues));
 
     // Add optional name filter
@@ -180,7 +182,8 @@ public class ListProgramsTool extends BaseMcpTool {
         ARG_OPEN_ONLY,
         SchemaBuilder.bool(mapper)
             .description(
-                "Filter to show only currently open programs (default: false, shows all programs)"));
+                "Filter to show only currently open programs (default: false, shows all"
+                    + " programs)"));
 
     return schemaRoot.build();
   }

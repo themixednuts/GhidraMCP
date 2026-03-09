@@ -47,6 +47,15 @@ def ghidraZipIncludes = [
   '*/Ghidra/Framework/Gui/lib/Gui.jar',
 ]
 
+def googleJavaFormatJvmArgs = [
+  '--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED',
+  '--add-exports=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED',
+  '--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED',
+  '--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED',
+  '--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED',
+  '--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED',
+]
+
 String normalizeVersion(String value) {
   if (!value) {
     return null
@@ -162,7 +171,13 @@ repositories {
   mavenCentral()
 }
 
+configurations {
+  googleJavaFormatTool
+}
+
 dependencies {
+  googleJavaFormatTool "com.google.googlejavaformat:google-java-format:${libs.versions.google.java.format.get()}"
+
   implementation platform(libs.mcp.bom)
   implementation libs.mcp
   implementation libs.jackson.datatype.jdk8
@@ -439,7 +454,28 @@ spotless {
   enforceCheck = false
   java {
     target 'src/**/*.java'
-    googleJavaFormat(libs.versions.google.java.format.get())
+    bumpThisNumberIfACustomStepChanges(2)
+    custom('googleJavaFormat') { source ->
+      def javaExecutable = new File(System.getProperty('java.home'), 'bin/java').absolutePath
+      def classpath =
+        configurations.googleJavaFormatTool.files.collect { it.absolutePath }.join(File.pathSeparator)
+      def process =
+        new ProcessBuilder(
+            [javaExecutable] +
+              googleJavaFormatJvmArgs +
+              ['-cp', classpath, 'com.google.googlejavaformat.java.Main', '-'])
+          .start()
+      def stdout = new StringBuilder()
+      def stderr = new StringBuilder()
+      process.consumeProcessOutput(stdout, stderr)
+      process.outputStream.withWriter('UTF-8') { it.write(source) }
+      process.outputStream.close()
+      def exitCode = process.waitFor()
+      if (exitCode != 0) {
+        throw new GradleException("google-java-format failed: ${stderr}".trim())
+      }
+      return stdout.toString()
+    }
   }
   format('misc') {
     target '*.gradle', '*.md', '.gitattributes', '.gitignore', '.github/**/*.yml', 'gradle.properties', 'gradle/**/*.toml'

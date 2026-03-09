@@ -20,7 +20,8 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Read Symbols",
     description =
-        "Read a single symbol or list symbols in a Ghidra program with pagination and filtering options.",
+        "Read a single symbol or list symbols in a Ghidra program with pagination and filtering"
+            + " options.",
     mcpName = "read_symbols",
     readOnlyHint = true,
     idempotentHint = true,

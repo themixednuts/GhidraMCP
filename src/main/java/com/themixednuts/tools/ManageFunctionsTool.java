@@ -281,7 +281,8 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor (format: v1:<base64url_storage>:<base64url_variable_name>)"))
+                                "Pagination cursor (format:"
+                                    + " v1:<base64url_storage>:<base64url_variable_name>)"))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)

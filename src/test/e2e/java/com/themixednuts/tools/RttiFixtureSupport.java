@@ -37,7 +37,8 @@ final class RttiFixtureSupport {
 
       String command =
           String.format(
-              "call \"%s\" -arch=amd64 && cl /nologo /EHsc /GR /std:c++17 /Od /Zi /FS /Fd:\"%s\" /Fo:\"%s\" \"%s\" /link /OUT:\"%s\" /PDB:\"%s\" /MAP:\"%s\"",
+              "call \"%s\" -arch=amd64 && cl /nologo /EHsc /GR /std:c++17 /Od /Zi /FS /Fd:\"%s\""
+                  + " /Fo:\"%s\" \"%s\" /link /OUT:\"%s\" /PDB:\"%s\" /MAP:\"%s\"",
               vsDevCmd, compilePdbPath, objectPath, fixtureSource, exePath, pdbPath, mapPath);
 
       CommandResult buildResult = runCommand(List.of("cmd.exe", "/c", command), repoRoot);

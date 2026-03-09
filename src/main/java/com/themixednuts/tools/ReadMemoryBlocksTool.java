@@ -108,7 +108,8 @@ public class ReadMemoryBlocksTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
             .description(
-                "Pagination cursor from previous request (format: v1:<base64url_block_start_address>)"));
+                "Pagination cursor from previous request (format:"
+                    + " v1:<base64url_block_start_address>)"));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
