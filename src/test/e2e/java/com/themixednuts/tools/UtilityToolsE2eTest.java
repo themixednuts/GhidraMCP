@@ -29,7 +29,8 @@ class UtilityToolsE2eTest {
 
   @Test
   void demangleSymbolReturnsStructuredResultForMangledInput() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -38,7 +39,8 @@ class UtilityToolsE2eTest {
 
       String mangled = "_Z3fooi";
       Object raw =
-          tool.execute(null, Map.of("file_name", "fixture", "mangled_symbol", mangled), null).block();
+          tool.execute(null, Map.of("file_name", "fixture", "mangled_symbol", mangled), null)
+              .block();
       DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
 
       assertEquals(mangled, result.getOriginalSymbol());
@@ -58,7 +60,8 @@ class UtilityToolsE2eTest {
 
   @Test
   void undoRedoRevertsAndRestoresSymbolMutationWithStateChecks() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -81,13 +84,19 @@ class UtilityToolsE2eTest {
       SymbolInfo created = assertInstanceOf(SymbolInfo.class, createdRaw);
       assertEquals("undo_redo_label", created.getName());
 
-      Object infoRaw = undoRedoTool.execute(null, Map.of("file_name", "fixture", "action", "info"), null).block();
+      Object infoRaw =
+          undoRedoTool
+              .execute(null, Map.of("file_name", "fixture", "action", "info"), null)
+              .block();
       @SuppressWarnings("unchecked")
       Map<String, Object> info = assertInstanceOf(Map.class, infoRaw);
       assertEquals("info", info.get("action"));
       assertTrue(Boolean.TRUE.equals(info.get("can_undo")));
 
-      Object undoRaw = undoRedoTool.execute(null, Map.of("file_name", "fixture", "action", "undo"), null).block();
+      Object undoRaw =
+          undoRedoTool
+              .execute(null, Map.of("file_name", "fixture", "action", "undo"), null)
+              .block();
       @SuppressWarnings("unchecked")
       Map<String, Object> undoResult = assertInstanceOf(Map.class, undoRaw);
       assertEquals("undo", undoResult.get("action"));
@@ -95,16 +104,21 @@ class UtilityToolsE2eTest {
 
       Address address = fixture.program().getAddressFactory().getAddress("0x401090");
       Symbol[] afterUndo = fixture.program().getSymbolTable().getSymbols(address);
-      assertTrue(Arrays.stream(afterUndo).noneMatch(symbol -> "undo_redo_label".equals(symbol.getName())));
+      assertTrue(
+          Arrays.stream(afterUndo).noneMatch(symbol -> "undo_redo_label".equals(symbol.getName())));
 
-      Object redoRaw = undoRedoTool.execute(null, Map.of("file_name", "fixture", "action", "redo"), null).block();
+      Object redoRaw =
+          undoRedoTool
+              .execute(null, Map.of("file_name", "fixture", "action", "redo"), null)
+              .block();
       @SuppressWarnings("unchecked")
       Map<String, Object> redoResult = assertInstanceOf(Map.class, redoRaw);
       assertEquals("redo", redoResult.get("action"));
       assertTrue(Boolean.TRUE.equals(redoResult.get("success")));
 
       Symbol[] afterRedo = fixture.program().getSymbolTable().getSymbols(address);
-      assertTrue(Arrays.stream(afterRedo).anyMatch(symbol -> "undo_redo_label".equals(symbol.getName())));
+      assertTrue(
+          Arrays.stream(afterRedo).anyMatch(symbol -> "undo_redo_label".equals(symbol.getName())));
     } finally {
       fixture.close();
     }
@@ -112,7 +126,8 @@ class UtilityToolsE2eTest {
 
   @Test
   void batchOperationsExecutesMutationsAndReturnsPerOperationResults() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -161,11 +176,15 @@ class UtilityToolsE2eTest {
       assertEquals(2, result.getTotalOperations());
       assertEquals(2, result.getSuccessfulOperations());
       assertEquals(0, result.getFailedOperations());
-      assertTrue(result.getOperations().stream().allMatch(BatchOperationResult.IndividualOperationResult::isSuccess));
+      assertTrue(
+          result.getOperations().stream()
+              .allMatch(BatchOperationResult.IndividualOperationResult::isSuccess));
 
       Address labelAddress = fixture.program().getAddressFactory().getAddress("0x4010a0");
       Symbol[] symbols = fixture.program().getSymbolTable().getSymbols(labelAddress);
-      assertTrue(Arrays.stream(symbols).anyMatch(symbol -> "batch_created_label_one".equals(symbol.getName())));
+      assertTrue(
+          Arrays.stream(symbols)
+              .anyMatch(symbol -> "batch_created_label_one".equals(symbol.getName())));
 
       Address secondLabelAddress = fixture.program().getAddressFactory().getAddress("0x4010a2");
       Symbol[] secondSymbols = fixture.program().getSymbolTable().getSymbols(secondLabelAddress);
@@ -179,7 +198,8 @@ class UtilityToolsE2eTest {
 
   @Test
   void batchOperationsRollsBackEarlierChangesWhenLaterOperationFails() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -225,7 +245,9 @@ class UtilityToolsE2eTest {
 
       Address address = fixture.program().getAddressFactory().getAddress("0x4010b0");
       Symbol[] symbols = fixture.program().getSymbolTable().getSymbols(address);
-      assertTrue(Arrays.stream(symbols).noneMatch(symbol -> "batch_rollback_label".equals(symbol.getName())));
+      assertTrue(
+          Arrays.stream(symbols)
+              .noneMatch(symbol -> "batch_rollback_label".equals(symbol.getName())));
     } finally {
       fixture.close();
     }
@@ -233,7 +255,8 @@ class UtilityToolsE2eTest {
 
   @Test
   void scriptGuidanceReturnsDemangleAllUsageAndTroubleshooting() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();

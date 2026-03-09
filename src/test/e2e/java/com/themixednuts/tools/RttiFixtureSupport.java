@@ -38,13 +38,7 @@ final class RttiFixtureSupport {
       String command =
           String.format(
               "call \"%s\" -arch=amd64 && cl /nologo /EHsc /GR /std:c++17 /Od /Zi /FS /Fd:\"%s\" /Fo:\"%s\" \"%s\" /link /OUT:\"%s\" /PDB:\"%s\" /MAP:\"%s\"",
-              vsDevCmd,
-              compilePdbPath,
-              objectPath,
-              fixtureSource,
-              exePath,
-              pdbPath,
-              mapPath);
+              vsDevCmd, compilePdbPath, objectPath, fixtureSource, exePath, pdbPath, mapPath);
 
       CommandResult buildResult = runCommand(List.of("cmd.exe", "/c", command), repoRoot);
       assertEquals(
@@ -112,7 +106,8 @@ final class RttiFixtureSupport {
     List<String> output = new ArrayList<>();
 
     try (BufferedReader reader =
-        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+        new BufferedReader(
+            new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
         output.add(line);

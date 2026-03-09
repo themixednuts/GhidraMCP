@@ -42,7 +42,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     ProgramBuilder builder;
     Program program;
     try {
-      builder = new ProgramBuilder("itanium_rtti_fixture", ProgramBuilder._X64, "windows", consumer);
+      builder =
+          new ProgramBuilder("itanium_rtti_fixture", ProgramBuilder._X64, "windows", consumer);
       program = builder.getProgram();
     } catch (Throwable t) {
       assumeTrue(false, "Skipping: Ghidra x64 language runtime unavailable: " + t.getMessage());
@@ -50,7 +51,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     }
 
     try {
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -58,13 +60,7 @@ class AnalyzeRttiCrossAbiE2eTest {
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
 
       RTTIAnalysisResult invalid =
-          executeAnalyze(
-              tool,
-              context,
-              pluginTool,
-              "itanium_rtti_fixture",
-              typeInfoAddress,
-              "go");
+          executeAnalyze(tool, context, pluginTool, "itanium_rtti_fixture", typeInfoAddress, "go");
       assertInvalidResult(invalid, typeInfoAddress, "go");
     } finally {
       builder.dispose();
@@ -104,7 +100,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     }
 
     try {
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -147,7 +144,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     ProgramBuilder builder;
     Program program;
     try {
-      builder = new ProgramBuilder("itanium_rtti_fixture", ProgramBuilder._X64, "windows", consumer);
+      builder =
+          new ProgramBuilder("itanium_rtti_fixture", ProgramBuilder._X64, "windows", consumer);
       program = builder.getProgram();
     } catch (Throwable t) {
       assumeTrue(false, "Skipping: Ghidra x64 language runtime unavailable: " + t.getMessage());
@@ -155,7 +153,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     }
 
     try {
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -164,12 +163,7 @@ class AnalyzeRttiCrossAbiE2eTest {
 
       RTTIAnalysisResult typeInfoResult =
           executeAnalyze(
-              tool,
-              context,
-              pluginTool,
-              "itanium_rtti_fixture",
-              typeInfoAddress,
-              "itanium");
+              tool, context, pluginTool, "itanium_rtti_fixture", typeInfoAddress, "itanium");
       assertValidType(
           typeInfoResult, typeInfoAddress, RTTIAnalysisResult.RttiType.ITANIUM_VMI_CLASS_TYPEINFO);
       RTTIAnalysisResult.ItaniumVmiClassTypeInfoResult typedTypeInfo =
@@ -180,17 +174,16 @@ class AnalyzeRttiCrossAbiE2eTest {
       assertTrue(!typedTypeInfo.data().baseClasses().isEmpty());
       assertTrue(
           typedTypeInfo.data().representedType().map(s -> s.contains("Diamond")).orElse(false)
-              || typedTypeInfo.data().demangledSymbol().map(s -> s.contains("Diamond")).orElse(false)
+              || typedTypeInfo
+                  .data()
+                  .demangledSymbol()
+                  .map(s -> s.contains("Diamond"))
+                  .orElse(false)
               || typedTypeInfo.data().symbolName().contains("Diamond"));
 
       RTTIAnalysisResult vtableResult =
           executeAnalyze(
-          tool,
-          context,
-          pluginTool,
-          "itanium_rtti_fixture",
-          vtableAddress,
-          "itanium");
+              tool, context, pluginTool, "itanium_rtti_fixture", vtableAddress, "itanium");
       assertValidType(vtableResult, vtableAddress, RTTIAnalysisResult.RttiType.ITANIUM_VTABLE);
       RTTIAnalysisResult.ItaniumVtableResult typedVtable =
           assertInstanceOf(RTTIAnalysisResult.ItaniumVtableResult.class, vtableResult);
@@ -247,7 +240,8 @@ class AnalyzeRttiCrossAbiE2eTest {
     }
 
     try {
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -255,13 +249,7 @@ class AnalyzeRttiCrossAbiE2eTest {
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
 
       RTTIAnalysisResult goTypeResult =
-          executeAnalyze(
-              tool,
-              context,
-              pluginTool,
-              "go_rtti_fixture",
-              goTypeAddress,
-              "go");
+          executeAnalyze(tool, context, pluginTool, "go_rtti_fixture", goTypeAddress, "go");
       assertValidType(goTypeResult, goTypeAddress, RTTIAnalysisResult.RttiType.GO_TYPE);
       RTTIAnalysisResult.GoTypeResult typedGoType =
           assertInstanceOf(RTTIAnalysisResult.GoTypeResult.class, goTypeResult);
@@ -278,13 +266,7 @@ class AnalyzeRttiCrossAbiE2eTest {
           "Go type record address should match queried go type symbol");
 
       RTTIAnalysisResult goItabResult =
-          executeAnalyze(
-          tool,
-          context,
-          pluginTool,
-          "go_rtti_fixture",
-          goItabAddress,
-          "go");
+          executeAnalyze(tool, context, pluginTool, "go_rtti_fixture", goItabAddress, "go");
       assertValidType(goItabResult, goItabAddress, RTTIAnalysisResult.RttiType.GO_ITAB);
       RTTIAnalysisResult.GoItabResult typedGoItab =
           assertInstanceOf(RTTIAnalysisResult.GoItabResult.class, goItabResult);
@@ -313,12 +295,18 @@ class AnalyzeRttiCrossAbiE2eTest {
         tool.execute(
                 context,
                 Map.of(
-                    "file_name", fileName,
-                    "address", address,
-                    "backend", backend,
-                    "validate_referred_to_data", false,
-                    "ignore_instructions", true,
-                    "ignore_defined_data", true),
+                    "file_name",
+                    fileName,
+                    "address",
+                    address,
+                    "backend",
+                    backend,
+                    "validate_referred_to_data",
+                    false,
+                    "ignore_instructions",
+                    true,
+                    "ignore_defined_data",
+                    true),
                 pluginTool)
             .block();
 

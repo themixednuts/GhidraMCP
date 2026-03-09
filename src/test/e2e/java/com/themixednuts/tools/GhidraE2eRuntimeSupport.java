@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import generic.jar.ResourceFile;
 import ghidra.GhidraApplicationLayout;
-import ghidra.framework.ApplicationConfiguration;
 import ghidra.framework.Application;
+import ghidra.framework.ApplicationConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -27,7 +27,8 @@ final class GhidraE2eRuntimeSupport {
 
     File installDir = resolveInstallDir(repoRoot);
     assumeTrue(installDir != null, "Could not resolve Ghidra install dir for e2e tests");
-    assumeTrue(installDir.isDirectory(), "Resolved Ghidra install dir is not a directory: " + installDir);
+    assumeTrue(
+        installDir.isDirectory(), "Resolved Ghidra install dir is not a directory: " + installDir);
 
     try {
       System.setProperty("ghidra.external.modules", repoRoot.toAbsolutePath().toString());
@@ -70,11 +71,14 @@ final class GhidraE2eRuntimeSupport {
       if (!Files.exists(zipPath)) {
         assumeTrue(
             false,
-            "Bootstrap zip not found at " + zipPath + ". Run bootstrap first or set -Dghidra.install.dir");
+            "Bootstrap zip not found at "
+                + zipPath
+                + ". Run bootstrap first or set -Dghidra.install.dir");
         return null;
       }
 
-      String extractedDirName = zipName.endsWith(".zip") ? zipName.substring(0, zipName.length() - 4) : zipName;
+      String extractedDirName =
+          zipName.endsWith(".zip") ? zipName.substring(0, zipName.length() - 4) : zipName;
       Path extractedBaseDir = repoRoot.resolve(".cache").resolve(extractedDirName);
       Path installDir = findInstallDir(extractedBaseDir);
       if (installDir == null) {
@@ -111,7 +115,8 @@ final class GhidraE2eRuntimeSupport {
 
         Path outputPath = destinationDir.resolve(entry.getName()).normalize();
         if (!outputPath.startsWith(destinationDir)) {
-          throw new IllegalStateException("Unexpected zip entry path traversal: " + entry.getName());
+          throw new IllegalStateException(
+              "Unexpected zip entry path traversal: " + entry.getName());
         }
 
         Files.createDirectories(outputPath.getParent());
@@ -154,5 +159,4 @@ final class GhidraE2eRuntimeSupport {
       return null;
     }
   }
-
 }

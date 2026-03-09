@@ -28,7 +28,8 @@ class DeleteToolsE2eTest {
 
   @Test
   void deleteFunctionRemovesCreatedFunctionAndProgramState() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -51,7 +52,9 @@ class DeleteToolsE2eTest {
       assertTrue(created.getEntryPoint().toLowerCase().contains("401040"));
 
       Object deletedRaw =
-          deleteTool.execute(null, Map.of("file_name", "fixture", "address", "0x401040"), null).block();
+          deleteTool
+              .execute(null, Map.of("file_name", "fixture", "address", "0x401040"), null)
+              .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
       assertTrue(deleted.isSuccess());
       assertEquals("delete_function", deleted.getOperation());
@@ -66,7 +69,8 @@ class DeleteToolsE2eTest {
 
   @Test
   void deleteSymbolRemovesCreatedLabelAndProgramState() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -100,7 +104,9 @@ class DeleteToolsE2eTest {
 
       Address symbolAddress = fixture.program().getAddressFactory().getAddress("0x401060");
       Symbol[] symbols = fixture.program().getSymbolTable().getSymbols(symbolAddress);
-      assertTrue(Arrays.stream(symbols).noneMatch(symbol -> "temp_delete_symbol".equals(symbol.getName())));
+      assertTrue(
+          Arrays.stream(symbols)
+              .noneMatch(symbol -> "temp_delete_symbol".equals(symbol.getName())));
     } finally {
       fixture.close();
     }
@@ -108,7 +114,8 @@ class DeleteToolsE2eTest {
 
   @Test
   void deleteDataTypeRemovesCreatedEnumAndProgramState() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -136,7 +143,10 @@ class DeleteToolsE2eTest {
           .block();
 
       DataType beforeDelete =
-          fixture.program().getDataTypeManager().getDataType(new CategoryPath("/"), "TempDeleteEnum");
+          fixture
+              .program()
+              .getDataTypeManager()
+              .getDataType(new CategoryPath("/"), "TempDeleteEnum");
       assertNotNull(beforeDelete);
 
       Object deletedRaw =
@@ -154,7 +164,10 @@ class DeleteToolsE2eTest {
       assertEquals("TempDeleteEnum", deleted.getDeletedType());
 
       DataType afterDelete =
-          fixture.program().getDataTypeManager().getDataType(new CategoryPath("/"), "TempDeleteEnum");
+          fixture
+              .program()
+              .getDataTypeManager()
+              .getDataType(new CategoryPath("/"), "TempDeleteEnum");
       assertNull(afterDelete);
     } finally {
       fixture.close();
@@ -163,7 +176,8 @@ class DeleteToolsE2eTest {
 
   @Test
   void deleteBookmarkRemovesMatchingBookmarkAndProgramState() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();

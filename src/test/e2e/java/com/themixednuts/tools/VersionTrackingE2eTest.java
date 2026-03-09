@@ -124,9 +124,7 @@ class VersionTrackingE2eTest {
     @SuppressWarnings("unchecked")
     Map<String, Object> result = assertInstanceOf(Map.class, raw);
     int matchCount = ((Number) result.get("match_count")).intValue();
-    assertTrue(
-        matchCount >= 1,
-        "Expected at least 1 exact instruction match, got " + matchCount);
+    assertTrue(matchCount >= 1, "Expected at least 1 exact instruction match, got " + matchCount);
   }
 
   @Test
@@ -334,8 +332,7 @@ class VersionTrackingE2eTest {
 
     // First page with size 1
     Object firstRaw =
-        tool.execute(null, Map.of("session_name", "vt_test_session", "page_size", 1), null)
-            .block();
+        tool.execute(null, Map.of("session_name", "vt_test_session", "page_size", 1), null).block();
     @SuppressWarnings("unchecked")
     PaginatedResult<VTMatchInfo> firstPage = assertInstanceOf(PaginatedResult.class, firstRaw);
     assertEquals(1, firstPage.results.size());
@@ -346,9 +343,12 @@ class VersionTrackingE2eTest {
         tool.execute(
                 null,
                 Map.of(
-                    "session_name", "vt_test_session",
-                    "page_size", 1,
-                    "cursor", firstPage.nextCursor),
+                    "session_name",
+                    "vt_test_session",
+                    "page_size",
+                    1,
+                    "cursor",
+                    firstPage.nextCursor),
                 null)
             .block();
     @SuppressWarnings("unchecked")
@@ -357,11 +357,7 @@ class VersionTrackingE2eTest {
 
     // Pages should have different matches
     assertFalse(
-        firstPage
-            .results
-            .get(0)
-            .sourceAddress()
-            .equals(secondPage.results.get(0).sourceAddress())
+        firstPage.results.get(0).sourceAddress().equals(secondPage.results.get(0).sourceAddress())
             && firstPage
                 .results
                 .get(0)
@@ -591,10 +587,7 @@ class VersionTrackingE2eTest {
   void applyAllMarkupToAllAcceptedMatches() {
     InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
     Object raw =
-        tool.execute(
-                null,
-                Map.of("action", "apply_all", "session_name", "vt_test_session"),
-                null)
+        tool.execute(null, Map.of("action", "apply_all", "session_name", "vt_test_session"), null)
             .block();
 
     @SuppressWarnings("unchecked")
@@ -677,20 +670,18 @@ class VersionTrackingE2eTest {
 
     VTSessionInfo info = assertInstanceOf(VTSessionInfo.class, raw);
     assertTrue(info.totalMatches() > 0, "Expected total_matches > 0 after running correlators");
-    assertTrue(
-        info.acceptedMatches() > 0,
-        "Expected accepted_matches > 0 after accepting matches");
+    assertTrue(info.acceptedMatches() > 0, "Expected accepted_matches > 0 after accepting matches");
   }
 
   // =================== Test Helpers ===================
 
-  private boolean hasAnyMatchForSourceAddressInCorrelator(String sourceAddress, String correlatorType) {
+  private boolean hasAnyMatchForSourceAddressInCorrelator(
+      String sourceAddress, String correlatorType) {
     return readAllMatches().stream()
         .filter(match -> isCorrelatorType(match.correlator(), correlatorType))
         .anyMatch(
             match ->
-                VTMatchResolver
-                    .normalizeAddressHex(sourceAddress)
+                VTMatchResolver.normalizeAddressHex(sourceAddress)
                     .equals(VTMatchResolver.normalizeAddressHex(match.sourceAddress())));
   }
 
@@ -704,7 +695,8 @@ class VersionTrackingE2eTest {
         .anyMatch(
             match ->
                 normalizedSource.equals(VTMatchResolver.normalizeAddressHex(match.sourceAddress()))
-                    && normalizedDestination.equals(VTMatchResolver.normalizeAddressHex(match.destinationAddress())));
+                    && normalizedDestination.equals(
+                        VTMatchResolver.normalizeAddressHex(match.destinationAddress())));
   }
 
   private boolean isCorrelatorType(String correlatorName, String correlatorType) {

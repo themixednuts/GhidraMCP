@@ -59,7 +59,8 @@ final class CrossAbiRttiFixtureSupport {
       Path nmTool = resolveNmTool(compiler, repoRoot);
       assertTrue(nmTool != null, "Could not locate nm tool for Itanium fixture analysis");
 
-      CommandResult rawNm = runCommand(List.of(nmTool.toString(), "-n", exePath.toString()), repoRoot);
+      CommandResult rawNm =
+          runCommand(List.of(nmTool.toString(), "-n", exePath.toString()), repoRoot);
       assertEquals(0, rawNm.exitCode, "nm failed on Itanium fixture binary");
       Files.write(nmRawPath, rawNm.outputLines, StandardCharsets.UTF_8);
 
@@ -103,7 +104,8 @@ final class CrossAbiRttiFixtureSupport {
 
       assertTrue(Files.exists(exePath), "Expected Go fixture executable was not created");
 
-      CommandResult nmResult = runCommand(List.of(goTool.toString(), "tool", "nm", exePath.toString()), repoRoot);
+      CommandResult nmResult =
+          runCommand(List.of(goTool.toString(), "tool", "nm", exePath.toString()), repoRoot);
       assertEquals(0, nmResult.exitCode, "go tool nm failed on Go fixture binary");
       Files.write(nmPath, nmResult.outputLines, StandardCharsets.UTF_8);
 
@@ -121,10 +123,12 @@ final class CrossAbiRttiFixtureSupport {
         return "0x" + parsed.address;
       }
     }
-    throw new IOException("Could not find symbol containing '" + symbolNeedle + "' in " + nmOutputPath);
+    throw new IOException(
+        "Could not find symbol containing '" + symbolNeedle + "' in " + nmOutputPath);
   }
 
-  static String findAddressForAnySymbol(Path nmOutputPath, String... symbolNeedles) throws IOException {
+  static String findAddressForAnySymbol(Path nmOutputPath, String... symbolNeedles)
+      throws IOException {
     for (String needle : symbolNeedles) {
       try {
         return findAddressForSymbol(nmOutputPath, needle);
@@ -237,7 +241,8 @@ final class CrossAbiRttiFixtureSupport {
     Process process = builder.start();
     List<String> output = new ArrayList<>();
     try (BufferedReader reader =
-        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+        new BufferedReader(
+            new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
         output.add(line);

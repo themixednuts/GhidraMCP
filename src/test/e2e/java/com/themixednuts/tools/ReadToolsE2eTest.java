@@ -21,7 +21,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readFunctionsSupportsListingPaginationAndSingleLookup() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -64,7 +65,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readFunctionsSupportsTargetTypeTargetValueSingleLookup() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -89,7 +91,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readSymbolsSupportsSingleLookupAndFilteredListing() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -119,7 +122,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readListingReturnsInstructionRowsForAddressRange() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -154,7 +158,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readListingSupportsFunctionSelectorAsAddress() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -180,7 +185,8 @@ class ReadToolsE2eTest {
 
   @Test
   void readMemoryBlocksSupportsPermissionAndNameFilters() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();

@@ -53,7 +53,8 @@ class ToolAnnotationHintsCoverageTest {
     }
 
     assertFalse(
-        failures.isEmpty() && toolClasses.isEmpty(), "No tool classes discovered for hint coverage");
+        failures.isEmpty() && toolClasses.isEmpty(),
+        "No tool classes discovered for hint coverage");
     assertTrue(failures.isEmpty(), String.join("\n", failures));
   }
 

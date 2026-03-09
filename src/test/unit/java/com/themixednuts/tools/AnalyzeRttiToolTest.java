@@ -26,7 +26,8 @@ class AnalyzeRttiToolTest {
 
     assertTrue(summary.contains("RTTI4=invalid signature"));
     assertTrue(summary.contains("RTTI3=missing reference"));
-    assertTrue(summary.indexOf("RTTI4=invalid signature") < summary.indexOf("RTTI3=missing reference"));
+    assertTrue(
+        summary.indexOf("RTTI4=invalid signature") < summary.indexOf("RTTI3=missing reference"));
   }
 
   @Test
@@ -34,8 +35,7 @@ class AnalyzeRttiToolTest {
     assertEquals(
         RTTIAnalysisResult.RttiType.ITANIUM_CLASS_TYPEINFO,
         AnalyzeRttiTool.classifyItaniumTypeInfoKind(
-            "_ZTVN10__cxxabiv117__class_type_infoE",
-            "vtable for __cxxabiv1::__class_type_info"));
+            "_ZTVN10__cxxabiv117__class_type_infoE", "vtable for __cxxabiv1::__class_type_info"));
     assertEquals(
         RTTIAnalysisResult.RttiType.ITANIUM_SI_CLASS_TYPEINFO,
         AnalyzeRttiTool.classifyItaniumTypeInfoKind(

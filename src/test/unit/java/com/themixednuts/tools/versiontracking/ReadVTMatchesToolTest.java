@@ -31,6 +31,8 @@ class ReadVTMatchesToolTest {
                 Optional.of("0x1000"), Optional.of("0x2000")));
 
     assertDoesNotThrow(
-        () -> ReadVTMatchesTool.validateSingleMatchAddressArguments(Optional.empty(), Optional.empty()));
+        () ->
+            ReadVTMatchesTool.validateSingleMatchAddressArguments(
+                Optional.empty(), Optional.empty()));
   }
 }

@@ -5,9 +5,9 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 echo "[pre-commit] Running format checks..."
-mvn spotless:check
+just fmt-build-check
 
 echo "[pre-commit] Running full integration tests..."
-mvn test -De2e.integration=true
+just test-e2e
 
 echo "[pre-commit] All checks passed."

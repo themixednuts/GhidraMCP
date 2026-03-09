@@ -7,6 +7,10 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+### Changed
+- **Build Tooling Migration** - Replaced the Maven/bootstrap shell flow with a Gradle build, Gradle version catalog, and `just` entrypoints for local development and CI
+- **CI Modernization** - Updated GitHub Actions to current action releases and standardized the main workflow entrypoints on `just`
+
 ## [0.6.2] - 2026-02-16
 
 ### Changed
@@ -162,7 +166,7 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 ### Added
 - **Function Graph Models** - New models for control flow analysis
   - `FunctionGraph` model for representing function control flow
-  - `FunctionGraphNode` model for basic blocks and control flow nodes  
+  - `FunctionGraphNode` model for basic blocks and control flow nodes
   - `FunctionGraphEdge` model for control flow connections
   - Support for structured function analysis and visualization
 - **Data Type ID Support** - Enhanced data type identification and cross-referencing

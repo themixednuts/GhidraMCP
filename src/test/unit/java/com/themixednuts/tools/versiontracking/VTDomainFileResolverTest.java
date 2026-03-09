@@ -14,17 +14,14 @@ class VTDomainFileResolverTest {
   void resolvesSessionByExplicitPathWhenNamesDuplicate() throws Exception {
     List<VTDomainFileResolver.FileDescriptor> files =
         List.of(
-            new VTDomainFileResolver.FileDescriptor("analysis.vt", "/A/analysis.vt", "VersionTracking"),
-            new VTDomainFileResolver.FileDescriptor("analysis.vt", "/B/analysis.vt", "VersionTracking"));
+            new VTDomainFileResolver.FileDescriptor(
+                "analysis.vt", "/A/analysis.vt", "VersionTracking"),
+            new VTDomainFileResolver.FileDescriptor(
+                "analysis.vt", "/B/analysis.vt", "VersionTracking"));
 
     String selectedPath =
         VTDomainFileResolver.selectUniquePath(
-            files,
-            "/B/analysis.vt",
-            "session_name",
-            "VT session",
-            "VersionTracking",
-            "hint");
+            files, "/B/analysis.vt", "session_name", "VT session", "VersionTracking", "hint");
 
     assertEquals("/B/analysis.vt", selectedPath);
   }
@@ -33,8 +30,10 @@ class VTDomainFileResolverTest {
   void rejectsAmbiguousSessionNameWithoutPath() {
     List<VTDomainFileResolver.FileDescriptor> files =
         List.of(
-            new VTDomainFileResolver.FileDescriptor("analysis.vt", "/A/analysis.vt", "VersionTracking"),
-            new VTDomainFileResolver.FileDescriptor("analysis.vt", "/B/analysis.vt", "VersionTracking"));
+            new VTDomainFileResolver.FileDescriptor(
+                "analysis.vt", "/A/analysis.vt", "VersionTracking"),
+            new VTDomainFileResolver.FileDescriptor(
+                "analysis.vt", "/B/analysis.vt", "VersionTracking"));
 
     GhidraMcpException ex =
         assertThrows(
@@ -58,12 +57,7 @@ class VTDomainFileResolverTest {
 
     String selectedPath =
         VTDomainFileResolver.selectUniquePath(
-            files,
-            "session.vt",
-            "session_name",
-            "VT session",
-            "VersionTracking",
-            "hint");
+            files, "session.vt", "session_name", "VT session", "VersionTracking", "hint");
 
     assertEquals("/session.vt", selectedPath);
   }

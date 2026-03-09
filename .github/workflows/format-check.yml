@@ -9,6 +9,8 @@ on:
 jobs:
   format:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -17,7 +19,11 @@ jobs:
         with:
           java-version: "21"
           distribution: "temurin"
-          cache: "maven"
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Check formatting
-        run: mvn spotless:check com.github.hazendaz.maven:xml-format-maven-plugin:xml-check
+        run: just fmt-check

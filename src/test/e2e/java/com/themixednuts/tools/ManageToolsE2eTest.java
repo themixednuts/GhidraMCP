@@ -27,7 +27,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageMemorySupportsReadWriteAndSegmentListing() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -75,14 +76,12 @@ class ManageToolsE2eTest {
       assertEquals("909090", readAfter.getHexData());
 
       Object segmentsRaw =
-          tool.execute(
-                  null,
-                  Map.of("file_name", "fixture", "action", "list_segments"),
-                  null)
+          tool.execute(null, Map.of("file_name", "fixture", "action", "list_segments"), null)
               .block();
       MemorySegmentsOverview segments = assertInstanceOf(MemorySegmentsOverview.class, segmentsRaw);
       assertTrue(segments.getTotalSegments() >= 1);
-      assertTrue(segments.getSegments().stream().anyMatch(segment -> segment.getName().contains(".text")));
+      assertTrue(
+          segments.getSegments().stream().anyMatch(segment -> segment.getName().contains(".text")));
     } finally {
       fixture.close();
     }
@@ -90,7 +89,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageSymbolsSupportsCreateAndUpdate() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -130,7 +130,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageFunctionsSupportsCreateAtAddress() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -157,7 +158,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageFunctionsGraphSupportsTargetTypeTargetValueLookup() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -184,7 +186,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageDataTypesSupportsCreateAndUpdateWithReadBackValidation() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -209,8 +212,7 @@ class ManageToolsE2eTest {
                       4,
                       "entries",
                       List.of(
-                          Map.of("name", "RED", "value", 1),
-                          Map.of("name", "GREEN", "value", 2))),
+                          Map.of("name", "RED", "value", 1), Map.of("name", "GREEN", "value", 2))),
                   null)
               .block();
       OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
@@ -256,7 +258,9 @@ class ManageToolsE2eTest {
       DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
       assertEquals("ColorMode", readBack.getName());
       assertEquals(3, readBack.getValueCount());
-      assertTrue(readBack.getEnumValues().stream().anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
+      assertTrue(
+          readBack.getEnumValues().stream()
+              .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
     } finally {
       fixture.close();
     }
@@ -264,7 +268,8 @@ class ManageToolsE2eTest {
 
   @Test
   void manageProjectSupportsBookmarkMutationWithStateValidation() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -294,8 +299,10 @@ class ManageToolsE2eTest {
       assertEquals("create_bookmark", created.getOperation());
       assertEquals("E2E", created.getMetadata().get("bookmark_category"));
 
-      ghidra.program.model.address.Address addr = fixture.program().getAddressFactory().getAddress("0x401020");
-      ghidra.program.model.listing.Bookmark[] bookmarks = fixture.program().getBookmarkManager().getBookmarks(addr);
+      ghidra.program.model.address.Address addr =
+          fixture.program().getAddressFactory().getAddress("0x401020");
+      ghidra.program.model.listing.Bookmark[] bookmarks =
+          fixture.program().getBookmarkManager().getBookmarks(addr);
       assertTrue(bookmarks.length >= 1);
       assertTrue(
           java.util.Arrays.stream(bookmarks)
@@ -306,14 +313,12 @@ class ManageToolsE2eTest {
                           && "verify bookmark mutation".equals(b.getComment())));
 
       Object infoRaw =
-          tool.execute(
-                  null,
-                  Map.of("file_name", "fixture", "action", "get_program_info"),
-                  null)
+          tool.execute(null, Map.of("file_name", "fixture", "action", "get_program_info"), null)
               .block();
       ProgramInfo info = assertInstanceOf(ProgramInfo.class, infoRaw);
       assertNotNull(info.getName());
-      assertTrue(info.getMemoryBlocks().stream().anyMatch(block -> block.getName().contains(".text")));
+      assertTrue(
+          info.getMemoryBlocks().stream().anyMatch(block -> block.getName().contains(".text")));
     } finally {
       fixture.close();
     }

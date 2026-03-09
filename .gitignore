@@ -1,4 +1,4 @@
-# Maven target directory
+# Build output
 /target/
 
 # Compiled class files
@@ -35,11 +35,8 @@ bin/
 .Spotlight-V100
 .Trashes
 
-# Maven Wrapper
-.mvn/
-!/.mvn/wrapper/maven-wrapper.jar
-mvnw
-mvnw.cmd
+# Gradle
+.gradle/
 
 # Environment files
 .env
@@ -52,6 +49,7 @@ test-output.log
 
 # Ghidra download cache
 /.cache/
+/.codemogger/
 
 # Java crash logs (if any)
 hs_err_pid*

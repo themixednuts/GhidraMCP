@@ -54,8 +54,10 @@ final class VTFixtureSupport {
     sourceBuilder.setBytes("0x4010C0", "55 48 89 e5 48 31 c0 48 ff c0 5d c3"); // dup_bytes_beta
     sourceBuilder.setBytes("0x4010E0", "55 48 89 e5 b8 de ad 00 00 5d c3"); // shifted_func
     sourceBuilder.setBytes("0x401100", "55 48 89 e5 48 83 c0 01 5d c3"); // common_api
-    sourceBuilder.setBytes("0x401120", "55 48 89 e5 48 b8 88 77 66 55 44 33 22 11 5d c3"); // wide_imm_func
-    sourceBuilder.setBytes("0x401140", "55 48 89 e5 31 c0 ff c0 3d 0a 00 00 00 75 f7 5d c3"); // loop_func
+    sourceBuilder.setBytes(
+        "0x401120", "55 48 89 e5 48 b8 88 77 66 55 44 33 22 11 5d c3"); // wide_imm_func
+    sourceBuilder.setBytes(
+        "0x401140", "55 48 89 e5 31 c0 ff c0 3d 0a 00 00 00 75 f7 5d c3"); // loop_func
     sourceBuilder.setBytes("0x401160", "55 48 89 e5 b8 ff 00 00 00 5d c3"); // old_only
 
     // Data
@@ -186,8 +188,7 @@ final class VTFixtureSupport {
     destBuilder.setBytes("0x401040", "55 48 89 e5 53 b8 14 00 00 00 5b 5d c3");
     destBuilder.setBytes("0x401060", "c3");
     destBuilder.setBytes("0x401070", "55 48 89 e5 90 90 90 90 b8 07 00 00 00 5d c3");
-    destBuilder.setBytes(
-        "0x401080", "55 48 89 e5 48 85 ff 74 07 b8 01 00 00 00 5d c3 31 c0 5d c3");
+    destBuilder.setBytes("0x401080", "55 48 89 e5 48 85 ff 74 07 b8 01 00 00 00 5d c3 31 c0 5d c3");
     destBuilder.setBytes("0x4010A0", "55 48 89 e5 48 31 c0 48 ff c0 5d c3");
     destBuilder.setBytes("0x4010C0", "55 48 89 e5 b8 64 00 00 00 5d c3");
     destBuilder.setBytes("0x4010E0", "55 48 89 e5 48 83 e8 01 5d c3");

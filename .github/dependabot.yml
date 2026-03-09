@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: "maven"
+  - package-ecosystem: "gradle"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -13,35 +13,10 @@ updates:
       - "java"
     commit-message:
       prefix: "build(deps)"
-    allow:
-      - dependency-name: "io.modelcontextprotocol.sdk:mcp-bom"
-      - dependency-name: "com.fasterxml.jackson.datatype:jackson-datatype-jdk8"
-      - dependency-name: "com.fasterxml.jackson.core:jackson-databind"
-      - dependency-name: "com.fasterxml.jackson.core:jackson-core"
-      - dependency-name: "com.fasterxml.jackson.core:jackson-annotations"
-      - dependency-name: "jakarta.servlet:jakarta.servlet-api"
-      - dependency-name: "org.eclipse.jetty:jetty-server"
-      - dependency-name: "org.eclipse.jetty.ee10:jetty-ee10-servlet"
-      - dependency-name: "org.reflections:reflections"
-      - dependency-name: "org.junit.jupiter:junit-jupiter-api"
-      - dependency-name: "org.junit.jupiter:junit-jupiter-engine"
-      - dependency-name: "org.junit.platform:junit-platform-suite-api"
-      - dependency-name: "org.mockito:mockito-core"
-      - dependency-name: "org.mockito:mockito-junit-jupiter"
-      - dependency-name: "org.slf4j:slf4j-simple"
-      - dependency-name: "com.github.erosb:everit-json-schema"
-      - dependency-name: "org.json:json"
-      - dependency-name: "org.apache.maven.plugins:maven-resources-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-enforcer-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-antrun-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-jar-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-assembly-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-dependency-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-compiler-plugin"
-      - dependency-name: "org.apache.maven.plugins:maven-surefire-plugin"
-      - dependency-name: "org.codehaus.mojo:exec-maven-plugin"
-      - dependency-name: "com.diffplug.spotless:spotless-maven-plugin"
-      - dependency-name: "com.github.hazendaz.maven:xml-format-maven-plugin"
+    ignore:
+      - dependency-name: "io.modelcontextprotocol.sdk:*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       runtime-dependencies:
         patterns:
@@ -52,6 +27,15 @@ updates:
           - "org.eclipse.jetty.ee10:*"
       test-dependencies:
         patterns:
+          - "org.netbeans.external:*"
+          - "msv:*"
+          - "org.jdom:*"
+          - "org.antlr:*"
+          - "com.google.guava:*"
+          - "org.apache.commons:*"
+          - "commons-*"
+          - "com.google.code.gson:*"
+          - "javax.help:*"
           - "org.reflections:*"
           - "org.junit.jupiter:*"
           - "org.junit.platform:*"
@@ -59,12 +43,10 @@ updates:
           - "org.slf4j:*"
           - "com.github.erosb:*"
           - "org.json:*"
-      maven-plugins:
+      build-dependencies:
         patterns:
-          - "org.apache.maven.plugins:*"
-          - "org.codehaus.mojo:*"
           - "com.diffplug:*"
-          - "com.github.hazendaz.maven:*"
+          - "gradle"
 
   - package-ecosystem: "github-actions"
     directory: "/"

@@ -15,7 +15,8 @@ final class InMemoryProgramFixtureSupport {
     GhidraE2eRuntimeSupport.ensureGhidraRuntimeInitialized(repoRoot);
 
     Object consumer = new Object();
-    ProgramBuilder builder = new ProgramBuilder("read_manage_fixture", ProgramBuilder._X64, consumer);
+    ProgramBuilder builder =
+        new ProgramBuilder("read_manage_fixture", ProgramBuilder._X64, consumer);
     Program program = builder.getProgram();
 
     builder.createMemory(".text", "0x401000", 0x400);

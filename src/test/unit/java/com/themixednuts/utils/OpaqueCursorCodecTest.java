@@ -36,9 +36,7 @@ class OpaqueCursorCodecTest {
     GhidraMcpException ex =
         assertThrows(
             GhidraMcpException.class,
-            () ->
-                OpaqueCursorCodec.decodeV1(
-                    "v1:***:ZGVm", 2, "cursor", "v1:<a>:<b>"));
+            () -> OpaqueCursorCodec.decodeV1("v1:***:ZGVm", 2, "cursor", "v1:<a>:<b>"));
 
     assertTrue(ex.getMessage().contains("invalid base64url"));
   }

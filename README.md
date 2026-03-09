@@ -1,7 +1,7 @@
 <div align="center">
 <a href="https://github.com/themixednuts/GhidraMCP/releases"><img src="https://img.shields.io/github/v/release/themixednuts/GhidraMCP?label=latest%20release&style=flat-square" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/themixednuts/GhidraMCP/build.yml?style=flat-square" alt="Build Status"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Ghidra-12.0.3-blue?style=flat-square" alt="Tested Ghidra Version"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Ghidra-12.0.4-blue?style=flat-square" alt="Tested Ghidra Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/stargazers"><img src="https://img.shields.io/github/stars/themixednuts/GhidraMCP?style=flat-square" alt="GitHub stars"></a>
   <a href="https://github.com/themixednuts/GhidraMCP/network/members"><img src="https://img.shields.io/github/forks/themixednuts/GhidraMCP?style=flat-square" alt="GitHub forks"></a>
@@ -87,18 +87,28 @@ The steps below are only for building from source.
    ```bash
    git clone https://github.com/themixednuts/GhidraMCP.git
    ```
-2. Ensure you have [Apache Maven](https://maven.apache.org/install.html)
-   **3.6.3+** and JDK 21 or later installed.
-3. Build the project (Ghidra jars are fetched automatically on first run):
+2. Ensure you have JDK 21 or later installed.
+3. Build the project with `just`:
    ```bash
-   ./build.sh clean package
+   just package
    ```
 
-   Or manually bootstrap and build with Maven directly:
+   To run the same checks used by the main build CI:
    ```bash
-   mvn -f bootstrap.xml initialize        # first time only
-   mvn clean package
+   just ci
    ```
+
+   Or use the Gradle wrapper directly:
+   ```bash
+   bash ./gradlew package
+   ```
+
+   On Windows PowerShell, use:
+   ```powershell
+   .\gradlew.bat package
+   ```
+
+   Ghidra jars are fetched automatically from the official release zip on first run.
 
 4. The installable `zip` file is written to `target/` (for example,
    `target/GhidraMCP-0.6.2.zip`). Install it using the steps above.
@@ -108,13 +118,13 @@ The steps below are only for building from source.
 To run formatting checks and full integration tests before every commit:
 
 ```bash
-./scripts/install-git-hooks.sh
+just install-hooks
 ```
 
 The installed pre-commit hook runs:
 
-- `mvn spotless:check`
-- `mvn test -De2e.integration=true`
+- `just fmt-build-check`
+- `just test-e2e`
 
 ---
 

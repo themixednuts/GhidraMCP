@@ -17,7 +17,6 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.SourceType;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -28,7 +27,8 @@ class AnalysisToolsE2eTest {
 
   @Test
   void searchMemoryFindsKnownHexPatternAtExpectedAddresses() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -66,7 +66,8 @@ class AnalysisToolsE2eTest {
 
   @Test
   void findReferencesSupportsDirectionFilteringAndCursorPagination() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -90,10 +91,13 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ReferenceInfo> firstPage = assertInstanceOf(PaginatedResult.class, firstPageRaw);
+      PaginatedResult<ReferenceInfo> firstPage =
+          assertInstanceOf(PaginatedResult.class, firstPageRaw);
       assertEquals(1, firstPage.results.size());
       assertNotNull(firstPage.nextCursor);
-      assertTrue(firstPage.results.stream().allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
+      assertTrue(
+          firstPage.results.stream()
+              .allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
 
       Object secondPageRaw =
           tool.execute(
@@ -116,8 +120,10 @@ class AnalysisToolsE2eTest {
           java.util.stream.Stream.concat(firstPage.results.stream(), secondPage.results.stream())
               .map(ReferenceInfo::getToAddress)
               .collect(Collectors.toSet());
-      assertTrue(pagedTargets.stream().anyMatch(address -> address.toLowerCase().contains("401000")));
-      assertTrue(pagedTargets.stream().anyMatch(address -> address.toLowerCase().contains("401020")));
+      assertTrue(
+          pagedTargets.stream().anyMatch(address -> address.toLowerCase().contains("401000")));
+      assertTrue(
+          pagedTargets.stream().anyMatch(address -> address.toLowerCase().contains("401020")));
 
       Object incomingRaw =
           tool.execute(
@@ -131,9 +137,12 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ReferenceInfo> incoming = assertInstanceOf(PaginatedResult.class, incomingRaw);
+      PaginatedResult<ReferenceInfo> incoming =
+          assertInstanceOf(PaginatedResult.class, incomingRaw);
 
-      assertTrue(incoming.results.stream().allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
+      assertTrue(
+          incoming.results.stream()
+              .allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
       assertTrue(
           incoming.results.stream()
               .anyMatch(ref -> ref.getFromAddress().toLowerCase().contains("401060")));
@@ -147,7 +156,8 @@ class AnalysisToolsE2eTest {
 
   @Test
   void decompileCodeReturnsCAndPcodeForFunctionContainingAddress() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -158,12 +168,18 @@ class AnalysisToolsE2eTest {
           tool.execute(
                   null,
                   Map.of(
-                      "file_name", "fixture",
-                      "target_type", "address",
-                      "target_value", "0x401000",
-                      "include_pcode", true,
-                      "include_ast", true,
-                      "timeout", 30),
+                      "file_name",
+                      "fixture",
+                      "target_type",
+                      "address",
+                      "target_value",
+                      "0x401000",
+                      "include_pcode",
+                      true,
+                      "include_ast",
+                      true,
+                      "timeout",
+                      30),
                   null)
               .block();
       DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
@@ -183,7 +199,8 @@ class AnalysisToolsE2eTest {
 
   @Test
   void decompileCodeSupportsFunctionNameIdentifierWithoutTargetValue() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -212,7 +229,8 @@ class AnalysisToolsE2eTest {
 
   @Test
   void listAnalysisOptionsSupportsFilteringAndPagination() throws Exception {
-    assumeTrue(Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
@@ -229,7 +247,8 @@ class AnalysisToolsE2eTest {
       for (int i = 1; i < firstPage.results.size(); i++) {
         String previous = firstPage.results.get(i - 1).getName();
         String current = firstPage.results.get(i).getName();
-        assertTrue(previous.compareToIgnoreCase(current) <= 0, "Expected case-insensitive sort order");
+        assertTrue(
+            previous.compareToIgnoreCase(current) <= 0, "Expected case-insensitive sort order");
       }
 
       String firstName = firstPage.results.get(0).getName();
@@ -241,14 +260,18 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<AnalysisOptionInfo> filtered = assertInstanceOf(PaginatedResult.class, filteredRaw);
+      PaginatedResult<AnalysisOptionInfo> filtered =
+          assertInstanceOf(PaginatedResult.class, filteredRaw);
       assertTrue(
           filtered.results.stream()
               .allMatch(
                   option -> option.getName().toLowerCase().contains(filterToken.toLowerCase())));
 
       Object defaultsOnlyRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "defaults_only", true, "page_size", 20), null)
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "defaults_only", true, "page_size", 20),
+                  null)
               .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<AnalysisOptionInfo> defaultsOnly =
@@ -259,10 +282,7 @@ class AnalysisToolsE2eTest {
         Object secondPageRaw =
             tool.execute(
                     null,
-                    Map.of(
-                        "file_name", "fixture",
-                        "page_size", 5,
-                        "cursor", firstPage.nextCursor),
+                    Map.of("file_name", "fixture", "page_size", 5, "cursor", firstPage.nextCursor),
                     null)
                 .block();
         @SuppressWarnings("unchecked")

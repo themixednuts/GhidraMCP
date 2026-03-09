@@ -1,0 +1,436 @@
+import groovy.json.JsonSlurper
+import java.net.HttpURLConnection
+import java.util.Properties
+
+plugins {
+  id 'java'
+  alias(libs.plugins.spotless)
+}
+
+layout.buildDirectory = layout.projectDirectory.dir('target')
+
+def ghidraJarNames = [
+  'Base.jar',
+  'Decompiler.jar',
+  'MicrosoftCodeAnalyzer.jar',
+  'MicrosoftDemangler.jar',
+  'MicrosoftDmang.jar',
+  'VersionTracking.jar',
+  'DB.jar',
+  'Docking.jar',
+  'FileSystem.jar',
+  'Generic.jar',
+  'Graph.jar',
+  'Help.jar',
+  'Project.jar',
+  'SoftwareModeling.jar',
+  'Utility.jar',
+  'Gui.jar',
+]
+
+def ghidraZipIncludes = [
+  '*/Ghidra/Features/Base/lib/Base.jar',
+  '*/Ghidra/Features/Decompiler/lib/Decompiler.jar',
+  '*/Ghidra/Features/MicrosoftCodeAnalyzer/lib/MicrosoftCodeAnalyzer.jar',
+  '*/Ghidra/Features/MicrosoftDemangler/lib/MicrosoftDemangler.jar',
+  '*/Ghidra/Features/MicrosoftDmang/lib/MicrosoftDmang.jar',
+  '*/Ghidra/Features/VersionTracking/lib/VersionTracking.jar',
+  '*/Ghidra/Framework/DB/lib/DB.jar',
+  '*/Ghidra/Framework/Docking/lib/Docking.jar',
+  '*/Ghidra/Framework/FileSystem/lib/FileSystem.jar',
+  '*/Ghidra/Framework/Generic/lib/Generic.jar',
+  '*/Ghidra/Framework/Graph/lib/Graph.jar',
+  '*/Ghidra/Framework/Help/lib/Help.jar',
+  '*/Ghidra/Framework/Project/lib/Project.jar',
+  '*/Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar',
+  '*/Ghidra/Framework/Utility/lib/Utility.jar',
+  '*/Ghidra/Framework/Gui/lib/Gui.jar',
+]
+
+String normalizeVersion(String value) {
+  if (!value) {
+    return null
+  }
+  def matcher = value =~ /(\d+\.\d+(?:\.\d+)?)/
+  matcher.find() ? matcher.group(1) : null
+}
+
+Object fetchJson(String apiUrl, String description) {
+  HttpURLConnection connection = (HttpURLConnection) new URL(apiUrl).openConnection()
+  connection.setRequestMethod('GET')
+  connection.setRequestProperty('Accept', 'application/vnd.github.v3+json')
+  connection.setRequestProperty('User-Agent', 'GhidraMCP-Gradle-Bootstrap')
+
+  def githubToken = System.getenv('GITHUB_TOKEN')?.trim()
+  if (githubToken) {
+    connection.setRequestProperty('Authorization', "Bearer ${githubToken}")
+  }
+
+  int status = connection.responseCode
+  if (status >= 400) {
+    def details =
+      connection.errorStream != null ? connection.errorStream.getText('UTF-8') : 'no response body'
+    throw new GradleException("Failed to fetch ${description} (HTTP ${status}): ${details}")
+  }
+
+  new JsonSlurper().parse(connection.inputStream)
+}
+
+Map<String, String> resolveGhidraRelease(String requestedSelector) {
+  String selector = requestedSelector?.trim()
+  if (!selector) {
+    selector = project.property('ghidraVersion').toString()
+  }
+
+  boolean useLatest = selector.equalsIgnoreCase('latest')
+  def releaseInfo
+  String ghidraVersion
+
+  if (useLatest) {
+    logger.lifecycle('Fetching latest Ghidra release metadata...')
+    releaseInfo =
+      fetchJson(
+        'https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest',
+        'latest Ghidra release metadata')
+    ghidraVersion = normalizeVersion(releaseInfo.tag_name?.toString())
+  } else {
+    ghidraVersion = normalizeVersion(selector)
+    if (!ghidraVersion) {
+      throw new GradleException(
+        "Invalid Ghidra release selector '${selector}'. Use 'latest', '12.0.4', or 'Ghidra_12.0.4_build'.")
+    }
+
+    String tagName = selector.startsWith('Ghidra_') ? selector : "Ghidra_${ghidraVersion}_build"
+    logger.lifecycle("Fetching Ghidra release metadata for ${tagName}...")
+    releaseInfo =
+      fetchJson(
+        "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/tags/${tagName}",
+        "Ghidra release metadata for ${tagName}")
+  }
+
+  if (!ghidraVersion) {
+    throw new GradleException("Unable to resolve Ghidra version from release metadata: ${releaseInfo}")
+  }
+
+  def zipAsset = releaseInfo.assets?.find { asset ->
+    def name = asset?.name?.toString()?.toLowerCase()
+    name != null && name ==~ /ghidra_.*_public_.*\.zip/
+  }
+  if (!zipAsset) {
+    throw new GradleException(
+      "Could not find a Ghidra PUBLIC zip asset in release ${releaseInfo.tag_name}")
+  }
+
+  String zipName = zipAsset.name.toString()
+  def dateMatch = zipName =~ /(?i)PUBLIC_(\d+)\.zip$/
+  String releaseDate = dateMatch.find() ? dateMatch.group(1) : 'unknown'
+
+  [
+    requestedSelector: selector,
+    mode: useLatest ? 'latest' : 'pinned',
+    version: ghidraVersion,
+    tag: releaseInfo.tag_name.toString(),
+    zipName: zipName,
+    releaseDate: releaseDate,
+    downloadUrl: zipAsset.browser_download_url.toString(),
+  ]
+}
+
+def ghidraReleaseSelector =
+  (System.getProperty('ghidra.release')
+    ?: providers.gradleProperty('ghidraRelease').orElse(providers.gradleProperty('ghidraVersion')).get())
+    .toString()
+def e2eIntegrationEnabled =
+  (System.getProperty('e2e.integration')
+    ?: providers.gradleProperty('e2eIntegration').orElse('false').get())
+    .toString()
+def effectiveGhidraVersion = providers.gradleProperty('ghidraVersion').get()
+def extensionProjectMetadata = [
+  name: project.name,
+  description: project.description,
+  version: project.version.toString(),
+]
+def extensionGhidraMetadata = [
+  version: effectiveGhidraVersion,
+]
+
+def ghidraJarFiles = files(ghidraJarNames.collect { layout.projectDirectory.file("lib/${it}") })
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation platform(libs.mcp.bom)
+  implementation libs.mcp
+  implementation libs.jackson.datatype.jdk8
+  implementation libs.jackson.databind
+  implementation libs.jackson.core
+  implementation libs.jackson.annotations
+  implementation libs.jakarta.servlet.api
+  implementation libs.jetty.server
+  implementation libs.jetty.ee10.servlet
+
+  compileOnly ghidraJarFiles
+  testImplementation ghidraJarFiles
+
+  testImplementation libs.reflections
+  testImplementation libs.junit.jupiter.api
+  testRuntimeOnly libs.junit.jupiter.engine
+  testImplementation libs.junit.platform.suite.api
+  testRuntimeOnly libs.junit.platform.launcher
+  testImplementation libs.mockito.core
+  testImplementation libs.mockito.junit.jupiter
+  testImplementation libs.slf4j.simple
+  testImplementation libs.log4j.api
+  testImplementation libs.log4j.core
+  testImplementation libs.isorelax
+  testImplementation libs.msv
+  testImplementation libs.relaxng.datatype
+  testImplementation libs.xsdlib
+  testImplementation libs.jdom.legacy
+  testImplementation libs.antlr.runtime
+  testImplementation libs.guava
+  testImplementation libs.commons.lang3
+  testImplementation libs.commons.io
+  testImplementation libs.commons.text
+  testImplementation libs.commons.codec
+  testImplementation libs.commons.collections4
+  testImplementation libs.commons.compress
+  testImplementation libs.gson
+  testImplementation libs.javahelp
+  testImplementation libs.everit.json.schema
+  testImplementation libs.json
+}
+
+sourceSets {
+  main {
+    java.srcDirs = ['src/main/java']
+    resources.srcDirs = ['src/main/resources']
+  }
+  test {
+    java.srcDirs = ['src/test/unit/java', 'src/test/e2e/java']
+    resources.srcDirs = ['src/test/resources']
+  }
+}
+
+tasks.register('bootstrapGhidra') {
+  group = 'build setup'
+  description = 'Downloads the selected official Ghidra release and extracts the compile-only jars into lib/.'
+
+  inputs.property('ghidraReleaseSelector', ghidraReleaseSelector)
+  outputs.files(ghidraJarNames.collect { layout.projectDirectory.file("lib/${it}") })
+  outputs.file(layout.projectDirectory.file('lib/.ghidra-bootstrap.properties'))
+
+  doLast {
+    def libDir = layout.projectDirectory.dir('lib').asFile
+    def cacheDir = layout.projectDirectory.dir('.cache').asFile
+    def metadataFile = layout.projectDirectory.file('lib/.ghidra-bootstrap.properties').asFile
+
+    libDir.mkdirs()
+    cacheDir.mkdirs()
+
+    def existing = new Properties()
+    if (metadataFile.exists()) {
+      metadataFile.withInputStream { existing.load(it) }
+    }
+
+    boolean hasAllJars = ghidraJarNames.every { new File(libDir, it).exists() }
+    if (hasAllJars &&
+      metadataFile.exists() &&
+      ghidraReleaseSelector != 'latest' &&
+      existing.getProperty('ghidra.bootstrap.version') == effectiveGhidraVersion &&
+      existing.getProperty('ghidra.bootstrap.selector') == ghidraReleaseSelector) {
+      logger.lifecycle("Ghidra jars already bootstrapped for ${effectiveGhidraVersion}.")
+      return
+    }
+
+    def release = resolveGhidraRelease(ghidraReleaseSelector)
+
+    if (ghidraReleaseSelector != 'latest' && release.version != effectiveGhidraVersion) {
+      throw new GradleException(
+        "Resolved Ghidra version ${release.version} differs from configured ghidraVersion ${effectiveGhidraVersion}. " +
+          "Re-run with -PghidraVersion=${release.version} or set -PghidraRelease=${effectiveGhidraVersion}.")
+    }
+
+    def zipFile = new File(cacheDir, release.zipName)
+    if (!zipFile.exists()) {
+      logger.lifecycle("Downloading ${release.zipName}...")
+      HttpURLConnection connection = (HttpURLConnection) new URL(release.downloadUrl).openConnection()
+      connection.setRequestProperty('User-Agent', 'GhidraMCP-Gradle-Bootstrap')
+      def githubToken = System.getenv('GITHUB_TOKEN')?.trim()
+      if (githubToken) {
+        connection.setRequestProperty('Authorization', "Bearer ${githubToken}")
+      }
+      connection.connect()
+      if (connection.responseCode >= 400) {
+        def details =
+          connection.errorStream != null ? connection.errorStream.getText('UTF-8') : 'no response body'
+        throw new GradleException(
+          "Failed to download ${release.zipName} (HTTP ${connection.responseCode}): ${details}")
+      }
+      zipFile.withOutputStream { out ->
+        connection.inputStream.withStream { inStream ->
+          out << inStream
+        }
+      }
+    }
+
+    delete(fileTree(libDir) { include '*.jar' })
+
+    copy {
+      from(zipTree(zipFile)) {
+        include ghidraZipIncludes
+        eachFile { path = name }
+        includeEmptyDirs = false
+      }
+      into libDir
+    }
+
+    metadataFile.text =
+      """ghidra.bootstrap.version=${release.version}
+ghidra.bootstrap.releaseDate=${release.releaseDate}
+ghidra.bootstrap.tag=${release.tag}
+ghidra.bootstrap.selector=${release.requestedSelector}
+ghidra.bootstrap.mode=${release.mode}
+ghidra.bootstrap.zip=${release.zipName}
+"""
+
+    logger.lifecycle("Ghidra ${release.version} jars ready in ${libDir}.")
+  }
+}
+
+tasks.withType(JavaCompile).configureEach {
+  dependsOn tasks.named('bootstrapGhidra')
+  options.encoding = 'UTF-8'
+  options.release = 21
+}
+
+tasks.named('processResources') {
+  dependsOn tasks.named('bootstrapGhidra')
+  duplicatesStrategy = DuplicatesStrategy.INCLUDE
+  filteringCharset = 'UTF-8'
+
+  filesMatching('extension.properties') {
+    expand(project: extensionProjectMetadata, ghidra: extensionGhidraMetadata)
+  }
+
+  exclude 'META-INF/MANIFEST.MF'
+  from('Module.manifest')
+}
+
+tasks.named('jar') {
+  archiveFileName = 'GhidraMCP.jar'
+  destinationDirectory = layout.buildDirectory
+  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+  exclude '**/App.class'
+  manifest {
+    from 'src/main/resources/META-INF/MANIFEST.MF'
+  }
+}
+
+def syncExtensionLibs =
+  tasks.register('syncExtensionLibs', Sync) {
+    dependsOn tasks.named('jar')
+    from(configurations.runtimeClasspath)
+    into(layout.buildDirectory.dir('extension-lib'))
+  }
+
+def extensionZip =
+  tasks.register('extensionZip', Zip) {
+    group = 'distribution'
+    description = 'Builds the installable Ghidra extension zip.'
+    dependsOn tasks.named('jar')
+    dependsOn syncExtensionLibs
+    dependsOn tasks.named('processResources')
+
+    archiveFileName = "GhidraMCP-${project.version}.zip"
+    destinationDirectory = layout.buildDirectory
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from(tasks.named('processResources')) {
+      include 'extension.properties'
+      include 'Module.manifest'
+      into project.name
+    }
+
+    from(tasks.named('jar')) {
+      into "${project.name}/lib"
+    }
+
+    from(syncExtensionLibs) {
+      into "${project.name}/lib"
+    }
+  }
+
+tasks.named('assemble') {
+  dependsOn extensionZip
+}
+
+tasks.register('bootstrap') {
+  group = 'build setup'
+  description = 'Alias for bootstrapGhidra.'
+  dependsOn tasks.named('bootstrapGhidra')
+}
+
+tasks.register('package') {
+  group = 'build'
+  description = 'Builds the installable Ghidra extension zip.'
+  dependsOn extensionZip
+}
+
+tasks.register('ci') {
+  group = 'verification'
+  description = 'Runs the local CI-equivalent build checks.'
+  dependsOn tasks.named('clean')
+  dependsOn tasks.named('build')
+}
+
+tasks.named('build') {
+  mustRunAfter tasks.named('clean')
+}
+
+tasks.register('printGhidraVersion') {
+  group = 'help'
+  description = 'Prints the configured ghidraVersion.'
+  doLast {
+    println effectiveGhidraVersion
+  }
+}
+
+tasks.register('printMcpBomVersion') {
+  group = 'help'
+  description = 'Prints the configured MCP BOM version.'
+  doLast {
+    println libs.versions.mcp.bom.get()
+  }
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  exclude '**/headless/**'
+  systemProperty 'e2e.integration', e2eIntegrationEnabled
+}
+
+tasks.named('wrapper') {
+  distributionType = Wrapper.DistributionType.BIN
+}
+
+spotless {
+  enforceCheck = false
+  java {
+    target 'src/**/*.java'
+    googleJavaFormat(libs.versions.google.java.format.get())
+  }
+  format('misc') {
+    target '*.gradle', '*.md', '.gitattributes', '.gitignore', '.github/**/*.yml', 'gradle.properties', 'gradle/**/*.toml'
+    trimTrailingWhitespace()
+    endWithNewline()
+  }
+}

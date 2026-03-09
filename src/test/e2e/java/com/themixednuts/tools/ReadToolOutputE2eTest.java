@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.models.FunctionInfo;
-import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import ghidra.program.model.listing.Program;
@@ -61,19 +61,13 @@ class ReadToolOutputE2eTest {
       Object rawResult =
           funcTool.execute(null, Map.of("file_name", "fixture", "page_size", 10), null).block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> funcResult =
-          assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(funcResult.results.isEmpty(), "Fixture should have functions");
 
       // Wrap in McpResponse exactly as executeWithEnvelope does for PaginatedResult
       McpResponse<?> envelope =
           McpResponse.paginated(
-              "read_functions",
-              "execute",
-              funcResult.results,
-              funcResult.nextCursor,
-              null,
-              42L);
+              "read_functions", "execute", funcResult.results, funcResult.nextCursor, null, 42L);
       String originalJson = mapper.writeValueAsString(envelope);
 
       // Store it (simulating the oversized-output path)
@@ -87,10 +81,7 @@ class ReadToolOutputE2eTest {
           readOutputTool
               .execute(
                   null,
-                  Map.of(
-                      "action", "read",
-                      "session_id", sessionId,
-                      "output_id", ref.outputId()),
+                  Map.of("action", "read", "session_id", sessionId, "output_id", ref.outputId()),
                   null)
               .block();
       ToolOutputStore.OutputChunk chunk =
@@ -140,19 +131,13 @@ class ReadToolOutputE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<SymbolInfo> symbolResult =
-          assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<SymbolInfo> symbolResult = assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(symbolResult.results.isEmpty());
 
       // Wrap and serialize
       McpResponse<?> envelope =
           McpResponse.paginated(
-              "read_symbols",
-              "execute",
-              symbolResult.results,
-              symbolResult.nextCursor,
-              null,
-              7L);
+              "read_symbols", "execute", symbolResult.results, symbolResult.nextCursor, null, 7L);
       String originalJson = mapper.writeValueAsString(envelope);
 
       // Store
@@ -227,8 +212,7 @@ class ReadToolOutputE2eTest {
       Object rawResult =
           funcTool.execute(null, Map.of("file_name", "fixture", "page_size", 10), null).block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> funcResult =
-          assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
 
       McpResponse<?> envelope =
           McpResponse.success("read_functions", "execute", funcResult.results, 15L);
@@ -254,8 +238,7 @@ class ReadToolOutputE2eTest {
       // list_outputs — verify tool name and operation are preserved
       Object outputsRaw =
           readOutputTool
-              .execute(
-                  null, Map.of("action", "list_outputs", "session_id", sessionId), null)
+              .execute(null, Map.of("action", "list_outputs", "session_id", sessionId), null)
               .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<ToolOutputStore.OutputInfo> outputs =
@@ -277,9 +260,12 @@ class ReadToolOutputE2eTest {
               .execute(
                   null,
                   Map.of(
-                      "action", "read",
-                      "session_id", sessionId,
-                      "output_file_name", ref.fileName()),
+                      "action",
+                      "read",
+                      "session_id",
+                      sessionId,
+                      "output_file_name",
+                      ref.fileName()),
                   null)
               .block();
       ToolOutputStore.OutputChunk byName =

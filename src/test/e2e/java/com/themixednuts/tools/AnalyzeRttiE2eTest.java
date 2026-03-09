@@ -11,10 +11,10 @@ import ghidra.program.database.ProgramBuilder;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
-import java.util.Locale;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -28,7 +28,8 @@ class AnalyzeRttiE2eTest {
     assumeTrue(RttiFixtureSupport.isWindows(), "MSVC fixture build requires Windows");
 
     Path repoRoot = Paths.get("").toAbsolutePath();
-    RttiFixtureSupport.FixtureArtifacts artifacts = RttiFixtureSupport.buildMsvcX64Fixture(repoRoot);
+    RttiFixtureSupport.FixtureArtifacts artifacts =
+        RttiFixtureSupport.buildMsvcX64Fixture(repoRoot);
     String rtti4Address =
         RttiFixtureSupport.findAddressForSymbol(
             artifacts.mapPath(), "??_R4Diamond@@6B@", "msvc_rtti_fixture.obj");
@@ -48,7 +49,8 @@ class AnalyzeRttiE2eTest {
 
     try {
       PeProgramMappingSupport.configurePeMetadataForVisualStudio(program);
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -69,7 +71,8 @@ class AnalyzeRttiE2eTest {
     assumeTrue(RttiFixtureSupport.isWindows(), "MSVC fixture build requires Windows");
 
     Path repoRoot = Paths.get("").toAbsolutePath();
-    RttiFixtureSupport.FixtureArtifacts artifacts = RttiFixtureSupport.buildMsvcX64Fixture(repoRoot);
+    RttiFixtureSupport.FixtureArtifacts artifacts =
+        RttiFixtureSupport.buildMsvcX64Fixture(repoRoot);
 
     String rtti4Address =
         RttiFixtureSupport.findAddressForSymbol(
@@ -102,7 +105,8 @@ class AnalyzeRttiE2eTest {
 
     try {
       PeProgramMappingSupport.configurePeMetadataForVisualStudio(program);
-      PeProgramMappingSupport.mapPortableExecutableIntoProgram(builder, program, artifacts.exePath());
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
 
       AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
@@ -212,8 +216,7 @@ class AnalyzeRttiE2eTest {
       args.put("backend", backend);
     }
 
-    Object rawResult =
-        tool.execute(context, args, pluginTool).block();
+    Object rawResult = tool.execute(context, args, pluginTool).block();
 
     return assertInstanceOf(RTTIAnalysisResult.class, rawResult);
   }

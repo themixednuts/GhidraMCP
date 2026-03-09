@@ -31,8 +31,8 @@ final class PeProgramMappingSupport {
     }
   }
 
-  static void mapPortableExecutableIntoProgram(ProgramBuilder builder, Program program, Path exePath)
-      throws Exception {
+  static void mapPortableExecutableIntoProgram(
+      ProgramBuilder builder, Program program, Path exePath) throws Exception {
     byte[] bytes = Files.readAllBytes(exePath);
     int peOffset = (int) readUInt32LE(bytes, 0x3c);
     int numberOfSections = readUInt16LE(bytes, peOffset + 6);
@@ -71,7 +71,8 @@ final class PeProgramMappingSupport {
         String sectionStartString = toAddressString(sectionStart.getOffset());
 
         if (mappedSize > Integer.MAX_VALUE) {
-          throw new IllegalStateException("Section too large for test fixture mapping: " + sectionName);
+          throw new IllegalStateException(
+              "Section too large for test fixture mapping: " + sectionName);
         }
 
         MemoryBlock block = builder.createMemory(sectionName, sectionStartString, (int) mappedSize);
@@ -79,7 +80,8 @@ final class PeProgramMappingSupport {
 
         if (initializedLength > 0) {
           byte[] sectionBytes =
-              java.util.Arrays.copyOfRange(bytes, (int) rawPointer, (int) rawPointer + initializedLength);
+              java.util.Arrays.copyOfRange(
+                  bytes, (int) rawPointer, (int) rawPointer + initializedLength);
           builder.setBytes(sectionStartString, sectionBytes);
         }
       }

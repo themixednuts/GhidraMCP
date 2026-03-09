@@ -1,4 +1,4 @@
-name: Build with Maven
+name: Build with Gradle
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
     tags: ["v*"]
   pull_request:
     branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -18,35 +21,38 @@ jobs:
         with:
           java-version: "21"
           distribution: "temurin"
-          cache: maven
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
-      - name: Resolve pinned Ghidra version from pom
-        run: |
-          GHIDRA_RELEASE=$(mvn -q -DforceStdout help:evaluate -Dexpression=ghidra.version)
-          echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
-          echo "Using Ghidra release selector: ${GHIDRA_RELEASE}"
-
-      - name: Bootstrap Ghidra jars
-        run: |
-          mvn -f bootstrap.xml initialize -Dghidra.release=${GHIDRA_RELEASE}
-
-      - name: Build with Maven
-        run: mvn clean package
-
-      - name: Assemble release directory
-        run: |
-          mkdir release
-          cp target/GhidraMCP-*.zip release/
+      - name: Build with just
+        run: just ci
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: GhidraMCP-artifact
-          path: |
-            release/*
+          path: target/GhidraMCP-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GhidraMCP-artifact
+          path: release
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
