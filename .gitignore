@@ -37,6 +37,8 @@ bin/
 
 # Gradle
 .gradle/
+/build/
+/META-INF/
 
 # Environment files
 .env
