@@ -78,15 +78,15 @@ class AnalysisToolsE2eTest {
       addDataReference(program, "0x401060", "0x401020", 1);
       addDataReference(program, "0x401062", "0x401000", 0);
 
-      FindReferencesTool tool = new InMemoryFindReferencesTool(program);
+      InspectTool tool = new InMemoryInspectTool(program);
 
       Object firstPageRaw =
           tool.execute(
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "references_from",
                       "address", "0x401060",
-                      "direction", "from",
                       "reference_type", "DATA",
                       "page_size", 1),
                   null)
@@ -105,8 +105,8 @@ class AnalysisToolsE2eTest {
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "references_from",
                       "address", "0x401060",
-                      "direction", "from",
                       "reference_type", "DATA",
                       "page_size", 1,
                       "cursor", firstPage.nextCursor),
@@ -131,8 +131,8 @@ class AnalysisToolsE2eTest {
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "references_to",
                       "address", "0x401000",
-                      "direction", "to",
                       "reference_type", "DATA",
                       "page_size", 10),
                   null)
@@ -163,7 +163,7 @@ class AnalysisToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      DecompileCodeTool tool = new InMemoryDecompileCodeTool(fixture.program());
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
 
       Object raw =
           tool.execute(
@@ -171,9 +171,9 @@ class AnalysisToolsE2eTest {
                   Map.of(
                       "file_name",
                       "fixture",
-                      "target_type",
+                      "action",
+                      "decompile",
                       "address",
-                      "target_value",
                       "0x401000",
                       "include_pcode",
                       true,
@@ -206,14 +206,14 @@ class AnalysisToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      DecompileCodeTool tool = new InMemoryDecompileCodeTool(fixture.program());
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
 
       Object raw =
           tool.execute(
                   null,
                   Map.of(
                       "file_name", "fixture",
-                      "target_type", "function",
+                      "action", "decompile",
                       "name", "entry_main",
                       "timeout", 30),
                   null)
@@ -360,33 +360,14 @@ class AnalysisToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Find References Test",
-      description = "In-memory find references test wrapper",
-      mcpName = "find_references",
-      mcpDescription = "In-memory wrapper for find_references")
-  private static final class InMemoryFindReferencesTool extends FindReferencesTool {
+      name = "Inspect Test",
+      description = "In-memory inspect test wrapper",
+      mcpName = "inspect",
+      mcpDescription = "In-memory wrapper for inspect")
+  private static final class InMemoryInspectTool extends InspectTool {
     private final Program program;
 
-    InMemoryFindReferencesTool(Program program) {
-      this.program = program;
-    }
-
-    @Override
-    protected Mono<Program> getProgram(
-        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
-      return Mono.just(program);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Decompile Code Test",
-      description = "In-memory decompile code test wrapper",
-      mcpName = "decompile_code",
-      mcpDescription = "In-memory wrapper for decompile_code")
-  private static final class InMemoryDecompileCodeTool extends DecompileCodeTool {
-    private final Program program;
-
-    InMemoryDecompileCodeTool(Program program) {
+    InMemoryInspectTool(Program program) {
       this.program = program;
     }
 

@@ -70,7 +70,7 @@ import reactor.core.publisher.Mono;
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
          - Lists both listing variables and decompiler-generated variables with detailed categorization
-         - Use DecompileCodeTool for decompilation analysis
+         - Use InspectTool (action: decompile) for decompilation analysis
          </important_notes>
 
         <examples>

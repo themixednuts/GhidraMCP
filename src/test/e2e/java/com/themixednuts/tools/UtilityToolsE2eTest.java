@@ -12,7 +12,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.BatchOperationResult;
 import com.themixednuts.models.SymbolInfo;
-import com.themixednuts.tools.DemanglerTool.DemangleResult;
+import com.themixednuts.tools.AnalyzeTool.DemangleResult;
 import com.themixednuts.tools.ExecuteScriptTool.ScriptGuidance;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -35,11 +35,17 @@ class UtilityToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      DemanglerTool tool = new InMemoryDemanglerTool(fixture.program());
+      AnalyzeTool tool = new InMemoryAnalyzeTool(fixture.program());
 
       String mangled = "_Z3fooi";
       Object raw =
-          tool.execute(null, Map.of("file_name", "fixture", "mangled_symbol", mangled), null)
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "demangle",
+                      "mangled_symbol", mangled),
+                  null)
               .block();
       DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
 
@@ -290,14 +296,14 @@ class UtilityToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Demangle Symbol Test",
-      description = "In-memory demangle symbol test wrapper",
-      mcpName = "demangle_symbol",
-      mcpDescription = "In-memory wrapper for demangle_symbol")
-  private static final class InMemoryDemanglerTool extends DemanglerTool {
+      name = "Analyze Test",
+      description = "In-memory analyze test wrapper",
+      mcpName = "analyze",
+      mcpDescription = "In-memory wrapper for analyze")
+  private static final class InMemoryAnalyzeTool extends AnalyzeTool {
     private final Program program;
 
-    InMemoryDemanglerTool(Program program) {
+    InMemoryAnalyzeTool(Program program) {
       this.program = program;
     }
 

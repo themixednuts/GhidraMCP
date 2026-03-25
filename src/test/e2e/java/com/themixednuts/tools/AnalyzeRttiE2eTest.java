@@ -52,7 +52,7 @@ class AnalyzeRttiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -108,7 +108,7 @@ class AnalyzeRttiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -191,7 +191,7 @@ class AnalyzeRttiE2eTest {
   }
 
   private static RTTIAnalysisResult executeAnalyze(
-      AnalyzeRttiTool tool,
+      AnalyzeTool tool,
       McpTransportContext context,
       ghidra.framework.plugintool.PluginTool pluginTool,
       String fileName,
@@ -200,7 +200,7 @@ class AnalyzeRttiE2eTest {
   }
 
   private static RTTIAnalysisResult executeAnalyze(
-      AnalyzeRttiTool tool,
+      AnalyzeTool tool,
       McpTransportContext context,
       ghidra.framework.plugintool.PluginTool pluginTool,
       String fileName,
@@ -208,6 +208,7 @@ class AnalyzeRttiE2eTest {
       String backend) {
     Map<String, Object> args = new HashMap<>();
     args.put("file_name", fileName);
+    args.put("action", "rtti");
     args.put("address", address);
     args.put("validate_referred_to_data", false);
     args.put("ignore_instructions", true);
@@ -269,10 +270,10 @@ class AnalyzeRttiE2eTest {
     return addressText.toLowerCase(Locale.ROOT);
   }
 
-  private static final class InMemoryAnalyzeRttiTool extends AnalyzeRttiTool {
+  private static final class InMemoryAnalyzeTool extends AnalyzeTool {
     private final Program program;
 
-    InMemoryAnalyzeRttiTool(Program program) {
+    InMemoryAnalyzeTool(Program program) {
       this.program = program;
     }
 

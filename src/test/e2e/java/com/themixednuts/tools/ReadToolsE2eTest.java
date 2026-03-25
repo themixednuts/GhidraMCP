@@ -128,7 +128,7 @@ class ReadToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadListingTool tool = new InMemoryReadListingTool(fixture.program());
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
 
       Object raw =
           tool.execute(
@@ -136,6 +136,8 @@ class ReadToolsE2eTest {
                   Map.of(
                       "file_name",
                       "fixture",
+                      "action",
+                      "listing",
                       "address",
                       "0x401000",
                       "end_address",
@@ -164,12 +166,16 @@ class ReadToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadListingTool tool = new InMemoryReadListingTool(fixture.program());
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
 
       Object raw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "function", "0x401000", "max_lines", 10),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "listing",
+                      "name", "0x401000",
+                      "max_lines", 10),
                   null)
               .block();
 
@@ -248,10 +254,15 @@ class ReadToolsE2eTest {
     }
   }
 
-  private static final class InMemoryReadListingTool extends ReadListingTool {
+  @GhidraMcpTool(
+      name = "Inspect Test",
+      description = "In-memory inspect test wrapper",
+      mcpName = "inspect",
+      mcpDescription = "In-memory wrapper for inspect")
+  private static final class InMemoryInspectTool extends InspectTool {
     private final Program program;
 
-    InMemoryReadListingTool(Program program) {
+    InMemoryInspectTool(Program program) {
       this.program = program;
     }
 

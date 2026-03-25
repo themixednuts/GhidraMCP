@@ -54,7 +54,7 @@ class AnalyzeRttiCrossAbiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -103,7 +103,7 @@ class AnalyzeRttiCrossAbiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -156,7 +156,7 @@ class AnalyzeRttiCrossAbiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -243,7 +243,7 @@ class AnalyzeRttiCrossAbiE2eTest {
       PeProgramMappingSupport.mapPortableExecutableIntoProgram(
           builder, program, artifacts.exePath());
 
-      AnalyzeRttiTool tool = new InMemoryAnalyzeRttiTool(program);
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
       McpTransportContext context = Mockito.mock(McpTransportContext.class);
       ghidra.framework.plugintool.PluginTool pluginTool =
           Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
@@ -285,7 +285,7 @@ class AnalyzeRttiCrossAbiE2eTest {
   }
 
   private static RTTIAnalysisResult executeAnalyze(
-      AnalyzeRttiTool tool,
+      AnalyzeTool tool,
       McpTransportContext context,
       ghidra.framework.plugintool.PluginTool pluginTool,
       String fileName,
@@ -297,6 +297,8 @@ class AnalyzeRttiCrossAbiE2eTest {
                 Map.of(
                     "file_name",
                     fileName,
+                    "action",
+                    "rtti",
                     "address",
                     address,
                     "backend",
@@ -368,10 +370,10 @@ class AnalyzeRttiCrossAbiE2eTest {
     return addressText.toLowerCase(Locale.ROOT);
   }
 
-  private static final class InMemoryAnalyzeRttiTool extends AnalyzeRttiTool {
+  private static final class InMemoryAnalyzeTool extends AnalyzeTool {
     private final Program program;
 
-    InMemoryAnalyzeRttiTool(Program program) {
+    InMemoryAnalyzeTool(Program program) {
       this.program = program;
     }
 

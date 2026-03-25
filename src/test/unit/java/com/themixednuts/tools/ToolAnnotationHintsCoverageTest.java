@@ -17,7 +17,7 @@ class ToolAnnotationHintsCoverageTest {
   private static final String TOOL_PACKAGE = "com.themixednuts.tools";
 
   private static final Set<String> READ_ONLY_IDEMPOTENT_TOOL_NAMES =
-      Set.of("find_references", "demangle_symbol", "analyze_rtti", "script_guidance");
+      Set.of("inspect", "demangle_symbol", "analyze_rtti", "script_guidance");
 
   @Test
   void readAndDeleteToolHintsMatchConventions() {

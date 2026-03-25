@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Comprehensive decompilation result model. Used by DecompileCodeTool to return structured
- * decompilation data.
+ * Comprehensive decompilation result model. Used by InspectTool (decompile action) to return
+ * structured decompilation data.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class DecompilationResult {

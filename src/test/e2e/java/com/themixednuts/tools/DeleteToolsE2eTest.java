@@ -35,7 +35,7 @@ class DeleteToolsE2eTest {
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
       FunctionsTool manageTool = new InMemoryFunctionsTool(fixture.program());
-      DeleteFunctionTool deleteTool = new InMemoryDeleteFunctionTool(fixture.program());
+      DeleteTool deleteTool = new InMemoryDeleteTool(fixture.program());
 
       Object createdRaw =
           manageTool
@@ -53,7 +53,10 @@ class DeleteToolsE2eTest {
 
       Object deletedRaw =
           deleteTool
-              .execute(null, Map.of("file_name", "fixture", "address", "0x401040"), null)
+              .execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "function", "address", "0x401040"),
+                  null)
               .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
       assertTrue(deleted.isSuccess());
@@ -76,7 +79,7 @@ class DeleteToolsE2eTest {
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
       SymbolsTool manageTool = new InMemorySymbolsTool(fixture.program());
-      DeleteSymbolTool deleteTool = new InMemoryDeleteSymbolTool(fixture.program());
+      DeleteTool deleteTool = new InMemoryDeleteTool(fixture.program());
 
       Object createdRaw =
           manageTool
@@ -95,7 +98,10 @@ class DeleteToolsE2eTest {
 
       Object deletedRaw =
           deleteTool
-              .execute(null, Map.of("file_name", "fixture", "name", "temp_delete_symbol"), null)
+              .execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "symbol", "name", "temp_delete_symbol"),
+                  null)
               .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
       assertTrue(deleted.isSuccess());
@@ -121,7 +127,7 @@ class DeleteToolsE2eTest {
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
       DataTypesTool dataTypesTool = new InMemoryDataTypesTool(fixture.program());
-      DeleteDataTypeTool deleteTool = new InMemoryDeleteDataTypeTool(fixture.program());
+      DeleteTool deleteTool = new InMemoryDeleteTool(fixture.program());
 
       dataTypesTool
           .execute(
@@ -155,6 +161,7 @@ class DeleteToolsE2eTest {
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "data_type",
                       "data_type_kind", "enum",
                       "name", "TempDeleteEnum"),
                   null)
@@ -183,7 +190,7 @@ class DeleteToolsE2eTest {
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
       AnnotateTool manageTool = new InMemoryAnnotateTool(fixture.program());
-      DeleteBookmarkTool deleteTool = new InMemoryDeleteBookmarkTool(fixture.program());
+      DeleteTool deleteTool = new InMemoryDeleteTool(fixture.program());
 
       Object createdRaw =
           manageTool
@@ -214,6 +221,8 @@ class DeleteToolsE2eTest {
                   Map.of(
                       "file_name",
                       "fixture",
+                      "action",
+                      "bookmark",
                       "address",
                       "0x401020",
                       "bookmark_type",
@@ -263,14 +272,15 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Delete Function Test",
-      description = "In-memory delete function test wrapper",
-      mcpName = "delete_function",
-      mcpDescription = "In-memory wrapper for delete_function")
-  private static final class InMemoryDeleteFunctionTool extends DeleteFunctionTool {
+      name = "Delete Test",
+      description = "In-memory delete test wrapper",
+      mcpName = "delete",
+      destructiveHint = true,
+      mcpDescription = "In-memory wrapper for delete")
+  private static final class InMemoryDeleteTool extends DeleteTool {
     private final Program program;
 
-    InMemoryDeleteFunctionTool(Program program) {
+    InMemoryDeleteTool(Program program) {
       this.program = program;
     }
 
@@ -301,25 +311,6 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Delete Symbol Test",
-      description = "In-memory delete symbol test wrapper",
-      mcpName = "delete_symbol",
-      mcpDescription = "In-memory wrapper for delete_symbol")
-  private static final class InMemoryDeleteSymbolTool extends DeleteSymbolTool {
-    private final Program program;
-
-    InMemoryDeleteSymbolTool(Program program) {
-      this.program = program;
-    }
-
-    @Override
-    protected Mono<Program> getProgram(
-        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
-      return Mono.just(program);
-    }
-  }
-
-  @GhidraMcpTool(
       name = "Data Types Test",
       description = "In-memory data types test wrapper",
       mcpName = "data_types",
@@ -339,25 +330,6 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Delete Data Type Test",
-      description = "In-memory delete data type test wrapper",
-      mcpName = "delete_data_type",
-      mcpDescription = "In-memory wrapper for delete_data_type")
-  private static final class InMemoryDeleteDataTypeTool extends DeleteDataTypeTool {
-    private final Program program;
-
-    InMemoryDeleteDataTypeTool(Program program) {
-      this.program = program;
-    }
-
-    @Override
-    protected Mono<Program> getProgram(
-        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
-      return Mono.just(program);
-    }
-  }
-
-  @GhidraMcpTool(
       name = "Annotate Test",
       description = "In-memory annotate test wrapper",
       mcpName = "annotate",
@@ -366,25 +338,6 @@ class DeleteToolsE2eTest {
     private final Program program;
 
     InMemoryAnnotateTool(Program program) {
-      this.program = program;
-    }
-
-    @Override
-    protected Mono<Program> getProgram(
-        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
-      return Mono.just(program);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Delete Bookmark Test",
-      description = "In-memory delete bookmark test wrapper",
-      mcpName = "delete_bookmark",
-      mcpDescription = "In-memory wrapper for delete_bookmark")
-  private static final class InMemoryDeleteBookmarkTool extends DeleteBookmarkTool {
-    private final Program program;
-
-    InMemoryDeleteBookmarkTool(Program program) {
       this.program = program;
     }
 
