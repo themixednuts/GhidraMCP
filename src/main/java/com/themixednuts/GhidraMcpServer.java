@@ -39,9 +39,23 @@ public final class GhidraMcpServer {
   private static final String MCP_PATH_SPEC = "/*";
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(180);
   private static final String SERVER_INSTRUCTIONS =
-      "Use tool calls for analysis and modifications. Prefer read-only tools for discovery, use"
-          + " paginated cursors for large result sets, and pass file_name explicitly when operating"
-          + " on program data.";
+      "Use the 14 available tools for reverse engineering analysis:\n\n"
+          + "Workflow: triage -> inspect -> analyze -> annotate\n"
+          + "- Start with `project` (info, list_programs) and resources (strings, imports, memory)"
+          + " for triage\n"
+          + "- Use `inspect` (decompile, listing, references) to understand code at specific"
+          + " locations\n"
+          + "- Use `analyze` (demangle, rtti, graph, call_graph) for structural analysis\n"
+          + "- Use `functions`, `symbols`, `data_types` to create and modify program entities\n"
+          + "- Use `memory` to read/write bytes, define data types at addresses, and search\n"
+          + "- Use `annotate` (set_comment, create_bookmark) to document findings\n"
+          + "- Use `delete` for destructive removals (isolated for permission control)\n"
+          + "- Use `vt_sessions` and `vt_operations` for binary comparison\n\n"
+          + "All tools use an `action` parameter to select the operation.\n"
+          + "Use `name_pattern` (regex) for filtering in list operations.\n"
+          + "Identifiers use direct args: symbol_id, address, name (no target_type/target_value).\n"
+          + "Use paginated cursors for large result sets.\n"
+          + "Pass file_name explicitly when operating on program data.";
 
   private static final Object lock = new Object();
   private static Server jettyServer;

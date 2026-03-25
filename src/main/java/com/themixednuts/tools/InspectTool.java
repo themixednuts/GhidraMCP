@@ -643,9 +643,10 @@ public class InspectTool extends BaseMcpTool {
                                             GhidraMcpError.ErrorSuggestion.SuggestionType
                                                 .CHECK_RESOURCES,
                                             "Try a different address",
-                                            "Use read_memory_blocks to find valid addresses",
+                                            "Use memory (action: list_blocks) to find valid"
+                                                + " addresses",
                                             null,
-                                            List.of("read_memory_blocks"))))
+                                            List.of("memory"))))
                                 .build());
                       }
 

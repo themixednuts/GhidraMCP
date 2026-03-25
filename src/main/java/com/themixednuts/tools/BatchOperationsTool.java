@@ -144,7 +144,7 @@ import reactor.core.publisher.Mono;
               }
             },
             {
-              "tool": "manage_memory",
+              "tool": "memory",
               "arguments": {
                 "action": "apply_data_type",
                 "address": "0x401000",

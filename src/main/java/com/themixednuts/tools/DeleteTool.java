@@ -49,7 +49,7 @@ import reactor.core.publisher.Mono;
         <important_notes>
         - DESTRUCTIVE: All actions in this tool permanently remove data from the program
         - MCP clients can deny this entire tool to prevent accidental data loss
-        - Prefer update actions (manage_functions, symbols, data_types) over delete-and-recreate
+        - Prefer update actions (functions, symbols, data_types) over delete-and-recreate
         - Undo/redo is the only recovery mechanism after deletion
         - Four actions: function, symbol, data_type, bookmark
         - Bookmark deletion requires at least one filter OR explicit delete_all=true

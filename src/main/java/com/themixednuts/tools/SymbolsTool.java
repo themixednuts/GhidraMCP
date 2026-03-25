@@ -51,7 +51,7 @@ import reactor.core.publisher.Mono;
          - Validates symbol names according to Ghidra rules
          - Can convert existing namespaces to classes using the convert_to_class action
          - Namespace to class conversion requires the namespace to not be within a function
-         - For deleting symbols, use DeleteSymbolTool instead
+         - For deleting symbols, use the `delete` tool (action: symbol) instead
          </important_notes>
 
         <examples>

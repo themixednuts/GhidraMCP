@@ -36,8 +36,8 @@ final class VTDomainFileResolver {
         argumentName,
         "VT session",
         "VersionTracking",
-        "Provide the full session path (for example, /Folder/Session.vt). Use list_programs to"
-            + " inspect available project paths.");
+        "Provide the full session path (for example, /Folder/Session.vt). Use project (action:"
+            + " list_programs) to inspect available project paths.");
   }
 
   static DomainFile resolveProgramFile(
@@ -48,8 +48,8 @@ final class VTDomainFileResolver {
         argumentName,
         "program",
         "Program",
-        "Provide the full program path (for example, /Folder/program.exe). Use list_programs to"
-            + " inspect available project paths.");
+        "Provide the full program path (for example, /Folder/program.exe). Use project (action:"
+            + " list_programs) to inspect available project paths.");
   }
 
   private static DomainFile resolveUniqueDomainFile(
@@ -124,7 +124,8 @@ final class VTDomainFileResolver {
               objectName,
               trimmedIdentifier,
               pathLike
-                  ? "No file exists at that project path. Use list_programs to inspect valid paths."
+                  ? "No file exists at that project path. Use project (action: list_programs) to"
+                      + " inspect valid paths."
                   : null));
     }
 
