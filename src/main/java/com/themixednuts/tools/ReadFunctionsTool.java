@@ -6,9 +6,9 @@ import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
-import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -16,8 +16,6 @@ import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolIterator;
-import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
@@ -26,7 +24,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -290,92 +287,7 @@ public class ReadFunctionsTool extends BaseMcpTool {
 
   private FunctionInfo readByName(Program program, FunctionManager functionManager, String name)
       throws GhidraMcpException {
-    if (name == null || name.isBlank()) {
-      throw new GhidraMcpException(GhidraMcpError.missing(ARG_NAME));
-    }
-
-    SymbolTable symbolTable = program.getSymbolTable();
-
-    List<Function> exactMatches = new ArrayList<>();
-    SymbolIterator exactIter = symbolTable.getSymbols(name);
-    while (exactIter.hasNext()) {
-      Symbol symbol = exactIter.next();
-      if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-        Function function = functionManager.getFunctionAt(symbol.getAddress());
-        if (function != null
-            && exactMatches.stream()
-                .noneMatch(existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
-          exactMatches.add(function);
-        }
-      }
-    }
-
-    if (exactMatches.size() == 1) {
-      return new FunctionInfo(exactMatches.get(0));
-    }
-    if (exactMatches.size() > 1) {
-      throw new GhidraMcpException(
-          GhidraMcpError.conflict(
-              "Multiple functions found for name: "
-                  + name
-                  + ". Use symbol_id or address for an exact function."));
-    }
-
-    if (name.contains("::")) {
-      List<Function> qualifiedMatches =
-          new ArrayList<>(
-              StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-                  .filter(
-                      function -> {
-                        String qualifiedName =
-                            NamespaceUtils.getNamespaceQualifiedName(
-                                function.getParentNamespace(), function.getName(), false);
-                        return qualifiedName.equals(name);
-                      })
-                  .toList());
-
-      if (qualifiedMatches.size() == 1) {
-        return new FunctionInfo(qualifiedMatches.get(0));
-      }
-      if (qualifiedMatches.size() > 1) {
-        throw new GhidraMcpException(
-            GhidraMcpError.conflict(
-                "Multiple functions found for qualified name: "
-                    + name
-                    + ". Use symbol_id or address for an exact function."));
-      }
-    }
-
-    if (name.contains("*") || name.contains("?")) {
-      SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
-      List<Function> wildcardMatches = new ArrayList<>();
-
-      while (wildcardIter.hasNext()) {
-        Symbol symbol = wildcardIter.next();
-        if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-          Function function = functionManager.getFunctionAt(symbol.getAddress());
-          if (function != null
-              && wildcardMatches.stream()
-                  .noneMatch(
-                      existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
-            wildcardMatches.add(function);
-          }
-        }
-      }
-
-      if (wildcardMatches.size() == 1) {
-        return new FunctionInfo(wildcardMatches.get(0));
-      }
-      if (wildcardMatches.size() > 1) {
-        throw new GhidraMcpException(
-            GhidraMcpError.conflict(
-                "Multiple functions found for wildcard pattern: "
-                    + name
-                    + ". Use symbol_id or address for an exact function."));
-      }
-    }
-
-    throw new GhidraMcpException(GhidraMcpError.notFound("function", "name=" + name));
+    return new FunctionInfo(SymbolLookupHelper.resolveFunction(program, name));
   }
 
   private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {

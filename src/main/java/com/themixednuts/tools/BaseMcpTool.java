@@ -426,7 +426,17 @@ public abstract class BaseMcpTool {
   }
 
   private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
-    return CallToolResult.builder().structuredContent(response).isError(isError).build();
+    CallToolResult.Builder builder =
+        CallToolResult.builder().structuredContent(response).isError(isError);
+    if (isError && response.getError() != null) {
+      String errorText = response.getError().getMessage();
+      String hint = response.getError().getHint();
+      if (hint != null) {
+        errorText += " Hint: " + hint;
+      }
+      builder.addTextContent(errorText);
+    }
+    return builder.build();
   }
 
   private McpResponse<?> wrapOversizedOutput(

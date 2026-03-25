@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.cmd.label.AddLabelCmd;
@@ -21,10 +22,7 @@ import ghidra.program.model.symbol.SymbolUtilities;
 import ghidra.util.exception.InvalidInputException;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -439,31 +437,7 @@ public class ManageSymbolsTool extends BaseMcpTool {
           } else if (args.containsKey(ARG_NAME)) {
             String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
             if (name != null && !name.trim().isEmpty()) {
-              // First try exact match
-              SymbolIterator exactIter = symbolTable.getSymbolIterator(name, true);
-              if (exactIter.hasNext()) {
-                return new SymbolInfo(exactIter.next());
-              }
-
-              // Then try regex
-              try {
-                Symbol firstMatch =
-                    StreamSupport.stream(symbolTable.getAllSymbols(true).spliterator(), false)
-                        .filter(s -> s.getName().matches(name))
-                        .findFirst()
-                        .orElse(null);
-
-                if (firstMatch != null) {
-                  return new SymbolInfo(firstMatch);
-                }
-                throw new GhidraMcpException(GhidraMcpError.notFound("symbol", "name=" + name));
-              } catch (GhidraMcpException e) {
-                throw e;
-              } catch (Exception e) {
-                throw new GhidraMcpException(
-                    GhidraMcpError.invalid(
-                        ARG_NAME, name, "Invalid regex pattern: " + e.getMessage()));
-              }
+              return new SymbolInfo(SymbolLookupHelper.resolveSymbol(program, name));
             }
             throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
           } else {
@@ -598,18 +572,15 @@ public class ManageSymbolsTool extends BaseMcpTool {
 
     String currentName = currentNameOpt.map(String::trim).orElse("");
 
-    List<Symbol> matchingSymbols = findSymbolsByName(symbolTable, currentName);
+    Symbol resolvedSymbol = SymbolLookupHelper.resolveSymbol(program, currentName);
 
-    if (matchingSymbols.isEmpty()) {
-      String namespaceHint = namespaceOpt.map(ns -> " in namespace '" + ns + "'").orElse("");
-      throw new GhidraMcpException(
-          GhidraMcpError.notFound("symbol", "name='" + currentName + "'" + namespaceHint));
-    }
+    // Use explicitly provided namespace if given, otherwise keep the symbol's current namespace
+    Namespace targetNamespace =
+        namespaceOpt.isPresent()
+            ? resolveTargetNamespace(symbolTable, program, namespaceOpt)
+            : resolvedSymbol.getParentNamespace();
 
-    Namespace targetNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
-    Symbol selectedSymbol = selectSymbolWithinNamespace(matchingSymbols, targetNamespace);
-
-    return new SymbolResolveResult(selectedSymbol, currentName, targetNamespace);
+    return new SymbolResolveResult(resolvedSymbol, resolvedSymbol.getName(), targetNamespace);
   }
 
   private Namespace resolveTargetNamespace(
@@ -638,39 +609,6 @@ public class ManageSymbolsTool extends BaseMcpTool {
     }
 
     throw new GhidraMcpException(GhidraMcpError.notFound("namespace", namespacePath));
-  }
-
-  private List<Symbol> findSymbolsByName(SymbolTable symbolTable, String currentName) {
-    SymbolIterator iterator = symbolTable.getSymbolIterator(currentName, true);
-    return StreamSupport.stream(
-            Spliterators.spliteratorUnknownSize(iterator, Spliterator.ORDERED), false)
-        .collect(Collectors.toList());
-  }
-
-  private Symbol selectSymbolWithinNamespace(List<Symbol> symbols, Namespace targetNamespace)
-      throws GhidraMcpException {
-    List<Symbol> scopedMatches =
-        symbols.stream()
-            .filter(symbol -> symbol.getParentNamespace().equals(targetNamespace))
-            .collect(Collectors.toList());
-
-    if (scopedMatches.size() == 1) {
-      return scopedMatches.get(0);
-    }
-
-    if (scopedMatches.isEmpty() && symbols.size() == 1) {
-      return symbols.get(0);
-    }
-
-    List<String> conflicting =
-        symbols.stream()
-            .map(symbol -> symbol.getName(false) + " (ID=" + symbol.getID() + ")")
-            .collect(Collectors.toList());
-
-    throw new GhidraMcpException(
-        GhidraMcpError.conflict(
-            "Multiple symbols matched. Disambiguate with 'symbol_id' or 'namespace': "
-                + conflicting));
   }
 
   private GhidraMcpException multipleIdentifierError(

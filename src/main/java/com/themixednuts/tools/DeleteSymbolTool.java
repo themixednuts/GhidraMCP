@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
@@ -12,7 +13,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.Map;
@@ -142,18 +142,7 @@ public class DeleteSymbolTool extends BaseMcpTool {
               throw new GhidraMcpException(error);
             }
           } else if (nameOpt.isPresent()) {
-            SymbolIterator symbolIter = symbolTable.getSymbolIterator(nameOpt.get(), true);
-            if (symbolIter.hasNext()) {
-              symbolToDelete = symbolIter.next();
-              if (symbolIter.hasNext()) {
-                GhidraMcpError error =
-                    GhidraMcpError.validation()
-                        .errorCode(GhidraMcpError.ErrorCode.CONFLICTING_ARGUMENTS)
-                        .message("Multiple symbols found with name: " + nameOpt.get())
-                        .build();
-                throw new GhidraMcpException(error);
-              }
-            }
+            symbolToDelete = SymbolLookupHelper.resolveSymbol(program, nameOpt.get());
           }
 
           if (symbolToDelete == null) {

@@ -29,7 +29,13 @@ public final class ToolOutputStore {
   public static final int DEFAULT_LIST_PAGE_SIZE = 25;
   public static final int MAX_LIST_PAGE_SIZE = 200;
   public static final int DEFAULT_READ_CHUNK_CHARS = 12_000;
-  public static final int MAX_READ_CHUNK_CHARS = 24_000;
+
+  /**
+   * Maximum chunk size for read operations. Must stay below the inline response char limit (16,000)
+   * to avoid the response being re-stored as oversized output, which would cause infinite
+   * recursion. The JSON envelope overhead (~500 chars) is accounted for.
+   */
+  public static final int MAX_READ_CHUNK_CHARS = 14_000;
 
   private static final long SESSION_TTL_MS = Duration.ofHours(6).toMillis();
   private static final int MAX_SESSIONS = 100;

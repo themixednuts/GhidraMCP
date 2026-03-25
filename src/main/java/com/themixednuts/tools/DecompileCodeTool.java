@@ -5,10 +5,10 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
-import ghidra.app.util.NamespaceUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -19,7 +19,6 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.TaskMonitor;
@@ -335,73 +334,7 @@ public class DecompileCodeTool extends BaseMcpTool {
               "Provide one of: symbol_id, address, name, or target_value"));
     }
 
-    List<Function> exactMatches =
-        StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-            .filter(f -> f.getName(true).equals(functionName))
-            .toList();
-    if (exactMatches.size() == 1) {
-      return exactMatches.get(0);
-    }
-    if (exactMatches.size() > 1) {
-      throw new GhidraMcpException(
-          GhidraMcpError.conflict(
-              "Multiple functions found for name: "
-                  + functionName
-                  + ". Use symbol_id or address for an exact function."));
-    }
-
-    if (functionName.contains("::")) {
-      List<Function> qualifiedMatches =
-          StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-              .filter(
-                  f ->
-                      NamespaceUtils.getNamespaceQualifiedName(
-                              f.getParentNamespace(), f.getName(), false)
-                          .equals(functionName))
-              .toList();
-      if (qualifiedMatches.size() == 1) {
-        return qualifiedMatches.get(0);
-      }
-      if (qualifiedMatches.size() > 1) {
-        throw new GhidraMcpException(
-            GhidraMcpError.conflict(
-                "Multiple functions found for qualified name: "
-                    + functionName
-                    + ". Use symbol_id or address for an exact function."));
-      }
-    }
-
-    if (functionName.contains("*") || functionName.contains("?")) {
-      List<Function> wildcardMatches = new ArrayList<>();
-      SymbolIterator wildcardIter = symbolTable.getSymbolIterator(functionName, false);
-      while (wildcardIter.hasNext()) {
-        Symbol symbol = wildcardIter.next();
-        if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-          Function function = functionManager.getFunctionAt(symbol.getAddress());
-          if (function != null
-              && wildcardMatches.stream()
-                  .noneMatch(
-                      existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
-            wildcardMatches.add(function);
-          }
-        }
-      }
-
-      if (wildcardMatches.size() == 1) {
-        return wildcardMatches.get(0);
-      }
-      if (wildcardMatches.size() > 1) {
-        throw new GhidraMcpException(
-            GhidraMcpError.conflict(
-                "Multiple functions found for wildcard pattern: "
-                    + functionName
-                    + ". Use symbol_id or address for an exact function."));
-      }
-    }
-
-    throw new GhidraMcpException(
-        GhidraMcpError.notFound(
-            "function", functionName, "Use read_functions to see available functions"));
+    return SymbolLookupHelper.resolveFunction(program, functionName);
   }
 
   private Mono<? extends Object> decompileFunction(

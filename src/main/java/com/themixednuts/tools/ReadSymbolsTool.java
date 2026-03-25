@@ -6,6 +6,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
@@ -219,38 +220,7 @@ public class ReadSymbolsTool extends BaseMcpTool {
           } else if (args.containsKey(ARG_NAME)) {
             String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
             if (name != null && !name.trim().isEmpty()) {
-              // Use native SymbolTable.getSymbols() for efficient exact name lookup
-              SymbolIterator exactIter = symbolTable.getSymbols(name);
-              if (exactIter.hasNext()) {
-                return new SymbolInfo(exactIter.next());
-              }
-
-              // Try wildcard search using SymbolTable's native * and ? support
-              if (name.contains("*") || name.contains("?")) {
-                SymbolIterator wildcardIter = symbolTable.getSymbolIterator(name, false);
-                Symbol firstMatch = null;
-                int matchCount = 0;
-
-                while (wildcardIter.hasNext()) {
-                  Symbol symbol = wildcardIter.next();
-                  if (firstMatch == null) {
-                    firstMatch = symbol;
-                  }
-                  matchCount++;
-                  if (matchCount > 1) {
-                    throw new GhidraMcpException(
-                        GhidraMcpError.conflict(
-                            "Multiple symbols found for wildcard pattern: " + name));
-                  }
-                }
-
-                if (firstMatch != null) {
-                  return new SymbolInfo(firstMatch);
-                }
-              }
-
-              throw new GhidraMcpException(
-                  createSymbolNotFoundError(annotation.mcpName(), "name", name));
+              return new SymbolInfo(SymbolLookupHelper.resolveSymbol(program, name));
             }
             throw new GhidraMcpException(createMissingParameterError(annotation.mcpName()));
           } else {

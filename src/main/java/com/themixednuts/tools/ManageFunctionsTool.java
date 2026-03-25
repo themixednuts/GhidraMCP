@@ -11,6 +11,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.cmd.function.CreateFunctionCmd;
@@ -18,7 +19,6 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.services.DataTypeQueryService;
-import ghidra.app.util.NamespaceUtils;
 import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
@@ -41,7 +41,6 @@ import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.ConsoleTaskMonitor;
@@ -595,56 +594,13 @@ public class ManageFunctionsTool extends BaseMcpTool {
     }
 
     if (function == null && identifiers.name().isPresent()) {
-      String functionName = identifiers.name().get();
-
-      List<Function> exactNameMatches =
-          StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
-              .filter(f -> f.getName(true).equals(functionName))
-              .toList();
-      if (exactNameMatches.size() == 1) {
-        function = exactNameMatches.get(0);
-      } else if (exactNameMatches.size() > 1) {
-        throw buildAmbiguousFunctionNameError(functionName, exactNameMatches);
-      }
-
-      if (function == null && functionName.contains("::")) {
-        List<Function> qualifiedNameMatches =
-            StreamSupport.stream(funcMan.getFunctions(true).spliterator(), false)
-                .filter(
-                    f -> {
-                      String qualifiedName =
-                          NamespaceUtils.getNamespaceQualifiedName(
-                              f.getParentNamespace(), f.getName(), false);
-                      return qualifiedName.equals(functionName);
-                    })
-                .toList();
-        if (qualifiedNameMatches.size() == 1) {
-          function = qualifiedNameMatches.get(0);
-        } else if (qualifiedNameMatches.size() > 1) {
-          throw buildAmbiguousFunctionNameError(functionName, qualifiedNameMatches);
+      try {
+        function = SymbolLookupHelper.resolveFunction(program, identifiers.name().get());
+      } catch (GhidraMcpException e) {
+        if (!e.isResourceNotFoundError()) {
+          throw e;
         }
-      }
-
-      if (function == null && (functionName.contains("*") || functionName.contains("?"))) {
-        SymbolIterator wildcardIter = symbolTable.getSymbolIterator(functionName, false);
-        List<Function> wildcardMatches = new ArrayList<>();
-        while (wildcardIter.hasNext()) {
-          Symbol symbol = wildcardIter.next();
-          if (symbol.getSymbolType() == SymbolType.FUNCTION) {
-            Function matched = funcMan.getFunctionAt(symbol.getAddress());
-            if (matched != null
-                && wildcardMatches.stream()
-                    .noneMatch(f -> f.getEntryPoint().equals(matched.getEntryPoint()))) {
-              wildcardMatches.add(matched);
-            }
-          }
-        }
-
-        if (wildcardMatches.size() == 1) {
-          function = wildcardMatches.get(0);
-        } else if (wildcardMatches.size() > 1) {
-          throw buildAmbiguousFunctionNameError(functionName, wildcardMatches);
-        }
+        // Let function remain null so the unified not-found block below handles it.
       }
     }
 
@@ -803,20 +759,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
           GhidraMcpError.invalid(
               ARG_TARGET_VALUE, targetValue, "must be a valid integer symbol_id"));
     }
-  }
-
-  private GhidraMcpException buildAmbiguousFunctionNameError(
-      String searchValue, List<Function> matches) {
-    List<String> sampleMatches =
-        matches.stream().limit(5).map(f -> f.getName(true) + " @ " + f.getEntryPoint()).toList();
-    return new GhidraMcpException(
-        GhidraMcpError.conflict(
-            "Multiple functions match '"
-                + searchValue
-                + "' ("
-                + matches.size()
-                + " matches). Use symbol_id or address for an exact target. Sample matches: "
-                + String.join(", ", sampleMatches)));
   }
 
   private GhidraMcpError createMissingIdentifierError() {

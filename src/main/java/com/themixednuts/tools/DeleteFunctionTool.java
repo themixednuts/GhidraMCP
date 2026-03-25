@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
@@ -17,8 +18,6 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -220,36 +219,7 @@ public class DeleteFunctionTool extends BaseMcpTool {
       String toolOperation,
       Map<String, Object> args,
       GhidraMcpTool annotation) {
-    return Mono.fromCallable(
-            () -> {
-              // Try exact match first
-              Optional<Function> exactMatch =
-                  StreamSupport.stream(
-                          program.getFunctionManager().getFunctions(true).spliterator(), false)
-                      .filter(f -> f.getName().equals(name))
-                      .findFirst();
-
-              if (exactMatch.isPresent()) {
-                return exactMatch.get();
-              }
-
-              // Try regex match
-              List<Function> regexMatches =
-                  StreamSupport.stream(
-                          program.getFunctionManager().getFunctions(true).spliterator(), false)
-                      .filter(f -> f.getName().matches(name))
-                      .collect(Collectors.toList());
-
-              if (regexMatches.isEmpty()) {
-                throw new GhidraMcpException(
-                    createFunctionNotFoundError(toolOperation, "name", name));
-              } else if (regexMatches.size() > 1) {
-                throw new GhidraMcpException(
-                    createMultipleFunctionsFoundError(toolOperation, name, regexMatches));
-              }
-
-              return regexMatches.get(0);
-            })
+    return Mono.fromCallable(() -> SymbolLookupHelper.resolveFunction(program, name))
         .flatMap(function -> deleteFunction(program, function, toolOperation));
   }
 
@@ -314,35 +284,6 @@ public class DeleteFunctionTool extends BaseMcpTool {
                     "Check that the function identifier is correct",
                     List.of(
                         "\"symbol_id\": 12345", "\"address\": \"0x401000\"", "\"name\": \"main\""),
-                    null)))
-        .build();
-  }
-
-  private GhidraMcpError createMultipleFunctionsFoundError(
-      String toolOperation, String searchValue, List<Function> functions) {
-    List<String> functionNames =
-        functions.stream().map(Function::getName).limit(5).collect(Collectors.toList());
-
-    return GhidraMcpError.validation()
-        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-        .message("Multiple functions found for name pattern: " + searchValue)
-        .context(
-            new GhidraMcpError.ErrorContext(
-                toolOperation,
-                "function resolution",
-                Map.of("name", searchValue),
-                Map.of("match_count", functions.size()),
-                Map.of("first_five_matches", functionNames)))
-        .suggestions(
-            List.of(
-                new GhidraMcpError.ErrorSuggestion(
-                    GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-                    "Use a more specific function identifier",
-                    "Consider using symbol_id or address for exact identification",
-                    List.of(
-                        "\"symbol_id\": 12345",
-                        "\"address\": \"0x401000\"",
-                        "\"name\": \"exact_function_name\""),
                     null)))
         .build();
   }
