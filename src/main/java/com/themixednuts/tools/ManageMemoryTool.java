@@ -8,9 +8,14 @@ import com.themixednuts.models.MemorySegmentAnalysisResult;
 import com.themixednuts.models.MemorySegmentInfo;
 import com.themixednuts.models.MemorySegmentsOverview;
 import com.themixednuts.models.MemoryWriteResult;
+import com.themixednuts.models.OperationResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.DataUtilities;
+import ghidra.program.model.data.DataUtilities.ClearDataMode;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryAccessException;
@@ -34,9 +39,9 @@ import reactor.core.publisher.Mono;
     mcpDescription =
         """
         <use_case>
-        Memory CRUD operations for reverse engineering. Read and write bytes, undefine code units,
-        list and analyze memory segments. Essential for understanding program structure, patching code,
-        and clearing incorrect disassembly.
+        Memory operations for reverse engineering. Read and write bytes, define data types at
+        addresses, undefine code units, list and analyze memory segments. Essential for understanding
+        program structure, applying structs/vtables, patching code, and clearing incorrect disassembly.
         </use_case>
 
         <important_notes>
@@ -83,6 +88,7 @@ public class ManageMemoryTool extends BaseMcpTool {
 
   private static final String ACTION_READ = "read";
   private static final String ACTION_WRITE = "write";
+  private static final String ACTION_DEFINE = "define";
   private static final String ACTION_UNDEFINE = "undefine";
   private static final String ACTION_LIST_SEGMENTS = "list_segments";
   private static final String ACTION_ANALYZE_SEGMENT = "analyze_segment";
@@ -108,6 +114,7 @@ public class ManageMemoryTool extends BaseMcpTool {
             .enumValues(
                 ACTION_READ,
                 ACTION_WRITE,
+                ACTION_DEFINE,
                 ACTION_UNDEFINE,
                 ACTION_LIST_SEGMENTS,
                 ACTION_ANALYZE_SEGMENT)
@@ -131,6 +138,18 @@ public class ManageMemoryTool extends BaseMcpTool {
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description("Hexadecimal bytes to write (e.g., '4889e5')")
             .pattern("^[0-9a-fA-F]+$"));
+
+    schemaRoot.property(
+        ARG_DATA_TYPE_PATH,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+            .description(
+                "Data type path to apply at address (e.g., '/MyStruct', 'int', 'char[16]')."
+                    + " Used with the 'define' action."));
+
+    schemaRoot.property(
+        ARG_DATA_TYPE_ID,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+            .description("Data type ID as alternative to data_type_path for the 'define' action."));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 
@@ -158,6 +177,16 @@ public class ManageMemoryTool extends BaseMcpTool {
                 com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
                     .requiredProperty(ARG_ADDRESS)
                     .requiredProperty(ARG_BYTES_HEX)),
+        // action=define requires address (and data_type_path or data_type_id, validated at runtime)
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_DEFINE)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_ADDRESS)),
         // action=undefine requires address
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -203,6 +232,7 @@ public class ManageMemoryTool extends BaseMcpTool {
               return switch (action.toLowerCase()) {
                 case ACTION_READ -> handleRead(program, args, annotation);
                 case ACTION_WRITE -> handleWrite(program, args, annotation);
+                case ACTION_DEFINE -> handleDefine(program, args);
                 case ACTION_UNDEFINE -> handleUndefine(program, args, annotation);
                 case ACTION_LIST_SEGMENTS -> handleListSegments(program, args, annotation);
                 case ACTION_ANALYZE_SEGMENT -> handleAnalyzeSegment(program, args, annotation);
@@ -320,6 +350,77 @@ public class ManageMemoryTool extends BaseMcpTool {
             throw new GhidraMcpException(error);
           }
         });
+  }
+
+  private Mono<? extends Object> handleDefine(Program program, Map<String, Object> args) {
+    String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+    String dataTypePath = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH).orElse(null);
+    Long dataTypeId = getOptionalLongArgument(args, ARG_DATA_TYPE_ID).orElse(null);
+
+    if (dataTypePath == null && dataTypeId == null) {
+      GhidraMcpError error =
+          GhidraMcpError.validation()
+              .message(
+                  "Either data_type_path or data_type_id must be provided for 'define' action.")
+              .build();
+      return Mono.error(new GhidraMcpException(error));
+    }
+
+    return parseAddress(program, addressStr, ACTION_DEFINE)
+        .flatMap(
+            addressResult ->
+                executeInTransaction(
+                    program,
+                    "MCP - Define data at " + addressStr,
+                    () -> {
+                      Address address = addressResult.getAddress();
+                      DataTypeManager dtm = program.getDataTypeManager();
+
+                      DataType dataType = null;
+                      if (dataTypeId != null) {
+                        dataType = dtm.getDataType(dataTypeId);
+                        if (dataType == null) {
+                          throw new GhidraMcpException(
+                              GhidraMcpError.notFound("data type", "ID=" + dataTypeId));
+                        }
+                      } else {
+                        dataType = resolveDataTypeWithFallback(dtm, dataTypePath);
+                        if (dataType == null) {
+                          throw new GhidraMcpException(
+                              GhidraMcpError.notFound("data type", dataTypePath));
+                        }
+                      }
+
+                      try {
+                        DataUtilities.createData(
+                            program, address, dataType, -1, ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
+                      } catch (Exception e) {
+                        throw new GhidraMcpException(
+                            GhidraMcpError.failed(
+                                "define data",
+                                "Could not apply "
+                                    + dataType.getName()
+                                    + " at "
+                                    + addressStr
+                                    + ": "
+                                    + e.getMessage()),
+                            e);
+                      }
+
+                      return OperationResult.success(
+                              ACTION_DEFINE,
+                              address.toString(),
+                              "Applied data type '"
+                                  + dataType.getPathName()
+                                  + "' ("
+                                  + dataType.getLength()
+                                  + " bytes) at "
+                                  + address.toString())
+                          .setMetadata(
+                              Map.of(
+                                  "dataType", dataType.getPathName(),
+                                  "dataTypeSize", dataType.getLength()));
+                    }));
   }
 
   private Mono<? extends Object> handleUndefine(

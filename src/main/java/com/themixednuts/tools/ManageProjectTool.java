@@ -7,11 +7,13 @@ import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.ProgramInfo;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.BookmarkManager;
 import ghidra.program.model.listing.Program;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.Map;
 import reactor.core.publisher.Mono;
@@ -59,6 +61,7 @@ public class ManageProjectTool extends BaseMcpTool {
   private static final String ACTION_GET_PROGRAM_INFO = "get_program_info";
   private static final String ACTION_CREATE_BOOKMARK = "create_bookmark";
   private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
+  private static final String ACTION_RUN_ANALYSIS = "run_analysis";
 
   /**
    * Defines the JSON input schema for project management operations.
@@ -76,7 +79,11 @@ public class ManageProjectTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_ACTION,
         SchemaBuilder.string(mapper)
-            .enumValues(ACTION_GET_PROGRAM_INFO, ACTION_CREATE_BOOKMARK, ACTION_GO_TO_ADDRESS)
+            .enumValues(
+                ACTION_GET_PROGRAM_INFO,
+                ACTION_CREATE_BOOKMARK,
+                ACTION_GO_TO_ADDRESS,
+                ACTION_RUN_ANALYSIS)
             .description("Project-level operation to perform"));
 
     schemaRoot.property(
@@ -159,6 +166,7 @@ public class ManageProjectTool extends BaseMcpTool {
                 case ACTION_GET_PROGRAM_INFO -> handleGetProgramInfo(program);
                 case ACTION_CREATE_BOOKMARK -> handleCreateBookmark(program, args, annotation);
                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool, annotation);
+                case ACTION_RUN_ANALYSIS -> handleRunAnalysis(program);
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
@@ -169,7 +177,9 @@ public class ManageProjectTool extends BaseMcpTool {
                               + ", "
                               + ACTION_CREATE_BOOKMARK
                               + ", "
-                              + ACTION_GO_TO_ADDRESS);
+                              + ACTION_GO_TO_ADDRESS
+                              + ", "
+                              + ACTION_RUN_ANALYSIS);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -283,6 +293,26 @@ public class ManageProjectTool extends BaseMcpTool {
                           address.toString(),
                           "Navigation completed successfully.");
                     }));
+  }
+
+  private Mono<? extends Object> handleRunAnalysis(Program program) {
+    return Mono.fromCallable(
+        () -> {
+          AutoAnalysisManager analysisManager = AutoAnalysisManager.getAnalysisManager(program);
+          if (analysisManager == null) {
+            throw new GhidraMcpException(
+                GhidraMcpError.failed(
+                    "run analysis", "AutoAnalysisManager is not available for this program."));
+          }
+
+          analysisManager.reAnalyzeAll(program.getMemory());
+          analysisManager.startAnalysis(TaskMonitor.DUMMY);
+
+          return OperationResult.success(
+              ACTION_RUN_ANALYSIS,
+              program.getName(),
+              "Auto-analysis triggered successfully on '" + program.getName() + "'.");
+        });
   }
 
   private Mono<? extends Object> buildBlankArgumentError(
