@@ -2,9 +2,6 @@ package com.themixednuts.tools;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
-import com.themixednuts.models.FunctionGraph;
-import com.themixednuts.models.FunctionGraphEdge;
-import com.themixednuts.models.FunctionGraphNode;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
@@ -23,17 +20,11 @@ import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
-import ghidra.program.model.address.AddressSetView;
-import ghidra.program.model.block.BasicBlockModel;
-import ghidra.program.model.block.CodeBlock;
-import ghidra.program.model.block.CodeBlockIterator;
-import ghidra.program.model.block.CodeBlockModel;
-import ghidra.program.model.block.CodeBlockReference;
-import ghidra.program.model.block.CodeBlockReferenceIterator;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
@@ -44,48 +35,79 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.ConsoleTaskMonitor;
-import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
-    name = "Manage Functions",
-    description =
-        "Function operations: create, update prototypes, list variables, and get function graphs.",
-    mcpName = "manage_functions",
+    name = "Functions",
+    description = "Function lifecycle: list, get, create, update prototypes, and list variables.",
+    mcpName = "functions",
     mcpDescription =
         """
          <use_case>
-         Function operations for reverse engineering workflows. Create, update
-         function prototypes, list function variables, and get function control-flow graphs to understand program structure, control flow, and calling conventions.
+         Function lifecycle operations for reverse engineering workflows. List and browse functions
+         with filtering and pagination, get detailed function info by identifier, create functions,
+         update function prototypes, and list function variables with detailed categorization.
          </use_case>
 
          <important_notes>
-         - Supports multiple function identification methods (name, address, symbol ID, regex)
+         - Supports multiple function identification methods (name, address, symbol ID)
+         - List mode supports regex filtering by name_pattern and cursor-based pagination
+         - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
          - Lists both listing variables and decompiler-generated variables with detailed categorization
-         - Generates control-flow graphs showing basic blocks and their connections
-         - Use ReadFunctionsTool for reading/browsing functions with filtering
-         - Use ReadFunctionsTool for searching functions by name, address, or patterns
          - Use DecompileCodeTool for decompilation analysis
-         - Use DeleteFunctionTool to delete functions
          </important_notes>
 
         <examples>
+        List all functions (first page):
+        {
+          "file_name": "program.exe",
+          "action": "list"
+        }
+
+        List functions matching pattern:
+        {
+          "file_name": "program.exe",
+          "action": "list",
+          "name_pattern": ".*decrypt.*"
+        }
+
+        Get a function by address:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "address": "0x401000"
+        }
+
+        Get a function by name:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "name": "main"
+        }
+
+        Get a function by symbol ID:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "symbol_id": 12345
+        }
+
         Create a function at an address with custom name:
         {
           "file_name": "program.exe",
@@ -105,19 +127,11 @@ import reactor.core.publisher.Mono;
         {
           "file_name": "program.exe",
           "action": "list_variables",
-          "target_type": "name",
-          "target_value": "main"
-        }
-
-        Get function control-flow graph:
-        {
-          "file_name": "program.exe",
-          "action": "get_graph",
           "name": "main"
         }
         </examples>
         """)
-public class ManageFunctionsTool extends BaseMcpTool {
+public class FunctionsTool extends BaseMcpTool {
 
   public static final String ARG_ACTION = "action";
   public static final String ARG_SYMBOL_ID = "symbol_id";
@@ -132,22 +146,16 @@ public class ManageFunctionsTool extends BaseMcpTool {
   public static final String ARG_PARAMETER_NAME = "name";
   public static final String ARG_PARAMETER_DATA_TYPE = "data_type";
 
+  private static final String ACTION_LIST = "list";
+  private static final String ACTION_GET = "get";
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_UPDATE_PROTOTYPE = "update_prototype";
   private static final String ACTION_LIST_VARIABLES = "list_variables";
-  private static final String ACTION_GET_GRAPH = "get_graph";
 
-  /**
-   * Defines the JSON input schema for function management operations.
-   *
-   * @return The JsonSchema defining the expected input arguments
-   */
   @Override
   public JsonSchema schema() {
-    // Use Draft 7 builder for conditional support with additive approach
     var schemaRoot = createDraft7SchemaNode();
 
-    // Global properties (always available)
     schemaRoot.property(
         ARG_FILE_NAME, SchemaBuilder.string(mapper).description("The name of the program file."));
 
@@ -155,13 +163,66 @@ public class ManageFunctionsTool extends BaseMcpTool {
         ARG_ACTION,
         SchemaBuilder.string(mapper)
             .enumValues(
-                ACTION_CREATE, ACTION_UPDATE_PROTOTYPE, ACTION_LIST_VARIABLES, ACTION_GET_GRAPH)
+                ACTION_LIST,
+                ACTION_GET,
+                ACTION_CREATE,
+                ACTION_UPDATE_PROTOTYPE,
+                ACTION_LIST_VARIABLES)
             .description("Action to perform on functions"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 
-    // Add conditional requirements based on action (JSON Schema Draft 7)
     schemaRoot.allOf(
+        // action=list: optional filtering and pagination
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_LIST)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_NAME_PATTERN,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional regex pattern to filter function names"))
+                    .property(
+                        ARG_CURSOR,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Pagination cursor from previous request (format:"
+                                    + " v1:<base64url_address>:<base64url_function_name>)"))
+                    .property(
+                        ARG_PAGE_SIZE,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Number of functions to return per page (default: "
+                                    + DEFAULT_PAGE_LIMIT
+                                    + ", max: "
+                                    + MAX_PAGE_LIMIT
+                                    + ")")
+                            .minimum(1)
+                            .maximum(MAX_PAGE_LIMIT))),
+        // action=get: requires at least one identifier (symbol_id, address, name)
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_GET)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_SYMBOL_ID,
+                        SchemaBuilder.integer(mapper)
+                            .description("Symbol ID to identify a specific function"))
+                    .property(
+                        ARG_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description("Function address for identification")
+                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                    .property(
+                        ARG_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description("Function name for lookup (supports * and ? wildcards)"))
+                    .anyOf(
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
         // action=create: requires address; allows functionName
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -204,17 +265,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
-                        ARG_TARGET_TYPE,
-                        SchemaBuilder.string(mapper)
-                            .enumValues("symbol_id", "address", "name")
-                            .description(
-                                "Identifier type for target_value (symbol_id, address, or"
-                                    + " name)"))
-                    .property(
-                        ARG_TARGET_VALUE,
-                        SchemaBuilder.string(mapper)
-                            .description("Identifier value paired with target_type"))
-                    .property(
                         ARG_PROTOTYPE,
                         SchemaBuilder.string(mapper)
                             .description("Full function prototype string (C syntax)"))
@@ -239,10 +289,7 @@ public class ManageFunctionsTool extends BaseMcpTool {
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
-                        SchemaBuilder.objectDraft7(mapper)
-                            .requiredProperty(ARG_TARGET_TYPE)
-                            .requiredProperty(ARG_TARGET_VALUE))),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
         // action=list_variables: requires at least one identifier (symbol_id, address,
         // name);
         // allows cursor
@@ -266,17 +313,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
-                        ARG_TARGET_TYPE,
-                        SchemaBuilder.string(mapper)
-                            .enumValues("symbol_id", "address", "name")
-                            .description(
-                                "Identifier type for target_value (symbol_id, address, or"
-                                    + " name)"))
-                    .property(
-                        ARG_TARGET_VALUE,
-                        SchemaBuilder.string(mapper)
-                            .description("Identifier value paired with target_type"))
-                    .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
@@ -296,60 +332,11 @@ public class ManageFunctionsTool extends BaseMcpTool {
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
-                        SchemaBuilder.objectDraft7(mapper)
-                            .requiredProperty(ARG_TARGET_TYPE)
-                            .requiredProperty(ARG_TARGET_VALUE))),
-        // action=get_graph: requires at least one identifier (symbol_id, address, name)
-        SchemaBuilder.objectDraft7(mapper)
-            .ifThen(
-                SchemaBuilder.objectDraft7(mapper)
-                    .property(
-                        ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_GET_GRAPH)),
-                SchemaBuilder.objectDraft7(mapper)
-                    .property(
-                        ARG_SYMBOL_ID,
-                        SchemaBuilder.integer(mapper)
-                            .description("Function symbol ID for identification"))
-                    .property(
-                        ARG_ADDRESS,
-                        SchemaBuilder.string(mapper)
-                            .description("Function address for identification")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
-                    .property(
-                        ARG_NAME,
-                        SchemaBuilder.string(mapper)
-                            .description("Function name for identification"))
-                    .property(
-                        ARG_TARGET_TYPE,
-                        SchemaBuilder.string(mapper)
-                            .enumValues("symbol_id", "address", "name")
-                            .description(
-                                "Identifier type for target_value (symbol_id, address, or"
-                                    + " name)"))
-                    .property(
-                        ARG_TARGET_VALUE,
-                        SchemaBuilder.string(mapper)
-                            .description("Identifier value paired with target_type"))
-                    .anyOf(
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
-                        SchemaBuilder.objectDraft7(mapper)
-                            .requiredProperty(ARG_TARGET_TYPE)
-                            .requiredProperty(ARG_TARGET_VALUE))));
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))));
 
     return schemaRoot.build();
   }
 
-  /**
-   * Executes the function management operation.
-   *
-   * @param context The MCP transport context
-   * @param args The tool arguments containing file_name, action, and action-specific parameters
-   * @param tool The Ghidra PluginTool context
-   * @return A Mono emitting the result of the function operation
-   */
   @Override
   public Mono<? extends Object> execute(
       McpTransportContext context, Map<String, Object> args, PluginTool tool) {
@@ -369,21 +356,156 @@ public class ManageFunctionsTool extends BaseMcpTool {
               }
 
               return switch (action.toLowerCase(Locale.ROOT)) {
+                case ACTION_LIST -> handleList(program, args);
+                case ACTION_GET -> handleGet(program, args);
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
                 case ACTION_UPDATE_PROTOTYPE ->
                     handleUpdatePrototype(program, tool, args, annotation);
                 case ACTION_LIST_VARIABLES -> handleListVariables(program, args, annotation);
-                case ACTION_GET_GRAPH -> handleGetGraph(program, args, annotation);
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
                           ARG_ACTION,
                           action,
-                          "must be one of: create, update_prototype, list_variables, get_graph");
+                          "must be one of: list, get, create, update_prototype, list_variables");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
             });
+  }
+
+  private Mono<PaginatedResult<FunctionInfo>> handleList(
+      Program program, Map<String, Object> args) {
+    return Mono.fromCallable(() -> listFunctions(program, args));
+  }
+
+  private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
+    FunctionManager functionManager = program.getFunctionManager();
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+
+    Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+
+    FunctionCursor cursor =
+        cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
+
+    Pattern namePattern = null;
+    if (namePatternOpt.isPresent()) {
+      try {
+        namePattern = Pattern.compile(namePatternOpt.get());
+      } catch (PatternSyntaxException e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid("name_pattern", namePatternOpt.get(), e.getMessage()));
+      }
+    }
+
+    List<FunctionInfo> allMatches = new ArrayList<>();
+    FunctionIterator funcIter = functionManager.getFunctions(true);
+    while (funcIter.hasNext()) {
+      Function function = funcIter.next();
+      if (namePattern != null && !namePattern.matcher(function.getName()).matches()) {
+        continue;
+      }
+      allMatches.add(new FunctionInfo(function));
+    }
+
+    int startIndex = 0;
+    if (cursor != null) {
+      boolean matched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        FunctionInfo functionInfo = allMatches.get(i);
+        if (functionInfo.getEntryPoint().equalsIgnoreCase(cursor.address)
+            && functionInfo.getName().equals(cursor.name)) {
+          startIndex = i + 1;
+          matched = true;
+          break;
+        }
+      }
+
+      if (!matched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.toCursorString(),
+                "cursor is invalid or no longer present in this function listing"));
+      }
+    }
+
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<FunctionInfo> paginatedResults =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+
+    boolean hasMore = paginatedResults.size() > pageSize;
+    List<FunctionInfo> results =
+        hasMore ? new ArrayList<>(paginatedResults.subList(0, pageSize)) : paginatedResults;
+
+    String nextCursor = null;
+    if (hasMore && !results.isEmpty()) {
+      FunctionInfo lastFunc = results.get(results.size() - 1);
+      nextCursor = encodeFunctionCursor(lastFunc.getEntryPoint(), lastFunc.getName());
+    }
+
+    return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private Mono<FunctionInfo> handleGet(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          FunctionManager functionManager = program.getFunctionManager();
+
+          Optional<Long> symbolIdOpt = getOptionalLongArgument(args, ARG_SYMBOL_ID);
+          Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
+          Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
+
+          // Apply precedence: symbol_id > address > name
+          if (symbolIdOpt.isPresent()) {
+            return readBySymbolId(program, functionManager, symbolIdOpt.get());
+          } else if (addressOpt.isPresent()) {
+            return readByAddress(program, functionManager, addressOpt.get());
+          } else if (nameOpt.isPresent()) {
+            return readByName(program, nameOpt.get());
+          } else {
+            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+          }
+        });
+  }
+
+  private FunctionInfo readBySymbolId(
+      Program program, FunctionManager functionManager, Long symbolId) throws GhidraMcpException {
+    Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+    if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
+      Function function = functionManager.getFunctionAt(symbol.getAddress());
+      if (function != null) {
+        return new FunctionInfo(function);
+      }
+    }
+    throw new GhidraMcpException(GhidraMcpError.notFound("function", "symbol_id=" + symbolId));
+  }
+
+  private FunctionInfo readByAddress(
+      Program program, FunctionManager functionManager, String addressStr)
+      throws GhidraMcpException {
+    if (addressStr == null || addressStr.isBlank()) {
+      throw new GhidraMcpException(GhidraMcpError.missing(ARG_ADDRESS));
+    }
+
+    try {
+      Address functionAddress = program.getAddressFactory().getAddress(addressStr);
+      if (functionAddress != null) {
+        Function function = functionManager.getFunctionContaining(functionAddress);
+        if (function != null) {
+          return new FunctionInfo(function);
+        }
+      }
+    } catch (Exception e) {
+      throw new GhidraMcpException(GhidraMcpError.parse("address", addressStr));
+    }
+
+    throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));
+  }
+
+  private FunctionInfo readByName(Program program, String name) throws GhidraMcpException {
+    return new FunctionInfo(SymbolLookupHelper.resolveFunction(program, name));
   }
 
   private Mono<? extends Object> handleCreate(
@@ -449,8 +571,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
       Program program, PluginTool tool, Map<String, Object> args, GhidraMcpTool annotation) {
     String toolOperation = annotation.mcpName() + ".update_prototype";
 
-    // Extract function identifiers from both direct arguments and
-    // target_type/target_value
     FunctionIdentifiers identifiers;
     try {
       identifiers = extractFunctionIdentifiers(args);
@@ -462,20 +582,17 @@ public class ManageFunctionsTool extends BaseMcpTool {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
     }
 
-    // Check if raw prototype string is provided (preferred approach)
     Optional<String> rawPrototypeOpt =
         getOptionalStringArgument(args, ARG_PROTOTYPE)
             .map(String::trim)
             .filter(value -> !value.isEmpty());
 
     if (rawPrototypeOpt.isPresent()) {
-      // Use raw prototype string with FunctionSignatureParser
       return Mono.fromCallable(
               () -> resolveFunctionByIdentifiers(program, identifiers, toolOperation))
           .map(function -> new UpdatePrototypeContext(program, function, rawPrototypeOpt.get()))
           .flatMap(context -> executePrototypeUpdate(program, annotation, tool, context));
     } else {
-      // Build prototype from structured arguments
       String returnTypeName = getRequiredStringArgument(args, ARG_RETURN_TYPE);
       Optional<String> callingConventionOpt =
           getOptionalStringArgument(args, ARG_CALLING_CONVENTION);
@@ -600,7 +717,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
         if (!e.isResourceNotFoundError()) {
           throw e;
         }
-        // Let function remain null so the unified not-found block below handles it.
       }
     }
 
@@ -700,72 +816,20 @@ public class ManageFunctionsTool extends BaseMcpTool {
     }
   }
 
-  private FunctionIdentifiers extractFunctionIdentifiers(Map<String, Object> args)
-      throws GhidraMcpException {
+  private FunctionIdentifiers extractFunctionIdentifiers(Map<String, Object> args) {
     Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
     String addressValue = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
     String functionNameValue = getOptionalStringArgument(args, ARG_NAME).orElse(null);
-
-    String targetType =
-        getOptionalStringArgument(args, ARG_TARGET_TYPE)
-            .map(value -> value.toLowerCase(Locale.ROOT))
-            .orElse(null);
-    String targetValue =
-        getOptionalStringArgument(args, ARG_TARGET_VALUE)
-            .map(String::trim)
-            .filter(value -> !value.isEmpty())
-            .orElse(null);
-
-    if (targetType != null && targetValue == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.of(
-              ARG_TARGET_VALUE + " is required when target_type is provided",
-              "Provide target_value with target_type (symbol_id, address, or name)"));
-    }
-
-    if (targetType == null && targetValue != null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.of(
-              ARG_TARGET_TYPE + " is required when target_value is provided",
-              "Provide target_type with target_value (symbol_id, address, or name)"));
-    }
-
-    if (symbolId == null
-        && addressValue == null
-        && functionNameValue == null
-        && targetType != null) {
-      switch (targetType) {
-        case "symbol_id" -> symbolId = parseSymbolIdTargetValue(targetValue);
-        case "address" -> addressValue = targetValue;
-        case "name" -> functionNameValue = targetValue;
-        default ->
-            throw new GhidraMcpException(
-                GhidraMcpError.invalid(
-                    ARG_TARGET_TYPE, targetType, "must be one of: symbol_id, address, name"));
-      }
-    }
-
     return new FunctionIdentifiers(
         Optional.ofNullable(symbolId),
         Optional.ofNullable(addressValue),
         Optional.ofNullable(functionNameValue));
   }
 
-  private Long parseSymbolIdTargetValue(String targetValue) throws GhidraMcpException {
-    try {
-      return Long.parseLong(targetValue);
-    } catch (NumberFormatException e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.invalid(
-              ARG_TARGET_VALUE, targetValue, "must be a valid integer symbol_id"));
-    }
-  }
-
   private GhidraMcpError createMissingIdentifierError() {
     return GhidraMcpError.of(
-        "At least one function identifier must be provided (symbol_id, address, name, or"
-            + " target_type/target_value)",
-        "Include one of: symbol_id, address, name, or target_type + target_value");
+        "At least one function identifier must be provided (symbol_id, address, or name)",
+        "Include one of: symbol_id, address, or name");
   }
 
   private Mono<Address> parseAddressOrThrow(
@@ -794,8 +858,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
     String toolOperation = annotation.mcpName() + ".list_variables";
 
-    // Extract function identifiers from both direct arguments and
-    // target_type/target_value
     FunctionIdentifiers identifiers;
     try {
       identifiers = extractFunctionIdentifiers(args);
@@ -819,11 +881,9 @@ public class ManageFunctionsTool extends BaseMcpTool {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
-    // Get listing variables
     Stream<FunctionVariableInfo> listingVarStream =
         Arrays.stream(function.getAllVariables()).map(FunctionVariableInfo::new);
 
-    // Get decompiler variables
     Stream<FunctionVariableInfo> decompilerVarStream = Stream.empty();
     DecompInterface decomplib = new DecompInterface();
     try {
@@ -834,7 +894,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
               function, decomplib.getOptions().getDefaultTimeout(), new ConsoleTaskMonitor());
 
       if (results == null) {
-        // Decompiler failed but continue with listing variables only
         ghidra.util.Msg.warn(
             this, "Decompiler returned null results for function: " + function.getName());
       } else {
@@ -859,7 +918,6 @@ public class ManageFunctionsTool extends BaseMcpTool {
         }
       }
     } catch (Exception e) {
-      // Log the error but continue with listing variables
       ghidra.util.Msg.error(
           this, "Error during decompilation for ListFunctionVariables: " + e.getMessage(), e);
     } finally {
@@ -938,84 +996,52 @@ public class ManageFunctionsTool extends BaseMcpTool {
     }
   }
 
+  private FunctionCursor parseFunctionCursor(Program program, String cursorValue) {
+    List<String> parts =
+        decodeOpaqueCursorV1(
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_address>:<base64url_function_name>");
+
+    Address cursorAddress = program.getAddressFactory().getAddress(parts.get(0));
+    if (cursorAddress == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
+    }
+
+    String decodedName = parts.get(1);
+
+    if (decodedName.isBlank()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an empty function name"));
+    }
+
+    return new FunctionCursor(cursorAddress.toString(), decodedName, cursorValue);
+  }
+
+  private String encodeFunctionCursor(String address, String functionName) {
+    return OpaqueCursorCodec.encodeV1(address, functionName);
+  }
+
+  private static final class FunctionCursor {
+    private final String address;
+    private final String name;
+    private final String rawCursor;
+
+    private FunctionCursor(String address, String name, String rawCursor) {
+      this.address = address;
+      this.name = name;
+      this.rawCursor = rawCursor;
+    }
+
+    private String toCursorString() {
+      return rawCursor;
+    }
+  }
+
   private void ensureArgumentPresent(
       Map<String, Object> args, String argumentName, String toolOperation)
       throws GhidraMcpException {
     if (!args.containsKey(argumentName) || args.get(argumentName) == null) {
       throw new GhidraMcpException(GhidraMcpError.missing(argumentName));
     }
-  }
-
-  private Mono<? extends Object> handleGetGraph(
-      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-    String toolOperation = annotation.mcpName() + ".get_graph";
-
-    // Extract function identifiers from both direct arguments and
-    // target_type/target_value
-    FunctionIdentifiers identifiers;
-    try {
-      identifiers = extractFunctionIdentifiers(args);
-    } catch (GhidraMcpException e) {
-      return Mono.error(e);
-    }
-
-    if (identifiers.isEmpty()) {
-      return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
-    }
-
-    return Mono.fromCallable(
-        () -> {
-          Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
-          return buildFunctionGraph(program, function);
-        });
-  }
-
-  private FunctionGraph buildFunctionGraph(Program program, Function function)
-      throws GhidraMcpException {
-    CodeBlockModel model = new BasicBlockModel(program);
-    AddressSetView body = function.getBody();
-
-    Map<String, FunctionGraphNode> idToNode = new LinkedHashMap<>();
-    List<FunctionGraphEdge> edges = new ArrayList<>();
-
-    try {
-      // Use TaskMonitor.DUMMY instead of null
-      TaskMonitor monitor = TaskMonitor.DUMMY;
-      CodeBlockIterator blocks = model.getCodeBlocksContaining(body, monitor);
-      int index = 0;
-      Map<Address, String> startToId = new HashMap<>();
-      List<CodeBlock> blockList = new ArrayList<>();
-
-      while (blocks.hasNext()) {
-        CodeBlock b = blocks.next();
-        blockList.add(b);
-        String nodeId = "B" + index++;
-        startToId.put(b.getFirstStartAddress(), nodeId);
-        String range = b.getMinAddress() + "-" + b.getMaxAddress();
-        String label = b.getFirstStartAddress().toString();
-        idToNode.put(nodeId, new FunctionGraphNode(nodeId, range, label));
-      }
-
-      for (CodeBlock b : blockList) {
-        String srcId = startToId.get(b.getFirstStartAddress());
-        CodeBlockReferenceIterator dests = b.getDestinations(monitor);
-        while (dests.hasNext()) {
-          CodeBlockReference ref = dests.next();
-          CodeBlock dest = ref.getDestinationBlock();
-          String dstId = startToId.get(dest.getFirstStartAddress());
-          if (dstId != null) {
-            String type = ref.getFlowType().toString();
-            edges.add(new FunctionGraphEdge(srcId, dstId, type));
-          }
-        }
-      }
-    } catch (Exception e) {
-      throw new GhidraMcpException(GhidraMcpError.internal(e));
-    }
-
-    List<FunctionGraphNode> nodes = new ArrayList<>(idToNode.values());
-    String funcName = function.getName(true);
-    String funcAddr = function.getEntryPoint() != null ? function.getEntryPoint().toString() : null;
-    return new FunctionGraph(funcName, funcAddr, nodes, edges);
   }
 }

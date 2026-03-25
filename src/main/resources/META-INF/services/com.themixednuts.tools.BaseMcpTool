@@ -1,5 +1,4 @@
-com.themixednuts.tools.ManageFunctionsTool
-com.themixednuts.tools.ReadFunctionsTool
+com.themixednuts.tools.FunctionsTool
 com.themixednuts.tools.DeleteFunctionTool
 com.themixednuts.tools.DecompileCodeTool
 com.themixednuts.tools.ReadListingTool

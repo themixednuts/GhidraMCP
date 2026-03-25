@@ -1,7 +1,6 @@
 package com.themixednuts.tools;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,7 +8,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.DataTypeReadResult;
-import com.themixednuts.models.FunctionGraph;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemorySegmentsOverview;
@@ -136,7 +134,7 @@ class ManageToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageFunctionsTool tool = new InMemoryManageFunctionsTool(fixture.program());
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
 
       Object createdRaw =
           tool.execute(
@@ -151,34 +149,6 @@ class ManageToolsE2eTest {
       FunctionInfo created = assertInstanceOf(FunctionInfo.class, createdRaw);
       assertNotNull(created.getEntryPoint());
       assertTrue(created.getEntryPoint().toLowerCase().contains("401040"));
-    } finally {
-      fixture.close();
-    }
-  }
-
-  @Test
-  void manageFunctionsGraphSupportsTargetTypeTargetValueLookup() throws Exception {
-    assumeTrue(
-        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
-
-    InMemoryProgramFixtureSupport.ProgramFixture fixture =
-        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
-    try {
-      ManageFunctionsTool tool = new InMemoryManageFunctionsTool(fixture.program());
-
-      Object graphRaw =
-          tool.execute(
-                  null,
-                  Map.of(
-                      "file_name", "fixture",
-                      "action", "get_graph",
-                      "target_type", "name",
-                      "target_value", "entry_main"),
-                  null)
-              .block();
-      FunctionGraph graph = assertInstanceOf(FunctionGraph.class, graphRaw);
-      assertEquals("entry_main", graph.getFunctionName());
-      assertFalse(graph.getNodes().isEmpty());
     } finally {
       fixture.close();
     }
@@ -363,14 +333,14 @@ class ManageToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Functions Test",
-      description = "In-memory manage functions test wrapper",
-      mcpName = "manage_functions",
-      mcpDescription = "In-memory wrapper for manage_functions")
-  private static final class InMemoryManageFunctionsTool extends ManageFunctionsTool {
+      name = "Functions Test",
+      description = "In-memory functions test wrapper",
+      mcpName = "functions",
+      mcpDescription = "In-memory wrapper for functions")
+  private static final class InMemoryFunctionsTool extends FunctionsTool {
     private final Program program;
 
-    InMemoryManageFunctionsTool(Program program) {
+    InMemoryFunctionsTool(Program program) {
       this.program = program;
     }
 

@@ -34,7 +34,7 @@ class DeleteToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageFunctionsTool manageTool = new InMemoryManageFunctionsTool(fixture.program());
+      FunctionsTool manageTool = new InMemoryFunctionsTool(fixture.program());
       DeleteFunctionTool deleteTool = new InMemoryDeleteFunctionTool(fixture.program());
 
       Object createdRaw =
@@ -244,14 +244,14 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Functions Test",
-      description = "In-memory manage functions test wrapper",
+      name = "Functions Test",
+      description = "In-memory functions test wrapper",
       mcpName = "manage_functions",
       mcpDescription = "In-memory wrapper for manage_functions")
-  private static final class InMemoryManageFunctionsTool extends ManageFunctionsTool {
+  private static final class InMemoryFunctionsTool extends FunctionsTool {
     private final Program program;
 
-    InMemoryManageFunctionsTool(Program program) {
+    InMemoryFunctionsTool(Program program) {
       this.program = program;
     }
 

@@ -47,7 +47,7 @@ class ReadToolOutputE2eTest {
   }
 
   // ---------------------------------------------------------------------------
-  // ReadFunctionsTool output → store → read back → assert exact match
+  // FunctionsTool output → store → read back → assert exact match
   // ---------------------------------------------------------------------------
 
   @Test
@@ -55,11 +55,14 @@ class ReadToolOutputE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadFunctionsTool funcTool = new InMemoryReadFunctionsTool(fixture.program());
+      FunctionsTool funcTool = new InMemoryFunctionsTool(fixture.program());
 
       // Execute the real tool to get a real paginated result
       Object rawResult =
-          funcTool.execute(null, Map.of("file_name", "fixture", "page_size", 10), null).block();
+          funcTool
+              .execute(
+                  null, Map.of("file_name", "fixture", "action", "list", "page_size", 10), null)
+              .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(funcResult.results.isEmpty(), "Fixture should have functions");
@@ -67,13 +70,13 @@ class ReadToolOutputE2eTest {
       // Wrap in McpResponse exactly as executeWithEnvelope does for PaginatedResult
       McpResponse<?> envelope =
           McpResponse.paginated(
-              "read_functions", "execute", funcResult.results, funcResult.nextCursor, null, 42L);
+              "functions", "execute", funcResult.results, funcResult.nextCursor, null, 42L);
       String originalJson = mapper.writeValueAsString(envelope);
 
       // Store it (simulating the oversized-output path)
       String sessionId = "ses_e2e_func_output";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "read_functions", "execute", originalJson);
+          ToolOutputStore.store(sessionId, "functions", "execute", originalJson);
       assertEquals(originalJson.length(), ref.totalChars());
 
       // Use ReadToolOutputTool to read it back
@@ -207,20 +210,23 @@ class ReadToolOutputE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadFunctionsTool funcTool = new InMemoryReadFunctionsTool(fixture.program());
+      FunctionsTool funcTool = new InMemoryFunctionsTool(fixture.program());
 
       Object rawResult =
-          funcTool.execute(null, Map.of("file_name", "fixture", "page_size", 10), null).block();
+          funcTool
+              .execute(
+                  null, Map.of("file_name", "fixture", "action", "list", "page_size", 10), null)
+              .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
 
       McpResponse<?> envelope =
-          McpResponse.success("read_functions", "execute", funcResult.results, 15L);
+          McpResponse.success("functions", "execute", funcResult.results, 15L);
       String json = mapper.writeValueAsString(envelope);
 
       String sessionId = "ses_e2e_metadata";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "read_functions", "execute", json);
+          ToolOutputStore.store(sessionId, "functions", "execute", json);
 
       // list_sessions — find our session
       Object sessionsRaw =
@@ -249,7 +255,7 @@ class ReadToolOutputE2eTest {
               .findFirst()
               .orElseThrow(() -> new AssertionError("Output not found: " + ref.outputId()));
 
-      assertEquals("read_functions", ourOutput.toolName());
+      assertEquals("functions", ourOutput.toolName());
       assertEquals("execute", ourOutput.operation());
       assertEquals(json.length(), ourOutput.totalChars());
       assertEquals(ref.fileName(), ourOutput.fileName());
@@ -280,10 +286,10 @@ class ReadToolOutputE2eTest {
   // In-memory tool stubs
   // ---------------------------------------------------------------------------
 
-  private static final class InMemoryReadFunctionsTool extends ReadFunctionsTool {
+  private static final class InMemoryFunctionsTool extends FunctionsTool {
     private final Program program;
 
-    InMemoryReadFunctionsTool(Program program) {
+    InMemoryFunctionsTool(Program program) {
       this.program = program;
     }
 

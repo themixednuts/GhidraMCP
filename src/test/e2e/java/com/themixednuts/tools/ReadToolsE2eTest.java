@@ -27,10 +27,11 @@ class ReadToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadFunctionsTool tool = new InMemoryReadFunctionsTool(fixture.program());
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
 
       Object firstPageRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "page_size", 1), null).block();
+          tool.execute(null, Map.of("file_name", "fixture", "action", "list", "page_size", 1), null)
+              .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionInfo> firstPage =
           assertInstanceOf(PaginatedResult.class, firstPageRaw);
@@ -41,7 +42,15 @@ class ReadToolsE2eTest {
       Object secondPageRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "page_size", 1, "cursor", firstPage.nextCursor),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "page_size",
+                      1,
+                      "cursor",
+                      firstPage.nextCursor),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -53,37 +62,17 @@ class ReadToolsE2eTest {
       Object singleRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "address", firstFunction.getEntryPoint()),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "get",
+                      "address",
+                      firstFunction.getEntryPoint()),
                   null)
               .block();
       FunctionInfo singleResult = assertInstanceOf(FunctionInfo.class, singleRaw);
       assertEquals(firstFunction.getEntryPoint(), singleResult.getEntryPoint());
-    } finally {
-      fixture.close();
-    }
-  }
-
-  @Test
-  void readFunctionsSupportsTargetTypeTargetValueSingleLookup() throws Exception {
-    assumeTrue(
-        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
-
-    InMemoryProgramFixtureSupport.ProgramFixture fixture =
-        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
-    try {
-      ReadFunctionsTool tool = new InMemoryReadFunctionsTool(fixture.program());
-
-      Object raw =
-          tool.execute(
-                  null,
-                  Map.of(
-                      "file_name", "fixture",
-                      "target_type", "name",
-                      "target_value", "entry_main"),
-                  null)
-              .block();
-      FunctionInfo result = assertInstanceOf(FunctionInfo.class, raw);
-      assertEquals("entry_main", result.getName());
     } finally {
       fixture.close();
     }
@@ -211,10 +200,10 @@ class ReadToolsE2eTest {
     }
   }
 
-  private static final class InMemoryReadFunctionsTool extends ReadFunctionsTool {
+  private static final class InMemoryFunctionsTool extends FunctionsTool {
     private final Program program;
 
-    InMemoryReadFunctionsTool(Program program) {
+    InMemoryFunctionsTool(Program program) {
       this.program = program;
     }
 
