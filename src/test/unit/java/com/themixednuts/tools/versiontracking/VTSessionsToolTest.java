@@ -11,11 +11,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import org.junit.jupiter.api.Test;
 
-class ManageVTSessionToolTest {
+class VTSessionsToolTest {
 
   @Test
   void closeResultReportsSessionStillOpenByAnotherConsumer() {
-    OperationResult result = ManageVTSessionTool.closeResult("analysis.vt", true);
+    OperationResult result = VTSessionsTool.closeResult("analysis.vt", true);
 
     assertEquals("close", result.getOperation());
     assertEquals("analysis.vt", result.getTarget());
@@ -24,7 +24,7 @@ class ManageVTSessionToolTest {
 
   @Test
   void closeResultReportsClosedWhenNoOtherConsumer() {
-    OperationResult result = ManageVTSessionTool.closeResult("analysis.vt", false);
+    OperationResult result = VTSessionsTool.closeResult("analysis.vt", false);
 
     assertEquals("close", result.getOperation());
     assertEquals("analysis.vt", result.getTarget());
@@ -33,9 +33,9 @@ class ManageVTSessionToolTest {
 
   @Test
   void normalizeProjectPathCanonicalizesSeparatorsAndLeadingSlash() {
-    assertEquals("A/B/session.vt", ManageVTSessionTool.normalizeProjectPath("/A/B/session.vt"));
-    assertEquals("A/B/session.vt", ManageVTSessionTool.normalizeProjectPath("\\A\\B\\session.vt"));
-    assertEquals("A/B/session.vt", ManageVTSessionTool.normalizeProjectPath("  /A/B/session.vt  "));
+    assertEquals("A/B/session.vt", VTSessionsTool.normalizeProjectPath("/A/B/session.vt"));
+    assertEquals("A/B/session.vt", VTSessionsTool.normalizeProjectPath("\\A\\B\\session.vt"));
+    assertEquals("A/B/session.vt", VTSessionsTool.normalizeProjectPath("  /A/B/session.vt  "));
   }
 
   @Test
@@ -43,7 +43,7 @@ class ManageVTSessionToolTest {
     DomainFile first = fakeDomainFile("/A/B/session.vt");
     DomainFile second = fakeDomainFile("\\A\\B\\session.vt");
 
-    assertTrue(ManageVTSessionTool.sameDomainFilePath(first, second));
+    assertTrue(VTSessionsTool.sameDomainFilePath(first, second));
   }
 
   @Test
@@ -51,7 +51,7 @@ class ManageVTSessionToolTest {
     DomainFile first = fakeDomainFile("/A/B/session.vt");
     DomainFile second = fakeDomainFile("/A/C/session.vt");
 
-    assertFalse(ManageVTSessionTool.sameDomainFilePath(first, second));
+    assertFalse(VTSessionsTool.sameDomainFilePath(first, second));
   }
 
   private static DomainFile fakeDomainFile(String pathname) {

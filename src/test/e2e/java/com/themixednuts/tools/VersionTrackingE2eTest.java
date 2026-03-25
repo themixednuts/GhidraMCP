@@ -12,12 +12,9 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.versiontracking.VTCorrelatorInfo;
 import com.themixednuts.models.versiontracking.VTMatchInfo;
 import com.themixednuts.models.versiontracking.VTSessionInfo;
-import com.themixednuts.tools.versiontracking.ManageVTMarkupTool;
-import com.themixednuts.tools.versiontracking.ManageVTMatchesTool;
-import com.themixednuts.tools.versiontracking.ManageVTSessionTool;
-import com.themixednuts.tools.versiontracking.ReadVTMatchesTool;
-import com.themixednuts.tools.versiontracking.RunVTCorrelatorTool;
 import com.themixednuts.tools.versiontracking.VTMatchResolver;
+import com.themixednuts.tools.versiontracking.VTOperationsTool;
+import com.themixednuts.tools.versiontracking.VTSessionsTool;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.feature.vt.api.main.VTSession;
 import java.util.ArrayList;
@@ -58,7 +55,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(10)
   void sessionInfoReturnsCorrectProgramNamesAndInitialCounts() {
-    InMemoryManageVTSessionTool tool = new InMemoryManageVTSessionTool(fixture.session());
+    InMemoryVTSessionsTool tool = new InMemoryVTSessionsTool(fixture.session());
     Object raw =
         tool.execute(null, Map.of("action", "info", "session_name", "vt_test_session"), null)
             .block();
@@ -76,8 +73,8 @@ class VersionTrackingE2eTest {
   @Test
   @Order(20)
   void listCorrelatorsReturnsFourTypes() {
-    InMemoryRunVTCorrelatorTool tool = new InMemoryRunVTCorrelatorTool(fixture.session());
-    Object raw = tool.execute(null, Map.of("action", "list"), null).block();
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
+    Object raw = tool.execute(null, Map.of("action", "list_correlators"), null).block();
 
     @SuppressWarnings("unchecked")
     List<VTCorrelatorInfo> correlators = assertInstanceOf(List.class, raw);
@@ -87,12 +84,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(30)
   void runExactBytesFindsExpectedMatches() {
-    InMemoryRunVTCorrelatorTool tool = new InMemoryRunVTCorrelatorTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "run",
+                    "action", "run_correlator",
                     "session_name", "vt_test_session",
                     "correlator_type", "exact_bytes",
                     "exclude_accepted", false),
@@ -109,12 +106,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(40)
   void runExactInstructionsFindsAdditionalMatches() {
-    InMemoryRunVTCorrelatorTool tool = new InMemoryRunVTCorrelatorTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "run",
+                    "action", "run_correlator",
                     "session_name", "vt_test_session",
                     "correlator_type", "exact_instructions",
                     "exclude_accepted", false),
@@ -130,12 +127,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(50)
   void runExactDataFindsDataMatches() {
-    InMemoryRunVTCorrelatorTool tool = new InMemoryRunVTCorrelatorTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "run",
+                    "action", "run_correlator",
                     "session_name", "vt_test_session",
                     "correlator_type", "exact_data",
                     "exclude_accepted", false),
@@ -151,12 +148,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(60)
   void runSymbolNameFindsCommonApiMatch() {
-    InMemoryRunVTCorrelatorTool tool = new InMemoryRunVTCorrelatorTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "run",
+                    "action", "run_correlator",
                     "session_name", "vt_test_session",
                     "correlator_type", "symbol_name",
                     "exclude_accepted", false),
@@ -256,9 +253,13 @@ class VersionTrackingE2eTest {
   @Test
   @Order(100)
   void readAllMatchesReturnsExpectedCount() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
-        tool.execute(null, Map.of("session_name", "vt_test_session", "page_size", 50), null)
+        tool.execute(
+                null,
+                Map.of(
+                    "action", "list_matches", "session_name", "vt_test_session", "page_size", 50),
+                null)
             .block();
 
     @SuppressWarnings("unchecked")
@@ -269,11 +270,15 @@ class VersionTrackingE2eTest {
   @Test
   @Order(110)
   void readMatchesFilterByStatusAvailable() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
-                Map.of("session_name", "vt_test_session", "status", "AVAILABLE", "page_size", 50),
+                Map.of(
+                    "action", "list_matches",
+                    "session_name", "vt_test_session",
+                    "status", "AVAILABLE",
+                    "page_size", 50),
                 null)
             .block();
 
@@ -288,11 +293,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(120)
   void readMatchesFilterByMatchTypeFunction() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
+                    "action", "list_matches",
                     "session_name", "vt_test_session",
                     "match_type", "FUNCTION",
                     "page_size", 50),
@@ -310,11 +316,15 @@ class VersionTrackingE2eTest {
   @Test
   @Order(130)
   void readMatchesFilterByMatchTypeData() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
-                Map.of("session_name", "vt_test_session", "match_type", "DATA", "page_size", 50),
+                Map.of(
+                    "action", "list_matches",
+                    "session_name", "vt_test_session",
+                    "match_type", "DATA",
+                    "page_size", 50),
                 null)
             .block();
 
@@ -328,11 +338,15 @@ class VersionTrackingE2eTest {
   @Test
   @Order(140)
   void readMatchesPaginationWorks() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
 
     // First page with size 1
     Object firstRaw =
-        tool.execute(null, Map.of("session_name", "vt_test_session", "page_size", 1), null).block();
+        tool.execute(
+                null,
+                Map.of("action", "list_matches", "session_name", "vt_test_session", "page_size", 1),
+                null)
+            .block();
     @SuppressWarnings("unchecked")
     PaginatedResult<VTMatchInfo> firstPage = assertInstanceOf(PaginatedResult.class, firstRaw);
     assertEquals(1, firstPage.results.size());
@@ -343,6 +357,8 @@ class VersionTrackingE2eTest {
         tool.execute(
                 null,
                 Map.of(
+                    "action",
+                    "list_matches",
                     "session_name",
                     "vt_test_session",
                     "page_size",
@@ -369,7 +385,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(150)
   void readMatchesErrorOnSingleAddressOnly() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
 
     assertThrows(
         Exception.class,
@@ -377,6 +393,7 @@ class VersionTrackingE2eTest {
             tool.execute(
                     null,
                     Map.of(
+                        "action", "list_matches",
                         "session_name", "vt_test_session",
                         "source_address", "0x401000"),
                     null)
@@ -390,7 +407,7 @@ class VersionTrackingE2eTest {
   @Order(200)
   void acceptMatchChangesStatus() {
     // Find the main_func exact bytes match (0x401000 -> 0x401000)
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
@@ -408,12 +425,13 @@ class VersionTrackingE2eTest {
     assertEquals("accept", result.get("action"));
 
     // Verify status changed
-    InMemoryReadVTMatchesTool readTool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool readTool = new InMemoryVTOperationsTool(fixture.session());
     Object readRaw =
         readTool
             .execute(
                 null,
                 Map.of(
+                    "action", "list_matches",
                     "session_name", "vt_test_session",
                     "source_address", "0x401000",
                     "destination_address", "0x401000"),
@@ -427,7 +445,7 @@ class VersionTrackingE2eTest {
   @Order(210)
   void rejectMatchChangesStatus() {
     // Find a match to reject - helper_func (0x401020 -> 0x401020)
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
@@ -449,7 +467,7 @@ class VersionTrackingE2eTest {
   @Order(220)
   void clearResetsToAvailable() {
     // Clear the rejected match
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
@@ -466,12 +484,13 @@ class VersionTrackingE2eTest {
     assertEquals("clear", result.get("action"));
 
     // Verify status is back to AVAILABLE
-    InMemoryReadVTMatchesTool readTool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool readTool = new InMemoryVTOperationsTool(fixture.session());
     Object readRaw =
         readTool
             .execute(
                 null,
                 Map.of(
+                    "action", "list_matches",
                     "session_name", "vt_test_session",
                     "source_address", "0x401020",
                     "destination_address", "0x401020"),
@@ -484,7 +503,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(240)
   void bulkAcceptBySimilarityThreshold() {
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
@@ -504,7 +523,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(250)
   void bulkRejectByMaxSimilarity() {
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
@@ -524,7 +543,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(260)
   void bulkAcceptWithoutThresholdThrowsError() {
-    InMemoryManageVTMatchesTool tool = new InMemoryManageVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
 
     assertThrows(
         Exception.class,
@@ -544,12 +563,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(300)
   void listMarkupItemsForAcceptedMatch() {
-    InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "list",
+                    "action", "list_markup",
                     "session_name", "vt_test_session",
                     "source_address", "0x401000",
                     "destination_address", "0x401000"),
@@ -564,10 +583,10 @@ class VersionTrackingE2eTest {
   @Test
   @Order(310)
   void applyMarkupToAcceptedMatch() {
-    InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
 
     Map<String, Object> args = new HashMap<>();
-    args.put("action", "apply");
+    args.put("action", "apply_markup");
     args.put("session_name", "vt_test_session");
     args.put("source_address", "0x401000");
     args.put("destination_address", "0x401000");
@@ -585,9 +604,10 @@ class VersionTrackingE2eTest {
   @Test
   @Order(320)
   void applyAllMarkupToAllAcceptedMatches() {
-    InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
-        tool.execute(null, Map.of("action", "apply_all", "session_name", "vt_test_session"), null)
+        tool.execute(
+                null, Map.of("action", "apply_all_markup", "session_name", "vt_test_session"), null)
             .block();
 
     @SuppressWarnings("unchecked")
@@ -600,12 +620,12 @@ class VersionTrackingE2eTest {
   @Test
   @Order(330)
   void unapplyMarkupReversesPreviouslyApplied() {
-    InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw =
         tool.execute(
                 null,
                 Map.of(
-                    "action", "unapply",
+                    "action", "unapply_markup",
                     "session_name", "vt_test_session",
                     "source_address", "0x401000",
                     "destination_address", "0x401000"),
@@ -623,12 +643,13 @@ class VersionTrackingE2eTest {
   @Order(340)
   void applyMarkupToNonAcceptedMatchThrowsError() {
     // First, find an AVAILABLE match to test with
-    InMemoryReadVTMatchesTool readTool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool readTool = new InMemoryVTOperationsTool(fixture.session());
     Object readRaw =
         readTool
             .execute(
                 null,
                 Map.of(
+                    "action", "list_matches",
                     "session_name", "vt_test_session",
                     "status", "AVAILABLE",
                     "page_size", 1),
@@ -645,9 +666,9 @@ class VersionTrackingE2eTest {
 
     VTMatchInfo availableMatch = readResult.results.get(0);
 
-    InMemoryManageVTMarkupTool tool = new InMemoryManageVTMarkupTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Map<String, Object> args = new HashMap<>();
-    args.put("action", "apply");
+    args.put("action", "apply_markup");
     args.put("session_name", "vt_test_session");
     args.put("source_address", availableMatch.sourceAddress());
     args.put("destination_address", availableMatch.destinationAddress());
@@ -663,7 +684,7 @@ class VersionTrackingE2eTest {
   @Test
   @Order(400)
   void sessionInfoReflectsAcceptedAndRejectedCounts() {
-    InMemoryManageVTSessionTool tool = new InMemoryManageVTSessionTool(fixture.session());
+    InMemoryVTSessionsTool tool = new InMemoryVTSessionsTool(fixture.session());
     Object raw =
         tool.execute(null, Map.of("action", "info", "session_name", "vt_test_session"), null)
             .block();
@@ -715,12 +736,13 @@ class VersionTrackingE2eTest {
   }
 
   private List<VTMatchInfo> readAllMatches() {
-    InMemoryReadVTMatchesTool tool = new InMemoryReadVTMatchesTool(fixture.session());
+    InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     List<VTMatchInfo> allMatches = new ArrayList<>();
     String cursor = null;
 
     while (true) {
       Map<String, Object> args = new HashMap<>();
+      args.put("action", "list_matches");
       args.put("session_name", "vt_test_session");
       args.put("page_size", 100);
       if (cursor != null) {
@@ -744,14 +766,14 @@ class VersionTrackingE2eTest {
   // =================== Inner Wrapper Classes ===================
 
   @GhidraMcpTool(
-      name = "Manage VT Session Test",
+      name = "VT Sessions Test",
       description = "In-memory VT session test wrapper",
-      mcpName = "manage_vt_session",
-      mcpDescription = "In-memory wrapper for manage_vt_session")
-  private static final class InMemoryManageVTSessionTool extends ManageVTSessionTool {
+      mcpName = "vt_sessions",
+      mcpDescription = "In-memory wrapper for vt_sessions")
+  private static final class InMemoryVTSessionsTool extends VTSessionsTool {
     private final VTSession session;
 
-    InMemoryManageVTSessionTool(VTSession session) {
+    InMemoryVTSessionsTool(VTSession session) {
       this.session = session;
     }
 
@@ -768,86 +790,14 @@ class VersionTrackingE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Run VT Correlator Test",
-      description = "In-memory VT correlator test wrapper",
-      mcpName = "run_vt_correlator",
-      mcpDescription = "In-memory wrapper for run_vt_correlator")
-  private static final class InMemoryRunVTCorrelatorTool extends RunVTCorrelatorTool {
+      name = "VT Operations Test",
+      description = "In-memory VT operations test wrapper",
+      mcpName = "vt_operations",
+      mcpDescription = "In-memory wrapper for vt_operations")
+  private static final class InMemoryVTOperationsTool extends VTOperationsTool {
     private final VTSession session;
 
-    InMemoryRunVTCorrelatorTool(VTSession session) {
-      this.session = session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName) {
-      session.addConsumer(this);
-      return session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName, boolean forUpdate) {
-      return openVTSession(sessionName);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Read VT Matches Test",
-      description = "In-memory VT match reading test wrapper",
-      mcpName = "read_vt_matches",
-      mcpDescription = "In-memory wrapper for read_vt_matches")
-  private static final class InMemoryReadVTMatchesTool extends ReadVTMatchesTool {
-    private final VTSession session;
-
-    InMemoryReadVTMatchesTool(VTSession session) {
-      this.session = session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName) {
-      session.addConsumer(this);
-      return session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName, boolean forUpdate) {
-      return openVTSession(sessionName);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Manage VT Matches Test",
-      description = "In-memory VT match management test wrapper",
-      mcpName = "manage_vt_matches",
-      mcpDescription = "In-memory wrapper for manage_vt_matches")
-  private static final class InMemoryManageVTMatchesTool extends ManageVTMatchesTool {
-    private final VTSession session;
-
-    InMemoryManageVTMatchesTool(VTSession session) {
-      this.session = session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName) {
-      session.addConsumer(this);
-      return session;
-    }
-
-    @Override
-    protected VTSession openVTSession(String sessionName, boolean forUpdate) {
-      return openVTSession(sessionName);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Manage VT Markup Test",
-      description = "In-memory VT markup test wrapper",
-      mcpName = "manage_vt_markup",
-      mcpDescription = "In-memory wrapper for manage_vt_markup")
-  private static final class InMemoryManageVTMarkupTool extends ManageVTMarkupTool {
-    private final VTSession session;
-
-    InMemoryManageVTMarkupTool(VTSession session) {
+    InMemoryVTOperationsTool(VTSession session) {
       this.session = session;
     }
 

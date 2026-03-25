@@ -30,9 +30,9 @@ import java.util.Map;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
-    name = "Manage VT Session",
+    name = "VT Sessions",
     description = "Create, open, close, list, and get info about Version Tracking sessions.",
-    mcpName = "manage_vt_session",
+    mcpName = "vt_sessions",
     mcpDescription =
         """
         <use_case>
@@ -44,7 +44,7 @@ import reactor.core.publisher.Mono;
         <important_notes>
         - VT sessions require both source and destination programs to exist in the project
         - Sessions are stored as .vt files in the project
-        - Creating a session does not automatically run correlators - use run_vt_correlator after
+        - Creating a session does not automatically run correlators - use vt_operations after
         - Close sessions when done to release resources
         - NOTE: Session creation requires DB.jar to be present in lib/
         </important_notes>
@@ -55,7 +55,7 @@ import reactor.core.publisher.Mono;
         - close: Returns OperationResult confirming closure
         </return_value_summary>
         """)
-public class ManageVTSessionTool extends BaseVTTool {
+public class VTSessionsTool extends BaseVTTool {
   public static final String ARG_SOURCE_FILE = "source_file";
   public static final String ARG_DESTINATION_FILE = "destination_file";
 
