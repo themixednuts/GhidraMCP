@@ -1,2 +1,7 @@
 com.themixednuts.prompts.AnalyzeFunctionPrompt
 com.themixednuts.prompts.FindVulnerabilitiesPrompt
+com.themixednuts.prompts.TriageBinaryPrompt
+com.themixednuts.prompts.MapDataStructuresPrompt
+com.themixednuts.prompts.AnalyzeVtablePrompt
+com.themixednuts.prompts.CompareBinariesPrompt
+com.themixednuts.prompts.RenameAnalysisPrompt
