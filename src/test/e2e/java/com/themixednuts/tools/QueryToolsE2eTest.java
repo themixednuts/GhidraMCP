@@ -18,7 +18,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
-class ReadToolsE2eTest {
+class QueryToolsE2eTest {
 
   @Test
   void readFunctionsSupportsListingPaginationAndSingleLookup() throws Exception {

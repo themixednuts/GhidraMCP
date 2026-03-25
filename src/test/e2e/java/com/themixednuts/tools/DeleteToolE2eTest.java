@@ -24,7 +24,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
-class DeleteToolsE2eTest {
+class DeleteToolE2eTest {
 
   @Test
   void deleteFunctionRemovesCreatedFunctionAndProgramState() throws Exception {

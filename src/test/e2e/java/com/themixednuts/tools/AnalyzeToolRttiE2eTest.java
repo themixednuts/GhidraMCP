@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import reactor.core.publisher.Mono;
 
-class AnalyzeRttiE2eTest {
+class AnalyzeToolRttiE2eTest {
 
   @Test
   void analyzeRttiRejectsItaniumBackendForMicrosoftAddress() throws Exception {

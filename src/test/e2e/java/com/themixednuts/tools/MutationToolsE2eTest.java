@@ -22,7 +22,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
-class ManageToolsE2eTest {
+class MutationToolsE2eTest {
 
   @Test
   void memoryToolSupportsReadWriteAndBlockListing() throws Exception {

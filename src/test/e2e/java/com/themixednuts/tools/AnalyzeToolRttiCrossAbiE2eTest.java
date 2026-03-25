@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import reactor.core.publisher.Mono;
 
-class AnalyzeRttiCrossAbiE2eTest {
+class AnalyzeToolRttiCrossAbiE2eTest {
 
   @Test
   void analyzeRttiRejectsGoBackendForItaniumAddress() throws Exception {
