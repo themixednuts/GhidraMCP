@@ -3,3 +3,9 @@ com.themixednuts.resources.ProgramFunctionsResource
 com.themixednuts.resources.ProgramSymbolsResource
 com.themixednuts.resources.ProgramDataTypesResource
 com.themixednuts.resources.FunctionDecompilationResource
+com.themixednuts.resources.ProgramInfoResource
+com.themixednuts.resources.ProgramListingResource
+com.themixednuts.resources.ProgramMemoryResource
+com.themixednuts.resources.ProgramImportsResource
+com.themixednuts.resources.ProgramExportsResource
+com.themixednuts.resources.ProgramStringsResource
