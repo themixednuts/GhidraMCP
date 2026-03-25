@@ -53,6 +53,7 @@ import reactor.core.publisher.Mono;
         - Validates data types and provides detailed error messages
         - Uses transactions for safe modifications
         - CRITICAL: Use 'update' action instead of 'delete' + 'create' to preserve existing references
+        - For browsing all data types without filtering, use the ghidra://program/{name}/datatypes resource
         </important_notes>
 
         <member_data_type_resolution>

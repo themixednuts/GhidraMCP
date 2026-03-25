@@ -71,6 +71,7 @@ import reactor.core.publisher.Mono;
          - Handles function creation with automatic boundary detection
          - Lists both listing variables and decompiler-generated variables with detailed categorization
          - Use `inspect` (action: decompile) for decompilation analysis
+         - For browsing all functions without filtering, use the ghidra://program/{name}/functions resource
          </important_notes>
 
         <examples>

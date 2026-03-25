@@ -52,6 +52,7 @@ import reactor.core.publisher.Mono;
          - Can convert existing namespaces to classes using the convert_to_class action
          - Namespace to class conversion requires the namespace to not be within a function
          - For deleting symbols, use the `delete` tool (action: symbol) instead
+         - For browsing all symbols without filtering, use the ghidra://program/{name}/symbols resource
          </important_notes>
 
         <examples>

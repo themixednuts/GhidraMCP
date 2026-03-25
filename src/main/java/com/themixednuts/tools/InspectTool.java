@@ -69,6 +69,7 @@ import reactor.core.publisher.Mono;
         - references_from: Find all cross-references going FROM a given address
         - Listing requires an explicit target (address, function name, or symbol_id)
         - Results are paginated where applicable
+        - For quick decompilation without advanced options, use the ghidra://program/{name}/function/{address}/decompile resource. For basic assembly view, use the ghidra://program/{name}/listing/{address} resource.
         </important_notes>
 
         <examples>

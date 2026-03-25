@@ -61,6 +61,7 @@ import reactor.core.publisher.Mono;
         - list_blocks supports filtering by name, permissions, and size
         - search supports string, hex, binary, decimal, float, double, and regex patterns
         - Use `inspect` (action: references_to/references_from) for cross-reference analysis
+        - For memory layout overview, use the ghidra://program/{name}/memory resource
         </important_notes>
 
         <examples>

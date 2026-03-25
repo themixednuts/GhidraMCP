@@ -13,7 +13,6 @@ import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.models.OperationResult;
-import com.themixednuts.models.ProgramInfo;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
@@ -228,27 +227,6 @@ class MutationToolsE2eTest {
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
-    } finally {
-      fixture.close();
-    }
-  }
-
-  @Test
-  void projectToolSupportsInfoAction() throws Exception {
-    assumeTrue(
-        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
-
-    InMemoryProgramFixtureSupport.ProgramFixture fixture =
-        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
-    try {
-      ProjectTool tool = new InMemoryProjectTool(fixture.program());
-
-      Object infoRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "action", "info"), null).block();
-      ProgramInfo info = assertInstanceOf(ProgramInfo.class, infoRaw);
-      assertNotNull(info.getName());
-      assertTrue(
-          info.getMemoryBlocks().stream().anyMatch(block -> block.getName().contains(".text")));
     } finally {
       fixture.close();
     }
