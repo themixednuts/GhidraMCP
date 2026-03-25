@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.MemoryBlockInfo;
@@ -86,17 +87,27 @@ class ReadToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadSymbolsTool tool = new InMemoryReadSymbolsTool(fixture.program());
+      SymbolsTool tool = new InMemorySymbolsTool(fixture.program());
 
       Object singleRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "name", "entry_main"), null).block();
+          tool.execute(
+                  null, Map.of("file_name", "fixture", "action", "get", "name", "entry_main"), null)
+              .block();
       SymbolInfo singleResult = assertInstanceOf(SymbolInfo.class, singleRaw);
       assertEquals("entry_main", singleResult.getName());
 
       Object listRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "name_filter", "entry_", "page_size", 10),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "name_pattern",
+                      "entry_.*",
+                      "page_size",
+                      10),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -173,19 +184,23 @@ class ReadToolsE2eTest {
   }
 
   @Test
-  void readMemoryBlocksSupportsPermissionAndNameFilters() throws Exception {
+  void memoryToolListBlocksSupportsPermissionAndNameFilters() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadMemoryBlocksTool tool = new InMemoryReadMemoryBlocksTool(fixture.program());
+      MemoryTool tool = new InMemoryMemoryTool(fixture.program());
 
       Object raw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "name_filter", ".text", "executable", true),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_blocks",
+                      "name_filter", ".text",
+                      "executable", true),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -214,10 +229,15 @@ class ReadToolsE2eTest {
     }
   }
 
-  private static final class InMemoryReadSymbolsTool extends ReadSymbolsTool {
+  @GhidraMcpTool(
+      name = "Symbols Test",
+      description = "In-memory symbols test wrapper",
+      mcpName = "symbols",
+      mcpDescription = "In-memory wrapper for symbols")
+  private static final class InMemorySymbolsTool extends SymbolsTool {
     private final Program program;
 
-    InMemoryReadSymbolsTool(Program program) {
+    InMemorySymbolsTool(Program program) {
       this.program = program;
     }
 
@@ -242,10 +262,10 @@ class ReadToolsE2eTest {
     }
   }
 
-  private static final class InMemoryReadMemoryBlocksTool extends ReadMemoryBlocksTool {
+  private static final class InMemoryMemoryTool extends MemoryTool {
     private final Program program;
 
-    InMemoryReadMemoryBlocksTool(Program program) {
+    InMemoryMemoryTool(Program program) {
       this.program = program;
     }
 

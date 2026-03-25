@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.models.SymbolInfo;
@@ -115,7 +116,7 @@ class ReadToolOutputE2eTest {
   }
 
   // ---------------------------------------------------------------------------
-  // ReadSymbolsTool output → store → chunked read → reassemble → assert match
+  // SymbolsTool output → store → chunked read → reassemble → assert match
   // ---------------------------------------------------------------------------
 
   @Test
@@ -123,14 +124,22 @@ class ReadToolOutputE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ReadSymbolsTool symbolTool = new InMemoryReadSymbolsTool(fixture.program());
+      SymbolsTool symbolTool = new InMemorySymbolsTool(fixture.program());
 
       // Execute real tool
       Object rawResult =
           symbolTool
               .execute(
                   null,
-                  Map.of("file_name", "fixture", "name_filter", "entry_", "page_size", 10),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "name_pattern",
+                      "entry_.*",
+                      "page_size",
+                      10),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -140,13 +149,13 @@ class ReadToolOutputE2eTest {
       // Wrap and serialize
       McpResponse<?> envelope =
           McpResponse.paginated(
-              "read_symbols", "execute", symbolResult.results, symbolResult.nextCursor, null, 7L);
+              "symbols", "execute", symbolResult.results, symbolResult.nextCursor, null, 7L);
       String originalJson = mapper.writeValueAsString(envelope);
 
       // Store
       String sessionId = "ses_e2e_symbol_output";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "read_symbols", "execute", originalJson);
+          ToolOutputStore.store(sessionId, "symbols", "execute", originalJson);
 
       // Read back in small chunks to exercise pagination
       int chunkSize = Math.max(50, originalJson.length() / 3);
@@ -300,10 +309,15 @@ class ReadToolOutputE2eTest {
     }
   }
 
-  private static final class InMemoryReadSymbolsTool extends ReadSymbolsTool {
+  @GhidraMcpTool(
+      name = "Symbols Test",
+      description = "In-memory symbols test wrapper",
+      mcpName = "symbols",
+      mcpDescription = "In-memory wrapper for symbols")
+  private static final class InMemorySymbolsTool extends SymbolsTool {
     private final Program program;
 
-    InMemoryReadSymbolsTool(Program program) {
+    InMemorySymbolsTool(Program program) {
       this.program = program;
     }
 

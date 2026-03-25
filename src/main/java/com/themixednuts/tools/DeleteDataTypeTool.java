@@ -37,7 +37,7 @@ import reactor.core.publisher.Mono;
                 </use_case>
 
                 <important_notes>
-                - CRITICAL: If you plan to delete a data type and then create/recreate it, use ManageDataTypesTool with 'update' action instead to preserve existing references
+                - CRITICAL: If you plan to delete a data type and then create/recreate it, use DataTypesTool with 'update' action instead to preserve existing references
                 - Supports data type identification by ID or name + category path
                 - For categories, provide the parent category path and the category name to delete
                 - Category deletion requires the category to be empty
@@ -350,9 +350,9 @@ public class DeleteDataTypeTool extends BaseMcpTool {
                 new GhidraMcpError.ErrorSuggestion(
                     GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
                     "Browse available data types",
-                    "Use read_data_types to see what's available",
+                    "Use data_types to see what's available",
                     null,
-                    List.of("read_data_types"))))
+                    List.of("data_types"))))
         .build();
   }
 }

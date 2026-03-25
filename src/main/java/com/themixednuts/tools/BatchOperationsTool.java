@@ -47,7 +47,7 @@ import reactor.core.publisher.Mono;
         <parameters_summary>
         - 'file_name': The program file to operate on (required, applies to all operations)
         - 'operations': Array of operations to execute (required), each containing:
-          - 'tool': The mcpName of the tool to execute (e.g., "manage_symbols", "manage_data_types")
+          - 'tool': The mcpName of the tool to execute (e.g., "symbols", "data_types")
           - 'arguments': Map of arguments to pass to the tool (each tool has its own schema)
         </parameters_summary>
 
@@ -95,7 +95,7 @@ import reactor.core.publisher.Mono;
         All operations completed successfully."
 
         Example failure response:
-        "I attempted to execute 5 operations, but operation #3 (manage_data_types) failed because the struct 'MyStruct'
+        "I attempted to execute 5 operations, but operation #3 (data_types) failed because the struct 'MyStruct'
         already exists. All changes have been rolled back. Would you like me to retry with different parameters?"
 
         MUST NOT simply dump the raw JSON response to the user.
@@ -107,7 +107,7 @@ import reactor.core.publisher.Mono;
           "file_name": "program.exe",
           "operations": [
             {
-              "tool": "manage_symbols",
+              "tool": "symbols",
               "arguments": {
                 "action": "create",
                 "name": "g_config",
@@ -116,7 +116,7 @@ import reactor.core.publisher.Mono;
               }
             },
             {
-              "tool": "manage_symbols",
+              "tool": "symbols",
               "arguments": {
                 "action": "create",
                 "name": "g_buffer",
@@ -132,7 +132,7 @@ import reactor.core.publisher.Mono;
           "file_name": "program.exe",
           "operations": [
             {
-              "tool": "manage_data_types",
+              "tool": "data_types",
               "arguments": {
                 "action": "create",
                 "data_type_kind": "struct",

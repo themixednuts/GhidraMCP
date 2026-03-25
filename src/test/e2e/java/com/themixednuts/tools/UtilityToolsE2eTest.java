@@ -66,8 +66,8 @@ class UtilityToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageSymbolsTool manageSymbolsTool = new InMemoryManageSymbolsTool(fixture.program());
-      UndoRedoTool undoRedoTool = new InMemoryUndoRedoTool(fixture.program());
+      SymbolsTool manageSymbolsTool = new InMemorySymbolsTool(fixture.program());
+      ProjectTool undoRedoTool = new InMemoryProjectTool(fixture.program());
 
       Object createdRaw =
           manageSymbolsTool
@@ -86,11 +86,11 @@ class UtilityToolsE2eTest {
 
       Object infoRaw =
           undoRedoTool
-              .execute(null, Map.of("file_name", "fixture", "action", "info"), null)
+              .execute(null, Map.of("file_name", "fixture", "action", "history"), null)
               .block();
       @SuppressWarnings("unchecked")
       Map<String, Object> info = assertInstanceOf(Map.class, infoRaw);
-      assertEquals("info", info.get("action"));
+      assertEquals("history", info.get("action"));
       assertTrue(Boolean.TRUE.equals(info.get("can_undo")));
 
       Object undoRaw =
@@ -144,7 +144,7 @@ class UtilityToolsE2eTest {
                       List.of(
                           Map.of(
                               "tool",
-                              "manage_symbols",
+                              "symbols",
                               "arguments",
                               Map.of(
                                   "action",
@@ -157,7 +157,7 @@ class UtilityToolsE2eTest {
                                   "batch_created_label_one")),
                           Map.of(
                               "tool",
-                              "manage_symbols",
+                              "symbols",
                               "arguments",
                               Map.of(
                                   "action",
@@ -218,7 +218,7 @@ class UtilityToolsE2eTest {
                           List.of(
                               Map.of(
                                   "tool",
-                                  "manage_symbols",
+                                  "symbols",
                                   "arguments",
                                   Map.of(
                                       "action",
@@ -231,7 +231,7 @@ class UtilityToolsE2eTest {
                                       "batch_rollback_label")),
                               Map.of(
                                   "tool",
-                                  "manage_memory",
+                                  "memory",
                                   "arguments",
                                   Map.of(
                                       "action",
@@ -309,14 +309,14 @@ class UtilityToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Undo Redo Test",
-      description = "In-memory undo redo test wrapper",
-      mcpName = "undo_redo",
-      mcpDescription = "In-memory wrapper for undo_redo")
-  private static final class InMemoryUndoRedoTool extends UndoRedoTool {
+      name = "Project Test",
+      description = "In-memory project test wrapper",
+      mcpName = "project",
+      mcpDescription = "In-memory wrapper for project")
+  private static final class InMemoryProjectTool extends ProjectTool {
     private final Program program;
 
-    InMemoryUndoRedoTool(Program program) {
+    InMemoryProjectTool(Program program) {
       this.program = program;
     }
 
@@ -330,12 +330,12 @@ class UtilityToolsE2eTest {
   @GhidraMcpTool(
       name = "Manage Symbols Test",
       description = "In-memory manage symbols test wrapper",
-      mcpName = "manage_symbols",
-      mcpDescription = "In-memory wrapper for manage_symbols")
-  private static final class InMemoryManageSymbolsTool extends ManageSymbolsTool {
+      mcpName = "symbols",
+      mcpDescription = "In-memory wrapper for symbols")
+  private static final class InMemorySymbolsTool extends SymbolsTool {
     private final Program program;
 
-    InMemoryManageSymbolsTool(Program program) {
+    InMemorySymbolsTool(Program program) {
       this.program = program;
     }
 
@@ -366,14 +366,14 @@ class UtilityToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Memory Test",
-      description = "In-memory manage memory test wrapper",
-      mcpName = "manage_memory",
-      mcpDescription = "In-memory wrapper for manage_memory")
-  private static final class InMemoryManageMemoryTool extends ManageMemoryTool {
+      name = "Memory Test",
+      description = "In-memory memory test wrapper",
+      mcpName = "memory",
+      mcpDescription = "In-memory wrapper for memory")
+  private static final class InMemoryMemoryTool extends MemoryTool {
     private final Program program;
 
-    InMemoryManageMemoryTool(Program program) {
+    InMemoryMemoryTool(Program program) {
       this.program = program;
     }
 
@@ -397,8 +397,8 @@ class UtilityToolsE2eTest {
       this.program = program;
       this.availableTools =
           Map.of(
-              "manage_symbols", new InMemoryManageSymbolsTool(program),
-              "manage_memory", new InMemoryManageMemoryTool(program));
+              "symbols", new InMemorySymbolsTool(program),
+              "memory", new InMemoryMemoryTool(program));
     }
 
     @Override

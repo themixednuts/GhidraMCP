@@ -33,7 +33,7 @@ import reactor.core.publisher.Mono;
         </use_case>
 
         <important_notes>
-        - IMPORTANT: If you plan to delete a symbol and then create/recreate it with different properties, use ManageSymbolsTool with 'update' action instead to preserve references
+        - IMPORTANT: If you plan to delete a symbol and then create/recreate it with different properties, use SymbolsTool with 'update' action instead to preserve references
         - Supports multiple symbol identification methods (symbol ID, address, name)
         - Only one identifier should be provided at a time
         - Symbol deletion is permanent and cannot be undone without undo/redo

@@ -75,7 +75,7 @@ class DeleteToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageSymbolsTool manageTool = new InMemoryManageSymbolsTool(fixture.program());
+      SymbolsTool manageTool = new InMemorySymbolsTool(fixture.program());
       DeleteSymbolTool deleteTool = new InMemoryDeleteSymbolTool(fixture.program());
 
       Object createdRaw =
@@ -120,10 +120,10 @@ class DeleteToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageDataTypesTool manageTool = new InMemoryManageDataTypesTool(fixture.program());
+      DataTypesTool dataTypesTool = new InMemoryDataTypesTool(fixture.program());
       DeleteDataTypeTool deleteTool = new InMemoryDeleteDataTypeTool(fixture.program());
 
-      manageTool
+      dataTypesTool
           .execute(
               null,
               Map.of(
@@ -182,7 +182,7 @@ class DeleteToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageProjectTool manageTool = new InMemoryManageProjectTool(fixture.program());
+      AnnotateTool manageTool = new InMemoryAnnotateTool(fixture.program());
       DeleteBookmarkTool deleteTool = new InMemoryDeleteBookmarkTool(fixture.program());
 
       Object createdRaw =
@@ -284,12 +284,12 @@ class DeleteToolsE2eTest {
   @GhidraMcpTool(
       name = "Manage Symbols Test",
       description = "In-memory manage symbols test wrapper",
-      mcpName = "manage_symbols",
-      mcpDescription = "In-memory wrapper for manage_symbols")
-  private static final class InMemoryManageSymbolsTool extends ManageSymbolsTool {
+      mcpName = "symbols",
+      mcpDescription = "In-memory wrapper for symbols")
+  private static final class InMemorySymbolsTool extends SymbolsTool {
     private final Program program;
 
-    InMemoryManageSymbolsTool(Program program) {
+    InMemorySymbolsTool(Program program) {
       this.program = program;
     }
 
@@ -320,14 +320,14 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Data Types Test",
-      description = "In-memory manage data types test wrapper",
-      mcpName = "manage_data_types",
-      mcpDescription = "In-memory wrapper for manage_data_types")
-  private static final class InMemoryManageDataTypesTool extends ManageDataTypesTool {
+      name = "Data Types Test",
+      description = "In-memory data types test wrapper",
+      mcpName = "data_types",
+      mcpDescription = "In-memory wrapper for data_types")
+  private static final class InMemoryDataTypesTool extends DataTypesTool {
     private final Program program;
 
-    InMemoryManageDataTypesTool(Program program) {
+    InMemoryDataTypesTool(Program program) {
       this.program = program;
     }
 
@@ -358,14 +358,14 @@ class DeleteToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Project Test",
-      description = "In-memory manage project test wrapper",
-      mcpName = "manage_project",
-      mcpDescription = "In-memory wrapper for manage_project")
-  private static final class InMemoryManageProjectTool extends ManageProjectTool {
+      name = "Annotate Test",
+      description = "In-memory annotate test wrapper",
+      mcpName = "annotate",
+      mcpDescription = "In-memory wrapper for annotate")
+  private static final class InMemoryAnnotateTool extends AnnotateTool {
     private final Program program;
 
-    InMemoryManageProjectTool(Program program) {
+    InMemoryAnnotateTool(Program program) {
       this.program = program;
     }
 

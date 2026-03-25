@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.themixednuts.utils.PaginatedResult;
 
-/** Memory search result model. Used by ManageMemoryTool for search operations. */
+/** Memory search result model. Used by MemoryTool for search operations. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class MemorySearchResult {
   private final String searchTerm;

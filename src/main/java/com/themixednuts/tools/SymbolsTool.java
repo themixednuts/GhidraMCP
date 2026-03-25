@@ -4,6 +4,8 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.OpaqueCursorCodec;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
@@ -18,36 +20,75 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import ghidra.program.model.symbol.SymbolUtilities;
 import ghidra.util.exception.InvalidInputException;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
-    name = "Manage Symbols",
-    description = "Symbol operations: create, update, and convert symbols and labels.",
-    mcpName = "manage_symbols",
+    name = "Symbols",
+    description =
+        "Symbol lifecycle: list, get, create, update, and convert symbols, labels, and namespaces.",
+    mcpName = "symbols",
     mcpDescription =
         """
-          <use_case>
-          Symbol operations for reverse engineering. Create labels,
-          rename functions and variables, update symbol properties. Essential
-          for organizing analysis results and improving code readability.
-          </use_case>
+         <use_case>
+         Symbol lifecycle operations for reverse engineering workflows. List and browse symbols
+         with filtering and pagination, get detailed symbol info by identifier, create labels and
+         namespaces, rename symbols, update symbol properties, and convert namespaces to classes.
+         </use_case>
 
          <important_notes>
-         - Supports multiple symbol identification methods for updates (current_name, address, symbol_id)
+         - Supports multiple symbol identification methods (name, address, symbol_id)
+         - List mode supports regex filtering by name_pattern and cursor-based pagination
+         - Get mode returns detailed SymbolInfo by symbol_id, address, or name (with wildcard support)
          - Handles namespace organization and symbol scoping
          - Validates symbol names according to Ghidra rules
          - Can convert existing namespaces to classes using the convert_to_class action
          - Namespace to class conversion requires the namespace to not be within a function
-         - For searching/listing symbols, use ReadSymbolsTool instead
          - For deleting symbols, use DeleteSymbolTool instead
          </important_notes>
 
         <examples>
+        List all symbols (first page):
+        {
+          "file_name": "program.exe",
+          "action": "list"
+        }
+
+        List symbols matching regex pattern:
+        {
+          "file_name": "program.exe",
+          "action": "list",
+          "name_pattern": ".*decrypt.*"
+        }
+
+        Get a symbol by ID:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "symbol_id": 12345
+        }
+
+        Get a symbol at an address:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "address": "0x401000"
+        }
+
+        Get a symbol by name:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "name": "main"
+        }
+
         Create a label at a specific address:
         {
           "file_name": "program.exe",
@@ -83,22 +124,24 @@ import reactor.core.publisher.Mono;
         }
         </examples>
         """)
-public class ManageSymbolsTool extends BaseMcpTool {
+public class SymbolsTool extends BaseMcpTool {
 
   public static final String ARG_SYMBOL_TYPE = "symbol_type";
+  public static final String ARG_SOURCE_TYPE = "source_type";
 
+  private static final String ACTION_LIST = "list";
+  private static final String ACTION_GET = "get";
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_UPDATE = "update";
   private static final String ACTION_CONVERT_TO_CLASS = "convert_to_class";
 
   /**
-   * Defines the JSON input schema for symbol management operations.
+   * Defines the JSON input schema for symbol operations.
    *
    * @return The JsonSchema defining the expected input arguments
    */
   @Override
   public JsonSchema schema() {
-    // Use Draft 7 builder for conditional support with additive approach
     var schemaRoot = createDraft7SchemaNode();
 
     // Global properties (always available)
@@ -108,7 +151,8 @@ public class ManageSymbolsTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_ACTION,
         SchemaBuilder.string(mapper)
-            .enumValues(ACTION_CREATE, ACTION_UPDATE, ACTION_CONVERT_TO_CLASS)
+            .enumValues(
+                ACTION_LIST, ACTION_GET, ACTION_CREATE, ACTION_UPDATE, ACTION_CONVERT_TO_CLASS)
             .description("Action to perform on symbols"));
 
     schemaRoot.property(
@@ -120,6 +164,67 @@ public class ManageSymbolsTool extends BaseMcpTool {
 
     // Add conditional requirements based on action (JSON Schema Draft 7)
     schemaRoot.allOf(
+        // action=list: optional filtering and pagination
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_LIST)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_NAME_PATTERN,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional regex pattern to filter symbol names"))
+                    .property(
+                        ARG_SYMBOL_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Filter by symbol type (e.g., FUNCTION, LABEL, PARAMETER,"
+                                    + " LOCAL_VAR)"))
+                    .property(
+                        ARG_SOURCE_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Filter by source type (e.g., USER_DEFINED, IMPORTED, ANALYSIS)"))
+                    .property(
+                        ARG_CURSOR,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Pagination cursor from previous request (format:"
+                                    + " v1:<base64url_symbol_name>:<base64url_address>)"))
+                    .property(
+                        ARG_PAGE_SIZE,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Number of symbols to return per page (default: "
+                                    + DEFAULT_PAGE_LIMIT
+                                    + ", max: "
+                                    + MAX_PAGE_LIMIT
+                                    + ")")
+                            .minimum(1)
+                            .maximum(MAX_PAGE_LIMIT))),
+        // action=get: requires at least one identifier (symbol_id, address, name)
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_GET)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_SYMBOL_ID,
+                        SchemaBuilder.integer(mapper)
+                            .description("Symbol ID to identify a specific symbol"))
+                    .property(
+                        ARG_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description("Memory address to identify a specific symbol")
+                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                    .property(
+                        ARG_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description("Symbol name for lookup (supports * and ? wildcards)"))
+                    .anyOf(
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
         // action=create: requires symbol_type, name; allows address, namespace
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -204,7 +309,7 @@ public class ManageSymbolsTool extends BaseMcpTool {
   }
 
   /**
-   * Executes the symbol management operation.
+   * Executes the symbol operation.
    *
    * @param context The MCP transport context
    * @param args The tool arguments containing file_name, action, and action-specific parameters
@@ -221,19 +326,256 @@ public class ManageSymbolsTool extends BaseMcpTool {
             program -> {
               String action = getRequiredStringArgument(args, ARG_ACTION);
 
-              return switch (action.toLowerCase()) {
+              return switch (action.toLowerCase(Locale.ROOT)) {
+                case ACTION_LIST -> handleList(program, args);
+                case ACTION_GET -> handleGet(program, args);
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation);
                 case ACTION_CONVERT_TO_CLASS -> handleConvertToClass(program, args, annotation);
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
-                          ARG_ACTION, action, "Must be one of: create, update, convert_to_class");
+                          ARG_ACTION,
+                          action,
+                          "Must be one of: list, get, create, update, convert_to_class");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
             });
   }
+
+  // ---------------------------------------------------------------------------
+  // action = list
+  // ---------------------------------------------------------------------------
+
+  private Mono<PaginatedResult<SymbolInfo>> handleList(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(() -> listSymbols(program, args));
+  }
+
+  private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
+      throws GhidraMcpException {
+    SymbolTable symbolTable = program.getSymbolTable();
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+
+    Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
+    Optional<String> symbolTypeOpt = getOptionalStringArgument(args, ARG_SYMBOL_TYPE);
+    Optional<String> sourceTypeOpt = getOptionalStringArgument(args, ARG_SOURCE_TYPE);
+    Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+
+    SymbolType symbolTypeFilter = symbolTypeOpt.map(this::parseSymbolType).orElse(null);
+
+    SymbolCursorPosition cursor =
+        cursorOpt.map(value -> parseSymbolCursor(program, value)).orElse(null);
+
+    Pattern namePattern = null;
+    if (namePatternOpt.isPresent()) {
+      try {
+        namePattern = Pattern.compile(namePatternOpt.get());
+      } catch (PatternSyntaxException e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(ARG_NAME_PATTERN, namePatternOpt.get(), e.getMessage()));
+      }
+    }
+
+    String normalizedSourceType = sourceTypeOpt.map(String::toLowerCase).orElse(null);
+    String normalizedNamespace = namespaceOpt.map(String::toLowerCase).orElse(null);
+
+    List<SymbolInfo> allMatches = new ArrayList<>();
+    SymbolIterator symbolIterator = symbolTable.getAllSymbols(true);
+    while (symbolIterator.hasNext()) {
+      Symbol symbol = symbolIterator.next();
+
+      if (symbolTypeFilter != null && symbol.getSymbolType() != symbolTypeFilter) {
+        continue;
+      }
+
+      if (normalizedSourceType != null
+          && !symbol.getSource().toString().toLowerCase().equals(normalizedSourceType)) {
+        continue;
+      }
+
+      if (normalizedNamespace != null
+          && !symbol
+              .getParentNamespace()
+              .getName(false)
+              .toLowerCase()
+              .equals(normalizedNamespace)) {
+        continue;
+      }
+
+      if (namePattern != null && !namePattern.matcher(symbol.getName()).matches()) {
+        continue;
+      }
+
+      allMatches.add(new SymbolInfo(symbol));
+    }
+
+    allMatches.sort(
+        Comparator.comparing(SymbolInfo::getName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(SymbolInfo::getAddress, String.CASE_INSENSITIVE_ORDER));
+
+    int startIndex = 0;
+    if (cursor != null) {
+      boolean matched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        SymbolInfo symbolInfo = allMatches.get(i);
+        if (symbolInfo.getName().equalsIgnoreCase(cursor.name)
+            && symbolInfo.getAddress().equalsIgnoreCase(cursor.address)) {
+          startIndex = i + 1;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.toCursorString(),
+                "cursor is invalid or no longer present in this symbol listing"));
+      }
+    }
+
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<SymbolInfo> paginatedMatches =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+
+    boolean hasMore = paginatedMatches.size() > pageSize;
+    List<SymbolInfo> results =
+        hasMore
+            ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
+            : new ArrayList<>(paginatedMatches);
+
+    String nextCursor = null;
+    if (hasMore && !results.isEmpty()) {
+      SymbolInfo lastItem = results.get(results.size() - 1);
+      nextCursor = encodeSymbolCursor(lastItem.getName(), lastItem.getAddress());
+    }
+
+    return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private SymbolType parseSymbolType(String typeStr) {
+    if (typeStr == null) {
+      return null;
+    }
+
+    return switch (typeStr.toUpperCase(Locale.ROOT)) {
+      case "NAMESPACE" -> SymbolType.NAMESPACE;
+      case "CLASS" -> SymbolType.CLASS;
+      case "FUNCTION" -> SymbolType.FUNCTION;
+      case "LABEL" -> SymbolType.LABEL;
+      case "PARAMETER" -> SymbolType.PARAMETER;
+      case "LOCAL_VAR" -> SymbolType.LOCAL_VAR;
+      case "GLOBAL_VAR" -> SymbolType.GLOBAL_VAR;
+      case "GLOBAL" -> SymbolType.GLOBAL;
+      case "LIBRARY" -> SymbolType.LIBRARY;
+      default ->
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_SYMBOL_TYPE,
+                  typeStr,
+                  "must be one of: NAMESPACE, CLASS, FUNCTION, LABEL, PARAMETER, LOCAL_VAR,"
+                      + " GLOBAL_VAR, GLOBAL, LIBRARY"));
+    };
+  }
+
+  private SymbolCursorPosition parseSymbolCursor(Program program, String cursorValue) {
+    List<String> parts =
+        decodeOpaqueCursorV1(
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_symbol_name>:<base64url_address>");
+    String decodedName = parts.get(0);
+    String decodedAddress = parts.get(1);
+
+    if (program.getAddressFactory().getAddress(decodedAddress) == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
+    }
+
+    return new SymbolCursorPosition(decodedName, decodedAddress, cursorValue);
+  }
+
+  private String encodeSymbolCursor(String symbolName, String address) {
+    return OpaqueCursorCodec.encodeV1(symbolName, address);
+  }
+
+  private static final class SymbolCursorPosition {
+    private final String name;
+    private final String address;
+    private final String rawCursor;
+
+    private SymbolCursorPosition(String name, String address, String rawCursor) {
+      this.name = name;
+      this.address = address;
+      this.rawCursor = rawCursor;
+    }
+
+    private String toCursorString() {
+      return rawCursor;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // action = get
+  // ---------------------------------------------------------------------------
+
+  private Mono<? extends Object> handleGet(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          SymbolTable symbolTable = program.getSymbolTable();
+
+          // Apply precedence: symbol_id > address > name
+          if (args.containsKey(ARG_SYMBOL_ID)) {
+            Object rawSymbolId = args.get(ARG_SYMBOL_ID);
+            Long symbolId =
+                getOptionalLongArgument(args, ARG_SYMBOL_ID)
+                    .orElseThrow(
+                        () ->
+                            new GhidraMcpException(
+                                GhidraMcpError.invalid(
+                                    ARG_SYMBOL_ID,
+                                    rawSymbolId,
+                                    "must be an integer symbol identifier")));
+            Symbol symbol = symbolTable.getSymbol(symbolId);
+            if (symbol != null) {
+              return new SymbolInfo(symbol);
+            }
+            throw new GhidraMcpException(
+                GhidraMcpError.notFound("symbol", "symbol_id", symbolId.toString()));
+          } else if (args.containsKey(ARG_ADDRESS)) {
+            String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
+            if (address != null && !address.trim().isEmpty()) {
+              try {
+                Address addr = program.getAddressFactory().getAddress(address);
+                if (addr != null) {
+                  Symbol[] symbols = symbolTable.getSymbols(addr);
+                  if (symbols.length > 0) {
+                    return new SymbolInfo(symbols[0]);
+                  }
+                }
+                throw new GhidraMcpException(GhidraMcpError.notFound("symbol", "address", address));
+              } catch (GhidraMcpException e) {
+                throw e;
+              } catch (Exception e) {
+                throw new GhidraMcpException(GhidraMcpError.parse("address", address));
+              }
+            }
+            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+          } else if (args.containsKey(ARG_NAME)) {
+            String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
+            if (name != null && !name.trim().isEmpty()) {
+              return new SymbolInfo(SymbolLookupHelper.resolveSymbol(program, name));
+            }
+            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+          } else {
+            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
+          }
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // action = create
+  // ---------------------------------------------------------------------------
 
   private Mono<? extends Object> handleCreate(
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
@@ -397,54 +739,9 @@ public class ManageSymbolsTool extends BaseMcpTool {
     }
   }
 
-  private Mono<? extends Object> handleRead(
-      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-    return Mono.fromCallable(
-        () -> {
-          SymbolTable symbolTable = program.getSymbolTable();
-
-          // Apply precedence: symbol_id > address > name
-          if (args.containsKey(ARG_SYMBOL_ID)) {
-            Long symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID).orElse(null);
-            if (symbolId != null) {
-              Symbol symbol = symbolTable.getSymbol(symbolId);
-              if (symbol != null) {
-                return new SymbolInfo(symbol);
-              }
-            }
-            throw new GhidraMcpException(GhidraMcpError.notFound("symbol", "id=" + symbolId));
-          } else if (args.containsKey(ARG_ADDRESS)) {
-            String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
-            if (address != null && !address.trim().isEmpty()) {
-              try {
-                Address addr = program.getAddressFactory().getAddress(address);
-                if (addr != null) {
-                  Symbol[] symbols = symbolTable.getSymbols(addr);
-                  if (symbols.length > 0) {
-                    return new SymbolInfo(symbols[0]); // Return first
-                    // symbol at address
-                  }
-                }
-                throw new GhidraMcpException(
-                    GhidraMcpError.notFound("symbol", "address=" + address));
-              } catch (GhidraMcpException e) {
-                throw e;
-              } catch (Exception e) {
-                throw new GhidraMcpException(GhidraMcpError.parse("address", address));
-              }
-            }
-            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
-          } else if (args.containsKey(ARG_NAME)) {
-            String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
-            if (name != null && !name.trim().isEmpty()) {
-              return new SymbolInfo(SymbolLookupHelper.resolveSymbol(program, name));
-            }
-            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
-          } else {
-            throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
-          }
-        });
-  }
+  // ---------------------------------------------------------------------------
+  // action = update
+  // ---------------------------------------------------------------------------
 
   private Mono<? extends Object> handleUpdate(
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
@@ -638,6 +935,10 @@ public class ManageSymbolsTool extends BaseMcpTool {
 
   private record SymbolResolveResult(
       Symbol symbol, String originalDisplayName, Namespace targetNamespace) {}
+
+  // ---------------------------------------------------------------------------
+  // action = convert_to_class
+  // ---------------------------------------------------------------------------
 
   private Mono<? extends Object> handleConvertToClass(
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {

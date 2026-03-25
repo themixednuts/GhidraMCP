@@ -11,7 +11,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.ReferenceInfo;
-import com.themixednuts.tools.SearchMemoryTool.SearchResult;
+import com.themixednuts.tools.MemoryTool.SearchResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -33,16 +33,17 @@ class AnalysisToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      SearchMemoryTool tool = new InMemorySearchMemoryTool(fixture.program());
+      MemoryTool tool = new InMemoryMemoryTool(fixture.program());
 
       Object raw =
           tool.execute(
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "search",
                       "search_type", "hex",
                       "search_value", "55 48 89 e5",
-                      "max_results", 10),
+                      "page_size", 10),
                   null)
               .block();
 
@@ -235,10 +236,14 @@ class AnalysisToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ListAnalysisOptionsTool tool = new InMemoryListAnalysisOptionsTool(fixture.program());
+      ProjectTool tool = new InMemoryProjectTool(fixture.program());
 
       Object firstPageRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "page_size", 5), null).block();
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_analysis_options", "page_size", 5),
+                  null)
+              .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<AnalysisOptionInfo> firstPage =
           assertInstanceOf(PaginatedResult.class, firstPageRaw);
@@ -256,7 +261,15 @@ class AnalysisToolsE2eTest {
       Object filteredRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "filter", filterToken, "page_size", 10),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list_analysis_options",
+                      "filter",
+                      filterToken,
+                      "page_size",
+                      10),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -270,7 +283,15 @@ class AnalysisToolsE2eTest {
       Object defaultsOnlyRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "defaults_only", true, "page_size", 20),
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list_analysis_options",
+                      "defaults_only",
+                      true,
+                      "page_size",
+                      20),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -282,7 +303,15 @@ class AnalysisToolsE2eTest {
         Object secondPageRaw =
             tool.execute(
                     null,
-                    Map.of("file_name", "fixture", "page_size", 5, "cursor", firstPage.nextCursor),
+                    Map.of(
+                        "file_name",
+                        "fixture",
+                        "action",
+                        "list_analysis_options",
+                        "page_size",
+                        5,
+                        "cursor",
+                        firstPage.nextCursor),
                     null)
                 .block();
         @SuppressWarnings("unchecked")
@@ -312,14 +341,14 @@ class AnalysisToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Search Memory Test",
-      description = "In-memory search memory test wrapper",
-      mcpName = "search_memory",
-      mcpDescription = "In-memory wrapper for search_memory")
-  private static final class InMemorySearchMemoryTool extends SearchMemoryTool {
+      name = "Memory Test",
+      description = "In-memory memory test wrapper",
+      mcpName = "memory",
+      mcpDescription = "In-memory wrapper for memory")
+  private static final class InMemoryMemoryTool extends MemoryTool {
     private final Program program;
 
-    InMemorySearchMemoryTool(Program program) {
+    InMemoryMemoryTool(Program program) {
       this.program = program;
     }
 
@@ -369,14 +398,14 @@ class AnalysisToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "List Analysis Options Test",
-      description = "In-memory list analysis options test wrapper",
-      mcpName = "list_analysis_options",
-      mcpDescription = "In-memory wrapper for list_analysis_options")
-  private static final class InMemoryListAnalysisOptionsTool extends ListAnalysisOptionsTool {
+      name = "Project Test",
+      description = "In-memory project test wrapper",
+      mcpName = "project",
+      mcpDescription = "In-memory wrapper for project")
+  private static final class InMemoryProjectTool extends ProjectTool {
     private final Program program;
 
-    InMemoryListAnalysisOptionsTool(Program program) {
+    InMemoryProjectTool(Program program) {
       this.program = program;
     }
 

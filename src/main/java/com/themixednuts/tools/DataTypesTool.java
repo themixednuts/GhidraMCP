@@ -3,14 +3,18 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.CreateDataTypeResult;
+import com.themixednuts.models.DataTypeInfo;
+import com.themixednuts.models.DataTypeReadResult;
+import com.themixednuts.models.DataTypeReadResult.DataTypeComponentDetail;
+import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
-import com.themixednuts.models.RTTIAnalysisResult;
+import com.themixednuts.utils.OpaqueCursorCodec;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.DataTypeDependencyException;
 import ghidra.program.model.listing.Program;
@@ -19,31 +23,35 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
-    name = "Manage Data Types",
+    name = "Data Types",
     description =
-        "Data type operations: create and update structs, enums, unions, typedefs, and categories."
-            + " Use 'update' to preserve existing references.",
-    mcpName = "manage_data_types",
+        "Data type lifecycle: list, get, create, and update structs, enums, unions, typedefs,"
+            + " and categories.",
+    mcpName = "data_types",
     mcpDescription =
         """
         <use_case>
-        Data type operations for Ghidra programs. Create and update
-        structures, enums, unions, typedefs, pointers, function definitions, and categories. Essential for
-        reverse engineering when you need to define custom data structures and organize type information.
+        Data type lifecycle operations for Ghidra programs. List and browse data types with filtering
+        and pagination, get detailed data type info, create and update structures, enums, unions,
+        typedefs, pointers, function definitions, and categories. Essential for reverse engineering
+        when you need to define custom data structures and organize type information.
         </use_case>
 
         <important_notes>
+        - Supports list/get for browsing and reading, create/update for mutations
+        - List mode supports regex filtering by name_pattern, category_path, and type_kind
+        - Get mode returns detailed DataTypeReadResult by data_type_id or name+category_path
         - Supports complex operations like creating structs with all members in one call
         - Handles category organization and type resolution automatically
         - Validates data types and provides detailed error messages
         - Uses transactions for safe modifications
-        - Use ReadDataTypesTool for reading/browsing data types with filtering
-        - Use DeleteDataTypeTool to delete data types
         - CRITICAL: Use 'update' action instead of 'delete' + 'create' to preserve existing references
         </important_notes>
 
@@ -57,7 +65,37 @@ import reactor.core.publisher.Mono;
         </member_data_type_resolution>
 
         <examples>
-        Create a struct with members (using data_type_path):
+        List all data types (first page):
+        {
+          "file_name": "program.exe",
+          "action": "list"
+        }
+
+        List data types matching a regex pattern:
+        {
+          "file_name": "program.exe",
+          "action": "list",
+          "name_pattern": ".*MyStruct.*"
+        }
+
+        Get a single data type by name:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "data_type_kind": "struct",
+          "name": "MyStruct",
+          "category_path": "/MyTypes"
+        }
+
+        Get a single data type by ID:
+        {
+          "file_name": "program.exe",
+          "action": "get",
+          "data_type_kind": "struct",
+          "data_type_id": 12345
+        }
+
+        Create a struct with members:
         {
           "file_name": "program.exe",
           "action": "create",
@@ -65,18 +103,6 @@ import reactor.core.publisher.Mono;
           "name": "MyStruct",
           "members": [
             {"name": "field1", "data_type_path": "int"},
-            {"name": "field2", "data_type_path": "char *"}
-          ]
-        }
-
-        Create a struct with members (using data_type_id for better performance):
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "members": [
-            {"name": "field1", "data_type_id": 12345},
             {"name": "field2", "data_type_path": "char *"}
           ]
         }
@@ -95,9 +121,10 @@ import reactor.core.publisher.Mono;
         }
         </examples>
         """)
-public class ManageDataTypesTool extends BaseMcpTool {
+public class DataTypesTool extends BaseMcpTool {
 
   public static final String ARG_DATA_TYPE_KIND = "data_type_kind";
+  public static final String ARG_TYPE_KIND = "type_kind";
   public static final String ARG_MEMBERS = "members";
   public static final String ARG_ENTRIES = "entries";
   public static final String ARG_BASE_TYPE = "base_type";
@@ -106,6 +133,8 @@ public class ManageDataTypesTool extends BaseMcpTool {
   public static final String ARG_TYPE = "type";
   public static final String ARG_NEW_CATEGORY_PATH = "new_category_path";
 
+  private static final String ACTION_LIST = "list";
+  private static final String ACTION_GET = "get";
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_UPDATE = "update";
 
@@ -129,21 +158,14 @@ public class ManageDataTypesTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_ACTION,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
-            .enumValues(ACTION_CREATE, ACTION_UPDATE)
+            .enumValues(ACTION_LIST, ACTION_GET, ACTION_CREATE, ACTION_UPDATE)
             .description("Action to perform on data types"));
 
     schemaRoot.property(
         ARG_DATA_TYPE_KIND,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .enumValues(
-                "struct",
-                "enum",
-                "union",
-                "typedef",
-                "pointer",
-                "function_definition",
-                "category",
-                "rtti0")
+                "struct", "enum", "union", "typedef", "pointer", "function_definition", "category")
             .description("Type of data type to work with"));
 
     schemaRoot.property(
@@ -172,15 +194,103 @@ public class ManageDataTypesTool extends BaseMcpTool {
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
             .description("Optional: Data type ID for direct lookup by internal ID"));
 
-    schemaRoot
-        .requiredProperty(ARG_FILE_NAME)
-        .requiredProperty(ARG_ACTION)
-        .requiredProperty(ARG_DATA_TYPE_KIND);
+    schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 
     // === CONDITIONAL PROPERTY DEFINITIONS ===
-    // Add type-specific properties ONLY when the corresponding data_type_kind is
-    // selected
     schemaRoot.allOf(
+        // === ACTION=LIST: optional filtering and pagination ===
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_LIST)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_NAME_PATTERN,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description("Optional regex pattern to filter data type names"))
+                    .property(
+                        ARG_TYPE_KIND,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description(
+                                "Filter by data type kind (e.g., 'structure', 'union', 'enum',"
+                                    + " 'typedef', 'pointer')"))
+                    .property(
+                        ARG_CATEGORY_PATH,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description("Filter by category path (e.g., '/winapi', '/custom')"))
+                    .property(
+                        ARG_CURSOR,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description(
+                                "Pagination cursor from previous request (format:"
+                                    + " v1:<base64url_data_type_name>:<base64url_data_type_path>)"))
+                    .property(
+                        ARG_PAGE_SIZE,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+                            .description(
+                                "Number of data types to return per page (default: "
+                                    + DEFAULT_PAGE_LIMIT
+                                    + ", max: "
+                                    + MAX_PAGE_LIMIT
+                                    + ")")
+                            .minimum(1)
+                            .maximum(MAX_PAGE_LIMIT))),
+
+        // === ACTION=GET: requires data_type_id OR (name + category_path) ===
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_GET)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_DATA_TYPE_ID,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+                            .description("Data type ID for direct lookup"))
+                    .property(
+                        ARG_NAME,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description("Name of the data type"))
+                    .property(
+                        ARG_CATEGORY_PATH,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .description("Category path of the data type")
+                            .defaultValue("/"))
+                    .anyOf(
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                            .requiredProperty(ARG_DATA_TYPE_ID),
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                            .requiredProperty(ARG_NAME))),
+
+        // === ACTION=CREATE: requires data_type_kind and name ===
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_CREATE)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_DATA_TYPE_KIND)
+                    .requiredProperty(ARG_NAME)),
+
+        // === ACTION=UPDATE: requires data_type_kind and name ===
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_UPDATE)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_DATA_TYPE_KIND)
+                    .requiredProperty(ARG_NAME)),
+
         // === STRUCT: Add size, packing_value, alignment_value, members, comment ===
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -413,30 +523,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
                             .description("Comment/description for the data type"))
                     .not(
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-                            .requiredProperty(ARG_DATA_TYPE_ID))),
-
-        // === ACTION-BASED REQUIREMENTS ===
-        // action=create requires name
-        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-            .ifThen(
-                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-                    .property(
-                        ARG_ACTION,
-                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
-                            .constValue(ACTION_CREATE)),
-                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-                    .requiredProperty(ARG_NAME)),
-
-        // action=update requires name
-        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-            .ifThen(
-                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-                    .property(
-                        ARG_ACTION,
-                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
-                            .constValue(ACTION_UPDATE)),
-                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
-                    .requiredProperty(ARG_NAME)));
+                            .requiredProperty(ARG_DATA_TYPE_ID))));
 
     return schemaRoot.build();
   }
@@ -458,22 +545,297 @@ public class ManageDataTypesTool extends BaseMcpTool {
         .flatMap(
             program -> {
               String action = getRequiredStringArgument(args, ARG_ACTION);
-              String dataTypeKind =
-                  getRequiredStringArgument(args, ARG_DATA_TYPE_KIND).toLowerCase(Locale.ROOT);
 
-              return switch (action.toLowerCase()) {
-                case ACTION_CREATE -> handleCreate(program, args, annotation, dataTypeKind);
-                case ACTION_UPDATE -> handleUpdate(program, args, annotation, dataTypeKind);
+              return switch (action.toLowerCase(Locale.ROOT)) {
+                case ACTION_LIST -> handleList(program, args);
+                case ACTION_GET -> handleGet(program, args);
+                case ACTION_CREATE -> {
+                  String dataTypeKind =
+                      getRequiredStringArgument(args, ARG_DATA_TYPE_KIND).toLowerCase(Locale.ROOT);
+                  yield handleCreate(program, args, annotation, dataTypeKind);
+                }
+                case ACTION_UPDATE -> {
+                  String dataTypeKind =
+                      getRequiredStringArgument(args, ARG_DATA_TYPE_KIND).toLowerCase(Locale.ROOT);
+                  yield handleUpdate(program, args, annotation, dataTypeKind);
+                }
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
                           ARG_ACTION,
                           action,
-                          "Must be one of: " + ACTION_CREATE + ", " + ACTION_UPDATE);
+                          "Must be one of: "
+                              + ACTION_LIST
+                              + ", "
+                              + ACTION_GET
+                              + ", "
+                              + ACTION_CREATE
+                              + ", "
+                              + ACTION_UPDATE);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
             });
+  }
+
+  private Mono<PaginatedResult<DataTypeInfo>> handleList(
+      Program program, Map<String, Object> args) {
+    return Mono.fromCallable(() -> listDataTypes(program, args));
+  }
+
+  private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args)
+      throws GhidraMcpException {
+    DataTypeManager dtm = program.getDataTypeManager();
+    int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+
+    Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
+    Optional<String> categoryFilterOpt = getOptionalStringArgument(args, ARG_CATEGORY_PATH);
+    Optional<String> typeKindOpt = getOptionalStringArgument(args, ARG_TYPE_KIND);
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+
+    String cursorPath = cursorOpt.map(this::parseListCursorPath).orElse(null);
+
+    Pattern namePattern = null;
+    if (namePatternOpt.isPresent()) {
+      try {
+        namePattern = Pattern.compile(namePatternOpt.get());
+      } catch (PatternSyntaxException e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(ARG_NAME_PATTERN, namePatternOpt.get(), e.getMessage()));
+      }
+    }
+
+    Iterator<? extends DataType> dataTypeIterator = getTypeSpecificIterator(dtm, typeKindOpt);
+
+    List<DataType> candidates = new ArrayList<>();
+    dataTypeIterator.forEachRemaining(candidates::add);
+
+    final Pattern finalNamePattern = namePattern;
+    String normalizedCategoryFilter = categoryFilterOpt.map(String::toLowerCase).orElse(null);
+    String normalizedTypeKind = typeKindOpt.map(String::toLowerCase).orElse(null);
+    List<DataTypeInfo> allMatches =
+        candidates.stream()
+            .filter(
+                dataType -> {
+                  if (finalNamePattern != null
+                      && !finalNamePattern.matcher(dataType.getName()).find()) {
+                    return false;
+                  }
+
+                  if (normalizedCategoryFilter != null
+                      && !dataType
+                          .getCategoryPath()
+                          .getPath()
+                          .toLowerCase()
+                          .contains(normalizedCategoryFilter)) {
+                    return false;
+                  }
+
+                  if (normalizedTypeKind != null
+                      && !matchesTypeKind(dataType, normalizedTypeKind)) {
+                    return false;
+                  }
+
+                  return true;
+                })
+            .map(
+                dataType -> {
+                  DataTypeInfo info = new DataTypeInfo(dataType);
+                  info.getDetails().setDataTypeId(dtm.getID(dataType));
+                  return info;
+                })
+            .sorted(
+                Comparator.comparing(
+                    dataTypeInfo -> dataTypeInfo.getDetails().getPath(),
+                    String.CASE_INSENSITIVE_ORDER))
+            .toList();
+
+    int startIndex = 0;
+    if (cursorPath != null && !cursorPath.isBlank()) {
+      boolean cursorMatched = false;
+      for (int i = 0; i < allMatches.size(); i++) {
+        if (allMatches.get(i).getDetails().getPath().equalsIgnoreCase(cursorPath)) {
+          startIndex = i + 1;
+          cursorMatched = true;
+          break;
+        }
+      }
+
+      if (!cursorMatched) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursorOpt.orElse(cursorPath),
+                "cursor is invalid or no longer present in this data type listing"));
+      }
+    }
+
+    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
+    List<DataTypeInfo> paginatedMatches =
+        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+
+    boolean hasMore = paginatedMatches.size() > pageSize;
+    List<DataTypeInfo> results =
+        hasMore
+            ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
+            : new ArrayList<>(paginatedMatches);
+
+    String nextCursor = null;
+    if (hasMore && !results.isEmpty()) {
+      DataTypeInfo lastItem = results.get(results.size() - 1);
+      nextCursor =
+          OpaqueCursorCodec.encodeV1(
+              lastItem.getDetails().getName(), lastItem.getDetails().getPath());
+    }
+
+    return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private String parseListCursorPath(String cursorValue) {
+    List<String> parts =
+        decodeOpaqueCursorV1(
+            cursorValue, 2, ARG_CURSOR, "v1:<base64url_data_type_name>:<base64url_data_type_path>");
+    return parts.get(1);
+  }
+
+  /**
+   * Get type-specific iterator for better performance when filtering by type kind. Uses native
+   * Ghidra iterators: getAllStructures(), getAllComposites(), getAllFunctionDefinitions()
+   */
+  private Iterator<? extends DataType> getTypeSpecificIterator(
+      DataTypeManager dtm, Optional<String> typeKindOpt) {
+    if (typeKindOpt.isEmpty()) {
+      return dtm.getAllDataTypes();
+    }
+
+    String typeKind = typeKindOpt.get().toLowerCase();
+    return switch (typeKind) {
+      case "structure", "struct" -> dtm.getAllStructures();
+      case "composite" -> dtm.getAllComposites();
+      case "function", "function_definition" -> dtm.getAllFunctionDefinitions();
+      default -> dtm.getAllDataTypes();
+    };
+  }
+
+  private boolean matchesTypeKind(DataType dataType, String typeKind) {
+    String kind = typeKind.toLowerCase();
+    return switch (kind) {
+      case "structure", "struct" -> dataType instanceof Structure;
+      case "union" -> dataType instanceof Union;
+      case "composite" -> dataType instanceof Composite;
+      case "enum" -> dataType instanceof ghidra.program.model.data.Enum;
+      case "typedef" -> dataType instanceof TypeDef;
+      case "pointer" -> dataType instanceof Pointer;
+      case "array" -> dataType instanceof Array;
+      case "function", "function_definition" -> dataType instanceof FunctionDefinition;
+      default -> dataType.getClass().getSimpleName().toLowerCase().contains(kind);
+    };
+  }
+
+  private Mono<DataTypeReadResult> handleGet(Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          DataTypeManager dtm = program.getDataTypeManager();
+          DataType dataType = null;
+
+          // Try data type ID lookup first (most direct)
+          Optional<Long> dataTypeIdOpt = getOptionalLongArgument(args, ARG_DATA_TYPE_ID);
+          if (dataTypeIdOpt.isPresent()) {
+            dataType = dtm.getDataType(dataTypeIdOpt.get());
+          }
+
+          // Fallback to name-based lookup if ID wasn't provided or didn't find anything
+          Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
+          if (dataType == null && nameOpt.isPresent()) {
+            CategoryPath categoryPath =
+                getOptionalStringArgument(args, ARG_CATEGORY_PATH)
+                    .map(CategoryPath::new)
+                    .orElse(CategoryPath.ROOT);
+            dataType = dtm.getDataType(categoryPath, nameOpt.get());
+          }
+
+          if (dataType == null) {
+            String identifier =
+                nameOpt.or(() -> dataTypeIdOpt.map(String::valueOf)).orElse("unknown");
+            throw new GhidraMcpException(
+                GhidraMcpError.notFound(
+                    "Data type",
+                    identifier,
+                    "Use data_types with action 'list' to see what's available"));
+          }
+
+          List<DataTypeComponentDetail> components = null;
+          List<DataTypeEnumValue> enumValues = null;
+          int componentCount = 0;
+          int valueCount = 0;
+
+          if (dataType instanceof Structure struct) {
+            components =
+                Arrays.stream(struct.getComponents())
+                    .map(
+                        comp ->
+                            new DataTypeComponentDetail(
+                                Optional.ofNullable(comp.getFieldName()).orElse(""),
+                                comp.getDataType().getName(),
+                                comp.getOffset(),
+                                comp.getLength()))
+                    .collect(Collectors.toList());
+            componentCount = struct.getNumComponents();
+          } else if (dataType instanceof ghidra.program.model.data.Enum enumType) {
+            enumValues =
+                Arrays.stream(enumType.getNames())
+                    .map(
+                        valueName -> new DataTypeEnumValue(valueName, enumType.getValue(valueName)))
+                    .collect(Collectors.toList());
+            valueCount = enumType.getCount();
+          } else if (dataType instanceof Union union) {
+            components =
+                Arrays.stream(union.getComponents())
+                    .map(
+                        comp ->
+                            new DataTypeComponentDetail(
+                                Optional.ofNullable(comp.getFieldName()).orElse(""),
+                                comp.getDataType().getName(),
+                                null,
+                                comp.getLength()))
+                    .collect(Collectors.toList());
+            componentCount = union.getNumComponents();
+          } else if (dataType instanceof RTTI0DataType) {
+            components =
+                List.of(
+                    new DataTypeComponentDetail("vfTablePointer", "Pointer", 0, 8),
+                    new DataTypeComponentDetail("dataPointer", "Pointer", 8, 8),
+                    new DataTypeComponentDetail("name", "NullTerminatedString", 16, -1));
+            componentCount = 3;
+          }
+
+          return new DataTypeReadResult(
+              dataType.getName(),
+              dataType.getPathName(),
+              getDataTypeKind(dataType),
+              dataType.getLength(),
+              dataType.getDescription(),
+              components,
+              enumValues,
+              componentCount,
+              valueCount);
+        });
+  }
+
+  private String getDataTypeKind(DataType dataType) {
+    if (dataType == null) {
+      return "unknown";
+    }
+
+    if (dataType instanceof Structure) return "struct";
+    if (dataType instanceof ghidra.program.model.data.Enum) return "enum";
+    if (dataType instanceof Union) return "union";
+    if (dataType instanceof TypeDef) return "typedef";
+    if (dataType instanceof Pointer) return "pointer";
+    if (dataType instanceof FunctionDefinitionDataType) return "function_definition";
+    if (dataType instanceof Array) return "array";
+
+    return dataType.getClass().getSimpleName().toLowerCase();
   }
 
   private Object buildUpdateResult(
@@ -964,7 +1326,7 @@ public class ManageDataTypesTool extends BaseMcpTool {
           String name = getRequiredStringArgument(args, ARG_NAME);
           CategoryPath categoryPath =
               getOptionalStringArgument(args, ARG_CATEGORY_PATH)
-                  .map(ManageDataTypesTool::normalizeParentPath)
+                  .map(DataTypesTool::normalizeParentPath)
                   .orElse(CategoryPath.ROOT);
 
           DataTypeManager dtm = program.getDataTypeManager();
@@ -1516,32 +1878,5 @@ public class ManageDataTypesTool extends BaseMcpTool {
     }
 
     return null;
-  }
-
-  private RTTIAnalysisResult analyzeRTTIAtAddress(
-      Program program, String addressStr, String dataTypeKind) throws GhidraMcpException {
-    try {
-      Address address = program.getAddressFactory().getAddress(addressStr);
-      if (address == null) {
-        throw new GhidraMcpException(
-            GhidraMcpError.invalid(ARG_ADDRESS, addressStr, "Invalid address format"));
-      }
-
-      DataTypeManager dtm = program.getDataTypeManager();
-      RTTI0DataType rtti0 = new RTTI0DataType(dtm);
-
-      if (!rtti0.isValid(program, address, null)) {
-        return RTTIAnalysisResult.invalid(
-            RTTIAnalysisResult.RttiType.RTTI0,
-            addressStr,
-            "No valid RTTI0 structure found at address");
-      }
-
-      return RTTIAnalysisResult.from(rtti0, program, address);
-
-    } catch (Exception e) {
-      throw new GhidraMcpException(
-          GhidraMcpError.failed("analyze RTTI at address", e.getMessage()));
-    }
   }
 }

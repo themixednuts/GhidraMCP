@@ -9,12 +9,13 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.DataTypeReadResult;
 import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
-import com.themixednuts.models.MemorySegmentsOverview;
 import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.ProgramInfo;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
 import java.util.List;
 import java.util.Map;
@@ -24,14 +25,14 @@ import reactor.core.publisher.Mono;
 class ManageToolsE2eTest {
 
   @Test
-  void manageMemorySupportsReadWriteAndSegmentListing() throws Exception {
+  void memoryToolSupportsReadWriteAndBlockListing() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageMemoryTool tool = new InMemoryManageMemoryTool(fixture.program());
+      MemoryTool tool = new InMemoryMemoryTool(fixture.program());
 
       Object readBeforeRaw =
           tool.execute(
@@ -73,13 +74,12 @@ class ManageToolsE2eTest {
       MemoryReadResult readAfter = assertInstanceOf(MemoryReadResult.class, readAfterRaw);
       assertEquals("909090", readAfter.getHexData());
 
-      Object segmentsRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "action", "list_segments"), null)
-              .block();
-      MemorySegmentsOverview segments = assertInstanceOf(MemorySegmentsOverview.class, segmentsRaw);
-      assertTrue(segments.getTotalSegments() >= 1);
-      assertTrue(
-          segments.getSegments().stream().anyMatch(segment -> segment.getName().contains(".text")));
+      Object blocksRaw =
+          tool.execute(null, Map.of("file_name", "fixture", "action", "list_blocks"), null).block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<MemoryBlockInfo> blocks = assertInstanceOf(PaginatedResult.class, blocksRaw);
+      assertTrue(!blocks.results.isEmpty());
+      assertTrue(blocks.results.stream().anyMatch(block -> block.getName().contains(".text")));
     } finally {
       fixture.close();
     }
@@ -93,7 +93,7 @@ class ManageToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageSymbolsTool tool = new InMemoryManageSymbolsTool(fixture.program());
+      SymbolsTool tool = new InMemorySymbolsTool(fixture.program());
 
       Object createdRaw =
           tool.execute(
@@ -162,12 +162,10 @@ class ManageToolsE2eTest {
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageDataTypesTool manageTool = new InMemoryManageDataTypesTool(fixture.program());
-      ReadDataTypesTool readTool = new InMemoryReadDataTypesTool(fixture.program());
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
 
       Object createdRaw =
-          manageTool
-              .execute(
+          tool.execute(
                   null,
                   Map.of(
                       "file_name",
@@ -191,8 +189,7 @@ class ManageToolsE2eTest {
       assertEquals("enum", created.getTarget());
 
       Object updatedRaw =
-          manageTool
-              .execute(
+          tool.execute(
                   null,
                   Map.of(
                       "file_name",
@@ -216,11 +213,11 @@ class ManageToolsE2eTest {
       assertEquals("enum", updated.getTarget());
 
       Object readBackRaw =
-          readTool
-              .execute(
+          tool.execute(
                   null,
                   Map.of(
                       "file_name", "fixture",
+                      "action", "get",
                       "data_type_kind", "enum",
                       "name", "ColorMode"),
                   null)
@@ -237,54 +234,17 @@ class ManageToolsE2eTest {
   }
 
   @Test
-  void manageProjectSupportsBookmarkMutationWithStateValidation() throws Exception {
+  void projectToolSupportsInfoAction() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
     InMemoryProgramFixtureSupport.ProgramFixture fixture =
         InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
     try {
-      ManageProjectTool tool = new InMemoryManageProjectTool(fixture.program());
-
-      Object createdRaw =
-          tool.execute(
-                  null,
-                  Map.of(
-                      "file_name",
-                      "fixture",
-                      "action",
-                      "create_bookmark",
-                      "address",
-                      "0x401020",
-                      "bookmark_type",
-                      "Note",
-                      "bookmark_category",
-                      "E2E",
-                      "comment",
-                      "verify bookmark mutation"),
-                  null)
-              .block();
-      OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
-      assertTrue(created.isSuccess());
-      assertEquals("create_bookmark", created.getOperation());
-      assertEquals("E2E", created.getMetadata().get("bookmark_category"));
-
-      ghidra.program.model.address.Address addr =
-          fixture.program().getAddressFactory().getAddress("0x401020");
-      ghidra.program.model.listing.Bookmark[] bookmarks =
-          fixture.program().getBookmarkManager().getBookmarks(addr);
-      assertTrue(bookmarks.length >= 1);
-      assertTrue(
-          java.util.Arrays.stream(bookmarks)
-              .anyMatch(
-                  b ->
-                      "Note".equals(b.getTypeString())
-                          && "E2E".equals(b.getCategory())
-                          && "verify bookmark mutation".equals(b.getComment())));
+      ProjectTool tool = new InMemoryProjectTool(fixture.program());
 
       Object infoRaw =
-          tool.execute(null, Map.of("file_name", "fixture", "action", "get_program_info"), null)
-              .block();
+          tool.execute(null, Map.of("file_name", "fixture", "action", "info"), null).block();
       ProgramInfo info = assertInstanceOf(ProgramInfo.class, infoRaw);
       assertNotNull(info.getName());
       assertTrue(
@@ -295,14 +255,14 @@ class ManageToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Memory Test",
-      description = "In-memory manage memory test wrapper",
-      mcpName = "manage_memory",
-      mcpDescription = "In-memory wrapper for manage_memory")
-  private static final class InMemoryManageMemoryTool extends ManageMemoryTool {
+      name = "Memory Test",
+      description = "In-memory memory test wrapper",
+      mcpName = "memory",
+      mcpDescription = "In-memory wrapper for memory")
+  private static final class InMemoryMemoryTool extends MemoryTool {
     private final Program program;
 
-    InMemoryManageMemoryTool(Program program) {
+    InMemoryMemoryTool(Program program) {
       this.program = program;
     }
 
@@ -316,12 +276,12 @@ class ManageToolsE2eTest {
   @GhidraMcpTool(
       name = "Manage Symbols Test",
       description = "In-memory manage symbols test wrapper",
-      mcpName = "manage_symbols",
-      mcpDescription = "In-memory wrapper for manage_symbols")
-  private static final class InMemoryManageSymbolsTool extends ManageSymbolsTool {
+      mcpName = "symbols",
+      mcpDescription = "In-memory wrapper for symbols")
+  private static final class InMemorySymbolsTool extends SymbolsTool {
     private final Program program;
 
-    InMemoryManageSymbolsTool(Program program) {
+    InMemorySymbolsTool(Program program) {
       this.program = program;
     }
 
@@ -352,14 +312,14 @@ class ManageToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Manage Data Types Test",
-      description = "In-memory manage data types test wrapper",
-      mcpName = "manage_data_types",
-      mcpDescription = "In-memory wrapper for manage_data_types")
-  private static final class InMemoryManageDataTypesTool extends ManageDataTypesTool {
+      name = "Data Types Test",
+      description = "In-memory data types test wrapper",
+      mcpName = "data_types",
+      mcpDescription = "In-memory wrapper for data_types")
+  private static final class InMemoryDataTypesTool extends DataTypesTool {
     private final Program program;
 
-    InMemoryManageDataTypesTool(Program program) {
+    InMemoryDataTypesTool(Program program) {
       this.program = program;
     }
 
@@ -371,33 +331,14 @@ class ManageToolsE2eTest {
   }
 
   @GhidraMcpTool(
-      name = "Read Data Types Test",
-      description = "In-memory read data types test wrapper",
-      mcpName = "read_data_types",
-      mcpDescription = "In-memory wrapper for read_data_types")
-  private static final class InMemoryReadDataTypesTool extends ReadDataTypesTool {
+      name = "Project Test",
+      description = "In-memory project test wrapper",
+      mcpName = "project",
+      mcpDescription = "In-memory wrapper for project")
+  private static final class InMemoryProjectTool extends ProjectTool {
     private final Program program;
 
-    InMemoryReadDataTypesTool(Program program) {
-      this.program = program;
-    }
-
-    @Override
-    protected Mono<Program> getProgram(
-        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
-      return Mono.just(program);
-    }
-  }
-
-  @GhidraMcpTool(
-      name = "Manage Project Test",
-      description = "In-memory manage project test wrapper",
-      mcpName = "manage_project",
-      mcpDescription = "In-memory wrapper for manage_project")
-  private static final class InMemoryManageProjectTool extends ManageProjectTool {
-    private final Program program;
-
-    InMemoryManageProjectTool(Program program) {
+    InMemoryProjectTool(Program program) {
       this.program = program;
     }
 
