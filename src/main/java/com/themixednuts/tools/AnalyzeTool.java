@@ -2013,8 +2013,9 @@ public class AnalyzeTool extends BaseMcpTool {
       AddressFactory addressFactory = program.getAddressFactory();
 
       // Single-pass: scan .rdata for RTTI4 candidate structures, validate with Rtti4Model,
-      // build a map from RTTI0 address → validated RTTI4 address for O(1) lookups.
-      Map<Address, Address> rtti0ToRtti4 = new LinkedHashMap<>();
+      // build a map from RTTI0 address → validated RTTI4 addresses for O(1) lookups.
+      // Multiple RTTI4s per RTTI0 = multiple inheritance (one vtable per base with virtuals).
+      Map<Address, List<Address>> rtti0ToRtti4s = new LinkedHashMap<>();
 
       // Search for uint32 value 1 (x64 RTTI4 signature) in .rdata
       AddressSetView rdataSet =
@@ -2041,7 +2042,7 @@ public class AnalyzeTool extends BaseMcpTool {
           rtti4.validate();
           Address rtti0Addr = rtti4.getRtti0Address();
           if (rtti0Addr != null) {
-            rtti0ToRtti4.put(rtti0Addr, rtti4Start);
+            rtti0ToRtti4s.computeIfAbsent(rtti0Addr, k -> new ArrayList<>()).add(rtti4Start);
           }
         } catch (Exception ignored) {
           // Not a valid RTTI4 — skip
@@ -2060,18 +2061,40 @@ public class AnalyzeTool extends BaseMcpTool {
           if (rtti0Addr == null) {
             continue;
           }
-          Address rtti4Addr = rtti0ToRtti4.get(rtti0Addr);
-          if (rtti4Addr == null) {
+          List<Address> rtti4Addrs = rtti0ToRtti4s.get(rtti0Addr);
+          if (rtti4Addrs == null || rtti4Addrs.isEmpty()) {
             continue;
           }
 
-          Rtti4Model rtti4 = new Rtti4Model(program, rtti4Addr, validationOptions);
-          int vtableOffset = rtti4.getVbTableOffset();
-          classInfo.put("rtti4_address", rtti4Addr.toString());
-          classInfo.put("vtable_offset", vtableOffset);
+          // Build vtable info for each RTTI4 (multiple = multiple inheritance)
+          List<Map<String, Object>> vtables = new ArrayList<>();
+          List<String> baseClasses = null;
 
-          // Use Ghidra's RTTI model chain for base class hierarchy
-          List<String> baseClasses = readBaseClassHierarchyViaModels(rtti4);
+          for (Address rtti4Addr : rtti4Addrs) {
+            try {
+              Rtti4Model rtti4 = new Rtti4Model(program, rtti4Addr, validationOptions);
+              Map<String, Object> vtableInfo = new LinkedHashMap<>();
+              vtableInfo.put("rtti4_address", rtti4Addr.toString());
+              vtableInfo.put("vtable_offset", rtti4.getVbTableOffset());
+              vtables.add(vtableInfo);
+
+              // Get base classes from the first valid RTTI4
+              if (baseClasses == null) {
+                baseClasses = readBaseClassHierarchyViaModels(rtti4);
+              }
+            } catch (Exception ignored) {
+            }
+          }
+
+          if (vtables.size() == 1) {
+            // Single vtable — flatten for simplicity
+            classInfo.put("rtti4_address", vtables.get(0).get("rtti4_address"));
+            classInfo.put("vtable_offset", vtables.get(0).get("vtable_offset"));
+          } else if (vtables.size() > 1) {
+            // Multiple vtables — multiple inheritance
+            classInfo.put("vtables", vtables);
+          }
+
           if (baseClasses != null && !baseClasses.isEmpty()) {
             classInfo.put("base_classes", baseClasses);
           }
