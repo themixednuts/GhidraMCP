@@ -55,13 +55,19 @@ public class ProgramRttiResource extends BaseMcpResource {
             // Map from class name to list of methods discovered via lambda RTTI
             Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
 
+            // Only scan read-only data sections (.rdata, .rodata, etc.) where RTTI lives
+            MemoryBlock rdataBlock = findRdataBlock(memory);
+            Address scanStart = rdataBlock != null ? rdataBlock.getStart() : memory.getMinAddress();
+            Address scanEnd = rdataBlock != null ? rdataBlock.getEnd() : memory.getMaxAddress();
+
             int scanCount = 0;
-            Address searchAddr = memory.getMinAddress();
+            Address searchAddr = scanStart;
 
             while (searchAddr != null
+                && searchAddr.compareTo(scanEnd) <= 0
                 && scanCount < MAX_RTTI_SCAN
                 && classMap.size() < MAX_CLASSES) {
-              Address found = memory.findBytes(searchAddr, RTTI_PATTERN, null, true, null);
+              Address found = memory.findBytes(searchAddr, scanEnd, RTTI_PATTERN, null, true, null);
               if (found == null) {
                 break;
               }
