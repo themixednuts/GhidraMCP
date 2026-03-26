@@ -1969,24 +1969,31 @@ public class AnalyzeTool extends BaseMcpTool {
    * a map with "name", "class", "namespace", and "demangled" fields, or null if extraction fails.
    */
   /**
-   * Resolves the enclosing function's address by finding references TO the lambda's RTTI0 address.
-   * Code that constructs the lambda references its type descriptor — the containing function is the
-   * enclosing method. Adds "address" to the enclosing map if found.
+   * Resolves candidate function addresses by finding references TO the lambda's RTTI0 address.
+   * Results are hints — RTTI0 may be referenced from exception handlers, static initializers, or
+   * other lambdas, not just the enclosing function. Multiple candidates are returned so the agent
+   * can verify.
    */
   private void resolveEnclosingFunctionAddress(
       Program program, Address rtti0Addr, Map<String, String> enclosing) {
     try {
       var refMgr = program.getReferenceManager();
       var refs = refMgr.getReferencesTo(rtti0Addr);
+      Set<String> candidates = new LinkedHashSet<>();
       while (refs.hasNext()) {
         var ref = refs.next();
         Address fromAddr = ref.getFromAddress();
-        // Find the function containing this reference
         Function func = program.getFunctionManager().getFunctionContaining(fromAddr);
         if (func != null) {
-          enclosing.put("address", func.getEntryPoint().toString());
-          return;
+          candidates.add(func.getEntryPoint().toString());
         }
+      }
+      if (candidates.size() == 1) {
+        // Single reference — high confidence
+        enclosing.put("address", candidates.iterator().next());
+      } else if (!candidates.isEmpty()) {
+        // Multiple references — agent should verify
+        enclosing.put("candidate_addresses", String.join(",", candidates));
       }
     } catch (Exception ignored) {
     }
