@@ -1944,7 +1944,12 @@ public class AnalyzeTool extends BaseMcpTool {
     int searchFrom = 4;
     int qqIdx = mangledName.indexOf("??", searchFrom);
     while (qqIdx > 0) {
-      String enclosingMangled = "?" + mangledName.substring(qqIdx + 1);
+      String fragment = mangledName.substring(qqIdx + 1);
+      // Strip trailing "@" (lambda scope terminator) that isn't part of the function mangling
+      if (fragment.endsWith("@")) {
+        fragment = fragment.substring(0, fragment.length() - 1);
+      }
+      String enclosingMangled = "?" + fragment;
 
       try {
         MDMangGhidra mdm = new MDMangGhidra();
