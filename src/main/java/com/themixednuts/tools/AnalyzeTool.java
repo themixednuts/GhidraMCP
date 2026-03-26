@@ -1772,14 +1772,10 @@ public class AnalyzeTool extends BaseMcpTool {
             if (className != null) {
               for (var methodEntry : methodMap.entrySet()) {
                 String lambdaClassName = methodEntry.getKey();
-                // Match on extracted class name directly
-                boolean matches = lambdaClassName.equals(className);
-                if (!matches && displayName != null && displayName.contains(lambdaClassName)) {
-                  // Also match if the demangled display name contains the lambda's class name
-                  // e.g., display "class Javelin::Weapon" contains lambda class "Weapon"
-                  matches = true;
-                }
-                if (matches) {
+                // Exact class name match only — lambda methods are keyed by the class name
+                // from MDObjectCPP.getQualification().qual[0] (e.g., "Weapon"),
+                // which matches extractClassNameFromMangled for real RTTI0 entries
+                if (lambdaClassName.equals(className)) {
                   // Deduplicate methods by name
                   for (Map<String, String> method : methodEntry.getValue()) {
                     String methodName = method.get("name");
@@ -1796,8 +1792,7 @@ public class AnalyzeTool extends BaseMcpTool {
             Set<String> tags = new LinkedHashSet<>();
             for (var tagEntry : classCustomTags.entrySet()) {
               String tagClass = tagEntry.getKey();
-              if ((className != null && className.equals(tagClass))
-                  || (displayName != null && displayName.contains(tagClass))) {
+              if (className != null && className.equals(tagClass)) {
                 tags.addAll(tagEntry.getValue());
               }
             }
@@ -1814,9 +1809,7 @@ public class AnalyzeTool extends BaseMcpTool {
             boolean alreadyPresent = false;
             for (var entry : classMap.entrySet()) {
               String existingClassName = extractClassNameFromMangled(entry.getKey());
-              String existingDisplayName = (String) entry.getValue().get("name");
-              if (className.equals(existingClassName)
-                  || (existingDisplayName != null && existingDisplayName.contains(className))) {
+              if (className.equals(existingClassName)) {
                 alreadyPresent = true;
                 break;
               }
