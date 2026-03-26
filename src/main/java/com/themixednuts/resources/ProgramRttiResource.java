@@ -67,8 +67,8 @@ public class ProgramRttiResource extends BaseMcpResource {
                 && searchAddr.compareTo(scanEnd) <= 0
                 && scanCount < MAX_RTTI_SCAN
                 && classMap.size() < MAX_CLASSES) {
-              Address found = memory.findBytes(searchAddr, scanEnd, RTTI_PATTERN, null, true, null);
-              if (found == null) {
+              Address found = memory.findBytes(searchAddr, RTTI_PATTERN, null, true, null);
+              if (found == null || found.compareTo(scanEnd) > 0) {
                 break;
               }
               scanCount++;
