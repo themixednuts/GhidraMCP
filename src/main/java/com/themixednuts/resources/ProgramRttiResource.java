@@ -55,10 +55,30 @@ public class ProgramRttiResource extends BaseMcpResource {
             // Map from class name to list of methods discovered via lambda RTTI
             Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
 
-            // Only scan read-only data sections (.rdata, .rodata, etc.) where RTTI lives
+            // Scan non-executable data sections (.rdata + .data) where RTTI structures live.
+            // RTTI0 type descriptors are in .data (writable — the type_info vtable ptr is
+            // patched at runtime), while RTTI1-4 and vtables are in .rdata (read-only).
+            Address scanStart = memory.getMinAddress();
+            Address scanEnd = memory.getMaxAddress();
             MemoryBlock rdataBlock = findRdataBlock(memory);
-            Address scanStart = rdataBlock != null ? rdataBlock.getStart() : memory.getMinAddress();
-            Address scanEnd = rdataBlock != null ? rdataBlock.getEnd() : memory.getMaxAddress();
+            MemoryBlock dataBlock = memory.getBlock(".data");
+            if (rdataBlock != null && dataBlock != null) {
+              // Scan from whichever starts first to whichever ends last
+              scanStart =
+                  rdataBlock.getStart().compareTo(dataBlock.getStart()) < 0
+                      ? rdataBlock.getStart()
+                      : dataBlock.getStart();
+              scanEnd =
+                  rdataBlock.getEnd().compareTo(dataBlock.getEnd()) > 0
+                      ? rdataBlock.getEnd()
+                      : dataBlock.getEnd();
+            } else if (rdataBlock != null) {
+              scanStart = rdataBlock.getStart();
+              scanEnd = rdataBlock.getEnd();
+            } else if (dataBlock != null) {
+              scanStart = dataBlock.getStart();
+              scanEnd = dataBlock.getEnd();
+            }
 
             int scanCount = 0;
             Address searchAddr = scanStart;
