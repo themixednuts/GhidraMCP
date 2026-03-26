@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -169,16 +170,14 @@ class AnalyzeToolRttiCrossAbiE2eTest {
       RTTIAnalysisResult.ItaniumVmiClassTypeInfoResult typedTypeInfo =
           assertInstanceOf(RTTIAnalysisResult.ItaniumVmiClassTypeInfoResult.class, typeInfoResult);
       assertTrue(typedTypeInfo.data().symbolName().startsWith("_ZTI"));
-      assertTrue(typedTypeInfo.data().classTypeInfoVtableAddress().isPresent());
+      assertNotNull(typedTypeInfo.data().classTypeInfoVtableAddress());
       assertTrue(typedTypeInfo.data().numBaseClasses() > 0);
       assertTrue(!typedTypeInfo.data().baseClasses().isEmpty());
       assertTrue(
-          typedTypeInfo.data().representedType().map(s -> s.contains("Diamond")).orElse(false)
-              || typedTypeInfo
-                  .data()
-                  .demangledSymbol()
-                  .map(s -> s.contains("Diamond"))
-                  .orElse(false)
+          (typedTypeInfo.data().representedType() != null
+                  && typedTypeInfo.data().representedType().contains("Diamond"))
+              || (typedTypeInfo.data().demangledSymbol() != null
+                  && typedTypeInfo.data().demangledSymbol().contains("Diamond"))
               || typedTypeInfo.data().symbolName().contains("Diamond"));
 
       RTTIAnalysisResult vtableResult =
@@ -188,12 +187,12 @@ class AnalyzeToolRttiCrossAbiE2eTest {
       RTTIAnalysisResult.ItaniumVtableResult typedVtable =
           assertInstanceOf(RTTIAnalysisResult.ItaniumVtableResult.class, vtableResult);
       assertTrue(typedVtable.data().symbolName().startsWith("_ZTV"));
-      assertTrue(typedVtable.data().typeInfoAddress().isPresent());
+      assertNotNull(typedVtable.data().typeInfoAddress());
       assertTrue(!typedVtable.data().virtualFunctionPointers().isEmpty());
       assertAddressEquals(
           program,
           typeInfoAddress,
-          typedVtable.data().typeInfoAddress().orElseThrow(),
+          typedVtable.data().typeInfoAddress(),
           "Itanium vtable typeinfo pointer should match queried typeinfo symbol");
     } finally {
       builder.dispose();
@@ -270,14 +269,15 @@ class AnalyzeToolRttiCrossAbiE2eTest {
       assertValidType(goItabResult, goItabAddress, RTTIAnalysisResult.RttiType.GO_ITAB);
       RTTIAnalysisResult.GoItabResult typedGoItab =
           assertInstanceOf(RTTIAnalysisResult.GoItabResult.class, goItabResult);
-      assertTrue(typedGoItab.data().concreteType().isPresent());
-      assertTrue(typedGoItab.data().interfaceType().isPresent());
-      assertTrue(typedGoItab.data().concreteType().orElse("").contains("WorkerImpl"));
-      assertTrue(typedGoItab.data().interfaceType().orElse("").contains("Worker"));
-      assertTrue(typedGoItab.data().functionCount().orElse(0L) > 0);
+      assertNotNull(typedGoItab.data().concreteType());
+      assertNotNull(typedGoItab.data().interfaceType());
+      assertTrue(typedGoItab.data().concreteType().contains("WorkerImpl"));
+      assertTrue(typedGoItab.data().interfaceType().contains("Worker"));
+      assertTrue(
+          typedGoItab.data().functionCount() != null && typedGoItab.data().functionCount() > 0);
       assertEquals(
           normalizeGoTypeName(typedGoType.data().fullyQualifiedName()),
-          normalizeGoTypeName(typedGoItab.data().concreteType().orElse("")),
+          normalizeGoTypeName(typedGoItab.data().concreteType()),
           "Go itab concrete type should link to queried go type result");
     } finally {
       builder.dispose();

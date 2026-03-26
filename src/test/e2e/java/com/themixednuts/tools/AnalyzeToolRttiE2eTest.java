@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -118,18 +119,18 @@ class AnalyzeToolRttiE2eTest {
       assertValidType(rtti4Result, rtti4Address, RTTIAnalysisResult.RttiType.RTTI4);
       RTTIAnalysisResult.Rtti4Result typedRtti4 =
           assertInstanceOf(RTTIAnalysisResult.Rtti4Result.class, rtti4Result);
-      assertTrue(typedRtti4.data().rtti0Address().isPresent());
-      assertTrue(typedRtti4.data().rtti3Address().isPresent());
+      assertNotNull(typedRtti4.data().rtti0Address());
+      assertNotNull(typedRtti4.data().rtti3Address());
       assertTrue(!typedRtti4.data().baseClassTypes().isEmpty());
       assertAddressEquals(
           program,
           rtti3Address,
-          typedRtti4.data().rtti3Address().orElseThrow(),
+          typedRtti4.data().rtti3Address(),
           "RTTI4.rtti3Address should match RTTI3 fixture symbol");
       assertAddressEquals(
           program,
           rtti0Address,
-          typedRtti4.data().rtti0Address().orElseThrow(),
+          typedRtti4.data().rtti0Address(),
           "RTTI4.rtti0Address should match RTTI0 fixture symbol");
 
       RTTIAnalysisResult rtti3Result =
@@ -137,13 +138,13 @@ class AnalyzeToolRttiE2eTest {
       assertValidType(rtti3Result, rtti3Address, RTTIAnalysisResult.RttiType.RTTI3);
       RTTIAnalysisResult.Rtti3Result typedRtti3 =
           assertInstanceOf(RTTIAnalysisResult.Rtti3Result.class, rtti3Result);
-      assertTrue(typedRtti3.data().rtti1Count().orElse(0) > 0);
-      assertTrue(typedRtti3.data().rtti2Address().isPresent());
+      assertTrue(typedRtti3.data().rtti1Count() != null && typedRtti3.data().rtti1Count() > 0);
+      assertNotNull(typedRtti3.data().rtti2Address());
       assertTrue(!typedRtti3.data().baseClassTypes().isEmpty());
       assertAddressEquals(
           program,
           rtti0Address,
-          typedRtti3.data().rtti0Address().orElseThrow(),
+          typedRtti3.data().rtti0Address(),
           "RTTI3.rtti0Address should match RTTI0 fixture symbol");
 
       RTTIAnalysisResult rtti1Result =
@@ -151,17 +152,17 @@ class AnalyzeToolRttiE2eTest {
       assertValidType(rtti1Result, rtti1Address, RTTIAnalysisResult.RttiType.RTTI1);
       RTTIAnalysisResult.Rtti1Result typedRtti1 =
           assertInstanceOf(RTTIAnalysisResult.Rtti1Result.class, rtti1Result);
-      assertTrue(typedRtti1.data().rtti0Address().isPresent());
-      assertTrue(typedRtti1.data().rtti3Address().isPresent());
+      assertNotNull(typedRtti1.data().rtti0Address());
+      assertNotNull(typedRtti1.data().rtti3Address());
       assertAddressEquals(
           program,
           rtti0Address,
-          typedRtti1.data().rtti0Address().orElseThrow(),
+          typedRtti1.data().rtti0Address(),
           "RTTI1.rtti0Address should match RTTI0 fixture symbol");
       assertAddressEquals(
           program,
           rtti3Address,
-          typedRtti1.data().rtti3Address().orElseThrow(),
+          typedRtti1.data().rtti3Address(),
           "RTTI1.rtti3Address should match RTTI3 fixture symbol");
 
       RTTIAnalysisResult rtti0Result =
@@ -169,9 +170,9 @@ class AnalyzeToolRttiE2eTest {
       assertValidType(rtti0Result, rtti0Address, RTTIAnalysisResult.RttiType.RTTI0);
       RTTIAnalysisResult.Rtti0Result typedRtti0 =
           assertInstanceOf(RTTIAnalysisResult.Rtti0Result.class, rtti0Result);
-      assertTrue(typedRtti0.data().vfTableAddress().isPresent());
-      assertTrue(typedRtti0.data().mangledName().isPresent());
-      assertTrue(typedRtti0.data().mangledName().orElse("").contains("Diamond"));
+      assertNotNull(typedRtti0.data().vfTableAddress());
+      assertNotNull(typedRtti0.data().mangledName());
+      assertTrue(typedRtti0.data().mangledName().contains("Diamond"));
 
       RTTIAnalysisResult vftableResult =
           executeAnalyze(tool, context, pluginTool, "msvc_rtti_fixture", vftableAddress);
@@ -183,7 +184,7 @@ class AnalyzeToolRttiE2eTest {
       assertAddressEquals(
           program,
           rtti0Address,
-          typedVftable.data().rtti0Address().orElseThrow(),
+          typedVftable.data().rtti0Address(),
           "VfTable.rtti0Address should match RTTI0 fixture symbol");
     } finally {
       builder.dispose();

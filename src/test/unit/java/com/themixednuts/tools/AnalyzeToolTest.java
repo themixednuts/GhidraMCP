@@ -60,8 +60,6 @@ class AnalyzeToolTest {
   void extractTypeFromDemangledTypeInfoReturnsTypeNameOnly() {
     assertEquals(
         "std::vector<int>",
-        AnalyzeTool.extractTypeFromDemangledTypeInfo(
-                java.util.Optional.of("typeinfo for std::vector<int>"))
-            .orElseThrow());
+        AnalyzeTool.extractTypeFromDemangledTypeInfo("typeinfo for std::vector<int>"));
   }
 }

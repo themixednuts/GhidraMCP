@@ -445,6 +445,14 @@ public class AnalyzeTool extends BaseMcpTool {
   private DemangleResult performDemangling(Program program, String mangledSymbol)
       throws GhidraMcpException {
     try {
+      // Check for MSVC RTTI type descriptor format (.?AV, .?AU, .?AT, .?AW4)
+      if (mangledSymbol.startsWith(".?AV")
+          || mangledSymbol.startsWith(".?AU")
+          || mangledSymbol.startsWith(".?AT")
+          || mangledSymbol.startsWith(".?AW4")) {
+        return parseRttiTypeDescriptor(mangledSymbol);
+      }
+
       var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
 
       if (demangledList == null || demangledList.isEmpty()) {
@@ -498,6 +506,80 @@ public class AnalyzeTool extends BaseMcpTool {
                       Map.of("program_name", program.getName())))
               .build());
     }
+  }
+
+  private DemangleResult parseRttiTypeDescriptor(String descriptor) {
+    String typeKeyword;
+    String body;
+
+    if (descriptor.startsWith(".?AW4")) {
+      typeKeyword = "enum";
+      body = descriptor.substring(5);
+    } else if (descriptor.startsWith(".?AV")) {
+      typeKeyword = "class";
+      body = descriptor.substring(4);
+    } else if (descriptor.startsWith(".?AU")) {
+      typeKeyword = "struct";
+      body = descriptor.substring(4);
+    } else if (descriptor.startsWith(".?AT")) {
+      typeKeyword = "union";
+      body = descriptor.substring(4);
+    } else {
+      return new DemangleResult(
+          descriptor,
+          null,
+          "MSVC RTTI Type Descriptor Parser",
+          false,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "Unrecognized RTTI type descriptor prefix",
+          null);
+    }
+
+    // Strip trailing @@
+    if (body.endsWith("@@")) {
+      body = body.substring(0, body.length() - 2);
+    }
+
+    // Split by @ to get name components
+    // First component is the class/struct/union/enum name, remaining are namespace (reverse order)
+    String[] components = body.split("@");
+    String className = components[0];
+
+    StringBuilder qualifiedName = new StringBuilder();
+    // Build namespace from remaining components in reverse order
+    for (int i = components.length - 1; i >= 1; i--) {
+      qualifiedName.append(components[i]).append("::");
+    }
+    qualifiedName.append(className);
+
+    String namespace = null;
+    if (components.length > 1) {
+      StringBuilder ns = new StringBuilder();
+      for (int i = components.length - 1; i >= 1; i--) {
+        if (ns.length() > 0) {
+          ns.append("::");
+        }
+        ns.append(components[i]);
+      }
+      namespace = ns.toString();
+    }
+
+    String demangledSymbol = typeKeyword + " " + qualifiedName;
+
+    return new DemangleResult(
+        descriptor,
+        demangledSymbol,
+        "MSVC RTTI Type Descriptor Parser",
+        true,
+        typeKeyword,
+        namespace,
+        className,
+        null,
+        null);
   }
 
   private String getDemangledType(Demangled demangled) {
@@ -888,9 +970,9 @@ public class AnalyzeTool extends BaseMcpTool {
             goType.getClass().getName(),
             typeAddress != null ? typeAddress.toString() : address.toString(),
             goType.getTypeOffset(),
-            optionalNonBlank(goType.getPackagePathString()),
-            optionalNonBlank(goType.toString()),
-            optionalNonBlank(goBinary.getGoVer() != null ? goBinary.getGoVer().toString() : null));
+            nullableNonBlank(goType.getPackagePathString()),
+            nullableNonBlank(goType.toString()),
+            nullableNonBlank(goBinary.getGoVer() != null ? goBinary.getGoVer().toString() : null));
 
     return RTTIAnalysisResult.from(data, address);
   }
@@ -902,13 +984,15 @@ public class AnalyzeTool extends BaseMcpTool {
       throw new IllegalArgumentException("address is not a Go runtime.itab structure");
     }
 
+    GoType concreteGoType = targetItab.getType();
+    GoType interfaceGoType = targetItab.getInterfaceType();
     RTTIAnalysisResult.GoItabInfo data =
         new RTTIAnalysisResult.GoItabInfo(
             address.toString(),
-            Optional.ofNullable(targetItab.getType()).map(GoType::getFullyQualifiedName),
-            Optional.ofNullable(targetItab.getInterfaceType()).map(GoType::getFullyQualifiedName),
-            Optional.of(targetItab.getFuncCount()),
-            optionalNonBlank(goBinary.getGoVer() != null ? goBinary.getGoVer().toString() : null));
+            concreteGoType != null ? concreteGoType.getFullyQualifiedName() : null,
+            interfaceGoType != null ? interfaceGoType.getFullyQualifiedName() : null,
+            targetItab.getFuncCount(),
+            nullableNonBlank(goBinary.getGoVer() != null ? goBinary.getGoVer().toString() : null));
 
     return RTTIAnalysisResult.from(data, address);
   }
@@ -929,10 +1013,10 @@ public class AnalyzeTool extends BaseMcpTool {
       Program program, Address address, RTTIAnalysisResult.RttiType expectedKind) throws Exception {
     Symbol typeInfoSymbol = getPrimaryOrFirstSymbol(program, address);
     String symbolName = typeInfoSymbol != null ? typeInfoSymbol.getName() : "";
-    Optional<String> demangledSymbol = tryDemangleSymbol(program, symbolName, address);
+    String demangledSymbol = tryDemangleSymbol(program, symbolName, address);
 
     if (!looksLikeItaniumTypeInfoSymbol(symbolName)
-        && demangledSymbol.filter(AnalyzeTool::looksLikeItaniumTypeInfoDemangled).isEmpty()) {
+        && !looksLikeItaniumTypeInfoDemangled(demangledSymbol)) {
       throw new IllegalArgumentException("address does not look like an Itanium typeinfo symbol");
     }
 
@@ -942,20 +1026,21 @@ public class AnalyzeTool extends BaseMcpTool {
       throw new IllegalArgumentException("typeinfo vtable pointer is null");
     }
 
-    Optional<Address> typeNameAddress =
-        Optional.ofNullable(readPointerAddress(program, address.add(pointerSize)));
-    Optional<String> representedType =
-        extractTypeFromDemangledTypeInfo(demangledSymbol)
-            .or(() -> typeNameAddress.flatMap(addr -> readCString(program, addr, 512)));
+    Address typeNameAddress = readPointerAddress(program, address.add(pointerSize));
+    String representedType = extractTypeFromDemangledTypeInfo(demangledSymbol);
+    if (representedType == null && typeNameAddress != null) {
+      representedType = readCString(program, typeNameAddress, 512);
+    }
 
     Symbol classTypeInfoVtableSymbol =
         findClassTypeInfoVtableSymbol(program, classTypeInfoVtableAddress);
     String vtableSymbolName =
         classTypeInfoVtableSymbol != null ? classTypeInfoVtableSymbol.getName() : "";
-    Optional<String> demangledVtableSymbol =
+    String demangledVtableSymbol =
         tryDemangleSymbol(program, vtableSymbolName, classTypeInfoVtableAddress);
     RTTIAnalysisResult.RttiType detectedKind =
-        classifyItaniumTypeInfoKind(vtableSymbolName, demangledVtableSymbol.orElse(""));
+        classifyItaniumTypeInfoKind(
+            vtableSymbolName, demangledVtableSymbol != null ? demangledVtableSymbol : "");
     if (detectedKind == RTTIAnalysisResult.RttiType.UNKNOWN) {
       detectedKind = RTTIAnalysisResult.RttiType.ITANIUM_CLASS_TYPEINFO;
     }
@@ -965,9 +1050,8 @@ public class AnalyzeTool extends BaseMcpTool {
           "detected " + detectedKind.name() + " but expected " + expectedKind.name());
     }
 
-    Optional<String> typeNameAddressStr = typeNameAddress.map(Address::toString);
-    Optional<String> classTypeInfoVtableAddressStr =
-        Optional.of(classTypeInfoVtableAddress.toString());
+    String typeNameAddressStr = typeNameAddress != null ? typeNameAddress.toString() : null;
+    String classTypeInfoVtableAddressStr = classTypeInfoVtableAddress.toString();
 
     if (detectedKind == RTTIAnalysisResult.RttiType.ITANIUM_CLASS_TYPEINFO) {
       RTTIAnalysisResult.ItaniumClassTypeInfo data =
@@ -989,7 +1073,7 @@ public class AnalyzeTool extends BaseMcpTool {
               representedType,
               typeNameAddressStr,
               classTypeInfoVtableAddressStr,
-              Optional.ofNullable(baseTypeInfoAddress).map(Address::toString));
+              baseTypeInfoAddress != null ? baseTypeInfoAddress.toString() : null);
       return RTTIAnalysisResult.from(data, address);
     }
 
@@ -1019,7 +1103,7 @@ public class AnalyzeTool extends BaseMcpTool {
       baseClasses.add(
           new RTTIAnalysisResult.ItaniumVmiBaseClass(
               i,
-              Optional.ofNullable(baseTypeInfoAddress).map(Address::toString),
+              baseTypeInfoAddress != null ? baseTypeInfoAddress.toString() : null,
               isVirtual,
               isPublic,
               offset));
@@ -1042,9 +1126,9 @@ public class AnalyzeTool extends BaseMcpTool {
       throws Exception {
     Symbol vtableSymbol = getPrimaryOrFirstSymbol(program, address);
     String symbolName = vtableSymbol != null ? vtableSymbol.getName() : "";
-    Optional<String> demangledSymbol = tryDemangleSymbol(program, symbolName, address);
+    String demangledSymbol = tryDemangleSymbol(program, symbolName, address);
     if (!looksLikeItaniumVtableSymbol(symbolName)
-        && demangledSymbol.filter(AnalyzeTool::looksLikeItaniumVtableDemangled).isEmpty()) {
+        && !looksLikeItaniumVtableDemangled(demangledSymbol)) {
       throw new IllegalArgumentException("address does not look like an Itanium vtable symbol");
     }
 
@@ -1067,8 +1151,8 @@ public class AnalyzeTool extends BaseMcpTool {
         new RTTIAnalysisResult.ItaniumVtable(
             symbolName,
             demangledSymbol,
-            Optional.of(offsetToTop),
-            Optional.ofNullable(typeInfoAddress).map(Address::toString),
+            offsetToTop,
+            typeInfoAddress != null ? typeInfoAddress.toString() : null,
             virtualFunctionPointers);
     return RTTIAnalysisResult.from(data, address);
   }
@@ -1101,13 +1185,12 @@ public class AnalyzeTool extends BaseMcpTool {
     return demangledName != null && demangledName.toLowerCase().startsWith("vtable for ");
   }
 
-  static Optional<String> extractTypeFromDemangledTypeInfo(Optional<String> demangledName) {
-    if (demangledName.isEmpty()) return Optional.empty();
-    String value = demangledName.get();
+  static String extractTypeFromDemangledTypeInfo(String demangledName) {
+    if (demangledName == null) return null;
     String prefix = "typeinfo for ";
-    if (!value.toLowerCase().startsWith(prefix)) return Optional.empty();
-    String typeName = value.substring(prefix.length()).trim();
-    return typeName.isEmpty() ? Optional.empty() : Optional.of(typeName);
+    if (!demangledName.toLowerCase().startsWith(prefix)) return null;
+    String typeName = demangledName.substring(prefix.length()).trim();
+    return typeName.isEmpty() ? null : typeName;
   }
 
   private Symbol findClassTypeInfoVtableSymbol(Program program, Address vtableAddress) {
@@ -1138,23 +1221,22 @@ public class AnalyzeTool extends BaseMcpTool {
     return symbols.length > 0 ? symbols[0] : null;
   }
 
-  private Optional<String> tryDemangleSymbol(Program program, String symbolName, Address address) {
-    if (symbolName == null || symbolName.isBlank()) return Optional.empty();
+  private String tryDemangleSymbol(Program program, String symbolName, Address address) {
+    if (symbolName == null || symbolName.isBlank()) return null;
     try {
       var demangled = DemanglerUtil.demangle(program, symbolName, address);
-      if (demangled == null || demangled.isEmpty() || demangled.get(0) == null)
-        return Optional.empty();
+      if (demangled == null || demangled.isEmpty() || demangled.get(0) == null) return null;
       String text = demangled.get(0).toString();
-      if (text == null || text.isBlank()) return Optional.empty();
-      return Optional.of(text);
+      if (text == null || text.isBlank()) return null;
+      return text;
     } catch (Exception e) {
-      return Optional.empty();
+      return null;
     }
   }
 
-  private Optional<String> readCString(Program program, Address address, int maxLength) {
+  private String readCString(Program program, Address address, int maxLength) {
     if (address == null || maxLength <= 0 || !isLoadedAndInitializedAddress(program, address))
-      return Optional.empty();
+      return null;
 
     StringBuilder sb = new StringBuilder();
     Memory memory = program.getMemory();
@@ -1163,15 +1245,15 @@ public class AnalyzeTool extends BaseMcpTool {
         byte value = memory.getByte(address.add(i));
         if (value == 0) break;
         int unsigned = Byte.toUnsignedInt(value);
-        if (unsigned < 0x20 || unsigned > 0x7e) return Optional.empty();
+        if (unsigned < 0x20 || unsigned > 0x7e) return null;
         sb.append((char) unsigned);
       } catch (Exception e) {
-        return Optional.empty();
+        return null;
       }
     }
 
     String text = sb.toString().trim();
-    return text.isEmpty() ? Optional.empty() : Optional.of(text);
+    return text.isEmpty() ? null : text;
   }
 
   private boolean isLoadedAndInitializedAddress(Program program, Address address) {
@@ -1230,9 +1312,9 @@ public class AnalyzeTool extends BaseMcpTool {
     return value == null ? "" : value;
   }
 
-  private Optional<String> optionalNonBlank(String value) {
-    if (value == null || value.isBlank()) return Optional.empty();
-    return Optional.of(value);
+  private String nullableNonBlank(String value) {
+    if (value == null || value.isBlank()) return null;
+    return value;
   }
 
   private boolean hasGoProgramSignal(Program program) {

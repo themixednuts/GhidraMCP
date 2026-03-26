@@ -65,21 +65,21 @@ public sealed interface RTTIAnalysisResult
       throws InvalidDataTypeException {
     Memory memory = program.getMemory();
     int length = rtti0.getLength(memory, address);
-    Optional<String> vfTableAddress =
-        Optional.ofNullable(rtti0.getVFTableAddress(memory, address)).map(Address::toString);
-    Optional<String> spareDataAddress =
-        Optional.ofNullable(rtti0.getSpareDataAddress(memory, address)).map(Address::toString);
+    Address vfTableAddr = rtti0.getVFTableAddress(memory, address);
+    String vfTableAddress = vfTableAddr != null ? vfTableAddr.toString() : null;
+    Address spareDataAddr = rtti0.getSpareDataAddress(memory, address);
+    String spareDataAddress = spareDataAddr != null ? spareDataAddr.toString() : null;
 
     MemBuffer memBuffer = new MemoryBufferImpl(memory, address);
     String vfTableName = rtti0.getVFTableName(memBuffer);
-    Optional<String> mangledName = Optional.ofNullable(vfTableName);
 
-    Optional<String> demangledName =
-        mangledName.flatMap(
-            symbol ->
-                tryStandardDemangler(program, symbol)
-                    .or(() -> tryMicrosoftDemangler(program, symbol, address))
-                    .map(DemangledObject::toString));
+    String demangledName = null;
+    if (vfTableName != null) {
+      Optional<DemangledObject> demangled =
+          tryStandardDemangler(program, vfTableName)
+              .or(() -> tryMicrosoftDemangler(program, vfTableName, address));
+      demangledName = demangled.map(DemangledObject::toString).orElse(null);
+    }
 
     Rtti0 data =
         new Rtti0(
@@ -91,26 +91,28 @@ public sealed interface RTTIAnalysisResult
             rtti0.getClass().getSimpleName(),
             vfTableAddress,
             spareDataAddress,
-            Optional.ofNullable(vfTableName),
-            mangledName,
+            vfTableName,
+            vfTableName,
             demangledName);
 
     return new Rtti0Result(address.toString(), data);
   }
 
   static Rtti1Result from(Rtti1Model model, Address address) throws InvalidDataTypeException {
+    Address rtti0Addr = model.getRtti0Address();
+    Address rtti3Addr = model.getRtti3Address();
     Rtti1 data =
         new Rtti1(
             model.getName(),
             model.getDataType().getName(),
             model.getDataType().getLength(),
-            Optional.ofNullable(model.getRtti0Address()).map(Address::toString),
-            Optional.of(model.getNumBases()),
-            Optional.of(model.getMDisp()),
-            Optional.of(model.getPDisp()),
-            Optional.of(model.getVDisp()),
-            Optional.of(model.getAttributes()),
-            Optional.ofNullable(model.getRtti3Address()).map(Address::toString));
+            rtti0Addr != null ? rtti0Addr.toString() : null,
+            model.getNumBases(),
+            model.getMDisp(),
+            model.getPDisp(),
+            model.getVDisp(),
+            model.getAttributes(),
+            rtti3Addr != null ? rtti3Addr.toString() : null);
 
     return new Rtti1Result(address.toString(), data);
   }
@@ -125,6 +127,7 @@ public sealed interface RTTIAnalysisResult
       }
     }
 
+    var rtti0Model = model.getRtti0Model();
     Rtti2 data =
         new Rtti2(
             model.getName(),
@@ -132,41 +135,47 @@ public sealed interface RTTIAnalysisResult
             model.getDataType().getLength(),
             baseClassTypes.size(),
             baseClassTypes,
-            Optional.ofNullable(model.getRtti0Model()).map(m -> m.getAddress().toString()),
+            rtti0Model != null ? rtti0Model.getAddress().toString() : null,
             rtti1Addresses);
 
     return new Rtti2Result(address.toString(), data);
   }
 
   static Rtti3Result from(Rtti3Model model, Address address) throws InvalidDataTypeException {
+    Address rtti2Addr = model.getRtti2Address();
+    var rtti0Model = model.getRtti0Model();
     Rtti3 data =
         new Rtti3(
             model.getName(),
             model.getDataType().getName(),
             model.getDataType().getLength(),
-            Optional.of(model.getSignature()),
-            Optional.of(model.getAttributes()),
-            Optional.of(model.getRtti1Count()),
-            Optional.ofNullable(model.getRtti2Address()).map(Address::toString),
+            model.getSignature(),
+            model.getAttributes(),
+            model.getRtti1Count(),
+            rtti2Addr != null ? rtti2Addr.toString() : null,
             model.getBaseClassTypes(),
-            Optional.ofNullable(model.getRtti0Model()).map(m -> m.getAddress().toString()));
+            rtti0Model != null ? rtti0Model.getAddress().toString() : null);
 
     return new Rtti3Result(address.toString(), data);
   }
 
   static Rtti4Result from(Rtti4Model model, Address address) throws InvalidDataTypeException {
+    Address rtti0Addr = model.getRtti0Address();
+    Address rtti3Addr = model.getRtti3Address();
+    Address rtti0FieldAddr = model.getRtti0FieldAddress();
+    Address rtti3FieldAddr = model.getRtti3FieldAddress();
     Rtti4 data =
         new Rtti4(
             model.getName(),
             model.getDataType().getName(),
             model.getDataType().getLength(),
-            Optional.of(model.getSignature()),
-            Optional.of(model.getVbTableOffset()),
-            Optional.of(model.getConstructorOffset()),
-            Optional.ofNullable(model.getRtti0Address()).map(Address::toString),
-            Optional.ofNullable(model.getRtti3Address()).map(Address::toString),
-            Optional.ofNullable(model.getRtti0FieldAddress()).map(Address::toString),
-            Optional.ofNullable(model.getRtti3FieldAddress()).map(Address::toString),
+            model.getSignature(),
+            model.getVbTableOffset(),
+            model.getConstructorOffset(),
+            rtti0Addr != null ? rtti0Addr.toString() : null,
+            rtti3Addr != null ? rtti3Addr.toString() : null,
+            rtti0FieldAddr != null ? rtti0FieldAddr.toString() : null,
+            rtti3FieldAddr != null ? rtti3FieldAddr.toString() : null,
             model.getBaseClassTypes());
 
     return new Rtti4Result(address.toString(), data);
@@ -182,13 +191,14 @@ public sealed interface RTTIAnalysisResult
       }
     }
 
+    var rtti0Model = model.getRtti0Model();
     VfTable data =
         new VfTable(
             model.getName(),
             model.getDataType() != null ? model.getDataType().getName() : "vftable",
             model.getDataType() != null ? model.getDataType().getLength() : 0,
             elementCount,
-            Optional.ofNullable(model.getRtti0Model()).map(m -> m.getAddress().toString()),
+            rtti0Model != null ? rtti0Model.getAddress().toString() : null,
             virtualFunctionPointers);
 
     return new VfTableResult(address.toString(), data);
@@ -433,24 +443,24 @@ public sealed interface RTTIAnalysisResult
       String defaultLabelPrefix,
       int length,
       String dataTypeName,
-      Optional<String> vfTableAddress,
-      Optional<String> spareDataAddress,
-      Optional<String> vfTableName,
-      Optional<String> mangledName,
-      Optional<String> demangledName) {}
+      String vfTableAddress,
+      String spareDataAddress,
+      String vfTableName,
+      String mangledName,
+      String demangledName) {}
 
   // RTTI1 - Base Class Descriptor (from Rtti1Model API)
   record Rtti1(
       String name,
       String dataTypeName,
       int length,
-      Optional<String> rtti0Address,
-      Optional<Integer> numBases,
-      Optional<Integer> mDisp,
-      Optional<Integer> pDisp,
-      Optional<Integer> vDisp,
-      Optional<Integer> attributes,
-      Optional<String> rtti3Address) {}
+      String rtti0Address,
+      Integer numBases,
+      Integer mDisp,
+      Integer pDisp,
+      Integer vDisp,
+      Integer attributes,
+      String rtti3Address) {}
 
   // RTTI2 - Base Class Array (from Rtti2Model API)
   record Rtti2(
@@ -459,7 +469,7 @@ public sealed interface RTTIAnalysisResult
       int length,
       int numEntries,
       List<String> baseClassTypes,
-      Optional<String> rtti0Address,
+      String rtti0Address,
       Map<Integer, String> rtti1Addresses) {}
 
   // RTTI3 - Class Hierarchy Descriptor (from Rtti3Model API)
@@ -467,68 +477,64 @@ public sealed interface RTTIAnalysisResult
       String name,
       String dataTypeName,
       int length,
-      Optional<Integer> signature,
-      Optional<Integer> attributes,
-      Optional<Integer> rtti1Count,
-      Optional<String> rtti2Address,
+      Integer signature,
+      Integer attributes,
+      Integer rtti1Count,
+      String rtti2Address,
       List<String> baseClassTypes,
-      Optional<String> rtti0Address) {}
+      String rtti0Address) {}
 
   // RTTI4 - Complete Object Locator (from Rtti4Model API)
   record Rtti4(
       String name,
       String dataTypeName,
       int length,
-      Optional<Integer> signature,
-      Optional<Integer> vbTableOffset,
-      Optional<Integer> constructorOffset,
-      Optional<String> rtti0Address,
-      Optional<String> rtti3Address,
-      Optional<String> rtti0FieldAddress,
-      Optional<String> rtti3FieldAddress,
+      Integer signature,
+      Integer vbTableOffset,
+      Integer constructorOffset,
+      String rtti0Address,
+      String rtti3Address,
+      String rtti0FieldAddress,
+      String rtti3FieldAddress,
       List<String> baseClassTypes) {}
 
   // Itanium ABI RTTI - __class_type_info
   record ItaniumClassTypeInfo(
       String symbolName,
-      Optional<String> demangledSymbol,
-      Optional<String> representedType,
-      Optional<String> typeNameAddress,
-      Optional<String> classTypeInfoVtableAddress) {}
+      String demangledSymbol,
+      String representedType,
+      String typeNameAddress,
+      String classTypeInfoVtableAddress) {}
 
   // Itanium ABI RTTI - __si_class_type_info
   record ItaniumSiClassTypeInfo(
       String symbolName,
-      Optional<String> demangledSymbol,
-      Optional<String> representedType,
-      Optional<String> typeNameAddress,
-      Optional<String> classTypeInfoVtableAddress,
-      Optional<String> baseTypeInfoAddress) {}
+      String demangledSymbol,
+      String representedType,
+      String typeNameAddress,
+      String classTypeInfoVtableAddress,
+      String baseTypeInfoAddress) {}
 
   // Itanium ABI RTTI - __vmi_class_type_info
   record ItaniumVmiClassTypeInfo(
       String symbolName,
-      Optional<String> demangledSymbol,
-      Optional<String> representedType,
-      Optional<String> typeNameAddress,
-      Optional<String> classTypeInfoVtableAddress,
+      String demangledSymbol,
+      String representedType,
+      String typeNameAddress,
+      String classTypeInfoVtableAddress,
       long flags,
       int numBaseClasses,
       List<ItaniumVmiBaseClass> baseClasses) {}
 
   record ItaniumVmiBaseClass(
-      int index,
-      Optional<String> baseTypeInfoAddress,
-      boolean isVirtual,
-      boolean isPublic,
-      long offset) {}
+      int index, String baseTypeInfoAddress, boolean isVirtual, boolean isPublic, long offset) {}
 
   // Itanium ABI RTTI - vtable object
   record ItaniumVtable(
       String symbolName,
-      Optional<String> demangledSymbol,
-      Optional<Long> offsetToTop,
-      Optional<String> typeInfoAddress,
+      String demangledSymbol,
+      Long offsetToTop,
+      String typeInfoAddress,
       Map<Integer, String> virtualFunctionPointers) {}
 
   // Go RTTI - runtime._type structure
@@ -539,17 +545,17 @@ public sealed interface RTTIAnalysisResult
       String runtimeTypeClass,
       String typeAddress,
       long typeOffset,
-      Optional<String> packagePath,
-      Optional<String> declaration,
-      Optional<String> goVersion) {}
+      String packagePath,
+      String declaration,
+      String goVersion) {}
 
   // Go RTTI - runtime.itab structure
   record GoItabInfo(
       String itabAddress,
-      Optional<String> concreteType,
-      Optional<String> interfaceType,
-      Optional<Long> functionCount,
-      Optional<String> goVersion) {}
+      String concreteType,
+      String interfaceType,
+      Long functionCount,
+      String goVersion) {}
 
   // VfTable - Virtual Function Table (from VfTableModel API)
   record VfTable(
@@ -557,6 +563,6 @@ public sealed interface RTTIAnalysisResult
       String dataTypeName,
       int length,
       int elementCount,
-      Optional<String> rtti0Address,
+      String rtti0Address,
       Map<Integer, String> virtualFunctionPointers) {}
 }
