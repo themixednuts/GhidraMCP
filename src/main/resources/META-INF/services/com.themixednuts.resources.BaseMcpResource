@@ -9,3 +9,4 @@ com.themixednuts.resources.ProgramMemoryResource
 com.themixednuts.resources.ProgramImportsResource
 com.themixednuts.resources.ProgramExportsResource
 com.themixednuts.resources.ProgramStringsResource
+com.themixednuts.resources.ProgramRttiResource
