@@ -135,6 +135,7 @@ public class SymbolsTool extends BaseMcpTool {
   private static final String ACTION_CREATE = "create";
   private static final String ACTION_UPDATE = "update";
   private static final String ACTION_CONVERT_TO_CLASS = "convert_to_class";
+  private static final String ACTION_CONVERT_TO_NAMESPACE = "convert_to_namespace";
 
   /**
    * Defines the JSON input schema for symbol operations.
@@ -153,7 +154,12 @@ public class SymbolsTool extends BaseMcpTool {
         ARG_ACTION,
         SchemaBuilder.string(mapper)
             .enumValues(
-                ACTION_LIST, ACTION_GET, ACTION_CREATE, ACTION_UPDATE, ACTION_CONVERT_TO_CLASS)
+                ACTION_LIST,
+                ACTION_GET,
+                ACTION_CREATE,
+                ACTION_UPDATE,
+                ACTION_CONVERT_TO_CLASS,
+                ACTION_CONVERT_TO_NAMESPACE)
             .description("Action to perform on symbols"));
 
     schemaRoot.property(
@@ -304,7 +310,20 @@ public class SymbolsTool extends BaseMcpTool {
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
-                            .description("Name of the namespace to convert to a class"))));
+                            .description("Name of the namespace to convert to a class"))),
+        // action=convert_to_namespace: requires name; allows namespace parent
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        SchemaBuilder.string(mapper).constValue(ACTION_CONVERT_TO_NAMESPACE)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_NAME)
+                    .property(
+                        ARG_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description("Name of the class to convert back to a namespace"))));
 
     return schemaRoot.build();
   }
@@ -333,12 +352,15 @@ public class SymbolsTool extends BaseMcpTool {
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation);
                 case ACTION_CONVERT_TO_CLASS -> handleConvertToClass(program, args, annotation);
+                case ACTION_CONVERT_TO_NAMESPACE ->
+                    handleConvertToNamespace(program, args, annotation);
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
                           ARG_ACTION,
                           action,
-                          "Must be one of: list, get, create, update, convert_to_class");
+                          "Must be one of: list, get, create, update, convert_to_class,"
+                              + " convert_to_namespace");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -997,6 +1019,56 @@ public class SymbolsTool extends BaseMcpTool {
                     "Cannot convert namespace to class: "
                         + e.getMessage()
                         + ". Namespace cannot be within a function."));
+          }
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // action = convert_to_namespace
+  // ---------------------------------------------------------------------------
+
+  private Mono<? extends Object> handleConvertToNamespace(
+      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    String name = getRequiredStringArgument(args, ARG_NAME);
+    Optional<String> namespaceOpt = getOptionalStringArgument(args, ARG_NAMESPACE);
+
+    return executeInTransaction(
+        program,
+        "MCP - Convert Class to Namespace: " + name,
+        () -> {
+          SymbolTable symbolTable = program.getSymbolTable();
+
+          Namespace parentNamespace;
+          if (namespaceOpt.isPresent()) {
+            parentNamespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+          } else {
+            parentNamespace = program.getGlobalNamespace();
+          }
+
+          Namespace target =
+              NamespaceUtils.getFirstNonFunctionNamespace(parentNamespace, name, program);
+
+          if (target == null) {
+            throw new GhidraMcpException(
+                GhidraMcpError.notFound(
+                    "class", name + " (in parent: " + parentNamespace.getName() + ")"));
+          }
+
+          if (!(target instanceof ghidra.program.model.listing.GhidraClass)) {
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(ARG_NAME, name, "is already a namespace, not a class"));
+          }
+
+          try {
+            Namespace ns =
+                program
+                    .getSymbolTable()
+                    .createNameSpace(
+                        target.getParentNamespace(), target.getName(), SourceType.USER_DEFINED);
+            return new SymbolInfo(ns.getSymbol());
+          } catch (Exception e) {
+            throw new GhidraMcpException(
+                GhidraMcpError.failed("convert class to namespace", name + ": " + e.getMessage()));
           }
         });
   }
