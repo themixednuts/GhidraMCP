@@ -1885,85 +1885,73 @@ public class AnalyzeTool extends BaseMcpTool {
     }
   }
 
+  /**
+   * Extracts enclosing method information from lambda RTTI entries using MDMang's structured AST.
+   * Uses MDObjectCPP.getName() and getQualification() for reliable method/class extraction instead
+   * of parsing demangled strings — handles all MSVC special names (operators, constructors,
+   * templates) correctly per spec.
+   */
   private void processLambdaRttiEntry(
       String mangledName, Map<String, List<Map<String, String>>> methodMap) {
 
-    // Lambda RTTI entries contain "??" in their scope chain after the lambda name.
-    // Find the enclosing function's mangled name fragment.
     if (!mangledName.contains("<lambda")) {
       return;
     }
 
     // Find "??" that starts the enclosing function (skip the leading ".?AV" prefix)
-    int searchFrom = 4; // skip ".?AV" or similar
+    int searchFrom = 4;
     int qqIdx = mangledName.indexOf("??", searchFrom);
     while (qqIdx > 0) {
-      // Try to demangle from this "??" as the enclosing function
       String enclosingMangled = "?" + mangledName.substring(qqIdx + 1);
 
-      // Strip trailing scope (the @Z@ or similar that ends the lambda's own scope)
-      // by finding the last valid mangled name terminator
-      String demangled = tryMDMangDemangle(enclosingMangled);
-      if (demangled != null && !demangled.isBlank()) {
-        // MDMang successfully demangled — extract method and class from demangled string
-        // Demangled form is like: "public: void __cdecl Namespace::Class::Method(params)"
-        // or "class Namespace::Class" for type descriptors
-        String methodName = extractMethodNameFromDemangled(demangled);
-        String className = extractClassNameFromDemangled(demangled);
-
-        if (methodName != null && className != null) {
-          Map<String, String> methodInfo = new LinkedHashMap<>();
-          methodInfo.put("name", methodName);
-          methodInfo.put("class", className);
-          methodInfo.put("demangled", demangled);
-          methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+      try {
+        MDMangGhidra mdm = new MDMangGhidra();
+        mdm.setMangledSymbol(enclosingMangled);
+        MDParsableItem item = mdm.demangle();
+        if (item == null) {
+          qqIdx = mangledName.indexOf("??", qqIdx + 2);
+          continue;
         }
-        return;
+
+        // Use structured AST for reliable extraction
+        if (item instanceof mdemangler.object.MDObjectCPP cppObj) {
+          String methodName = cppObj.getName();
+          mdemangler.naming.MDQualification qualification = cppObj.getQualification();
+
+          if (methodName != null && !methodName.isEmpty() && qualification != null) {
+            // First qualifier is the immediate class (inner→outer order)
+            String className = null;
+            for (var qualifier : qualification) {
+              className = qualifier.toString();
+              break; // first one is the class
+            }
+
+            if (className != null && !className.isEmpty()) {
+              String demangled = item.toString();
+              Map<String, String> methodInfo = new LinkedHashMap<>();
+              methodInfo.put("name", methodName);
+              methodInfo.put("class", className);
+              if (demangled != null) {
+                methodInfo.put("demangled", demangled);
+              }
+              methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+              return;
+            }
+          }
+        }
+
+        // Fallback: if we got a parseable item but not MDObjectCPP, use toString
+        String demangled = item.toString();
+        if (demangled != null && !demangled.isBlank()) {
+          // Last resort: basic string extraction for non-CPP objects
+          return;
+        }
+      } catch (Exception ignored) {
+        // MDMang couldn't parse this fragment — try next ??
       }
 
-      // Try next "??" occurrence
       qqIdx = mangledName.indexOf("??", qqIdx + 2);
     }
-  }
-
-  /** Extracts the method name from a demangled string like "public: void Class::Method(...)". */
-  private String extractMethodNameFromDemangled(String demangled) {
-    // Find the last :: before the ( — that separates class::method
-    int parenIdx = demangled.indexOf('(');
-    String beforeParen = parenIdx > 0 ? demangled.substring(0, parenIdx) : demangled;
-
-    // Remove return type and qualifiers — find the last space before ::
-    int lastColonColon = beforeParen.lastIndexOf("::");
-    if (lastColonColon < 0) return null;
-
-    String methodPart = beforeParen.substring(lastColonColon + 2).trim();
-    // Handle destructors: ~ClassName
-    // Handle operators: operator==, operator<<, etc.
-    // Handle constructors: ClassName (same as class name)
-    if (methodPart.isEmpty()) return null;
-    return methodPart;
-  }
-
-  /** Extracts the class name from a demangled string like "public: void Ns::Class::Method(...)". */
-  private String extractClassNameFromDemangled(String demangled) {
-    int parenIdx = demangled.indexOf('(');
-    String beforeParen = parenIdx > 0 ? demangled.substring(0, parenIdx) : demangled;
-
-    int lastColonColon = beforeParen.lastIndexOf("::");
-    if (lastColonColon < 0) return null;
-
-    // Everything before the last :: contains the class (possibly with namespace)
-    String beforeMethod = beforeParen.substring(0, lastColonColon).trim();
-
-    // Find the class name — it's the last token after space or ::
-    // "public: void __cdecl Namespace::ClassName" → "ClassName"
-    int prevColonColon = beforeMethod.lastIndexOf("::");
-    if (prevColonColon >= 0) {
-      return beforeMethod.substring(prevColonColon + 2).trim();
-    }
-    // No namespace — class is the last space-delimited word
-    int lastSpace = beforeMethod.lastIndexOf(' ');
-    return lastSpace >= 0 ? beforeMethod.substring(lastSpace + 1).trim() : beforeMethod;
   }
 
   private String extractClassNameFromMangled(String mangledName) {
