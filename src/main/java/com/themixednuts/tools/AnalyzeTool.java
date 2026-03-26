@@ -152,8 +152,10 @@ public class AnalyzeTool extends BaseMcpTool {
   private static final String ARG_VALIDATE_REFERRED_TO_DATA = "validate_referred_to_data";
   private static final String ARG_IGNORE_INSTRUCTIONS = "ignore_instructions";
   private static final String ARG_IGNORE_DEFINED_DATA = "ignore_defined_data";
+  private static final String ARG_FROM_VTABLE = "from_vtable";
   private static final String ARG_DEPTH = "depth";
   private static final String ARG_DIRECTION = "direction";
+  private static final String ARG_MAX_RESULTS = "max_results";
 
   private static final String BACKEND_AUTO = "auto";
   private static final String BACKEND_MICROSOFT = "microsoft";
@@ -228,6 +230,15 @@ public class AnalyzeTool extends BaseMcpTool {
                 "Microsoft-only: ignore existing defined data during validation (default: true).")
             .defaultValue(true));
 
+    schemaRoot.property(
+        ARG_FROM_VTABLE,
+        SchemaBuilder.bool(mapper)
+            .description(
+                "If true, treat the address as a vtable and read vtable[-1] to find the RTTI4"
+                    + " (Complete Object Locator) pointer, then analyze RTTI at that address"
+                    + " (default: false).")
+            .defaultValue(false));
+
     // Graph/call_graph identifier properties
     schemaRoot.property(
         ARG_SYMBOL_ID,
@@ -267,6 +278,14 @@ public class AnalyzeTool extends BaseMcpTool {
             .description("Call graph direction: callers, callees, or both (default both).")
             .enumValues(DIRECTION_CALLERS, DIRECTION_CALLEES, DIRECTION_BOTH)
             .defaultValue(DIRECTION_BOTH));
+
+    schemaRoot.property(
+        ARG_MAX_RESULTS,
+        SchemaBuilder.integer(mapper)
+            .description(
+                "Maximum number of nodes to collect in call graph traversal (default 50, max 500).")
+            .minimum(1)
+            .maximum(500));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 
@@ -709,11 +728,22 @@ public class AnalyzeTool extends BaseMcpTool {
 
   // =================== RTTI Action ===================
 
-  private Mono<RTTIAnalysisResult> handleRtti(Program program, Map<String, Object> args) {
+  private Mono<? extends Object> handleRtti(Program program, Map<String, Object> args) {
     return Mono.fromCallable(
         () -> {
           String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
-          return analyzeRTTIAtAddress(program, addressStr, args);
+          boolean fromVtable = getOptionalBooleanArgument(args, ARG_FROM_VTABLE).orElse(false);
+          RTTIAnalysisResult result = analyzeRTTIAtAddress(program, addressStr, args);
+
+          if (fromVtable) {
+            // Wrap result with vtable context info
+            Map<String, Object> wrapped = new LinkedHashMap<>();
+            wrapped.put("from_vtable", true);
+            wrapped.put("vtable_address", addressStr);
+            wrapped.put("result", result);
+            return wrapped;
+          }
+          return result;
         });
   }
 
@@ -727,6 +757,26 @@ public class AnalyzeTool extends BaseMcpTool {
                 .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
                 .message("Invalid address: " + addressStr)
                 .build());
+      }
+
+      boolean fromVtable = getOptionalBooleanArgument(args, ARG_FROM_VTABLE).orElse(false);
+      String vtableAddress = null;
+      String rtti4PtrAddress = null;
+      if (fromVtable) {
+        // vtable[-1] points to RTTI4 Complete Object Locator
+        vtableAddress = address.toString();
+        int pointerSize = program.getDefaultPointerSize();
+        Address colPtrAddr = address.subtract(pointerSize);
+        rtti4PtrAddress = colPtrAddr.toString();
+        Memory mem = program.getMemory();
+        long colPtr;
+        if (pointerSize == 8) {
+          colPtr = mem.getLong(colPtrAddr);
+        } else {
+          colPtr = mem.getInt(colPtrAddr) & 0xFFFFFFFFL;
+        }
+        address = program.getAddressFactory().getDefaultAddressSpace().getAddress(colPtr);
+        addressStr = address.toString();
       }
 
       String requestedBackend =
@@ -754,10 +804,15 @@ public class AnalyzeTool extends BaseMcpTool {
         }
       }
 
+      // Build section-aware guidance when RTTI analysis fails
+      String failureSummary = buildBackendFailureSummary(backendFailures);
+      String sectionHint = getSectionHint(program, address);
+      if (sectionHint != null) {
+        failureSummary = failureSummary + " " + sectionHint;
+      }
+
       return RTTIAnalysisResult.invalid(
-          RTTIAnalysisResult.RttiType.UNKNOWN,
-          addressStr,
-          buildBackendFailureSummary(backendFailures));
+          RTTIAnalysisResult.RttiType.UNKNOWN, addressStr, failureSummary);
 
     } catch (GhidraMcpException e) {
       throw e;
@@ -815,6 +870,27 @@ public class AnalyzeTool extends BaseMcpTool {
       first = false;
     }
     return summary.toString();
+  }
+
+  private String getSectionHint(Program program, Address address) {
+    MemoryBlock block = program.getMemory().getBlock(address);
+    if (block == null) {
+      return null;
+    }
+    String blockName = block.getName().toLowerCase(Locale.ROOT);
+    if (blockName.equals(".rdata") || blockName.equals(".rodata")) {
+      return "Hint: This address is in "
+          + block.getName()
+          + " — if it's a vtable, the RTTI4 (Complete Object Locator) is at address - "
+          + program.getDefaultPointerSize()
+          + ". Try analyzing that address instead, or use from_vtable=true.";
+    }
+    if (blockName.equals(".text") || block.isExecute()) {
+      return "Hint: This address is in "
+          + block.getName()
+          + " (code section). RTTI structures are in .data/.rdata sections.";
+    }
+    return null;
   }
 
   private RTTIAnalysisResult analyzeMicrosoftRttiAtAddress(
@@ -1630,10 +1706,17 @@ public class AnalyzeTool extends BaseMcpTool {
             String mangledKey = entry.getKey();
 
             String className = extractClassNameFromMangled(mangledKey);
+            String displayName = (String) classInfo.get("name");
             List<Map<String, String>> methods = new ArrayList<>();
             if (className != null) {
               for (var methodEntry : methodMap.entrySet()) {
-                if (methodEntry.getKey().equals(className)) {
+                String lambdaClassName = methodEntry.getKey();
+                // Match on extracted class name directly
+                if (lambdaClassName.equals(className)) {
+                  methods.addAll(methodEntry.getValue());
+                } else if (displayName != null && displayName.contains(lambdaClassName)) {
+                  // Also match if the demangled display name contains the lambda's class name
+                  // e.g., display "class Javelin::Weapon" contains lambda class "Weapon"
                   methods.addAll(methodEntry.getValue());
                 }
               }
@@ -1648,7 +1731,9 @@ public class AnalyzeTool extends BaseMcpTool {
             boolean alreadyPresent = false;
             for (var entry : classMap.entrySet()) {
               String existingClassName = extractClassNameFromMangled(entry.getKey());
-              if (className.equals(existingClassName)) {
+              String existingDisplayName = (String) entry.getValue().get("name");
+              if (className.equals(existingClassName)
+                  || (existingDisplayName != null && existingDisplayName.contains(className))) {
                 alreadyPresent = true;
                 break;
               }
@@ -2026,6 +2111,8 @@ public class AnalyzeTool extends BaseMcpTool {
           Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
           Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
 
+          int maxResults = getBoundedIntArgumentOrDefault(args, ARG_MAX_RESULTS, 50, 1, 500);
+
           List<Function> roots = new ArrayList<>();
           if (symbolIdOpt.isPresent() || addressOpt.isPresent() || nameOpt.isPresent()) {
             roots.add(resolveFunction(program, args));
@@ -2034,14 +2121,16 @@ public class AnalyzeTool extends BaseMcpTool {
             fm.getFunctions(true).forEach(roots::add);
           }
 
-          return buildCallGraph(roots, depth, direction);
+          return buildCallGraph(roots, depth, direction, maxResults);
         });
   }
 
-  private Map<String, Object> buildCallGraph(List<Function> roots, int depth, String direction) {
+  private Map<String, Object> buildCallGraph(
+      List<Function> roots, int depth, String direction, int maxResults) {
     Set<String> visitedAddresses = new LinkedHashSet<>();
     Map<String, Map<String, Object>> nodeMap = new LinkedHashMap<>();
     List<Map<String, Object>> edges = new ArrayList<>();
+    boolean truncated = false;
 
     Deque<FunctionDepth> queue = new ArrayDeque<>();
     for (Function root : roots) {
@@ -2050,9 +2139,13 @@ public class AnalyzeTool extends BaseMcpTool {
         nodeMap.put(rootAddr, createCallGraphNode(root));
         queue.add(new FunctionDepth(root, 0));
       }
+      if (nodeMap.size() >= maxResults) {
+        truncated = true;
+        break;
+      }
     }
 
-    while (!queue.isEmpty()) {
+    while (!queue.isEmpty() && !truncated) {
       FunctionDepth current = queue.poll();
       if (current.depth >= depth) continue;
 
@@ -2063,6 +2156,10 @@ public class AnalyzeTool extends BaseMcpTool {
         for (Function callee : func.getCalledFunctions(TaskMonitor.DUMMY)) {
           String calleeAddr = callee.getEntryPoint().toString();
           if (!nodeMap.containsKey(calleeAddr)) {
+            if (nodeMap.size() >= maxResults) {
+              truncated = true;
+              break;
+            }
             nodeMap.put(calleeAddr, createCallGraphNode(callee));
           }
 
@@ -2076,12 +2173,17 @@ public class AnalyzeTool extends BaseMcpTool {
             queue.add(new FunctionDepth(callee, current.depth + 1));
           }
         }
+        if (truncated) continue;
       }
 
       if (DIRECTION_CALLERS.equals(direction) || DIRECTION_BOTH.equals(direction)) {
         for (Function caller : func.getCallingFunctions(TaskMonitor.DUMMY)) {
           String callerAddr = caller.getEntryPoint().toString();
           if (!nodeMap.containsKey(callerAddr)) {
+            if (nodeMap.size() >= maxResults) {
+              truncated = true;
+              break;
+            }
             nodeMap.put(callerAddr, createCallGraphNode(caller));
           }
 
@@ -2101,6 +2203,7 @@ public class AnalyzeTool extends BaseMcpTool {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("nodes", new ArrayList<>(nodeMap.values()));
     result.put("edges", edges);
+    result.put("truncated", truncated);
     return result;
   }
 

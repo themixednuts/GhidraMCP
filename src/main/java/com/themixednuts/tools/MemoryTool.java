@@ -340,6 +340,13 @@ public class MemoryTool extends BaseMcpTool {
             .minimum(1)
             .maximum(MAX_PAGE_LIMIT));
 
+    schemaRoot.property(
+        "max_results",
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+            .description("Alias for page_size (backward compatibility)")
+            .minimum(1)
+            .maximum(MAX_PAGE_LIMIT));
+
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 
     // Add conditional requirements based on action (JSON Schema Draft 7)
@@ -754,6 +761,12 @@ public class MemoryTool extends BaseMcpTool {
           SearchType searchType = SearchType.fromValue(searchTypeStr);
 
           String searchValue = getRequiredStringArgument(args, ARG_SEARCH_VALUE);
+
+          // Accept max_results as alias for page_size (backward compat)
+          if (!args.containsKey(ARG_PAGE_SIZE) && args.containsKey("max_results")) {
+            args.put(ARG_PAGE_SIZE, args.get("max_results"));
+          }
+
           boolean caseSensitive =
               getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
           Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
