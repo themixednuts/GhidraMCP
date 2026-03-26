@@ -535,20 +535,61 @@ public class AnalyzeTool extends BaseMcpTool {
     try {
       // Step 1: Try MDMangGhidra (most capable — handles all MSVC symbols including
       // RTTI type descriptors, vtable symbols, constructors, operators, etc.)
-      String mdMangResult = tryMDMangDemangle(mangledSymbol);
-      if (mdMangResult != null && !mdMangResult.isBlank()) {
-        return new DemangleResult(
-            mangledSymbol,
-            mdMangResult,
-            "MDMang",
-            true,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            analyzeSymbol(mangledSymbol));
+      // Use structured AST for reliable field extraction.
+      try {
+        MDMangGhidra mdm = new MDMangGhidra();
+        mdm.setMangledSymbol(mangledSymbol);
+        MDParsableItem item = mdm.demangle();
+        if (item != null) {
+          String demangledStr = item.toString();
+          if (demangledStr != null && !demangledStr.isBlank()) {
+            String functionName = null;
+            String className = null;
+            String namespace = null;
+            String demangledType = null;
+
+            if (item instanceof mdemangler.object.MDObjectCPP cppObj) {
+              functionName = cppObj.getName();
+              demangledType =
+                  cppObj.getQualifiedName() != null
+                      ? (cppObj.getQualifiedName().isConstructor()
+                          ? "Constructor"
+                          : cppObj.getQualifiedName().isDestructor() ? "Destructor" : "Function")
+                      : "Function";
+
+              mdemangler.naming.MDQualification qual = cppObj.getQualification();
+              if (qual != null) {
+                StringBuilder nsBuilder = new StringBuilder();
+                boolean first = true;
+                for (var qualifier : qual) {
+                  if (first) {
+                    className = qualifier.toString();
+                    first = false;
+                  } else {
+                    if (nsBuilder.length() > 0) nsBuilder.insert(0, "::");
+                    nsBuilder.insert(0, qualifier.toString());
+                  }
+                }
+                namespace = nsBuilder.length() > 0 ? nsBuilder.toString() : null;
+              }
+            }
+
+            return new DemangleResult(
+                mangledSymbol,
+                demangledStr,
+                "MDMang",
+                true,
+                demangledType,
+                namespace,
+                className,
+                functionName,
+                null,
+                null,
+                analyzeSymbol(mangledSymbol));
+          }
+        }
+      } catch (Exception ignored) {
+        // MDMang couldn't parse — fall through to Step 2
       }
 
       // Step 2: Try DemanglerUtil (handles Itanium/Go/other mangling schemes)
