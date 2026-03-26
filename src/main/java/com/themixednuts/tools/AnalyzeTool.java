@@ -4,6 +4,8 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RTTIAnalysisResult;
+import com.themixednuts.utils.OpaqueCursorCodec;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
@@ -22,10 +24,17 @@ import ghidra.app.util.datatype.microsoft.DataValidationOptions;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.app.util.demangler.Demangled;
 import ghidra.app.util.demangler.DemanglerUtil;
+import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
+import ghidra.features.base.memsearch.format.SearchFormat;
+import ghidra.features.base.memsearch.gui.SearchSettings;
+import ghidra.features.base.memsearch.matcher.ByteMatcher;
+import ghidra.features.base.memsearch.searcher.MemoryMatch;
+import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOutOfBoundsException;
 import ghidra.program.model.address.AddressOverflowException;
+import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.block.CodeBlock;
@@ -41,8 +50,11 @@ import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolType;
+import ghidra.util.datastruct.ListAccumulator;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,6 +66,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
 import mdemangler.MDMangGhidra;
 import mdemangler.MDParsableItem;
 import reactor.core.publisher.Mono;
@@ -61,8 +75,8 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Analyze",
     description =
-        "Decode, visualize, and analyze structure — demangle symbols, analyze RTTI, visualize"
-            + " control flow graphs, extract call graphs.",
+        "Decode, visualize, and analyze structure — demangle symbols, analyze RTTI, list all RTTI"
+            + " classes, visualize control flow graphs, extract call graphs.",
     mcpName = "analyze",
     readOnlyHint = true,
     idempotentHint = true,
@@ -70,13 +84,14 @@ import reactor.core.publisher.Mono;
         """
         <use_case>
         Decode, visualize, and analyze structure. Demangle mangled C++ symbols, analyze RTTI
-        metadata (Microsoft, Itanium, Go), visualize control flow graphs of functions, and
-        extract caller/callee call graphs. Use this tool when you need to understand symbol
+        metadata (Microsoft, Itanium, Go), list all RTTI classes with demangling/lambda
+        method extraction/base class hierarchies, visualize control flow graphs of functions,
+        and extract caller/callee call graphs. Use this tool when you need to understand symbol
         names, class hierarchies, function control flow, or call relationships.
         </use_case>
 
         <parameters_summary>
-        - action: Operation to perform (demangle, rtti, graph, call_graph)
+        - action: Operation to perform (demangle, rtti, list_rtti, graph, call_graph)
         - file_name: The program file to analyze (required)
         - mangled_symbol: (demangle) The mangled symbol to decode
         - address: (rtti, graph, call_graph) Address for analysis
@@ -86,6 +101,9 @@ import reactor.core.publisher.Mono;
         - ignore_defined_data: (rtti, microsoft-only) Ignore existing defined data
         - symbol_id: (graph, call_graph) Symbol ID to identify a function
         - name: (graph, call_graph) Function name for lookup
+        - name_pattern: (list_rtti) Regex filter on class name
+        - cursor: (list_rtti) Pagination cursor
+        - page_size: (list_rtti) Results per page, default 100, max 500
         - depth: (call_graph) Traversal depth, default 3, max 10
         - direction: (call_graph) callers, callees, or both (default both)
         </parameters_summary>
@@ -93,6 +111,7 @@ import reactor.core.publisher.Mono;
         <return_value_summary>
         - demangle: DemangleResult with original/demangled symbol, type, namespace, class info
         - rtti: RTTIAnalysisResult with detected type, validity, class hierarchy
+        - list_rtti: Paginated list of all RTTI classes with demangled names, methods, base classes
         - graph: Control flow graph with nodes (basic blocks) and edges (flow connections)
         - call_graph: Call graph with function nodes and caller/callee edges
         </return_value_summary>
@@ -103,6 +122,12 @@ import reactor.core.publisher.Mono;
 
         Analyze RTTI at an address:
         { "file_name": "program.exe", "action": "rtti", "address": "0x401000" }
+
+        List all RTTI classes:
+        { "file_name": "program.exe", "action": "list_rtti" }
+
+        List RTTI classes matching a pattern:
+        { "file_name": "program.exe", "action": "list_rtti", "name_pattern": "Weapon.*" }
 
         Get control flow graph of a function:
         { "file_name": "program.exe", "action": "graph", "name": "main" }
@@ -116,6 +141,7 @@ public class AnalyzeTool extends BaseMcpTool {
 
   private static final String ACTION_DEMANGLE = "demangle";
   private static final String ACTION_RTTI = "rtti";
+  private static final String ACTION_LIST_RTTI = "list_rtti";
   private static final String ACTION_GRAPH = "graph";
   private static final String ACTION_CALL_GRAPH = "call_graph";
 
@@ -139,6 +165,11 @@ public class AnalyzeTool extends BaseMcpTool {
   private static final int DEFAULT_DEPTH = 3;
   private static final int MAX_DEPTH = 10;
 
+  private static final int LIST_RTTI_DEFAULT_PAGE_SIZE = 100;
+  private static final int LIST_RTTI_MAX_PAGE_SIZE = 500;
+  private static final int MAX_RTTI_SCAN = 50000;
+  private static final int MAX_STRING_LENGTH = 512;
+
   @Override
   public JsonSchema schema() {
     IObjectSchemaBuilder schemaRoot = createDraft7SchemaNode();
@@ -149,7 +180,8 @@ public class AnalyzeTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_ACTION,
         SchemaBuilder.string(mapper)
-            .enumValues(ACTION_DEMANGLE, ACTION_RTTI, ACTION_GRAPH, ACTION_CALL_GRAPH)
+            .enumValues(
+                ACTION_DEMANGLE, ACTION_RTTI, ACTION_LIST_RTTI, ACTION_GRAPH, ACTION_CALL_GRAPH)
             .description("Analysis operation to perform."));
 
     // Shared properties
@@ -203,6 +235,21 @@ public class AnalyzeTool extends BaseMcpTool {
         ARG_NAME,
         SchemaBuilder.string(mapper)
             .description("Function name for lookup (supports * and ? wildcards)."));
+
+    // List RTTI properties
+    schemaRoot.property(
+        ARG_NAME_PATTERN,
+        SchemaBuilder.string(mapper).description("Regex filter on class name (list_rtti)."));
+
+    schemaRoot.property(
+        ARG_CURSOR, SchemaBuilder.string(mapper).description("Pagination cursor for list_rtti."));
+
+    schemaRoot.property(
+        ARG_PAGE_SIZE,
+        SchemaBuilder.integer(mapper)
+            .description("Results per page (list_rtti, default 100, max 500).")
+            .minimum(1)
+            .maximum(LIST_RTTI_MAX_PAGE_SIZE));
 
     // Call graph properties
     schemaRoot.property(
@@ -261,6 +308,13 @@ public class AnalyzeTool extends BaseMcpTool {
                                             .description(
                                                 "Ignore existing defined data during"
                                                     + " validation."))))),
+        // list_rtti: no additional required params (name_pattern, cursor, page_size all optional)
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_LIST_RTTI)),
+                SchemaBuilder.objectDraft7(mapper)),
         // graph: requires at least one identifier (symbol_id, address, name)
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -298,6 +352,7 @@ public class AnalyzeTool extends BaseMcpTool {
               return switch (action) {
                 case ACTION_DEMANGLE -> handleDemangle(program, args);
                 case ACTION_RTTI -> handleRtti(program, args);
+                case ACTION_LIST_RTTI -> handleListRtti(program, args);
                 case ACTION_GRAPH -> handleGraph(program, args);
                 case ACTION_CALL_GRAPH -> handleCallGraph(program, args);
                 default ->
@@ -306,7 +361,8 @@ public class AnalyzeTool extends BaseMcpTool {
                             GhidraMcpError.invalid(
                                 ARG_ACTION,
                                 action,
-                                "must be one of: demangle, rtti, graph, call_graph")));
+                                "must be one of: demangle, rtti, list_rtti, graph,"
+                                    + " call_graph")));
               };
             });
   }
@@ -1404,6 +1460,400 @@ public class AnalyzeTool extends BaseMcpTool {
   @FunctionalInterface
   private interface RttiAnalyzer {
     RTTIAnalysisResult analyze() throws Exception;
+  }
+
+  // =================== List RTTI Action ===================
+
+  @SuppressWarnings("unchecked")
+  private Mono<PaginatedResult<Map<String, Object>>> handleListRtti(
+      Program program, Map<String, Object> args) {
+    return Mono.fromCallable(
+        () -> {
+          Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
+          Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+          int pageSize =
+              getPageSizeArgument(args, LIST_RTTI_DEFAULT_PAGE_SIZE, LIST_RTTI_MAX_PAGE_SIZE);
+
+          Pattern nameFilter = null;
+          if (namePatternOpt.isPresent() && !namePatternOpt.get().isBlank()) {
+            nameFilter = Pattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
+          }
+
+          int startIndex = 0;
+          if (cursorOpt.isPresent()) {
+            String decoded = decodeOpaqueCursorSingleV1(cursorOpt.get(), ARG_CURSOR, "v1:index");
+            startIndex = Integer.parseInt(decoded);
+          }
+
+          Memory memory = program.getMemory();
+
+          // Map from mangled name to class info
+          Map<String, Map<String, Object>> classMap = new TreeMap<>();
+          // Map from class name to list of methods discovered via lambda RTTI
+          Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
+
+          // Use MemorySearcher (bulk engine) to find all ".?A" patterns in .data section
+          MemoryBlock dataBlock = memory.getBlock(".data");
+          AddressSetView searchSet;
+          if (dataBlock != null) {
+            searchSet =
+                program
+                    .getMemory()
+                    .getLoadedAndInitializedAddressSet()
+                    .intersectRange(dataBlock.getStart(), dataBlock.getEnd());
+          } else {
+            searchSet = program.getMemory().getLoadedAndInitializedAddressSet();
+          }
+
+          SearchSettings settings = new SearchSettings();
+          settings.withSearchFormat(SearchFormat.HEX);
+          settings.withBigEndian(memory.isBigEndian());
+          ByteMatcher matcher = SearchFormat.HEX.parse("2e 3f 41", settings);
+
+          ProgramByteSource byteSource = new ProgramByteSource(program);
+          MemorySearcher searcher =
+              new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
+
+          ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
+          searcher.findAll(accumulator, TaskMonitor.DUMMY);
+
+          // Phase 1: Read C strings and classify
+          List<String[]> rawEntries = new ArrayList<>();
+          for (MemoryMatch match : accumulator) {
+            Address found = match.getAddress();
+            String mangledName = readCStringFromMemory(memory, found, MAX_STRING_LENGTH);
+            if (mangledName != null && mangledName.length() >= 4) {
+              String typeKind = classifyTypeKind(mangledName);
+              if (typeKind != null) {
+                try {
+                  Address rtti0Addr = found.subtract(16);
+                  rawEntries.add(new String[] {mangledName, rtti0Addr.toString(), typeKind});
+                } catch (Exception ignored) {
+                  // skip entries where address subtraction fails
+                }
+              }
+            }
+          }
+
+          // Phase 2: Demangle and group, process lambda RTTI
+          for (String[] raw : rawEntries) {
+            String mangledName = raw[0];
+            String rtti0AddrStr = raw[1];
+            String typeKind = raw[2];
+
+            // Check if this is a lambda RTTI entry (extract method info)
+            if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
+              processLambdaRtti(mangledName, methodMap);
+            }
+
+            // Demangle and register the class entry
+            if (!classMap.containsKey(mangledName)) {
+              String demangled = tryMDMangDemangle(mangledName);
+              String displayName = demangled != null ? demangled : mangledName;
+
+              Map<String, Object> classInfo = new LinkedHashMap<>();
+              classInfo.put("name", displayName);
+              classInfo.put("mangled", mangledName);
+              classInfo.put("type_kind", typeKind);
+              classInfo.put("rtti0_address", rtti0AddrStr);
+              classMap.put(mangledName, classInfo);
+            }
+          }
+
+          // Phase 3: Enrich with RTTI4 (Complete Object Locator) data
+          enrichWithRtti4Data(program, memory, classMap);
+
+          // Phase 4: Build the output class list, merging method info
+          List<Map<String, Object>> allClasses = new ArrayList<>();
+          for (var entry : classMap.entrySet()) {
+            Map<String, Object> classInfo = new LinkedHashMap<>(entry.getValue());
+            String mangledKey = entry.getKey();
+
+            String className = extractClassNameFromMangled(mangledKey);
+            List<Map<String, String>> methods = new ArrayList<>();
+            if (className != null) {
+              for (var methodEntry : methodMap.entrySet()) {
+                if (methodEntry.getKey().equals(className)) {
+                  methods.addAll(methodEntry.getValue());
+                }
+              }
+            }
+            classInfo.put("methods", methods);
+            allClasses.add(classInfo);
+          }
+
+          // Add classes only discovered through lambda RTTI (not having their own RTTI0)
+          for (var methodEntry : methodMap.entrySet()) {
+            String className = methodEntry.getKey();
+            boolean alreadyPresent = false;
+            for (var entry : classMap.entrySet()) {
+              String existingClassName = extractClassNameFromMangled(entry.getKey());
+              if (className.equals(existingClassName)) {
+                alreadyPresent = true;
+                break;
+              }
+            }
+            if (!alreadyPresent) {
+              Map<String, Object> classInfo = new LinkedHashMap<>();
+              classInfo.put("name", className);
+              classInfo.put("mangled", null);
+              classInfo.put("type_kind", "class");
+              classInfo.put("rtti0_address", null);
+              classInfo.put("methods", methodEntry.getValue());
+              allClasses.add(classInfo);
+            }
+          }
+
+          // Phase 5: Apply name_pattern filter if provided
+          if (nameFilter != null) {
+            Pattern filter = nameFilter;
+            allClasses.removeIf(
+                cls -> {
+                  String name = (String) cls.get("name");
+                  String mangled = (String) cls.get("mangled");
+                  boolean nameMatches = name != null && filter.matcher(name).find();
+                  boolean mangledMatches = mangled != null && filter.matcher(mangled).find();
+                  return !nameMatches && !mangledMatches;
+                });
+          }
+
+          // Phase 6: Paginate
+          int totalSize = allClasses.size();
+          int endIndex = Math.min(startIndex + pageSize, totalSize);
+          if (startIndex > totalSize) {
+            startIndex = totalSize;
+          }
+          List<Map<String, Object>> page = allClasses.subList(startIndex, endIndex);
+
+          String nextCursor = null;
+          if (endIndex < totalSize) {
+            nextCursor = OpaqueCursorCodec.encodeV1(String.valueOf(endIndex));
+          }
+
+          return new PaginatedResult<>(page, nextCursor);
+        });
+  }
+
+  private String readCStringFromMemory(Memory memory, Address addr, int maxLen) {
+    try {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < maxLen; i++) {
+        byte b = memory.getByte(addr.add(i));
+        if (b == 0) {
+          break;
+        }
+        sb.append((char) (b & 0xff));
+      }
+      return sb.toString();
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  private void processLambdaRtti(
+      String mangledName, Map<String, List<Map<String, String>>> methodMap) {
+    int atQQ = mangledName.indexOf("@??");
+    if (atQQ < 0) {
+      return;
+    }
+
+    String fragment = mangledName.substring(atQQ + 1);
+    if (fragment.length() < 3) {
+      return;
+    }
+
+    String afterQQ = fragment.substring(2); // skip the "??"
+
+    int firstAt = afterQQ.indexOf('@');
+    if (firstAt <= 0) {
+      return;
+    }
+    String methodName = afterQQ.substring(0, firstAt);
+
+    String afterMethod = afterQQ.substring(firstAt + 1);
+    int nextAt = afterMethod.indexOf('@');
+    String className;
+    if (nextAt > 0) {
+      className = afterMethod.substring(0, nextAt);
+    } else {
+      className = afterMethod;
+    }
+
+    // Try to demangle the enclosing function
+    String enclosingMangled = "?" + fragment;
+    String demangled = tryMDMangDemangle(enclosingMangled);
+
+    Map<String, String> methodInfo = new LinkedHashMap<>();
+    methodInfo.put("name", methodName);
+    methodInfo.put("class", className);
+    methodInfo.put("namespace", className);
+    if (demangled != null) {
+      methodInfo.put("demangled", demangled);
+    }
+
+    methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+  }
+
+  private String extractClassNameFromMangled(String mangledName) {
+    String prefix = null;
+    if (mangledName.startsWith(".?AV")) {
+      prefix = ".?AV";
+    } else if (mangledName.startsWith(".?AU")) {
+      prefix = ".?AU";
+    } else if (mangledName.startsWith(".?AT")) {
+      prefix = ".?AT";
+    } else if (mangledName.startsWith(".?AW4")) {
+      prefix = ".?AW4";
+    }
+    if (prefix == null) {
+      return null;
+    }
+
+    String rest = mangledName.substring(prefix.length());
+    int atIdx = rest.indexOf('@');
+    if (atIdx > 0) {
+      return rest.substring(0, atIdx);
+    }
+    return rest;
+  }
+
+  private void enrichWithRtti4Data(
+      Program program, Memory memory, Map<String, Map<String, Object>> classMap) {
+    try {
+      Address imageBase = program.getImageBase();
+      if (imageBase == null) {
+        return;
+      }
+
+      MemoryBlock rdataBlock = findRdataBlock(memory);
+      if (rdataBlock == null) {
+        return;
+      }
+      Address rdataStart = rdataBlock.getStart();
+      Address rdataEnd = rdataBlock.getEnd();
+
+      for (Map.Entry<String, Map<String, Object>> entry : classMap.entrySet()) {
+        Map<String, Object> classInfo = entry.getValue();
+        String rtti0AddrStr = (String) classInfo.get("rtti0_address");
+        if (rtti0AddrStr == null) {
+          continue;
+        }
+
+        try {
+          Address rtti0Addr = program.getAddressFactory().getAddress(rtti0AddrStr);
+          if (rtti0Addr == null) {
+            continue;
+          }
+
+          long rtti0Rva = rtti0Addr.subtract(imageBase);
+          byte[] rvaBytes = intToLittleEndianBytes((int) rtti0Rva);
+
+          Address match = memory.findBytes(rdataStart, rdataEnd, rvaBytes, null, true, null);
+          while (match != null) {
+            try {
+              Address rtti4Start = match.subtract(12);
+
+              int signature = memory.getInt(rtti4Start);
+              if (signature == 1) {
+                int selfRva = memory.getInt(rtti4Start.add(20));
+                Address selfAddr = imageBase.add(Integer.toUnsignedLong(selfRva));
+                if (selfAddr.equals(rtti4Start)) {
+                  int vtableOffset = memory.getInt(rtti4Start.add(4));
+                  classInfo.put("rtti4_address", rtti4Start.toString());
+                  classInfo.put("vtable_offset", vtableOffset);
+
+                  List<String> baseClasses = readBaseClassHierarchy(memory, imageBase, rtti4Start);
+                  if (baseClasses != null && !baseClasses.isEmpty()) {
+                    classInfo.put("base_classes", baseClasses);
+                  }
+                  break;
+                }
+              }
+            } catch (Exception e) {
+              // Skip invalid candidate
+            }
+
+            match = memory.findBytes(match.add(1), rdataEnd, rvaBytes, null, true, null);
+          }
+        } catch (Exception e) {
+          // Skip this class entry on error
+        }
+      }
+    } catch (Exception e) {
+      // RTTI4 enrichment is optional; silently skip on failure
+    }
+  }
+
+  private MemoryBlock findRdataBlock(Memory memory) {
+    MemoryBlock block = memory.getBlock(".rdata");
+    if (block != null) {
+      return block;
+    }
+    for (MemoryBlock b : memory.getBlocks()) {
+      if (b.getName().toLowerCase(Locale.ROOT).contains("rdata") && b.isInitialized()) {
+        return b;
+      }
+    }
+    return null;
+  }
+
+  private List<String> readBaseClassHierarchy(
+      Memory memory, Address imageBase, Address rtti4Start) {
+    try {
+      int rtti3Rva = memory.getInt(rtti4Start.add(16));
+      Address rtti3Addr = imageBase.add(Integer.toUnsignedLong(rtti3Rva));
+
+      int numBases = memory.getInt(rtti3Addr.add(8));
+      if (numBases <= 0 || numBases > 50) {
+        return null;
+      }
+
+      int rtti2Rva = memory.getInt(rtti3Addr.add(12));
+      Address rtti2Addr = imageBase.add(Integer.toUnsignedLong(rtti2Rva));
+
+      List<String> baseClasses = new ArrayList<>();
+      // Skip index 0 (the class itself); start from 1 for base classes
+      for (int i = 1; i < numBases; i++) {
+        try {
+          int rtti1Rva = memory.getInt(rtti2Addr.add((long) i * 4));
+          Address rtti1Addr = imageBase.add(Integer.toUnsignedLong(rtti1Rva));
+
+          int baseRtti0Rva = memory.getInt(rtti1Addr);
+          Address baseRtti0Addr = imageBase.add(Integer.toUnsignedLong(baseRtti0Rva));
+
+          String baseName = readCStringFromMemory(memory, baseRtti0Addr.add(16), MAX_STRING_LENGTH);
+          if (baseName != null && baseName.length() >= 4) {
+            String baseDemangled = tryMDMangDemangle(baseName);
+            baseClasses.add(baseDemangled != null ? baseDemangled : baseName);
+          }
+        } catch (Exception e) {
+          // Skip unreadable base class entry
+        }
+      }
+      return baseClasses;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  private byte[] intToLittleEndianBytes(int value) {
+    ByteBuffer buffer = ByteBuffer.allocate(4);
+    buffer.order(ByteOrder.LITTLE_ENDIAN);
+    buffer.putInt(value);
+    return buffer.array();
+  }
+
+  private String classifyTypeKind(String mangledName) {
+    if (mangledName.startsWith(".?AV")) {
+      return "class";
+    } else if (mangledName.startsWith(".?AU")) {
+      return "struct";
+    } else if (mangledName.startsWith(".?AT")) {
+      return "union";
+    } else if (mangledName.startsWith(".?AW4")) {
+      return "enum";
+    }
+    return null;
   }
 
   // =================== Graph Action (Control Flow) ===================
