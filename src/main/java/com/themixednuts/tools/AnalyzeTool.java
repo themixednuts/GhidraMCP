@@ -1715,6 +1715,7 @@ public class AnalyzeTool extends BaseMcpTool {
                   if (mangledName.contains("<lambda")) {
                     Map<String, String> enclosing = extractEnclosingMethod(mangledName);
                     if (enclosing != null) {
+                      resolveEnclosingFunctionAddress(program, rtti0Addr, enclosing);
                       classInfo.put("enclosing_method", enclosing);
                     }
                   }
@@ -1764,6 +1765,7 @@ public class AnalyzeTool extends BaseMcpTool {
                       if (mangledName.contains("<lambda")) {
                         Map<String, String> enclosing = extractEnclosingMethod(mangledName);
                         if (enclosing != null) {
+                          resolveEnclosingFunctionAddress(program, rtti0Addr, enclosing);
                           classInfo.put("enclosing_method", enclosing);
                         }
                       }
@@ -1966,6 +1968,30 @@ public class AnalyzeTool extends BaseMcpTool {
    * Extracts the enclosing method info from a lambda RTTI entry using MDMang's nested AST. Returns
    * a map with "name", "class", "namespace", and "demangled" fields, or null if extraction fails.
    */
+  /**
+   * Resolves the enclosing function's address by finding references TO the lambda's RTTI0 address.
+   * Code that constructs the lambda references its type descriptor — the containing function is the
+   * enclosing method. Adds "address" to the enclosing map if found.
+   */
+  private void resolveEnclosingFunctionAddress(
+      Program program, Address rtti0Addr, Map<String, String> enclosing) {
+    try {
+      var refMgr = program.getReferenceManager();
+      var refs = refMgr.getReferencesTo(rtti0Addr);
+      while (refs.hasNext()) {
+        var ref = refs.next();
+        Address fromAddr = ref.getFromAddress();
+        // Find the function containing this reference
+        Function func = program.getFunctionManager().getFunctionContaining(fromAddr);
+        if (func != null) {
+          enclosing.put("address", func.getEntryPoint().toString());
+          return;
+        }
+      }
+    } catch (Exception ignored) {
+    }
+  }
+
   private Map<String, String> extractEnclosingMethod(String mangledName) {
     try {
       MDMangGhidra mdm = new MDMangGhidra();
