@@ -1569,7 +1569,6 @@ public class AnalyzeTool extends BaseMcpTool {
           Map<String, Map<String, Object>> classMap = new TreeMap<>();
           // Map from class name to list of methods discovered via lambda RTTI
           Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
-          Map<String, Set<String>> classTraits = new LinkedHashMap<>();
 
           // Restrict search to .data section where RTTI0 type descriptors live
           MemoryBlock dataBlock = memory.getBlock(".data");
@@ -1629,7 +1628,7 @@ public class AnalyzeTool extends BaseMcpTool {
                 }
 
                 // Process lambda RTTI for method discovery
-                processRttiEntry(mangledName, methodMap, classTraits);
+                processLambdaRttiEntry(mangledName, methodMap);
 
                 if (!classMap.containsKey(mangledName)) {
                   // Use Ghidra's demangling from the model, fall back to MDMang
@@ -1674,7 +1673,7 @@ public class AnalyzeTool extends BaseMcpTool {
                     Address rtti0Addr = found.subtract(16);
 
                     if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
-                      processRttiEntry(mangledName, methodMap, classTraits);
+                      processLambdaRttiEntry(mangledName, methodMap);
                     }
 
                     if (!classMap.containsKey(mangledName)) {
@@ -1721,19 +1720,6 @@ public class AnalyzeTool extends BaseMcpTool {
               }
             }
             classInfo.put("methods", methods);
-
-            // Add traits (smart_ptr_managed, ebus_registered, any_type_info)
-            Set<String> traits = new LinkedHashSet<>();
-            for (var traitEntry : classTraits.entrySet()) {
-              String traitClass = traitEntry.getKey();
-              if ((className != null && className.equals(traitClass))
-                  || (displayName != null && displayName.contains(traitClass))) {
-                traits.addAll(traitEntry.getValue());
-              }
-            }
-            if (!traits.isEmpty()) {
-              classInfo.put("traits", new ArrayList<>(traits));
-            }
 
             allClasses.add(classInfo);
           }
@@ -1809,131 +1795,90 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   /**
-   * Processes an RTTI entry to extract class and method information. Handles:
-   *
-   * <ul>
-   *   <li>Lambda RTTI — {@code <lambda_N>@?...@??Method@Class@@sig} — extracts enclosing method
-   *   <li>sp_ms_deleter — {@code ?$sp_ms_deleter@VClass@@} — marks class as smart-ptr managed
-   *   <li>AnyTypeInfoConcept — {@code ?$AnyTypeInfoConcept@VClass@@} — marks class usage
-   *   <li>InstallRegistrationHook — marks class as EBus-registered
-   * </ul>
+   * Extracts enclosing method information from lambda RTTI entries using MDMang (Ghidra's full MSVC
+   * demangler) rather than manual parsing. Lambda RTTI type descriptors encode the enclosing
+   * function's mangled name in their scope chain — MDMang handles all MSVC special names
+   * (constructors, operators, templates, etc.) per spec.
    */
-  private void processRttiEntry(
-      String mangledName,
-      Map<String, List<Map<String, String>>> methodMap,
-      Map<String, Set<String>> classTraits) {
+  private void processLambdaRttiEntry(
+      String mangledName, Map<String, List<Map<String, String>>> methodMap) {
 
-    // Lambda RTTI: extract enclosing method name
-    // Patterns: @?L@??, @?1??, @?7??, @?BD@??, @?4??, @?O@??, @?P@??
-    // All have "??" followed by the enclosing function's mangled name
-    int qqIdx = mangledName.indexOf("??");
-    // Skip the leading ".?AV" — we want the ?? inside the scope chain
-    if (qqIdx <= 4) {
-      // Look further
-      qqIdx = mangledName.indexOf("??", qqIdx + 2);
+    // Lambda RTTI entries contain "??" in their scope chain after the lambda name.
+    // Find the enclosing function's mangled name fragment.
+    if (!mangledName.contains("<lambda")) {
+      return;
     }
-    if (qqIdx > 0 && mangledName.contains("<lambda")) {
-      String afterQQ = mangledName.substring(qqIdx + 2);
 
-      // Handle MSVC special names: ??0=ctor, ??1=dtor, ??4=operator=, etc.
-      // Also handle ??$template@args which is a template function
-      String methodName;
-      String remaining;
-
-      if (afterQQ.startsWith("$")) {
-        // Template function: ??$FuncName@TemplateArgs@Class@@
-        int atSign = afterQQ.indexOf('@', 1);
-        if (atSign <= 1) return;
-        methodName = afterQQ.substring(1, atSign);
-        // Skip template args to find class
-        remaining = afterQQ.substring(atSign + 1);
-        // Skip template arg tokens until we hit the class name
-        while (remaining.startsWith("V")
-            || remaining.startsWith("U")
-            || remaining.startsWith("$")) {
-          int nextAt = remaining.indexOf('@');
-          if (nextAt <= 0) break;
-          remaining = remaining.substring(nextAt + 1);
-        }
-      } else if (afterQQ.startsWith("0")) {
-        // Constructor: ??0ClassName@@...
-        int atSign = afterQQ.indexOf('@', 1);
-        if (atSign <= 1) return;
-        String ctorClass = afterQQ.substring(1, atSign);
-        methodName = ctorClass; // constructor named after class
-        remaining = afterQQ.substring(atSign + 1);
-      } else if (afterQQ.startsWith("1")) {
-        // Destructor: ??1ClassName@@...
-        int atSign = afterQQ.indexOf('@', 1);
-        if (atSign <= 1) return;
-        String dtorClass = afterQQ.substring(1, atSign);
-        methodName = "~" + dtorClass;
-        remaining = afterQQ.substring(atSign + 1);
-      } else {
-        // Regular method: ??MethodName@Class@@...
-        int atSign = afterQQ.indexOf('@');
-        if (atSign <= 0) return;
-        methodName = afterQQ.substring(0, atSign);
-        remaining = afterQQ.substring(atSign + 1);
-      }
-
-      // Extract class name — first @-delimited token in remaining
-      int classEnd = remaining.indexOf('@');
-      if (classEnd <= 0) return;
-      String className = remaining.substring(0, classEnd);
-
-      // Try to demangle the full enclosing function
+    // Find "??" that starts the enclosing function (skip the leading ".?AV" prefix)
+    int searchFrom = 4; // skip ".?AV" or similar
+    int qqIdx = mangledName.indexOf("??", searchFrom);
+    while (qqIdx > 0) {
+      // Try to demangle from this "??" as the enclosing function
       String enclosingMangled = "?" + mangledName.substring(qqIdx + 1);
+
+      // Strip trailing scope (the @Z@ or similar that ends the lambda's own scope)
+      // by finding the last valid mangled name terminator
       String demangled = tryMDMangDemangle(enclosingMangled);
+      if (demangled != null && !demangled.isBlank()) {
+        // MDMang successfully demangled — extract method and class from demangled string
+        // Demangled form is like: "public: void __cdecl Namespace::Class::Method(params)"
+        // or "class Namespace::Class" for type descriptors
+        String methodName = extractMethodNameFromDemangled(demangled);
+        String className = extractClassNameFromDemangled(demangled);
 
-      Map<String, String> methodInfo = new LinkedHashMap<>();
-      methodInfo.put("name", methodName);
-      methodInfo.put("class", className);
-      if (demangled != null) {
-        methodInfo.put("demangled", demangled);
+        if (methodName != null && className != null) {
+          Map<String, String> methodInfo = new LinkedHashMap<>();
+          methodInfo.put("name", methodName);
+          methodInfo.put("class", className);
+          methodInfo.put("demangled", demangled);
+          methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+        }
+        return;
       }
 
-      methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
-    }
-
-    // sp_ms_deleter: marks class as smart-pointer managed
-    if (mangledName.contains("sp_ms_deleter@V")) {
-      String className = extractTemplateArgClass(mangledName, "sp_ms_deleter@V");
-      if (className != null) {
-        classTraits.computeIfAbsent(className, k -> new LinkedHashSet<>()).add("smart_ptr_managed");
-      }
-    }
-
-    // InstallRegistrationHook: marks class as EBus-registered component
-    if (mangledName.contains("InstallRegistrationHook@V")) {
-      String className = extractTemplateArgClass(mangledName, "InstallRegistrationHook@V");
-      if (className != null) {
-        classTraits.computeIfAbsent(className, k -> new LinkedHashSet<>()).add("ebus_registered");
-      }
-    }
-
-    // AnyTypeInfoConcept: marks class used with AZStd::any
-    if (mangledName.contains("AnyTypeInfoConcept@V")) {
-      String className = extractTemplateArgClass(mangledName, "AnyTypeInfoConcept@V");
-      if (className != null) {
-        classTraits.computeIfAbsent(className, k -> new LinkedHashSet<>()).add("any_type_info");
-      }
+      // Try next "??" occurrence
+      qqIdx = mangledName.indexOf("??", qqIdx + 2);
     }
   }
 
-  /**
-   * Extracts a class name from a template argument pattern like {@code
-   * Template@VClassName@Namespace@@}.
-   */
-  private String extractTemplateArgClass(String mangledName, String prefix) {
-    int idx = mangledName.indexOf(prefix);
-    if (idx < 0) return null;
-    String after = mangledName.substring(idx + prefix.length());
-    int end = after.indexOf("@@");
-    if (end <= 0) {
-      end = after.indexOf('@');
+  /** Extracts the method name from a demangled string like "public: void Class::Method(...)". */
+  private String extractMethodNameFromDemangled(String demangled) {
+    // Find the last :: before the ( — that separates class::method
+    int parenIdx = demangled.indexOf('(');
+    String beforeParen = parenIdx > 0 ? demangled.substring(0, parenIdx) : demangled;
+
+    // Remove return type and qualifiers — find the last space before ::
+    int lastColonColon = beforeParen.lastIndexOf("::");
+    if (lastColonColon < 0) return null;
+
+    String methodPart = beforeParen.substring(lastColonColon + 2).trim();
+    // Handle destructors: ~ClassName
+    // Handle operators: operator==, operator<<, etc.
+    // Handle constructors: ClassName (same as class name)
+    if (methodPart.isEmpty()) return null;
+    return methodPart;
+  }
+
+  /** Extracts the class name from a demangled string like "public: void Ns::Class::Method(...)". */
+  private String extractClassNameFromDemangled(String demangled) {
+    int parenIdx = demangled.indexOf('(');
+    String beforeParen = parenIdx > 0 ? demangled.substring(0, parenIdx) : demangled;
+
+    int lastColonColon = beforeParen.lastIndexOf("::");
+    if (lastColonColon < 0) return null;
+
+    // Everything before the last :: contains the class (possibly with namespace)
+    String beforeMethod = beforeParen.substring(0, lastColonColon).trim();
+
+    // Find the class name — it's the last token after space or ::
+    // "public: void __cdecl Namespace::ClassName" → "ClassName"
+    int prevColonColon = beforeMethod.lastIndexOf("::");
+    if (prevColonColon >= 0) {
+      return beforeMethod.substring(prevColonColon + 2).trim();
     }
-    return end > 0 ? after.substring(0, end) : null;
+    // No namespace — class is the last space-delimited word
+    int lastSpace = beforeMethod.lastIndexOf(' ');
+    return lastSpace >= 0 ? beforeMethod.substring(lastSpace + 1).trim() : beforeMethod;
   }
 
   private String extractClassNameFromMangled(String mangledName) {
