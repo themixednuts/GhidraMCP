@@ -21,7 +21,11 @@ import ghidra.app.util.bin.format.golang.rtti.types.GoType;
 import ghidra.app.util.datatype.microsoft.DataValidationOptions;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.app.util.demangler.Demangled;
+import ghidra.app.util.demangler.DemangledObject;
 import ghidra.app.util.demangler.DemanglerUtil;
+import ghidra.app.util.demangler.microsoft.MicrosoftDemangler;
+import ghidra.app.util.demangler.microsoft.MicrosoftDemanglerOptions;
+import ghidra.app.util.demangler.microsoft.MicrosoftMangledContext;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOutOfBoundsException;
@@ -54,6 +58,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import mdemangler.MDMangGhidra;
+import mdemangler.MDParsableItem;
 import reactor.core.publisher.Mono;
 
 @GhidraMcpTool(
@@ -445,53 +451,60 @@ public class AnalyzeTool extends BaseMcpTool {
   private DemangleResult performDemangling(Program program, String mangledSymbol)
       throws GhidraMcpException {
     try {
-      // Check for MSVC RTTI type descriptor format (.?AV, .?AU, .?AT, .?AW4)
-      if (mangledSymbol.startsWith(".?AV")
-          || mangledSymbol.startsWith(".?AU")
-          || mangledSymbol.startsWith(".?AT")
-          || mangledSymbol.startsWith(".?AW4")) {
+      // Step 1: Try DemanglerUtil (high-level API, auto-detects demangler)
+      var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
+      if (demangledList != null && !demangledList.isEmpty()) {
+        Demangled demangled = demangledList.get(0);
+        return buildResultFromDemangled(demangled, mangledSymbol, "Ghidra DemanglerUtil");
+      }
+
+      // Step 2: Try MicrosoftDemangler directly as fallback
+      DemangledObject msResult = tryMicrosoftDemangler(program, mangledSymbol);
+      if (msResult != null) {
+        return buildResultFromDemangled(msResult, mangledSymbol, "Microsoft Demangler");
+      }
+
+      // Step 3: Try low-level MDMang parser
+      String mdMangResult = tryMDMangDemangle(mangledSymbol);
+      if (mdMangResult != null && !mdMangResult.isBlank()) {
+        return new DemangleResult(
+            mangledSymbol,
+            mdMangResult,
+            "MDMang Low-Level",
+            true,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            analyzeSymbol(mangledSymbol));
+      }
+
+      // Step 4: Fall back to custom RTTI descriptor parser for known RTTI prefixes
+      boolean isRttiDescriptor =
+          mangledSymbol.startsWith(".?AV")
+              || mangledSymbol.startsWith(".?AU")
+              || mangledSymbol.startsWith(".?AT")
+              || mangledSymbol.startsWith(".?AW4");
+      if (isRttiDescriptor) {
         return parseRttiTypeDescriptor(mangledSymbol);
       }
 
-      var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
-
-      if (demangledList == null || demangledList.isEmpty()) {
-        String symbolAnalysis = analyzeSymbol(mangledSymbol);
-        return new DemangleResult(
-            mangledSymbol,
-            null,
-            "No demangler available",
-            false,
-            "Failed to demangle",
-            null,
-            null,
-            null,
-            null,
-            "No demangler could process this symbol",
-            symbolAnalysis);
-      }
-
-      Demangled demangled = demangledList.get(0);
-      String demangledString = demangled.toString();
-      String actualDemanglerUsed = "Ghidra Demangler";
-      String demangledType = getDemangledType(demangled);
-      String namespace = extractNamespace(demangled);
-      String className = extractClassName(demangled);
-      String functionName = extractFunctionName(demangled);
-      List<String> parameters = extractParameters(demangled);
-
+      // Step 5: Nothing worked — return failure with symbol analysis hints
+      String symbolAnalysis = analyzeSymbol(mangledSymbol);
       return new DemangleResult(
           mangledSymbol,
-          demangledString,
-          actualDemanglerUsed,
-          true,
-          demangledType,
-          namespace,
-          className,
-          functionName,
-          parameters,
           null,
-          analyzeSymbol(mangledSymbol));
+          "No demangler available",
+          false,
+          "Failed to demangle",
+          null,
+          null,
+          null,
+          null,
+          "No demangler could process this symbol",
+          symbolAnalysis);
     } catch (Exception e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
@@ -505,6 +518,60 @@ public class AnalyzeTool extends BaseMcpTool {
                       null,
                       Map.of("program_name", program.getName())))
               .build());
+    }
+  }
+
+  private DemangleResult buildResultFromDemangled(
+      Demangled demangled, String mangledSymbol, String demanglerName) {
+    String demangledString = demangled.toString();
+    String demangledType = getDemangledType(demangled);
+    String namespace = extractNamespace(demangled);
+    String className = extractClassName(demangled);
+    String functionName = extractFunctionName(demangled);
+    List<String> parameters = extractParameters(demangled);
+
+    return new DemangleResult(
+        mangledSymbol,
+        demangledString,
+        demanglerName,
+        true,
+        demangledType,
+        namespace,
+        className,
+        functionName,
+        parameters,
+        null,
+        analyzeSymbol(mangledSymbol));
+  }
+
+  private DemangledObject tryMicrosoftDemangler(Program program, String mangledSymbol) {
+    try {
+      MicrosoftDemangler demangler = new MicrosoftDemangler();
+      if (!demangler.canDemangle(program)) {
+        return null;
+      }
+      MicrosoftDemanglerOptions options = demangler.createDefaultOptions();
+      MicrosoftMangledContext context =
+          new MicrosoftMangledContext(program, options, mangledSymbol, null);
+      var result = demangler.demangle(context);
+      return (result instanceof DemangledObject obj) ? obj : null;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  private String tryMDMangDemangle(String mangledSymbol) {
+    try {
+      MDMangGhidra mdm = new MDMangGhidra();
+      mdm.setMangledSymbol(mangledSymbol);
+      MDParsableItem item = mdm.demangle();
+      if (item != null) {
+        String result = item.toString();
+        return (result != null && !result.isBlank()) ? result : null;
+      }
+      return null;
+    } catch (Exception e) {
+      return null;
     }
   }
 
