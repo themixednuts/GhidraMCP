@@ -113,7 +113,7 @@ import reactor.core.publisher.Mono;
         <return_value_summary>
         - demangle: DemangleResult with original/demangled symbol, type, namespace, class info
         - rtti: RTTIAnalysisResult with detected type, validity, class hierarchy
-        - list_rtti: Paginated list of all RTTI classes with demangled names, methods, base classes
+        - list_rtti: Paginated list of all MSVC RTTI classes (PE binaries only; Itanium ABI / _ZTI not supported) with demangled names, methods, base classes
         - graph: Control flow graph with nodes (basic blocks) and edges (flow connections)
         - call_graph: Call graph with function nodes and caller/callee edges
         </return_value_summary>
@@ -1733,16 +1733,25 @@ public class AnalyzeTool extends BaseMcpTool {
             String className = extractClassNameFromMangled(mangledKey);
             String displayName = (String) classInfo.get("name");
             List<Map<String, String>> methods = new ArrayList<>();
+            Set<String> seenMethods = new LinkedHashSet<>();
             if (className != null) {
               for (var methodEntry : methodMap.entrySet()) {
                 String lambdaClassName = methodEntry.getKey();
                 // Match on extracted class name directly
-                if (lambdaClassName.equals(className)) {
-                  methods.addAll(methodEntry.getValue());
-                } else if (displayName != null && displayName.contains(lambdaClassName)) {
+                boolean matches = lambdaClassName.equals(className);
+                if (!matches && displayName != null && displayName.contains(lambdaClassName)) {
                   // Also match if the demangled display name contains the lambda's class name
                   // e.g., display "class Javelin::Weapon" contains lambda class "Weapon"
-                  methods.addAll(methodEntry.getValue());
+                  matches = true;
+                }
+                if (matches) {
+                  // Deduplicate methods by name
+                  for (Map<String, String> method : methodEntry.getValue()) {
+                    String methodName = method.get("name");
+                    if (methodName != null && seenMethods.add(methodName)) {
+                      methods.add(method);
+                    }
+                  }
                 }
               }
             }
@@ -1863,6 +1872,15 @@ public class AnalyzeTool extends BaseMcpTool {
       if (end <= 0) continue;
 
       String className = after.substring(0, end);
+      // Try to get a cleaner name — demangle the template arg as a type descriptor
+      String asRtti = ".?AV" + className + "@@";
+      String demangled = tryMDMangDemangle(asRtti);
+      if (demangled != null) {
+        // Extract just the class name portion from demangled like "class Ns::ClassName"
+        String cleanName = demangled.replaceFirst("^(class|struct|union|enum)\\s+", "");
+        int lastColon = cleanName.lastIndexOf("::");
+        className = lastColon >= 0 ? cleanName.substring(lastColon + 2) : cleanName;
+      }
       classCustomTags.computeIfAbsent(className, k -> new LinkedHashSet<>()).add(tag);
     }
   }
@@ -1976,6 +1994,13 @@ public class AnalyzeTool extends BaseMcpTool {
     try {
       Address imageBase = program.getImageBase();
       if (imageBase == null) {
+        return;
+      }
+
+      int pointerSize = program.getDefaultPointerSize();
+      if (pointerSize != 8) {
+        // RTTI4 self-pointer validation only works on x64 (signature==1 + pSelf field)
+        // x86 RTTI4 has signature==0 and no pSelf field — skip enrichment for now
         return;
       }
 
