@@ -24,6 +24,7 @@ import ghidra.app.util.bin.format.golang.rtti.types.GoType;
 import ghidra.app.util.datatype.microsoft.DataValidationOptions;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.app.util.demangler.Demangled;
+import ghidra.app.util.demangler.DemangledObject;
 import ghidra.app.util.demangler.DemanglerUtil;
 import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
 import ghidra.features.base.memsearch.format.SearchFormat;
@@ -677,24 +678,27 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   private String extractNamespace(Demangled demangled) {
-    String qualifiedName = extractQualifiedName(demangled);
-    if (qualifiedName == null) return null;
-    int lastSeparator = qualifiedName.lastIndexOf("::");
-    return lastSeparator <= 0 ? null : qualifiedName.substring(0, lastSeparator);
+    if (demangled instanceof DemangledObject obj) {
+      String ns = obj.getNamespaceString();
+      return (ns != null && !ns.isBlank()) ? ns : null;
+    }
+    return null;
   }
 
   private String extractClassName(Demangled demangled) {
-    String qualifiedName = extractQualifiedName(demangled);
-    if (qualifiedName == null) return null;
-    String[] parts = qualifiedName.split("::");
-    return parts.length < 2 ? null : parts[parts.length - 2];
+    if (demangled instanceof DemangledObject obj) {
+      String nsName = obj.getNamespaceName();
+      return (nsName != null && !nsName.isBlank()) ? nsName : null;
+    }
+    return null;
   }
 
   private String extractFunctionName(Demangled demangled) {
-    String qualifiedName = extractQualifiedName(demangled);
-    if (qualifiedName == null || qualifiedName.isBlank()) return null;
-    int lastSeparator = qualifiedName.lastIndexOf("::");
-    return lastSeparator >= 0 ? qualifiedName.substring(lastSeparator + 2) : qualifiedName;
+    if (demangled instanceof DemangledObject obj) {
+      String name = obj.getName();
+      return (name != null && !name.isBlank()) ? name : null;
+    }
+    return null;
   }
 
   private List<String> extractParameters(Demangled demangled) {
@@ -751,16 +755,6 @@ public class AnalyzeTool extends BaseMcpTool {
     if (signature == null) return null;
     String trimmed = signature.trim();
     return trimmed.isEmpty() ? null : trimmed;
-  }
-
-  private String extractQualifiedName(Demangled demangled) {
-    String signature = getDemangledSignature(demangled);
-    if (signature == null) return null;
-    int paramsIndex = signature.indexOf('(');
-    String beforeParams = paramsIndex >= 0 ? signature.substring(0, paramsIndex).trim() : signature;
-    if (beforeParams.isEmpty()) return null;
-    int lastSpace = beforeParams.lastIndexOf(' ');
-    return lastSpace >= 0 ? beforeParams.substring(lastSpace + 1).trim() : beforeParams;
   }
 
   private String analyzeSymbol(String symbol) {
@@ -1912,15 +1906,22 @@ public class AnalyzeTool extends BaseMcpTool {
       if (end <= 0) end = after.indexOf('@');
       if (end <= 0) continue;
 
-      String className = after.substring(0, end);
-      // Try to get a cleaner name — demangle the template arg as a type descriptor
-      String asRtti = ".?AV" + className + "@@";
-      String demangled = tryMDMangDemangle(asRtti);
-      if (demangled != null) {
-        // Extract just the class name portion from demangled like "class Ns::ClassName"
-        String cleanName = demangled.replaceFirst("^(class|struct|union|enum)\\s+", "");
-        int lastColon = cleanName.lastIndexOf("::");
-        className = lastColon >= 0 ? cleanName.substring(lastColon + 2) : cleanName;
+      String rawClassName = after.substring(0, end);
+      // Use MDMang structured AST to extract clean class name from template arg
+      String className = rawClassName;
+      try {
+        String asRtti = ".?AV" + rawClassName + "@@";
+        MDMangGhidra mdm = new MDMangGhidra();
+        mdm.setMangledSymbol(asRtti);
+        MDParsableItem parsed = mdm.demangle();
+        if (parsed instanceof mdemangler.object.MDObjectCPP cppObj) {
+          String name = cppObj.getName();
+          if (name != null && !name.isEmpty()) {
+            className = name;
+          }
+        }
+      } catch (Exception ignored) {
+        // Use raw name
       }
       classCustomTags.computeIfAbsent(className, k -> new LinkedHashSet<>()).add(tag);
     }
