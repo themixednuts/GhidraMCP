@@ -339,6 +339,9 @@ public final class GhidraMcpServer {
 
   private static Server createJettyServer(int port) {
     Server server = new Server();
+    server.setStopAtShutdown(true);
+    server.setStopTimeout(10_000L);
+
     ServerConnector connector = new ServerConnector(server);
     connector.setPort(port);
     connector.setIdleTimeout(requestTimeout.toMillis());
