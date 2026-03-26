@@ -114,7 +114,11 @@ import reactor.core.publisher.Mono;
         <return_value_summary>
         - demangle: DemangleResult with original/demangled symbol, type, namespace, class info
         - rtti: RTTIAnalysisResult with detected type, validity, class hierarchy
-        - list_rtti: Paginated list of all MSVC RTTI classes (PE binaries only; Itanium ABI / _ZTI not supported) with demangled names, methods, base classes
+        - list_rtti: Paginated MSVC RTTI class list (PE only; Itanium ABI not supported).
+          Real class entries have a 'methods' array (discovered via lambda RTTI).
+          Lambda entries have an 'enclosing_method' object with name/class/namespace/demangled
+          fields identifying the function that contains the lambda.
+          Use custom_tags to tag classes by template patterns (e.g., sp_ms_deleter → smart_ptr_managed)
         - graph: Control flow graph with nodes (basic blocks) and edges (flow connections)
         - call_graph: Call graph with function nodes and caller/callee edges
         </return_value_summary>
@@ -1706,6 +1710,15 @@ public class AnalyzeTool extends BaseMcpTool {
                   classInfo.put("mangled", mangledName);
                   classInfo.put("type_kind", typeKind);
                   classInfo.put("rtti0_address", rtti0Addr.toString());
+
+                  // For lambda entries, extract and store the enclosing method info
+                  if (mangledName.contains("<lambda")) {
+                    Map<String, String> enclosing = extractEnclosingMethod(mangledName);
+                    if (enclosing != null) {
+                      classInfo.put("enclosing_method", enclosing);
+                    }
+                  }
+
                   classMap.put(mangledName, classInfo);
                 }
               } catch (Exception ignored) {
@@ -1747,6 +1760,14 @@ public class AnalyzeTool extends BaseMcpTool {
                       classInfo.put("mangled", mangledName);
                       classInfo.put("type_kind", typeKind);
                       classInfo.put("rtti0_address", rtti0Addr.toString());
+
+                      if (mangledName.contains("<lambda")) {
+                        Map<String, String> enclosing = extractEnclosingMethod(mangledName);
+                        if (enclosing != null) {
+                          classInfo.put("enclosing_method", enclosing);
+                        }
+                      }
+
                       classMap.put(mangledName, classInfo);
                     }
                   } catch (Exception ignored) {
@@ -1759,34 +1780,39 @@ public class AnalyzeTool extends BaseMcpTool {
           // Phase 3: Enrich with RTTI4 (Complete Object Locator) data
           enrichWithRtti4Data(program, memory, classMap);
 
-          // Phase 4: Build the output class list, merging method info
+          // Phase 4: Build the output class list
+          // Lambda entries get an enclosing_method field; real class entries get aggregated
+          // methods.
           List<Map<String, Object>> allClasses = new ArrayList<>();
           for (var entry : classMap.entrySet()) {
             Map<String, Object> classInfo = new LinkedHashMap<>(entry.getValue());
             String mangledKey = entry.getKey();
-
             String className = extractClassNameFromMangled(mangledKey);
-            String displayName = (String) classInfo.get("name");
-            List<Map<String, String>> methods = new ArrayList<>();
-            Set<String> seenMethods = new LinkedHashSet<>();
-            if (className != null) {
-              for (var methodEntry : methodMap.entrySet()) {
-                String lambdaClassName = methodEntry.getKey();
-                // Exact class name match only — lambda methods are keyed by the class name
-                // from MDObjectCPP.getQualification().qual[0] (e.g., "Weapon"),
-                // which matches extractClassNameFromMangled for real RTTI0 entries
-                if (lambdaClassName.equals(className)) {
-                  // Deduplicate methods by name
-                  for (Map<String, String> method : methodEntry.getValue()) {
-                    String methodName = method.get("name");
-                    if (methodName != null && seenMethods.add(methodName)) {
-                      methods.add(method);
+            boolean isLambda = mangledKey.contains("<lambda");
+
+            if (isLambda) {
+              // Lambda entry: the enclosing method info is already stored in methodMap
+              // under the class from the nested AST. Add it as enclosing_method for context.
+              // The lambda's own operator() is not useful — skip it.
+              classInfo.remove("methods");
+            } else {
+              // Real class entry: aggregate methods discovered via lambdas
+              List<Map<String, String>> methods = new ArrayList<>();
+              Set<String> seenMethods = new LinkedHashSet<>();
+              if (className != null) {
+                for (var methodEntry : methodMap.entrySet()) {
+                  if (methodEntry.getKey().equals(className)) {
+                    for (Map<String, String> method : methodEntry.getValue()) {
+                      String methodName = method.get("name");
+                      if (methodName != null && seenMethods.add(methodName)) {
+                        methods.add(method);
+                      }
                     }
                   }
                 }
               }
+              classInfo.put("methods", methods);
             }
-            classInfo.put("methods", methods);
 
             // Merge agent-defined custom tags
             Set<String> tags = new LinkedHashSet<>();
@@ -1936,6 +1962,64 @@ public class AnalyzeTool extends BaseMcpTool {
    *                 → getQualification() → qual[0]="Weapon", qual[1]="Javelin"
    * </pre>
    */
+  /**
+   * Extracts the enclosing method info from a lambda RTTI entry using MDMang's nested AST. Returns
+   * a map with "name", "class", "namespace", and "demangled" fields, or null if extraction fails.
+   */
+  private Map<String, String> extractEnclosingMethod(String mangledName) {
+    try {
+      MDMangGhidra mdm = new MDMangGhidra();
+      mdm.setMangledSymbol(mangledName);
+      MDParsableItem item = mdm.demangle();
+      if (item == null) return null;
+
+      if (!(item instanceof mdemangler.datatype.modifier.MDModifierType modType)) return null;
+      var refType = modType.getReferencedType();
+      if (!(refType instanceof mdemangler.datatype.complex.MDComplexType classType)) return null;
+
+      var qualifiedName = classType.getNamespace();
+      if (qualifiedName == null) return null;
+      var qualification = qualifiedName.getQualification();
+      if (qualification == null) return null;
+
+      for (var qualifier : qualification) {
+        if (!qualifier.isNested()) continue;
+        var nested = qualifier.getNested();
+        if (nested == null) continue;
+        var nestedObj = nested.getNestedObject();
+        if (nestedObj == null) continue;
+
+        String methodName = nestedObj.getName();
+        if (methodName == null || methodName.isEmpty()) continue;
+
+        var nestedQual = nestedObj.getQualification();
+        String className = null;
+        StringBuilder nsBuilder = new StringBuilder();
+        if (nestedQual != null) {
+          boolean first = true;
+          for (var nq : nestedQual) {
+            if (first) {
+              className = nq.toString();
+              first = false;
+            } else {
+              if (nsBuilder.length() > 0) nsBuilder.insert(0, "::");
+              nsBuilder.insert(0, nq.toString());
+            }
+          }
+        }
+
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("name", methodName);
+        if (className != null) result.put("class", className);
+        if (nsBuilder.length() > 0) result.put("namespace", nsBuilder.toString());
+        result.put("demangled", nestedObj.toString());
+        return result;
+      }
+    } catch (Exception ignored) {
+    }
+    return null;
+  }
+
   private void processLambdaRttiEntry(
       String mangledName, Map<String, List<Map<String, String>>> methodMap) {
 
