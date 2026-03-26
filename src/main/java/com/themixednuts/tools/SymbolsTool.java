@@ -899,14 +899,31 @@ public class SymbolsTool extends BaseMcpTool {
           NamespaceUtils.getNamespaceByPath(program, program.getGlobalNamespace(), namespacePath);
 
       if (namespaces != null && !namespaces.isEmpty()) {
-        // If multiple namespaces match, return the first one
         return namespaces.get(0);
       }
     } catch (Exception e) {
-      // Fall through to error
+      // Fall through to auto-create
     }
 
-    throw new GhidraMcpException(GhidraMcpError.notFound("namespace", namespacePath));
+    // Auto-create the namespace hierarchy if it doesn't exist.
+    // Create the leaf as a class namespace (common for C++ RE workflows).
+    try {
+      Namespace created =
+          NamespaceUtils.createNamespaceHierarchy(
+              namespacePath, program.getGlobalNamespace(), program, SourceType.USER_DEFINED);
+      // Convert the leaf namespace to a class (agents typically work with classes)
+      if (created != null && !(created instanceof ghidra.program.model.listing.GhidraClass)) {
+        try {
+          created = NamespaceUtils.convertNamespaceToClass(created);
+        } catch (Exception ignored) {
+          // Conversion failed — return as namespace, still usable
+        }
+      }
+      return created;
+    } catch (Exception e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed("create namespace", namespacePath + ": " + e.getMessage()));
+    }
   }
 
   private GhidraMcpException multipleIdentifierError(
