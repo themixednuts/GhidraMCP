@@ -1929,9 +1929,19 @@ public class AnalyzeTool extends BaseMcpTool {
 
   /**
    * Extracts enclosing method information from lambda RTTI entries using MDMang's structured AST.
-   * Uses MDObjectCPP.getName() and getQualification() for reliable method/class extraction instead
-   * of parsing demangled strings — handles all MSVC special names (operators, constructors,
-   * templates) correctly per spec.
+   * Zero string parsing — uses only typed API calls through the MDMang object hierarchy:
+   *
+   * <pre>
+   *   MDQuestionModifierType (the RTTI type descriptor)
+   *     → getReferencedType() → MDComplexType (the lambda class type)
+   *       → getNamespace() → MDQualifiedName
+   *         → getQualification() → iterate MDQualifier entries
+   *           → qualifier.isNested() → true for the enclosing function
+   *             → qualifier.getNested() → MDNestedName
+   *               → getNestedObject() → MDObjectCPP (the enclosing function!)
+   *                 → getName() = "AddAccessory"
+   *                 → getQualification() → qual[0]="Weapon", qual[1]="Javelin"
+   * </pre>
    */
   private void processLambdaRttiEntry(
       String mangledName, Map<String, List<Map<String, String>>> methodMap) {
@@ -1940,84 +1950,61 @@ public class AnalyzeTool extends BaseMcpTool {
       return;
     }
 
-    // Lambda RTTI scope format: .?AV<lambda_N>@?<scope>?<function>@...@Z@
-    // The scope is @?<digit>? or @?L@? etc. The enclosing function's mangled name
-    // starts with "?" after the scope indicator. We find it by looking for the pattern
-    // @?<scope_chars>? where the last ? begins the function's mangled name.
-    // Example: .?AV<lambda_1>@?1??AddAccessory@Weapon@Javelin@@...@Z@
-    //          scope = @?1?  function = ?AddAccessory@Weapon@Javelin@@...@Z
-    // Example: .?AV<lambda_1>@?L@??0JavelinCVars@@...@Z@
-    //          scope = @?L@? function = ??0JavelinCVars@@...@Z (constructor)
-
-    // Find the scope indicator pattern: @? followed by scope chars, then the function
-    int lambdaEnd = mangledName.indexOf(">@");
-    if (lambdaEnd < 0) return;
-    int scopeStart = lambdaEnd + 1; // position of "@" after "<lambda_N>"
-
-    // The function's mangled name starts after the scope indicator.
-    // Scope format: @?<id>? where <id> is digits, letters, or multi-char like "BD"
-    // Find the last "?" in the scope that precedes the function name
-    String afterLambda = mangledName.substring(scopeStart);
-
-    // Pattern: @?<scope_id>@??... or @?<digit>??...
-    // The function starts where we see "?" followed by a valid function start
-    // Valid function starts: ?Name (regular), ??0 (ctor), ??1 (dtor), ??$ (template), etc.
-    int funcStart = -1;
-    for (int i = 1; i < afterLambda.length() - 1; i++) {
-      if (afterLambda.charAt(i) == '?' && i > 1) {
-        char next = afterLambda.charAt(i + 1);
-        // A function mangled name starts with ?<letter> or ??<special>
-        if (Character.isLetter(next) || next == '?') {
-          // Verify the preceding char is part of the scope (digit, letter, @)
-          char prev = afterLambda.charAt(i - 1);
-          if (prev == '?' || prev == '@' || Character.isLetterOrDigit(prev)) {
-            funcStart = scopeStart + i;
-            break;
-          }
-        }
-      }
-    }
-
-    if (funcStart < 0) return;
-
-    String enclosingMangled = mangledName.substring(funcStart);
-    // Strip trailing "@" (lambda scope terminator)
-    while (enclosingMangled.endsWith("@")) {
-      enclosingMangled = enclosingMangled.substring(0, enclosingMangled.length() - 1);
-    }
-
     try {
       MDMangGhidra mdm = new MDMangGhidra();
-      mdm.setMangledSymbol(enclosingMangled);
+      mdm.setMangledSymbol(mangledName);
       MDParsableItem item = mdm.demangle();
       if (item == null) return;
 
-      // Use structured AST for reliable extraction
-      if (item instanceof mdemangler.object.MDObjectCPP cppObj) {
-        String methodName = cppObj.getName();
-        mdemangler.naming.MDQualification qualification = cppObj.getQualification();
+      // Navigate: ModifierType → ComplexType → QualifiedName → Qualification
+      if (!(item instanceof mdemangler.datatype.modifier.MDModifierType modType)) return;
+      var refType = modType.getReferencedType();
+      if (!(refType instanceof mdemangler.datatype.complex.MDComplexType classType)) return;
 
-        if (methodName != null && !methodName.isEmpty() && qualification != null) {
-          String className = null;
-          for (var qualifier : qualification) {
-            className = qualifier.toString();
-            break;
-          }
+      var qualifiedName = classType.getNamespace();
+      if (qualifiedName == null) return;
 
-          if (className != null && !className.isEmpty()) {
-            String demangled = item.toString();
-            Map<String, String> methodInfo = new LinkedHashMap<>();
-            methodInfo.put("name", methodName);
-            methodInfo.put("class", className);
-            if (demangled != null) {
-              methodInfo.put("demangled", demangled);
-            }
-            methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
-          }
+      var qualification = qualifiedName.getQualification();
+      if (qualification == null) return;
+
+      // Find the nested qualifier that contains the enclosing function's MDObjectCPP
+      for (var qualifier : qualification) {
+        if (!qualifier.isNested()) continue;
+
+        var nested = qualifier.getNested();
+        if (nested == null) continue;
+
+        var nestedObj = nested.getNestedObject();
+        if (nestedObj == null) continue;
+
+        // Extract method name and class from the structured AST
+        String methodName = nestedObj.getName();
+        if (methodName == null || methodName.isEmpty()) continue;
+
+        var nestedQual = nestedObj.getQualification();
+        if (nestedQual == null) continue;
+
+        // First qualifier = class, remaining = namespace (inner→outer)
+        String className = null;
+        for (var nq : nestedQual) {
+          className = nq.toString();
+          break;
         }
+
+        if (className == null || className.isEmpty()) continue;
+
+        String demangled = nestedObj.toString();
+        Map<String, String> methodInfo = new LinkedHashMap<>();
+        methodInfo.put("name", methodName);
+        methodInfo.put("class", className);
+        if (demangled != null) {
+          methodInfo.put("demangled", demangled);
+        }
+        methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+        return;
       }
     } catch (Exception ignored) {
-      // MDMang couldn't parse this fragment
+      // MDMang couldn't parse this lambda RTTI entry
     }
   }
 
