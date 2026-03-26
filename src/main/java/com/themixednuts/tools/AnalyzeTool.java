@@ -21,11 +21,7 @@ import ghidra.app.util.bin.format.golang.rtti.types.GoType;
 import ghidra.app.util.datatype.microsoft.DataValidationOptions;
 import ghidra.app.util.datatype.microsoft.RTTI0DataType;
 import ghidra.app.util.demangler.Demangled;
-import ghidra.app.util.demangler.DemangledObject;
 import ghidra.app.util.demangler.DemanglerUtil;
-import ghidra.app.util.demangler.microsoft.MicrosoftDemangler;
-import ghidra.app.util.demangler.microsoft.MicrosoftDemanglerOptions;
-import ghidra.app.util.demangler.microsoft.MicrosoftMangledContext;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOutOfBoundsException;
@@ -451,26 +447,14 @@ public class AnalyzeTool extends BaseMcpTool {
   private DemangleResult performDemangling(Program program, String mangledSymbol)
       throws GhidraMcpException {
     try {
-      // Step 1: Try DemanglerUtil (high-level API, auto-detects demangler)
-      var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
-      if (demangledList != null && !demangledList.isEmpty()) {
-        Demangled demangled = demangledList.get(0);
-        return buildResultFromDemangled(demangled, mangledSymbol, "Ghidra DemanglerUtil");
-      }
-
-      // Step 2: Try MicrosoftDemangler directly as fallback
-      DemangledObject msResult = tryMicrosoftDemangler(program, mangledSymbol);
-      if (msResult != null) {
-        return buildResultFromDemangled(msResult, mangledSymbol, "Microsoft Demangler");
-      }
-
-      // Step 3: Try low-level MDMang parser
+      // Step 1: Try MDMangGhidra (most capable — handles all MSVC symbols including
+      // RTTI type descriptors, vtable symbols, constructors, operators, etc.)
       String mdMangResult = tryMDMangDemangle(mangledSymbol);
       if (mdMangResult != null && !mdMangResult.isBlank()) {
         return new DemangleResult(
             mangledSymbol,
             mdMangResult,
-            "MDMang Low-Level",
+            "MDMang",
             true,
             null,
             null,
@@ -481,17 +465,14 @@ public class AnalyzeTool extends BaseMcpTool {
             analyzeSymbol(mangledSymbol));
       }
 
-      // Step 4: Fall back to custom RTTI descriptor parser for known RTTI prefixes
-      boolean isRttiDescriptor =
-          mangledSymbol.startsWith(".?AV")
-              || mangledSymbol.startsWith(".?AU")
-              || mangledSymbol.startsWith(".?AT")
-              || mangledSymbol.startsWith(".?AW4");
-      if (isRttiDescriptor) {
-        return parseRttiTypeDescriptor(mangledSymbol);
+      // Step 2: Try DemanglerUtil (handles Itanium/Go/other mangling schemes)
+      var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
+      if (demangledList != null && !demangledList.isEmpty()) {
+        Demangled demangled = demangledList.get(0);
+        return buildResultFromDemangled(demangled, mangledSymbol, "Ghidra DemanglerUtil");
       }
 
-      // Step 5: Nothing worked — return failure with symbol analysis hints
+      // Step 3: Nothing worked — return failure with symbol analysis hints
       String symbolAnalysis = analyzeSymbol(mangledSymbol);
       return new DemangleResult(
           mangledSymbol,
@@ -544,22 +525,6 @@ public class AnalyzeTool extends BaseMcpTool {
         analyzeSymbol(mangledSymbol));
   }
 
-  private DemangledObject tryMicrosoftDemangler(Program program, String mangledSymbol) {
-    try {
-      MicrosoftDemangler demangler = new MicrosoftDemangler();
-      if (!demangler.canDemangle(program)) {
-        return null;
-      }
-      MicrosoftDemanglerOptions options = demangler.createDefaultOptions();
-      MicrosoftMangledContext context =
-          new MicrosoftMangledContext(program, options, mangledSymbol, null);
-      var result = demangler.demangle(context);
-      return (result instanceof DemangledObject obj) ? obj : null;
-    } catch (Exception e) {
-      return null;
-    }
-  }
-
   private String tryMDMangDemangle(String mangledSymbol) {
     try {
       MDMangGhidra mdm = new MDMangGhidra();
@@ -573,80 +538,6 @@ public class AnalyzeTool extends BaseMcpTool {
     } catch (Exception e) {
       return null;
     }
-  }
-
-  private DemangleResult parseRttiTypeDescriptor(String descriptor) {
-    String typeKeyword;
-    String body;
-
-    if (descriptor.startsWith(".?AW4")) {
-      typeKeyword = "enum";
-      body = descriptor.substring(5);
-    } else if (descriptor.startsWith(".?AV")) {
-      typeKeyword = "class";
-      body = descriptor.substring(4);
-    } else if (descriptor.startsWith(".?AU")) {
-      typeKeyword = "struct";
-      body = descriptor.substring(4);
-    } else if (descriptor.startsWith(".?AT")) {
-      typeKeyword = "union";
-      body = descriptor.substring(4);
-    } else {
-      return new DemangleResult(
-          descriptor,
-          null,
-          "MSVC RTTI Type Descriptor Parser",
-          false,
-          null,
-          null,
-          null,
-          null,
-          null,
-          "Unrecognized RTTI type descriptor prefix",
-          null);
-    }
-
-    // Strip trailing @@
-    if (body.endsWith("@@")) {
-      body = body.substring(0, body.length() - 2);
-    }
-
-    // Split by @ to get name components
-    // First component is the class/struct/union/enum name, remaining are namespace (reverse order)
-    String[] components = body.split("@");
-    String className = components[0];
-
-    StringBuilder qualifiedName = new StringBuilder();
-    // Build namespace from remaining components in reverse order
-    for (int i = components.length - 1; i >= 1; i--) {
-      qualifiedName.append(components[i]).append("::");
-    }
-    qualifiedName.append(className);
-
-    String namespace = null;
-    if (components.length > 1) {
-      StringBuilder ns = new StringBuilder();
-      for (int i = components.length - 1; i >= 1; i--) {
-        if (ns.length() > 0) {
-          ns.append("::");
-        }
-        ns.append(components[i]);
-      }
-      namespace = ns.toString();
-    }
-
-    String demangledSymbol = typeKeyword + " " + qualifiedName;
-
-    return new DemangleResult(
-        descriptor,
-        demangledSymbol,
-        "MSVC RTTI Type Descriptor Parser",
-        true,
-        typeKeyword,
-        namespace,
-        className,
-        null,
-        null);
   }
 
   private String getDemangledType(Demangled demangled) {
