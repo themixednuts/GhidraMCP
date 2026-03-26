@@ -264,6 +264,15 @@ public class AnalyzeTool extends BaseMcpTool {
             .minimum(1)
             .maximum(LIST_RTTI_MAX_PAGE_SIZE));
 
+    schemaRoot.property(
+        "custom_tags",
+        SchemaBuilder.array(mapper)
+            .description(
+                "Agent-defined template patterns to tag classes. Each entry has 'template' (MSVC"
+                    + " template name to match in RTTI entries) and 'tag' (label to apply)."
+                    + " Example:"
+                    + " [{\"template\":\"sp_ms_deleter\",\"tag\":\"smart_ptr_managed\"}]"));
+
     // Call graph properties
     schemaRoot.property(
         ARG_DEPTH,
@@ -1557,6 +1566,21 @@ public class AnalyzeTool extends BaseMcpTool {
             nameFilter = Pattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
           }
 
+          // Parse agent-defined custom tag patterns
+          List<Map<String, Object>> customTagDefs =
+              getOptionalListArgument(args, "custom_tags").orElse(null);
+          Map<String, String> templateToTag = new LinkedHashMap<>();
+          if (customTagDefs != null) {
+            for (Map<String, Object> def : customTagDefs) {
+              String template = def.get("template") != null ? def.get("template").toString() : null;
+              String tag = def.get("tag") != null ? def.get("tag").toString() : null;
+              if (template != null && tag != null) {
+                // MSVC template args are encoded as TemplateName@V for class args
+                templateToTag.put(template + "@V", tag);
+              }
+            }
+          }
+
           int startIndex = 0;
           if (cursorOpt.isPresent()) {
             String decoded = decodeOpaqueCursorSingleV1(cursorOpt.get(), ARG_CURSOR, "v1:index");
@@ -1569,6 +1593,7 @@ public class AnalyzeTool extends BaseMcpTool {
           Map<String, Map<String, Object>> classMap = new TreeMap<>();
           // Map from class name to list of methods discovered via lambda RTTI
           Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
+          Map<String, Set<String>> classCustomTags = new LinkedHashMap<>();
 
           // Restrict search to .data section where RTTI0 type descriptors live
           MemoryBlock dataBlock = memory.getBlock(".data");
@@ -1630,6 +1655,9 @@ public class AnalyzeTool extends BaseMcpTool {
                 // Process lambda RTTI for method discovery
                 processLambdaRttiEntry(mangledName, methodMap);
 
+                // Apply agent-defined custom tags
+                applyCustomTags(mangledName, templateToTag, classCustomTags);
+
                 if (!classMap.containsKey(mangledName)) {
                   // Use Ghidra's demangling from the model, fall back to MDMang
                   String demangled = rtti0.getDemangledTypeDescriptor();
@@ -1672,9 +1700,8 @@ public class AnalyzeTool extends BaseMcpTool {
                   try {
                     Address rtti0Addr = found.subtract(16);
 
-                    if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
-                      processLambdaRttiEntry(mangledName, methodMap);
-                    }
+                    processLambdaRttiEntry(mangledName, methodMap);
+                    applyCustomTags(mangledName, templateToTag, classCustomTags);
 
                     if (!classMap.containsKey(mangledName)) {
                       String demangled = tryMDMangDemangle(mangledName);
@@ -1720,6 +1747,19 @@ public class AnalyzeTool extends BaseMcpTool {
               }
             }
             classInfo.put("methods", methods);
+
+            // Merge agent-defined custom tags
+            Set<String> tags = new LinkedHashSet<>();
+            for (var tagEntry : classCustomTags.entrySet()) {
+              String tagClass = tagEntry.getKey();
+              if ((className != null && className.equals(tagClass))
+                  || (displayName != null && displayName.contains(tagClass))) {
+                tags.addAll(tagEntry.getValue());
+              }
+            }
+            if (!tags.isEmpty()) {
+              classInfo.put("custom_tags", new ArrayList<>(tags));
+            }
 
             allClasses.add(classInfo);
           }
@@ -1800,6 +1840,33 @@ public class AnalyzeTool extends BaseMcpTool {
    * function's mangled name in their scope chain — MDMang handles all MSVC special names
    * (constructors, operators, templates, etc.) per spec.
    */
+  /**
+   * Applies agent-defined custom tags by matching MSVC template patterns in the mangled name. Each
+   * pattern matches entries containing {@code TemplateName@VClassName} and tags the extracted
+   * class.
+   */
+  private void applyCustomTags(
+      String mangledName,
+      Map<String, String> templateToTag,
+      Map<String, Set<String>> classCustomTags) {
+    for (var entry : templateToTag.entrySet()) {
+      String templatePattern = entry.getKey(); // e.g., "sp_ms_deleter@V"
+      String tag = entry.getValue();
+
+      int idx = mangledName.indexOf(templatePattern);
+      if (idx < 0) continue;
+
+      // Extract the template argument class name
+      String after = mangledName.substring(idx + templatePattern.length());
+      int end = after.indexOf("@@");
+      if (end <= 0) end = after.indexOf('@');
+      if (end <= 0) continue;
+
+      String className = after.substring(0, end);
+      classCustomTags.computeIfAbsent(className, k -> new LinkedHashSet<>()).add(tag);
+    }
+  }
+
   private void processLambdaRttiEntry(
       String mangledName, Map<String, List<Map<String, String>>> methodMap) {
 
