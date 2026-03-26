@@ -341,6 +341,7 @@ public final class GhidraMcpServer {
     Server server = new Server();
     ServerConnector connector = new ServerConnector(server);
     connector.setPort(port);
+    connector.setIdleTimeout(requestTimeout.toMillis());
     server.addConnector(connector);
 
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
