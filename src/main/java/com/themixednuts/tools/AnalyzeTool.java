@@ -2241,10 +2241,7 @@ public class AnalyzeTool extends BaseMcpTool {
       String addressStr = addressOpt.get();
       Address address = program.getAddressFactory().getAddress(addressStr);
       if (address != null) {
-        Function function = functionManager.getFunctionAt(address);
-        if (function == null) {
-          function = functionManager.getFunctionContaining(address);
-        }
+        Function function = getOrCreateFunction(program, address);
         if (function != null) return function;
       }
       throw new GhidraMcpException(GhidraMcpError.notFound("function", "address=" + addressStr));

@@ -16,6 +16,7 @@ import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
+import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
@@ -23,6 +24,8 @@ import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import ghidra.util.Swing;
@@ -820,6 +823,56 @@ public abstract class BaseMcpTool {
   /** Retrieves the Program object from a DomainFile. */
   protected Program getProgramFromDomainFile(DomainFile domainFile) throws GhidraMcpException {
     return GhidraStateUtils.getProgramFromFile(domainFile, this);
+  }
+
+  // =================== Function Auto-Creation ===================
+
+  /**
+   * Gets the function at or containing the given address. If no function exists but there is valid
+   * code (an instruction) at the address, auto-creates a function there. This eliminates
+   * round-trips where agents would have to create the function first.
+   *
+   * <p>Returns {@code null} if no function could be found or created (e.g. the address contains
+   * undefined bytes or the {@link CreateFunctionCmd} fails).
+   *
+   * @param program The program to search and potentially modify
+   * @param address The address to look up
+   * @return The existing or newly created function, or {@code null}
+   */
+  protected Function getOrCreateFunction(Program program, Address address) {
+    FunctionManager fm = program.getFunctionManager();
+
+    // Try exact match first
+    Function function = fm.getFunctionAt(address);
+    if (function != null) {
+      return function;
+    }
+
+    // Try containing function
+    function = fm.getFunctionContaining(address);
+    if (function != null) {
+      return function;
+    }
+
+    // No function — check if there's valid code (an instruction) at the address
+    if (program.getListing().getInstructionAt(address) == null) {
+      return null;
+    }
+
+    // Auto-create within a transaction
+    int txId = program.startTransaction("MCP - Auto-create function at " + address);
+    try {
+      CreateFunctionCmd cmd = new CreateFunctionCmd(address);
+      if (cmd.applyTo(program)) {
+        program.endTransaction(txId, true);
+        return cmd.getFunction();
+      }
+      program.endTransaction(txId, false);
+      return null;
+    } catch (Exception e) {
+      program.endTransaction(txId, false);
+      return null;
+    }
   }
 
   // =================== Transaction Management ===================

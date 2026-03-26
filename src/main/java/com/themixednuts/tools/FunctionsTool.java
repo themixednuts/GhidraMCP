@@ -704,7 +704,9 @@ public class FunctionsTool extends BaseMcpTool {
         if (entryPoint == null) {
           throw new IllegalArgumentException("Unresolvable address");
         }
-        function = funcMan.getFunctionAt(entryPoint);
+        function = getOrCreateFunction(program, entryPoint);
+      } catch (GhidraMcpException e) {
+        throw e;
       } catch (Exception e) {
         throw new GhidraMcpException(
             GhidraMcpErrorUtils.addressParseError(addressString, toolOperation, e));

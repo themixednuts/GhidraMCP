@@ -407,7 +407,7 @@ public class InspectTool extends BaseMcpTool {
       if (functionAddress == null) {
         throw new GhidraMcpException(GhidraMcpError.parse("address", addressArg));
       }
-      Function function = functionManager.getFunctionContaining(functionAddress);
+      Function function = getOrCreateFunction(program, functionAddress);
       if (function != null) {
         return function;
       }
@@ -436,10 +436,10 @@ public class InspectTool extends BaseMcpTool {
                 Mono.fromCallable(
                     () -> {
                       Address address = addressResult.getAddress();
-                      FunctionManager functionManager = program.getFunctionManager();
-                      Function function = functionManager.getFunctionContaining(address);
+                      Function function = getOrCreateFunction(program, address);
 
                       if (function == null) {
+                        // No function and auto-create failed — check for raw instruction
                         Listing listing = program.getListing();
                         Instruction instruction = listing.getInstructionAt(address);
 
