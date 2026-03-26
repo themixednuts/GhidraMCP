@@ -55,38 +55,29 @@ public class ProgramRttiResource extends BaseMcpResource {
             // Map from class name to list of methods discovered via lambda RTTI
             Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
 
-            // Scan non-executable data sections (.rdata + .data) where RTTI structures live.
-            // RTTI0 type descriptors are in .data (writable — the type_info vtable ptr is
-            // patched at runtime), while RTTI1-4 and vtables are in .rdata (read-only).
-            Address scanStart = memory.getMinAddress();
-            Address scanEnd = memory.getMaxAddress();
-            MemoryBlock rdataBlock = findRdataBlock(memory);
+            // RTTI0 type descriptors live in .data (the type_info vtable ptr is writable).
+            // Scan .data first; fall back to all non-executable initialized blocks.
             MemoryBlock dataBlock = memory.getBlock(".data");
-            if (rdataBlock != null && dataBlock != null) {
-              // Scan from whichever starts first to whichever ends last
-              scanStart =
-                  rdataBlock.getStart().compareTo(dataBlock.getStart()) < 0
-                      ? rdataBlock.getStart()
-                      : dataBlock.getStart();
-              scanEnd =
-                  rdataBlock.getEnd().compareTo(dataBlock.getEnd()) > 0
-                      ? rdataBlock.getEnd()
-                      : dataBlock.getEnd();
-            } else if (rdataBlock != null) {
-              scanStart = rdataBlock.getStart();
-              scanEnd = rdataBlock.getEnd();
-            } else if (dataBlock != null) {
+            Address scanStart;
+            Address scanEnd;
+            if (dataBlock != null) {
               scanStart = dataBlock.getStart();
               scanEnd = dataBlock.getEnd();
+            } else {
+              // Fallback: scan all initialized non-executable memory
+              scanStart = memory.getMinAddress();
+              scanEnd = memory.getMaxAddress();
             }
 
+            // Phase 1: Fast scan — collect raw addresses and strings, no demangling
+            List<String[]> rawEntries = new ArrayList<>(); // [mangledName, rtti0Addr, typeKind]
             int scanCount = 0;
             Address searchAddr = scanStart;
 
             while (searchAddr != null
                 && searchAddr.compareTo(scanEnd) <= 0
                 && scanCount < MAX_RTTI_SCAN
-                && classMap.size() < MAX_CLASSES) {
+                && rawEntries.size() < MAX_CLASSES * 5) {
               Address found = memory.findBytes(searchAddr, RTTI_PATTERN, null, true, null);
               if (found == null || found.compareTo(scanEnd) > 0) {
                 break;
@@ -94,47 +85,47 @@ public class ProgramRttiResource extends BaseMcpResource {
               scanCount++;
 
               String mangledName = readCString(memory, found, MAX_STRING_LENGTH);
-              if (mangledName == null || mangledName.length() < 4) {
-                searchAddr = safeNextAddress(found);
-                continue;
+              if (mangledName != null && mangledName.length() >= 4) {
+                String typeKind = classifyTypeKind(mangledName);
+                if (typeKind != null) {
+                  try {
+                    Address rtti0Addr = found.subtract(16);
+                    rawEntries.add(new String[] {mangledName, rtti0Addr.toString(), typeKind});
+                  } catch (Exception ignored) {
+                  }
+                }
               }
 
-              // Validate prefix
-              String typeKind = classifyTypeKind(mangledName);
-              if (typeKind == null) {
-                searchAddr = safeNextAddress(found);
-                continue;
+              searchAddr = safeNextAddress(found);
+            }
+
+            // Phase 2: Process collected entries — demangle and group
+            for (String[] raw : rawEntries) {
+              String mangledName = raw[0];
+              String rtti0AddrStr = raw[1];
+              String typeKind = raw[2];
+
+              if (classMap.size() >= MAX_CLASSES) {
+                break;
               }
 
-              // RTTI0 base address = match_address - 16
-              Address rtti0Addr;
-              try {
-                rtti0Addr = found.subtract(16);
-              } catch (Exception e) {
-                searchAddr = safeNextAddress(found);
-                continue;
-              }
-
-              // Demangle the type descriptor name
-              String demangled = demangle(mangledName);
-              String displayName = demangled != null ? demangled : mangledName;
-
-              // Check if this is a lambda RTTI entry
+              // Check if this is a lambda RTTI entry (extract method info)
               if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
                 processLambdaRtti(mangledName, methodMap);
               }
 
-              // Register the class entry
+              // Demangle and register the class entry
               if (!classMap.containsKey(mangledName)) {
+                String demangled = demangle(mangledName);
+                String displayName = demangled != null ? demangled : mangledName;
+
                 Map<String, Object> classInfo = new LinkedHashMap<>();
                 classInfo.put("name", displayName);
                 classInfo.put("mangled", mangledName);
                 classInfo.put("type_kind", typeKind);
-                classInfo.put("rtti0_address", rtti0Addr.toString());
+                classInfo.put("rtti0_address", rtti0AddrStr);
                 classMap.put(mangledName, classInfo);
               }
-
-              searchAddr = safeNextAddress(found);
             }
 
             // Second pass: enrich with RTTI4 (Complete Object Locator) data when available
