@@ -37,7 +37,8 @@ public final class GhidraMcpServer {
   private static final String SERVER_NAME = "ghidra-mcp";
   private static final String SERVER_VERSION = "0.7.0-pre1";
   private static final String MCP_PATH_SPEC = "/*";
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(180);
+  private static final int DEFAULT_TIMEOUT_SECONDS = 600;
+  private static Duration requestTimeout = Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS);
   private static final String SERVER_INSTRUCTIONS =
       "Use the 14 available tools for reverse engineering analysis:\n\n"
           + "Workflow: triage -> inspect -> analyze -> annotate\n"
@@ -73,7 +74,9 @@ public final class GhidraMcpServer {
    * @param tool The Ghidra PluginTool for accessing services
    * @return true if started successfully
    */
-  public static boolean start(int port, PluginTool tool) {
+  public static boolean start(int port, int timeoutSeconds, PluginTool tool) {
+    requestTimeout =
+        Duration.ofSeconds(timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS);
     synchronized (lock) {
       if (isRunning()) {
         Msg.info(GhidraMcpServer.class, "MCP server already running");
@@ -127,11 +130,11 @@ public final class GhidraMcpServer {
    * @param tool The Ghidra PluginTool
    * @return true if restart was successful
    */
-  public static boolean restart(int port, PluginTool tool) {
+  public static boolean restart(int port, int timeoutSeconds, PluginTool tool) {
     synchronized (lock) {
       Msg.info(GhidraMcpServer.class, "Restarting MCP server on port " + port);
       cleanup();
-      return start(port, tool);
+      return start(port, timeoutSeconds, tool);
     }
   }
 
@@ -314,7 +317,7 @@ public final class GhidraMcpServer {
         McpServer.async(transportProvider)
             .serverInfo(SERVER_NAME, SERVER_VERSION)
             .instructions(SERVER_INSTRUCTIONS)
-            .requestTimeout(REQUEST_TIMEOUT)
+            .requestTimeout(requestTimeout)
             .capabilities(capabilities.build())
             .tools(specs.tools);
 

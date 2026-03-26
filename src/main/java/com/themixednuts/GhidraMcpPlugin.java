@@ -50,6 +50,10 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
 
   private static final String PORT_OPTION = "Server Port";
   private static final String PORT_DESCRIPTION = "Port number for the embedded HTTP MCP server.";
+  private static final String TIMEOUT_OPTION = "Request Timeout (seconds)";
+  private static final String TIMEOUT_DESCRIPTION =
+      "Maximum time in seconds for a single MCP request. Increase for large binaries.";
+  private static final int DEFAULT_TIMEOUT_SECONDS = 600;
   private static final String TOOL_OUTPUT_DIR_OPTION = "Tool Output Storage Directory";
   private static final String TOOL_OUTPUT_DIR_DESCRIPTION =
       "Directory where oversized tool outputs are stored for chunked retrieval."
@@ -58,6 +62,7 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
   private static final int RESTART_DEBOUNCE_MS = 1000;
 
   private int currentPort = DEFAULT_PORT;
+  private int currentTimeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
   private OptionsChangeListener optionsListener;
   private Timer restartTimer;
 
@@ -83,6 +88,15 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         PORT_DESCRIPTION,
         (java.util.function.Supplier<java.beans.PropertyEditor>) null);
 
+    // Register timeout option
+    options.registerOption(
+        TIMEOUT_OPTION,
+        OptionType.INT_TYPE,
+        DEFAULT_TIMEOUT_SECONDS,
+        new HelpLocation("GhidraMCP", "RequestTimeoutOption"),
+        TIMEOUT_DESCRIPTION,
+        (java.util.function.Supplier<java.beans.PropertyEditor>) null);
+
     // Register tool output directory (informational, read-only)
     options.registerOption(
         TOOL_OUTPUT_DIR_OPTION,
@@ -97,8 +111,9 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
     GhidraMcpPrompts.registerOptions(options, "GhidraMCP");
     GhidraMcpCompletions.registerOptions(options, "GhidraMCP");
 
-    // Read current port
+    // Read current values
     currentPort = options.getInt(PORT_OPTION, DEFAULT_PORT);
+    currentTimeoutSeconds = options.getInt(TIMEOUT_OPTION, DEFAULT_TIMEOUT_SECONDS);
 
     // Listen for changes
     optionsListener =
@@ -108,6 +123,15 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
             if (newPort != currentPort) {
               Msg.info(this, "Port changing from " + currentPort + " to " + newPort);
               currentPort = newPort;
+              scheduleServerRestart();
+            }
+          } else if (TIMEOUT_OPTION.equals(name)) {
+            int newTimeout = (Integer) newValue;
+            if (newTimeout != currentTimeoutSeconds) {
+              Msg.info(
+                  this,
+                  "Timeout changing from " + currentTimeoutSeconds + "s to " + newTimeout + "s");
+              currentTimeoutSeconds = newTimeout;
               scheduleServerRestart();
             }
           } else {
@@ -128,7 +152,7 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
   private void scheduleServerStart() {
     SwingUtilities.invokeLater(
         () -> {
-          GhidraMcpServer.start(currentPort, tool);
+          GhidraMcpServer.start(currentPort, currentTimeoutSeconds, tool);
           Msg.info(this, "GhidraMCP server started on port " + currentPort);
         });
   }
@@ -143,7 +167,7 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
             RESTART_DEBOUNCE_MS,
             e -> {
               Msg.info(this, "Restarting MCP server due to configuration change");
-              GhidraMcpServer.restart(currentPort, tool);
+              GhidraMcpServer.restart(currentPort, currentTimeoutSeconds, tool);
             });
     restartTimer.setRepeats(false);
     restartTimer.start();
