@@ -1,11 +1,18 @@
 package com.themixednuts.resources;
 
 import com.themixednuts.annotation.GhidraMcpResource;
+import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
+import ghidra.features.base.memsearch.format.SearchFormat;
+import ghidra.features.base.memsearch.matcher.ByteMatcher;
+import ghidra.features.base.memsearch.searcher.MemoryMatch;
+import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -33,8 +40,6 @@ public class ProgramRttiResource extends BaseMcpResource {
   private static final int MAX_RTTI_SCAN = 50000;
   private static final int MAX_STRING_LENGTH = 512;
 
-  private static final byte[] RTTI_PATTERN = new byte[] {0x2e, 0x3f, 0x41};
-
   @Override
   public Mono<String> read(McpTransportContext context, String uri, PluginTool tool) {
     return Mono.fromCallable(
@@ -55,35 +60,40 @@ public class ProgramRttiResource extends BaseMcpResource {
             // Map from class name to list of methods discovered via lambda RTTI
             Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
 
-            // RTTI0 type descriptors live in .data (the type_info vtable ptr is writable).
-            // Scan .data first; fall back to all non-executable initialized blocks.
+            // Use Ghidra's fast MemorySearcher (bulk engine) instead of iterative findBytes.
+            // RTTI0 type descriptors live in .data (writable type_info vtable ptr + name cache).
             MemoryBlock dataBlock = memory.getBlock(".data");
-            Address scanStart;
-            Address scanEnd;
+            AddressSetView searchSet;
             if (dataBlock != null) {
-              scanStart = dataBlock.getStart();
-              scanEnd = dataBlock.getEnd();
+              searchSet =
+                  program
+                      .getMemory()
+                      .getLoadedAndInitializedAddressSet()
+                      .intersectRange(dataBlock.getStart(), dataBlock.getEnd());
             } else {
-              // Fallback: scan all initialized non-executable memory
-              scanStart = memory.getMinAddress();
-              scanEnd = memory.getMaxAddress();
+              searchSet = program.getMemory().getLoadedAndInitializedAddressSet();
             }
 
-            // Phase 1: Fast scan — collect raw addresses and strings, no demangling
-            List<String[]> rawEntries = new ArrayList<>(); // [mangledName, rtti0Addr, typeKind]
-            int scanCount = 0;
-            Address searchAddr = scanStart;
+            ghidra.features.base.memsearch.gui.SearchSettings settings =
+                new ghidra.features.base.memsearch.gui.SearchSettings();
+            settings.withSearchFormat(SearchFormat.HEX);
+            settings.withBigEndian(memory.isBigEndian());
+            ByteMatcher matcher = SearchFormat.HEX.parse("2e 3f 41", settings);
 
-            while (searchAddr != null
-                && searchAddr.compareTo(scanEnd) <= 0
-                && scanCount < MAX_RTTI_SCAN
-                && rawEntries.size() < MAX_CLASSES * 5) {
-              Address found = memory.findBytes(searchAddr, RTTI_PATTERN, null, true, null);
-              if (found == null || found.compareTo(scanEnd) > 0) {
+            ProgramByteSource byteSource = new ProgramByteSource(program);
+            MemorySearcher searcher =
+                new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
+
+            ghidra.util.datastruct.ListAccumulator<MemoryMatch> accumulator =
+                new ghidra.util.datastruct.ListAccumulator<>();
+            searcher.findAll(accumulator, TaskMonitor.DUMMY);
+
+            List<String[]> rawEntries = new ArrayList<>();
+            for (MemoryMatch match : accumulator) {
+              if (rawEntries.size() >= MAX_CLASSES * 5) {
                 break;
               }
-              scanCount++;
-
+              Address found = match.getAddress();
               String mangledName = readCString(memory, found, MAX_STRING_LENGTH);
               if (mangledName != null && mangledName.length() >= 4) {
                 String typeKind = classifyTypeKind(mangledName);
@@ -95,8 +105,6 @@ public class ProgramRttiResource extends BaseMcpResource {
                   }
                 }
               }
-
-              searchAddr = safeNextAddress(found);
             }
 
             // Phase 2: Process collected entries — demangle and group
@@ -174,7 +182,7 @@ public class ProgramRttiResource extends BaseMcpResource {
               }
             }
 
-            boolean hasMore = scanCount >= MAX_RTTI_SCAN || classMap.size() >= MAX_CLASSES;
+            boolean hasMore = accumulator.size() >= MAX_RTTI_SCAN || classMap.size() >= MAX_CLASSES;
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("programName", programName);
@@ -300,14 +308,6 @@ public class ProgramRttiResource extends BaseMcpResource {
       mdm.setMangledSymbol(mangled);
       MDParsableItem item = mdm.demangle();
       return item != null ? item.toString() : null;
-    } catch (Exception e) {
-      return null;
-    }
-  }
-
-  private Address safeNextAddress(Address addr) {
-    try {
-      return addr.add(1);
     } catch (Exception e) {
       return null;
     }
