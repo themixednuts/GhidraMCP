@@ -29,8 +29,8 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Project",
     description =
-        "Project-level operations: list analysis options, run analysis, navigation, undo/redo, and"
-            + " transaction history.",
+        "Project-level operations: list analysis options, run analysis, save, navigation,"
+            + " undo/redo, and transaction history.",
     mcpName = "project",
     mcpDescription =
         """
@@ -53,6 +53,7 @@ import reactor.core.publisher.Mono;
         <return_value_summary>
         - list_analysis_options: returns a paginated list of AnalysisOptionInfo objects.
         - run_analysis: returns OperationResult describing the triggered analysis.
+        - save: saves the program to the project, preserving all changes.
         - go_to_address: returns OperationResult describing navigation outcome.
         - undo/redo: returns a map with action, success, and current undo/redo state.
         - history: returns a map with available undo/redo operation lists.
@@ -68,6 +69,7 @@ public class ProjectTool extends BaseMcpTool {
   private static final String ACTION_LIST_ANALYSIS_OPTIONS = "list_analysis_options";
   private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
   private static final String ACTION_RUN_ANALYSIS = "run_analysis";
+  private static final String ACTION_SAVE = "save";
   private static final String ACTION_UNDO = "undo";
   private static final String ACTION_REDO = "redo";
   private static final String ACTION_HISTORY = "history";
@@ -90,6 +92,7 @@ public class ProjectTool extends BaseMcpTool {
                 ACTION_LIST_ANALYSIS_OPTIONS,
                 ACTION_GO_TO_ADDRESS,
                 ACTION_RUN_ANALYSIS,
+                ACTION_SAVE,
                 ACTION_UNDO,
                 ACTION_REDO,
                 ACTION_HISTORY)
@@ -202,6 +205,7 @@ public class ProjectTool extends BaseMcpTool {
                 case ACTION_LIST_ANALYSIS_OPTIONS -> handleListAnalysisOptions(program, args);
                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool);
                 case ACTION_RUN_ANALYSIS -> handleRunAnalysis(program);
+                case ACTION_SAVE -> handleSave(program);
                 case ACTION_UNDO -> handleUndo(program, args);
                 case ACTION_REDO -> handleRedo(program, args);
                 case ACTION_HISTORY -> handleHistory(program);
@@ -216,6 +220,8 @@ public class ProjectTool extends BaseMcpTool {
                               + ACTION_GO_TO_ADDRESS
                               + ", "
                               + ACTION_RUN_ANALYSIS
+                              + ", "
+                              + ACTION_SAVE
                               + ", "
                               + ACTION_UNDO
                               + ", "
@@ -414,6 +420,32 @@ public class ProjectTool extends BaseMcpTool {
               ACTION_RUN_ANALYSIS,
               program.getName(),
               "Auto-analysis triggered successfully on '" + program.getName() + "'.");
+        });
+  }
+
+  // =================== save ===================
+
+  private Mono<? extends Object> handleSave(Program program) {
+    return Mono.fromCallable(
+        () -> {
+          ghidra.framework.model.DomainFile domainFile = program.getDomainFile();
+          if (domainFile == null) {
+            throw new GhidraMcpException(
+                GhidraMcpError.failed("save", "Program has no associated domain file."));
+          }
+
+          if (!domainFile.canSave()) {
+            throw new GhidraMcpException(
+                GhidraMcpError.failed(
+                    "save", "Program cannot be saved (read-only or no write permission)."));
+          }
+
+          domainFile.save(TaskMonitor.DUMMY);
+
+          return OperationResult.success(
+              ACTION_SAVE,
+              program.getName(),
+              "Program '" + program.getName() + "' saved successfully.");
         });
   }
 
