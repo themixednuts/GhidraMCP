@@ -1729,54 +1729,74 @@ public class AnalyzeTool extends BaseMcpTool {
       if (rdataBlock == null) {
         return;
       }
-      Address rdataStart = rdataBlock.getStart();
-      Address rdataEnd = rdataBlock.getEnd();
 
+      // Single-pass: scan .rdata once for ALL RTTI4 structures (signature==1 at x64),
+      // build a map from RTTI0 RVA → RTTI4 address, then do O(1) lookups per class.
+      // RTTI4 layout (x64): [sig:4][offset:4][cdOffset:4][pTypeDesc:4][pClassDesc:4][pSelf:4]
+      // sig==1 for x64. pTypeDesc at +12 is the RTTI0 RVA. pSelf at +20 should point back.
+      Map<Long, Address> rtti0RvaToRtti4 = new LinkedHashMap<>();
+
+      // Search for uint32 value 1 (x64 RTTI4 signature) in .rdata
+      byte[] sigPattern = intToLittleEndianBytes(1);
+      AddressSetView rdataSet =
+          program
+              .getMemory()
+              .getLoadedAndInitializedAddressSet()
+              .intersectRange(rdataBlock.getStart(), rdataBlock.getEnd());
+
+      SearchSettings settings = new SearchSettings();
+      settings.withSearchFormat(SearchFormat.HEX);
+      settings.withBigEndian(memory.isBigEndian());
+      ByteMatcher matcher = SearchFormat.HEX.parse("01 00 00 00", settings);
+
+      ProgramByteSource byteSource = new ProgramByteSource(program);
+      MemorySearcher searcher = new MemorySearcher(byteSource, matcher, rdataSet, 100000);
+
+      ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
+      searcher.findAll(accumulator, TaskMonitor.DUMMY);
+
+      for (MemoryMatch match : accumulator) {
+        try {
+          Address rtti4Start = match.getAddress();
+          // Validate: pSelf at +20 must point back to this address
+          int selfRva = memory.getInt(rtti4Start.add(20));
+          Address selfAddr = imageBase.add(Integer.toUnsignedLong(selfRva));
+          if (!selfAddr.equals(rtti4Start)) {
+            continue;
+          }
+          // Valid RTTI4 — extract pTypeDescriptor RVA at +12
+          int rtti0Rva = memory.getInt(rtti4Start.add(12));
+          rtti0RvaToRtti4.put(Integer.toUnsignedLong(rtti0Rva), rtti4Start);
+        } catch (Exception ignored) {
+        }
+      }
+
+      // Now enrich each class with O(1) map lookup
       for (Map.Entry<String, Map<String, Object>> entry : classMap.entrySet()) {
         Map<String, Object> classInfo = entry.getValue();
         String rtti0AddrStr = (String) classInfo.get("rtti0_address");
         if (rtti0AddrStr == null) {
           continue;
         }
-
         try {
           Address rtti0Addr = program.getAddressFactory().getAddress(rtti0AddrStr);
           if (rtti0Addr == null) {
             continue;
           }
-
           long rtti0Rva = rtti0Addr.subtract(imageBase);
-          byte[] rvaBytes = intToLittleEndianBytes((int) rtti0Rva);
-
-          Address match = memory.findBytes(rdataStart, rdataEnd, rvaBytes, null, true, null);
-          while (match != null) {
-            try {
-              Address rtti4Start = match.subtract(12);
-
-              int signature = memory.getInt(rtti4Start);
-              if (signature == 1) {
-                int selfRva = memory.getInt(rtti4Start.add(20));
-                Address selfAddr = imageBase.add(Integer.toUnsignedLong(selfRva));
-                if (selfAddr.equals(rtti4Start)) {
-                  int vtableOffset = memory.getInt(rtti4Start.add(4));
-                  classInfo.put("rtti4_address", rtti4Start.toString());
-                  classInfo.put("vtable_offset", vtableOffset);
-
-                  List<String> baseClasses = readBaseClassHierarchy(memory, imageBase, rtti4Start);
-                  if (baseClasses != null && !baseClasses.isEmpty()) {
-                    classInfo.put("base_classes", baseClasses);
-                  }
-                  break;
-                }
-              }
-            } catch (Exception e) {
-              // Skip invalid candidate
-            }
-
-            match = memory.findBytes(match.add(1), rdataEnd, rvaBytes, null, true, null);
+          Address rtti4Addr = rtti0RvaToRtti4.get(rtti0Rva);
+          if (rtti4Addr == null) {
+            continue;
           }
-        } catch (Exception e) {
-          // Skip this class entry on error
+          int vtableOffset = memory.getInt(rtti4Addr.add(4));
+          classInfo.put("rtti4_address", rtti4Addr.toString());
+          classInfo.put("vtable_offset", vtableOffset);
+
+          List<String> baseClasses = readBaseClassHierarchy(memory, imageBase, rtti4Addr);
+          if (baseClasses != null && !baseClasses.isEmpty()) {
+            classInfo.put("base_classes", baseClasses);
+          }
+        } catch (Exception ignored) {
         }
       }
     } catch (Exception e) {
