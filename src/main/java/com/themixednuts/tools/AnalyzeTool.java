@@ -1940,64 +1940,84 @@ public class AnalyzeTool extends BaseMcpTool {
       return;
     }
 
-    // Find "??" that starts the enclosing function (skip the leading ".?AV" prefix)
-    int searchFrom = 4;
-    int qqIdx = mangledName.indexOf("??", searchFrom);
-    while (qqIdx > 0) {
-      String fragment = mangledName.substring(qqIdx + 1);
-      // Strip trailing "@" (lambda scope terminator) that isn't part of the function mangling
-      if (fragment.endsWith("@")) {
-        fragment = fragment.substring(0, fragment.length() - 1);
-      }
-      String enclosingMangled = "?" + fragment;
+    // Lambda RTTI scope format: .?AV<lambda_N>@?<scope>?<function>@...@Z@
+    // The scope is @?<digit>? or @?L@? etc. The enclosing function's mangled name
+    // starts with "?" after the scope indicator. We find it by looking for the pattern
+    // @?<scope_chars>? where the last ? begins the function's mangled name.
+    // Example: .?AV<lambda_1>@?1??AddAccessory@Weapon@Javelin@@...@Z@
+    //          scope = @?1?  function = ?AddAccessory@Weapon@Javelin@@...@Z
+    // Example: .?AV<lambda_1>@?L@??0JavelinCVars@@...@Z@
+    //          scope = @?L@? function = ??0JavelinCVars@@...@Z (constructor)
 
-      try {
-        MDMangGhidra mdm = new MDMangGhidra();
-        mdm.setMangledSymbol(enclosingMangled);
-        MDParsableItem item = mdm.demangle();
-        if (item == null) {
-          qqIdx = mangledName.indexOf("??", qqIdx + 2);
-          continue;
-        }
+    // Find the scope indicator pattern: @? followed by scope chars, then the function
+    int lambdaEnd = mangledName.indexOf(">@");
+    if (lambdaEnd < 0) return;
+    int scopeStart = lambdaEnd + 1; // position of "@" after "<lambda_N>"
 
-        // Use structured AST for reliable extraction
-        if (item instanceof mdemangler.object.MDObjectCPP cppObj) {
-          String methodName = cppObj.getName();
-          mdemangler.naming.MDQualification qualification = cppObj.getQualification();
+    // The function's mangled name starts after the scope indicator.
+    // Scope format: @?<id>? where <id> is digits, letters, or multi-char like "BD"
+    // Find the last "?" in the scope that precedes the function name
+    String afterLambda = mangledName.substring(scopeStart);
 
-          if (methodName != null && !methodName.isEmpty() && qualification != null) {
-            // First qualifier is the immediate class (inner→outer order)
-            String className = null;
-            for (var qualifier : qualification) {
-              className = qualifier.toString();
-              break; // first one is the class
-            }
-
-            if (className != null && !className.isEmpty()) {
-              String demangled = item.toString();
-              Map<String, String> methodInfo = new LinkedHashMap<>();
-              methodInfo.put("name", methodName);
-              methodInfo.put("class", className);
-              if (demangled != null) {
-                methodInfo.put("demangled", demangled);
-              }
-              methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
-              return;
-            }
+    // Pattern: @?<scope_id>@??... or @?<digit>??...
+    // The function starts where we see "?" followed by a valid function start
+    // Valid function starts: ?Name (regular), ??0 (ctor), ??1 (dtor), ??$ (template), etc.
+    int funcStart = -1;
+    for (int i = 1; i < afterLambda.length() - 1; i++) {
+      if (afterLambda.charAt(i) == '?' && i > 1) {
+        char next = afterLambda.charAt(i + 1);
+        // A function mangled name starts with ?<letter> or ??<special>
+        if (Character.isLetter(next) || next == '?') {
+          // Verify the preceding char is part of the scope (digit, letter, @)
+          char prev = afterLambda.charAt(i - 1);
+          if (prev == '?' || prev == '@' || Character.isLetterOrDigit(prev)) {
+            funcStart = scopeStart + i;
+            break;
           }
         }
-
-        // Fallback: if we got a parseable item but not MDObjectCPP, use toString
-        String demangled = item.toString();
-        if (demangled != null && !demangled.isBlank()) {
-          // Last resort: basic string extraction for non-CPP objects
-          return;
-        }
-      } catch (Exception ignored) {
-        // MDMang couldn't parse this fragment — try next ??
       }
+    }
 
-      qqIdx = mangledName.indexOf("??", qqIdx + 2);
+    if (funcStart < 0) return;
+
+    String enclosingMangled = mangledName.substring(funcStart);
+    // Strip trailing "@" (lambda scope terminator)
+    while (enclosingMangled.endsWith("@")) {
+      enclosingMangled = enclosingMangled.substring(0, enclosingMangled.length() - 1);
+    }
+
+    try {
+      MDMangGhidra mdm = new MDMangGhidra();
+      mdm.setMangledSymbol(enclosingMangled);
+      MDParsableItem item = mdm.demangle();
+      if (item == null) return;
+
+      // Use structured AST for reliable extraction
+      if (item instanceof mdemangler.object.MDObjectCPP cppObj) {
+        String methodName = cppObj.getName();
+        mdemangler.naming.MDQualification qualification = cppObj.getQualification();
+
+        if (methodName != null && !methodName.isEmpty() && qualification != null) {
+          String className = null;
+          for (var qualifier : qualification) {
+            className = qualifier.toString();
+            break;
+          }
+
+          if (className != null && !className.isEmpty()) {
+            String demangled = item.toString();
+            Map<String, String> methodInfo = new LinkedHashMap<>();
+            methodInfo.put("name", methodName);
+            methodInfo.put("class", className);
+            if (demangled != null) {
+              methodInfo.put("demangled", demangled);
+            }
+            methodMap.computeIfAbsent(className, k -> new ArrayList<>()).add(methodInfo);
+          }
+        }
+      }
+    } catch (Exception ignored) {
+      // MDMang couldn't parse this fragment
     }
   }
 
