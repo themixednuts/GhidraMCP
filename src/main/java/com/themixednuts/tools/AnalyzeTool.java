@@ -14,6 +14,7 @@ import ghidra.app.cmd.data.TypeDescriptorModel;
 import ghidra.app.cmd.data.rtti.Rtti1Model;
 import ghidra.app.cmd.data.rtti.Rtti3Model;
 import ghidra.app.cmd.data.rtti.Rtti4Model;
+import ghidra.app.cmd.data.rtti.RttiUtil;
 import ghidra.app.cmd.data.rtti.VfTableModel;
 import ghidra.app.plugin.prototype.MicrosoftCodeAnalyzerPlugin.PEUtil;
 import ghidra.app.util.bin.format.golang.rtti.GoItab;
@@ -32,6 +33,7 @@ import ghidra.features.base.memsearch.searcher.MemoryMatch;
 import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.address.AddressOutOfBoundsException;
 import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.address.AddressSetView;
@@ -1492,7 +1494,7 @@ public class AnalyzeTool extends BaseMcpTool {
           // Map from class name to list of methods discovered via lambda RTTI
           Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
 
-          // Use MemorySearcher (bulk engine) to find all ".?A" patterns in .data section
+          // Restrict search to .data section where RTTI0 type descriptors live
           MemoryBlock dataBlock = memory.getBlock(".data");
           AddressSetView searchSet;
           if (dataBlock != null) {
@@ -1505,58 +1507,116 @@ public class AnalyzeTool extends BaseMcpTool {
             searchSet = program.getMemory().getLoadedAndInitializedAddressSet();
           }
 
-          SearchSettings settings = new SearchSettings();
-          settings.withSearchFormat(SearchFormat.HEX);
-          settings.withBigEndian(memory.isBigEndian());
-          ByteMatcher matcher = SearchFormat.HEX.parse("2e 3f 41", settings);
+          DataValidationOptions validationOptions = new DataValidationOptions();
 
-          ProgramByteSource byteSource = new ProgramByteSource(program);
-          MemorySearcher searcher =
-              new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
-
-          ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-          searcher.findAll(accumulator, TaskMonitor.DUMMY);
-
-          // Phase 1: Read C strings and classify
-          List<String[]> rawEntries = new ArrayList<>();
-          for (MemoryMatch match : accumulator) {
-            Address found = match.getAddress();
-            String mangledName = readCStringFromMemory(memory, found, MAX_STRING_LENGTH);
-            if (mangledName != null && mangledName.length() >= 4) {
-              String typeKind = classifyTypeKind(mangledName);
-              if (typeKind != null) {
-                try {
-                  Address rtti0Addr = found.subtract(16);
-                  rawEntries.add(new String[] {mangledName, rtti0Addr.toString(), typeKind});
-                } catch (Exception ignored) {
-                  // skip entries where address subtraction fails
-                }
-              }
-            }
+          // Try structured RTTI0 discovery via type_info vftable
+          Address typeInfoVftable = null;
+          try {
+            typeInfoVftable = RttiUtil.findTypeInfoVftableAddress(program, TaskMonitor.DUMMY);
+          } catch (Exception ignored) {
+            // Fall back to byte pattern scan
           }
 
-          // Phase 2: Demangle and group, process lambda RTTI
-          for (String[] raw : rawEntries) {
-            String mangledName = raw[0];
-            String rtti0AddrStr = raw[1];
-            String typeKind = raw[2];
+          if (typeInfoVftable != null) {
+            // Search for vftable pointer occurrences — each match is an RTTI0 base address
+            int pointerSize = program.getDefaultPointerSize();
+            byte[] vftableBytes = addressToLittleEndianBytes(typeInfoVftable, pointerSize);
+            String hexPattern = bytesToHexString(vftableBytes);
 
-            // Check if this is a lambda RTTI entry (extract method info)
-            if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
-              processLambdaRtti(mangledName, methodMap);
+            SearchSettings settings = new SearchSettings();
+            settings.withSearchFormat(SearchFormat.HEX);
+            settings.withBigEndian(memory.isBigEndian());
+            ByteMatcher matcher = SearchFormat.HEX.parse(hexPattern, settings);
+
+            ProgramByteSource byteSource = new ProgramByteSource(program);
+            MemorySearcher searcher =
+                new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
+
+            ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
+            searcher.findAll(accumulator, TaskMonitor.DUMMY);
+
+            // Phase 1: Validate each RTTI0 using TypeDescriptorModel
+            for (MemoryMatch match : accumulator) {
+              Address rtti0Addr = match.getAddress();
+              try {
+                TypeDescriptorModel rtti0 =
+                    new TypeDescriptorModel(program, rtti0Addr, validationOptions);
+                rtti0.validate();
+                String mangledName = rtti0.getTypeName();
+                if (mangledName == null || mangledName.length() < 4) {
+                  continue;
+                }
+                String typeKind = classifyTypeKind(mangledName);
+                if (typeKind == null) {
+                  continue;
+                }
+
+                // Process lambda RTTI for method discovery
+                if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
+                  processLambdaRtti(mangledName, methodMap);
+                }
+
+                if (!classMap.containsKey(mangledName)) {
+                  // Use Ghidra's demangling from the model, fall back to MDMang
+                  String demangled = rtti0.getDemangledTypeDescriptor();
+                  if (demangled == null || demangled.isEmpty()) {
+                    demangled = tryMDMangDemangle(mangledName);
+                  }
+                  String displayName = demangled != null ? demangled : mangledName;
+
+                  Map<String, Object> classInfo = new LinkedHashMap<>();
+                  classInfo.put("name", displayName);
+                  classInfo.put("mangled", mangledName);
+                  classInfo.put("type_kind", typeKind);
+                  classInfo.put("rtti0_address", rtti0Addr.toString());
+                  classMap.put(mangledName, classInfo);
+                }
+              } catch (Exception ignored) {
+                // Invalid RTTI0 structure — skip
+              }
             }
+          } else {
+            // Fallback: bulk search for ".?A" byte pattern (no type_info vftable found)
+            SearchSettings settings = new SearchSettings();
+            settings.withSearchFormat(SearchFormat.HEX);
+            settings.withBigEndian(memory.isBigEndian());
+            ByteMatcher matcher = SearchFormat.HEX.parse("2e 3f 41", settings);
 
-            // Demangle and register the class entry
-            if (!classMap.containsKey(mangledName)) {
-              String demangled = tryMDMangDemangle(mangledName);
-              String displayName = demangled != null ? demangled : mangledName;
+            ProgramByteSource byteSource = new ProgramByteSource(program);
+            MemorySearcher searcher =
+                new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
 
-              Map<String, Object> classInfo = new LinkedHashMap<>();
-              classInfo.put("name", displayName);
-              classInfo.put("mangled", mangledName);
-              classInfo.put("type_kind", typeKind);
-              classInfo.put("rtti0_address", rtti0AddrStr);
-              classMap.put(mangledName, classInfo);
+            ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
+            searcher.findAll(accumulator, TaskMonitor.DUMMY);
+
+            for (MemoryMatch match : accumulator) {
+              Address found = match.getAddress();
+              String mangledName = readCStringFromMemory(memory, found, MAX_STRING_LENGTH);
+              if (mangledName != null && mangledName.length() >= 4) {
+                String typeKind = classifyTypeKind(mangledName);
+                if (typeKind != null) {
+                  try {
+                    Address rtti0Addr = found.subtract(16);
+
+                    if (mangledName.contains("<lambda") && mangledName.contains("@??")) {
+                      processLambdaRtti(mangledName, methodMap);
+                    }
+
+                    if (!classMap.containsKey(mangledName)) {
+                      String demangled = tryMDMangDemangle(mangledName);
+                      String displayName = demangled != null ? demangled : mangledName;
+
+                      Map<String, Object> classInfo = new LinkedHashMap<>();
+                      classInfo.put("name", displayName);
+                      classInfo.put("mangled", mangledName);
+                      classInfo.put("type_kind", typeKind);
+                      classInfo.put("rtti0_address", rtti0Addr.toString());
+                      classMap.put(mangledName, classInfo);
+                    }
+                  } catch (Exception ignored) {
+                  }
+                }
+              }
             }
           }
 
@@ -1730,14 +1790,14 @@ public class AnalyzeTool extends BaseMcpTool {
         return;
       }
 
-      // Single-pass: scan .rdata once for ALL RTTI4 structures (signature==1 at x64),
-      // build a map from RTTI0 RVA → RTTI4 address, then do O(1) lookups per class.
-      // RTTI4 layout (x64): [sig:4][offset:4][cdOffset:4][pTypeDesc:4][pClassDesc:4][pSelf:4]
-      // sig==1 for x64. pTypeDesc at +12 is the RTTI0 RVA. pSelf at +20 should point back.
-      Map<Long, Address> rtti0RvaToRtti4 = new LinkedHashMap<>();
+      DataValidationOptions validationOptions = new DataValidationOptions();
+      AddressFactory addressFactory = program.getAddressFactory();
+
+      // Single-pass: scan .rdata for RTTI4 candidate structures, validate with Rtti4Model,
+      // build a map from RTTI0 address → validated RTTI4 address for O(1) lookups.
+      Map<Address, Address> rtti0ToRtti4 = new LinkedHashMap<>();
 
       // Search for uint32 value 1 (x64 RTTI4 signature) in .rdata
-      byte[] sigPattern = intToLittleEndianBytes(1);
       AddressSetView rdataSet =
           program
               .getMemory()
@@ -1758,16 +1818,14 @@ public class AnalyzeTool extends BaseMcpTool {
       for (MemoryMatch match : accumulator) {
         try {
           Address rtti4Start = match.getAddress();
-          // Validate: pSelf at +20 must point back to this address
-          int selfRva = memory.getInt(rtti4Start.add(20));
-          Address selfAddr = imageBase.add(Integer.toUnsignedLong(selfRva));
-          if (!selfAddr.equals(rtti4Start)) {
-            continue;
+          Rtti4Model rtti4 = new Rtti4Model(program, rtti4Start, validationOptions);
+          rtti4.validate();
+          Address rtti0Addr = rtti4.getRtti0Address();
+          if (rtti0Addr != null) {
+            rtti0ToRtti4.put(rtti0Addr, rtti4Start);
           }
-          // Valid RTTI4 — extract pTypeDescriptor RVA at +12
-          int rtti0Rva = memory.getInt(rtti4Start.add(12));
-          rtti0RvaToRtti4.put(Integer.toUnsignedLong(rtti0Rva), rtti4Start);
         } catch (Exception ignored) {
+          // Not a valid RTTI4 — skip
         }
       }
 
@@ -1779,20 +1837,22 @@ public class AnalyzeTool extends BaseMcpTool {
           continue;
         }
         try {
-          Address rtti0Addr = program.getAddressFactory().getAddress(rtti0AddrStr);
+          Address rtti0Addr = addressFactory.getAddress(rtti0AddrStr);
           if (rtti0Addr == null) {
             continue;
           }
-          long rtti0Rva = rtti0Addr.subtract(imageBase);
-          Address rtti4Addr = rtti0RvaToRtti4.get(rtti0Rva);
+          Address rtti4Addr = rtti0ToRtti4.get(rtti0Addr);
           if (rtti4Addr == null) {
             continue;
           }
-          int vtableOffset = memory.getInt(rtti4Addr.add(4));
+
+          Rtti4Model rtti4 = new Rtti4Model(program, rtti4Addr, validationOptions);
+          int vtableOffset = rtti4.getVbTableOffset();
           classInfo.put("rtti4_address", rtti4Addr.toString());
           classInfo.put("vtable_offset", vtableOffset);
 
-          List<String> baseClasses = readBaseClassHierarchy(memory, imageBase, rtti4Addr);
+          // Use Ghidra's RTTI model chain for base class hierarchy
+          List<String> baseClasses = readBaseClassHierarchyViaModels(rtti4);
           if (baseClasses != null && !baseClasses.isEmpty()) {
             classInfo.put("base_classes", baseClasses);
           }
@@ -1817,40 +1877,15 @@ public class AnalyzeTool extends BaseMcpTool {
     return null;
   }
 
-  private List<String> readBaseClassHierarchy(
-      Memory memory, Address imageBase, Address rtti4Start) {
+  private List<String> readBaseClassHierarchyViaModels(Rtti4Model rtti4) {
     try {
-      int rtti3Rva = memory.getInt(rtti4Start.add(16));
-      Address rtti3Addr = imageBase.add(Integer.toUnsignedLong(rtti3Rva));
-
-      int numBases = memory.getInt(rtti3Addr.add(8));
-      if (numBases <= 0 || numBases > 50) {
+      // getBaseClassTypes() returns the full list including the class itself at index 0
+      List<String> allTypes = rtti4.getBaseClassTypes();
+      if (allTypes == null || allTypes.size() <= 1) {
         return null;
       }
-
-      int rtti2Rva = memory.getInt(rtti3Addr.add(12));
-      Address rtti2Addr = imageBase.add(Integer.toUnsignedLong(rtti2Rva));
-
-      List<String> baseClasses = new ArrayList<>();
-      // Skip index 0 (the class itself); start from 1 for base classes
-      for (int i = 1; i < numBases; i++) {
-        try {
-          int rtti1Rva = memory.getInt(rtti2Addr.add((long) i * 4));
-          Address rtti1Addr = imageBase.add(Integer.toUnsignedLong(rtti1Rva));
-
-          int baseRtti0Rva = memory.getInt(rtti1Addr);
-          Address baseRtti0Addr = imageBase.add(Integer.toUnsignedLong(baseRtti0Rva));
-
-          String baseName = readCStringFromMemory(memory, baseRtti0Addr.add(16), MAX_STRING_LENGTH);
-          if (baseName != null && baseName.length() >= 4) {
-            String baseDemangled = tryMDMangDemangle(baseName);
-            baseClasses.add(baseDemangled != null ? baseDemangled : baseName);
-          }
-        } catch (Exception e) {
-          // Skip unreadable base class entry
-        }
-      }
-      return baseClasses;
+      // Skip index 0 (the class itself); return only base classes
+      return new ArrayList<>(allTypes.subList(1, allTypes.size()));
     } catch (Exception e) {
       return null;
     }
@@ -1861,6 +1896,29 @@ public class AnalyzeTool extends BaseMcpTool {
     buffer.order(ByteOrder.LITTLE_ENDIAN);
     buffer.putInt(value);
     return buffer.array();
+  }
+
+  private byte[] addressToLittleEndianBytes(Address addr, int pointerSize) {
+    long value = addr.getOffset();
+    ByteBuffer buffer = ByteBuffer.allocate(pointerSize);
+    buffer.order(ByteOrder.LITTLE_ENDIAN);
+    if (pointerSize == 8) {
+      buffer.putLong(value);
+    } else {
+      buffer.putInt((int) value);
+    }
+    return buffer.array();
+  }
+
+  private String bytesToHexString(byte[] bytes) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < bytes.length; i++) {
+      if (i > 0) {
+        sb.append(' ');
+      }
+      sb.append(String.format("%02x", bytes[i] & 0xff));
+    }
+    return sb.toString();
   }
 
   private String classifyTypeKind(String mangledName) {
