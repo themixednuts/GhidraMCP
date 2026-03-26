@@ -7,9 +7,49 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre1] - 2026-03-25
+
 ### Changed
-- **Build Tooling Migration** - Replaced the Maven/bootstrap shell flow with a Gradle build, Gradle version catalog, and `just` entrypoints for local development and CI
-- **CI Modernization** - Updated GitHub Actions to current action releases and standardized the main workflow entrypoints on `just`
+- **BREAKING: Task-Oriented Tool Redesign** — Consolidated 31 API-wrapper tools into 14 task-oriented tools following MCP best practices. Tool names, schemas, and action parameters have changed.
+  - `inspect` — decompile, listing, references_to, references_from (replaces DecompileCodeTool, ReadListingTool, FindReferencesTool)
+  - `functions` — list, get, create, update_prototype, list_variables (replaces ManageFunctionsTool, ReadFunctionsTool)
+  - `symbols` — list, get, create, update, convert_to_class (replaces ManageSymbolsTool, ReadSymbolsTool)
+  - `data_types` — list, get, create, update (replaces ManageDataTypesTool, ReadDataTypesTool)
+  - `memory` — read, write, define, undefine, list_blocks, search (replaces ManageMemoryTool, ReadMemoryBlocksTool, SearchMemoryTool)
+  - `project` — list_analysis_options, run_analysis, save, go_to_address, undo, redo, history (replaces ManageProjectTool, ListProgramsTool, ListAnalysisOptionsTool, UndoRedoTool)
+  - `annotate` — set_comment, get_comments, create_bookmark, list_bookmarks (new)
+  - `delete` — function, symbol, data_type, bookmark (replaces 4 separate delete tools, destructiveHint=true)
+  - `analyze` — demangle, rtti, graph, call_graph (replaces DemanglerTool, AnalyzeRttiTool)
+  - `vt_sessions` / `vt_operations` — consolidated from 5 VT tools
+- **BREAKING: Dropped `target_type`/`target_value`** — All tools now use direct identifier args (`symbol_id`, `address`, `name`)
+- **BREAKING: Standardized list filtering** — All list actions use `name_pattern` (regex) instead of mixed `name_filter`/`name_pattern`
+- **Demangle cascade** — MDMangGhidra (full MSVC demangler) runs first, handling all symbol types including RTTI descriptors, vtables, constructors, and operators
+- **RTTI serialization** — Replaced `Optional<T>` fields with nullable types in RTTIAnalysisResult to fix MCP SDK serialization
+- **Server instructions** — Updated to guide agents through triage → inspect → analyze → annotate workflow
+- **Build Tooling Migration** — Replaced the Maven/bootstrap shell flow with a Gradle build, Gradle version catalog, and `just` entrypoints for local development and CI
+- **CI Modernization** — Updated GitHub Actions to current action releases and standardized the main workflow entrypoints on `just`
+
+### Added
+- **6 new resources** — Program info, listing, memory layout, imports, exports, defined strings
+- **RTTI discovery resource** — `ghidra://program/{name}/rtti` scans for MSVC RTTI type descriptors with RTTI4 chain traversal and lambda method extraction
+- **AnnotateTool** — Comments (EOL/PRE/POST/PLATE/REPEATABLE) and bookmarks for documenting findings
+- **`memory.define` action** — Apply data types at addresses (CreateDataCmd) for vtable and struct workflows
+- **`project.run_analysis` action** — Trigger Ghidra auto-analysis after modifications
+- **`project.save` action** — Persist program changes to the Ghidra project
+- **`analyze.call_graph` action** — Extract caller/callee relationships with BFS traversal and depth control
+- **`analyze.graph` action** — Control flow graph visualization via BasicBlockModel
+- **Bookmark delete safety** — Requires at least one filter or explicit `delete_all` flag
+- **5 new prompts** — triage_binary, map_data_structures, analyze_vtable, compare_binaries, rename_analysis
+- **7 new completions** — File name and address completions for new prompts
+- **Resource hints in tool descriptions** — Tools reference relevant resources for browsing context
+
+### Removed
+- 17 absorbed tool files (Read*, Manage*, Delete*, List*, UndoRedo*, Demangler*, AnalyzeRtti*, FindReferences*, DecompileCode*, ReadListing*, SearchMemory*)
+- `target_type`/`target_value` dual identifier pattern
+- Silent "first executable block" default in listing
+- `decompile_all` mode (batch decompilation)
+- `analyze_segment` action (covered by read + list_blocks)
+- `rtti0` from data_type_kind (moved to analyze.rtti)
 
 ## [0.6.2] - 2026-02-16
 
