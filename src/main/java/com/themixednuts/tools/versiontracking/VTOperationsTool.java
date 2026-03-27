@@ -1000,12 +1000,22 @@ public class VTOperationsTool extends BaseVTTool {
               runCorrelatorReflective(
                   session, factoryClassName, sourceProgram, sourceSet, destProgram, destSet);
 
-          Collection<VTMatch> matches = matchSet.getMatches();
           Map<String, Object> result = new HashMap<>();
           result.put("correlator", correlatorType);
-          result.put("correlator_name", matchSet.getProgramCorrelatorInfo().getName());
-          result.put("match_count", matches.size());
           result.put("session_name", sessionName);
+          try {
+            result.put("match_count", matchSet.getMatchCount());
+            result.put("correlator_name", matchSet.getProgramCorrelatorInfo().getName());
+          } catch (Exception e) {
+            // Fallback: count from session if matchSet methods fail
+            int totalMatches = 0;
+            for (VTMatchSet ms : session.getMatchSets()) {
+              totalMatches += ms.getMatchCount();
+            }
+            result.put("match_count", totalMatches);
+            result.put("correlator_name", correlatorType);
+            result.put("warning", "match_count is session total: " + e.getMessage());
+          }
 
           return result;
         });
