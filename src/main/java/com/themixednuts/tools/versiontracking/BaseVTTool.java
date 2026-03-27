@@ -108,8 +108,9 @@ public abstract class BaseVTTool extends BaseMcpTool {
       throws GhidraMcpException {
     VTSession session = openVTSession(sessionName, forUpdate);
     try {
-      T result = callback.execute(session);
-      // Persist changes after write operations so they survive session release
+      return callback.execute(session);
+    } finally {
+      // Save before release — must happen after all transactions are closed
       if (forUpdate && session.canSave()) {
         try {
           session.save("MCP", ghidra.util.task.TaskMonitor.DUMMY);
@@ -117,8 +118,6 @@ public abstract class BaseVTTool extends BaseMcpTool {
           ghidra.util.Msg.warn(this, "Failed to save VT session: " + e.getMessage());
         }
       }
-      return result;
-    } finally {
       releaseSessionQuietly(session);
     }
   }
