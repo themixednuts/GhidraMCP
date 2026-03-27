@@ -64,9 +64,12 @@ import reactor.core.publisher.Mono;
         - Actions for markup: list_markup, apply_markup, apply_all_markup, unapply_markup
         - Accepting a match may block other matches that conflict with it
         - Markup can only be applied to ACCEPTED matches
-        - Changes are persisted to the VT session file
-        - Use exclude_default_names: true in list_matches to find matches with user-defined source names for propagation
-        - Standard workflow: run correlators -> accept matches -> apply markup -> save
+        - Changes are persisted to the VT session file automatically
+        - run_correlator on large binaries may take minutes — if the client times out, the
+          correlator still completes server-side. Check vt_sessions (action: info) for results.
+        - Use exclude_default_names: true in list_matches to find matches with user-defined source
+          names worth propagating to the destination binary
+        - Standard workflow: run correlators -> check session info -> accept matches -> apply markup
         </important_notes>
 
         <return_value_summary>
@@ -986,6 +989,12 @@ public class VTOperationsTool extends BaseVTTool {
     return withSession(
         sessionName,
         session -> {
+          ghidra.util.Msg.info(
+              this,
+              "[run_correlator] Starting "
+                  + correlatorType
+                  + " (large binaries may take minutes — check vt_sessions info if client times"
+                  + " out)");
           Program sourceProgram = session.getSourceProgram();
           Program destProgram = session.getDestinationProgram();
 
@@ -1000,6 +1009,7 @@ public class VTOperationsTool extends BaseVTTool {
               runCorrelatorReflective(
                   session, factoryClassName, sourceProgram, sourceSet, destProgram, destSet);
 
+          ghidra.util.Msg.info(this, "[run_correlator] Correlator finished, building result");
           Map<String, Object> result = new HashMap<>();
           result.put("correlator", correlatorType);
           result.put("session_name", sessionName);
@@ -1017,6 +1027,7 @@ public class VTOperationsTool extends BaseVTTool {
             result.put("warning", "match_count is session total: " + e.getMessage());
           }
 
+          ghidra.util.Msg.info(this, "[run_correlator] Returning result: " + result);
           return result;
         });
   }
