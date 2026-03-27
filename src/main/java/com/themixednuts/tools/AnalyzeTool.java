@@ -272,9 +272,21 @@ public class AnalyzeTool extends BaseMcpTool {
     schemaRoot.property(
         "custom_tags",
         SchemaBuilder.array(mapper)
+            .items(
+                SchemaBuilder.object(mapper)
+                    .property(
+                        "template",
+                        SchemaBuilder.string(mapper)
+                            .description("MSVC template name to match in RTTI entries"))
+                    .property(
+                        "tag",
+                        SchemaBuilder.string(mapper)
+                            .description("Label to apply to matched classes"))
+                    .requiredProperty("template")
+                    .requiredProperty("tag"))
             .description(
-                "Agent-defined template patterns to tag classes. Each entry has 'template' (MSVC"
-                    + " template name to match in RTTI entries) and 'tag' (label to apply)."
+                "Agent-defined template patterns to tag classes. Each entry has 'template'"
+                    + " (MSVC template name to match in RTTI entries) and 'tag' (label to apply)."
                     + " Example:"
                     + " [{\"template\":\"sp_ms_deleter\",\"tag\":\"smart_ptr_managed\"}]"));
 
