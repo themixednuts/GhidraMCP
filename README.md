@@ -117,7 +117,7 @@ The steps below are only for building from source.
    - `just update-verification-metadata` refreshes Gradle dependency verification checksums after dependency changes
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.7.0-pre2.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.7.0-pre3.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 
