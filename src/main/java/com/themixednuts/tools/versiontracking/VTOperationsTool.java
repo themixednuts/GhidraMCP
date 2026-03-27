@@ -13,9 +13,13 @@ import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.feature.vt.api.main.VTAssociation;
 import ghidra.feature.vt.api.main.VTAssociationStatus;
 import ghidra.feature.vt.api.main.VTAssociationType;
+import ghidra.feature.vt.api.main.VTMarkupItem;
+import ghidra.feature.vt.api.main.VTMarkupItemApplyActionType;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
 import ghidra.feature.vt.api.main.VTSession;
+import ghidra.feature.vt.api.util.VersionTrackingApplyException;
+import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
@@ -23,6 +27,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.lang.reflect.Constructor;
@@ -60,6 +65,8 @@ import reactor.core.publisher.Mono;
         - Accepting a match may block other matches that conflict with it
         - Markup can only be applied to ACCEPTED matches
         - Changes are persisted to the VT session file
+        - Use exclude_default_names: true in list_matches to find matches with user-defined source names for propagation
+        - Standard workflow: run correlators -> accept matches -> apply markup -> save
         </important_notes>
 
         <return_value_summary>
@@ -90,6 +97,10 @@ public class VTOperationsTool extends BaseVTTool {
   public static final String ARG_EXCLUDE_ACCEPTED = "exclude_accepted";
   public static final String ARG_MARKUP_TYPES = "markup_types";
   public static final String ARG_APPLY_ACTION = "apply_action";
+  public static final String ARG_EXCLUDE_DEFAULT_NAMES = "exclude_default_names";
+
+  private static final Set<String> DEFAULT_NAME_PREFIXES =
+      Set.of("FUN_", "thunk_FUN_", "DAT_", "LAB_", "s_", "PTR_", "switchD_", "caseD_", "EXTERNAL_");
 
   // Match management actions
   private static final String ACTION_ACCEPT = "accept";
@@ -258,6 +269,14 @@ public class VTOperationsTool extends BaseVTTool {
             .enumValues("REPLACE", "ADD")
             .description(
                 "How to apply markup: REPLACE (overwrite) or ADD (merge). Default: REPLACE"));
+
+    schemaRoot.property(
+        ARG_EXCLUDE_DEFAULT_NAMES,
+        SchemaBuilder.bool(mapper)
+            .description(
+                "When true, skip matches whose source function name starts with a default"
+                    + " prefix (FUN_, thunk_FUN_, DAT_, LAB_, s_, PTR_, switchD_, caseD_,"
+                    + " EXTERNAL_). Only applies to list_matches."));
 
     schemaRoot.property(
         ARG_CURSOR,
@@ -715,6 +734,8 @@ public class VTOperationsTool extends BaseVTTool {
     Optional<Double> minConfidence =
         getOptionalBoundedDoubleArgument(args, ARG_MIN_CONFIDENCE, 0.0, null);
     Optional<String> correlatorFilter = getOptionalStringArgument(args, ARG_CORRELATOR);
+    boolean excludeDefaultNames =
+        getOptionalBooleanArgument(args, ARG_EXCLUDE_DEFAULT_NAMES).orElse(false);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
@@ -800,6 +821,14 @@ public class VTOperationsTool extends BaseVTTool {
         // Apply filters
         if (!matchesFilters(match, statusFilter, typeFilter, minSimilarity, minConfidence)) {
           continue;
+        }
+
+        if (excludeDefaultNames) {
+          String sourceName =
+              getSymbolOrFunctionName(sourceProgram, match.getAssociation().getSourceAddress());
+          if (sourceName != null && hasDefaultNamePrefix(sourceName)) {
+            continue;
+          }
         }
 
         if (results.size() >= pageSize) {
@@ -899,6 +928,15 @@ public class VTOperationsTool extends BaseVTTool {
     }
 
     return null;
+  }
+
+  private static boolean hasDefaultNamePrefix(String name) {
+    for (String prefix : DEFAULT_NAME_PREFIXES) {
+      if (name.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // =================== Correlators ===================
@@ -1126,10 +1164,10 @@ public class VTOperationsTool extends BaseVTTool {
         false,
         session -> {
           VTMatch match = findMatchForMarkup(session, args);
-          Collection<Object> markupItems = getMarkupItemsReflective(match);
+          Collection<VTMarkupItem> markupItems = getMarkupItems(match);
 
           List<VTMarkupItemInfo> results = new ArrayList<>();
-          for (Object item : markupItems) {
+          for (VTMarkupItem item : markupItems) {
             results.add(buildMarkupItemInfo(item));
           }
 
@@ -1167,9 +1205,9 @@ public class VTOperationsTool extends BaseVTTool {
                   "Failed to apply markup: ",
                   () -> {
                     int applied = 0;
-                    Collection<Object> markupItems = getMarkupItemsReflective(match);
+                    Collection<VTMarkupItem> markupItems = getMarkupItems(match);
 
-                    for (Object item : markupItems) {
+                    for (VTMarkupItem item : markupItems) {
                       if (!shouldApplyMarkupItem(item, requestedTypes)) {
                         continue;
                       }
@@ -1238,8 +1276,8 @@ public class VTOperationsTool extends BaseVTTool {
                         processed++;
 
                         try {
-                          Collection<Object> markupItems = getMarkupItemsReflective(match);
-                          for (Object item : markupItems) {
+                          Collection<VTMarkupItem> markupItems = getMarkupItems(match);
+                          for (VTMarkupItem item : markupItems) {
                             if (!shouldApplyMarkupItem(item, requestedTypes)) {
                               continue;
                             }
@@ -1301,9 +1339,9 @@ public class VTOperationsTool extends BaseVTTool {
                   "Failed to unapply markup: ",
                   () -> {
                     int unapplied = 0;
-                    Collection<Object> markupItems = getMarkupItemsReflective(match);
+                    Collection<VTMarkupItem> markupItems = getMarkupItems(match);
 
-                    for (Object item : markupItems) {
+                    for (VTMarkupItem item : markupItems) {
                       if (!shouldApplyMarkupItem(item, requestedTypes)) {
                         continue;
                       }
@@ -1338,23 +1376,16 @@ public class VTOperationsTool extends BaseVTTool {
         .match();
   }
 
-  @SuppressWarnings("unchecked")
-  private Collection<Object> getMarkupItemsReflective(VTMatch match) throws GhidraMcpException {
+  private Collection<VTMarkupItem> getMarkupItems(VTMatch match) throws GhidraMcpException {
     try {
-      Object association = match.getAssociation();
-      Method getMarkupItems = association.getClass().getMethod("getMarkupItems", TaskMonitor.class);
-      return (Collection<Object>) getMarkupItems.invoke(association, TaskMonitor.DUMMY);
-    } catch (NoSuchMethodException e) {
+      return match.getAssociation().getMarkupItems(TaskMonitor.DUMMY);
+    } catch (CancelledException e) {
       throw new GhidraMcpException(
-          GhidraMcpError.execution()
-              .message("Markup operations not available. Ensure DB.jar is in the lib folder.")
-              .hint("Copy DB.jar from <GHIDRA_INSTALL>/Ghidra/Framework/DB/lib/DB.jar to" + " lib/")
-              .build());
+          GhidraMcpError.execution().message("Markup item retrieval was cancelled").build());
     } catch (Exception e) {
-      Throwable cause = e.getCause() != null ? e.getCause() : e;
       throw new GhidraMcpException(
           GhidraMcpError.execution()
-              .message("Failed to get markup items: " + cause.getMessage())
+              .message("Failed to get markup items: " + e.getMessage())
               .build());
     }
   }
@@ -1429,18 +1460,20 @@ public class VTOperationsTool extends BaseVTTool {
         GhidraMcpError.invalid(ARG_APPLY_ACTION, applyAction, "must be one of: REPLACE, ADD"));
   }
 
-  private boolean shouldApplyMarkupItem(Object item, Set<String> requestedTypes) {
+  private boolean shouldApplyMarkupItem(VTMarkupItem item, Set<String> requestedTypes) {
     if (requestedTypes == null) {
       return true;
     }
 
-    String typeName = getMarkupTypeName(item);
-    if (typeName == null) {
-      return false;
-    }
+    // Check both the display name and the class simple name for matching,
+    // since MARKUP_TYPE_MAP values (e.g. "FunctionName") match class names
+    // while display names may contain spaces (e.g. "Function Name").
+    String displayName = item.getMarkupType().getDisplayName();
+    String className = item.getMarkupType().getClass().getSimpleName();
 
     for (String requested : requestedTypes) {
-      if (typeName.contains(requested)) {
+      if ((displayName != null && displayName.contains(requested))
+          || (className != null && className.contains(requested))) {
         return true;
       }
     }
@@ -1448,126 +1481,41 @@ public class VTOperationsTool extends BaseVTTool {
     return false;
   }
 
-  private String getMarkupTypeName(Object item) {
-    try {
-      Method getMarkupType = item.getClass().getMethod("getMarkupType");
-      Object markupType = getMarkupType.invoke(item);
-      if (markupType != null) {
-        return markupType.getClass().getSimpleName();
-      }
-    } catch (Exception e) {
-      // Fall back to class name
-    }
-    return item.getClass().getSimpleName();
+  private String getMarkupTypeName(VTMarkupItem item) {
+    return item.getMarkupType().getDisplayName();
   }
 
-  @SuppressWarnings("unchecked")
-  private void applyMarkupItem(Object item, String applyActionStr) throws Exception {
-    Class<?> actionTypeClass =
-        Class.forName("ghidra.feature.vt.api.main.VTMarkupItemApplyActionType");
-    Object applyAction =
+  private void applyMarkupItem(VTMarkupItem item, String applyActionStr)
+      throws VersionTrackingApplyException {
+    VTMarkupItemApplyActionType applyAction =
         "ADD".equalsIgnoreCase(applyActionStr)
-            ? Enum.valueOf((Class<Enum>) actionTypeClass, "ADD")
-            : Enum.valueOf((Class<Enum>) actionTypeClass, "REPLACE");
+            ? VTMarkupItemApplyActionType.ADD
+            : VTMarkupItemApplyActionType.REPLACE;
 
-    Class<?> toolOptionsClass = Class.forName("ghidra.framework.options.ToolOptions");
-    Object toolOptions = toolOptionsClass.getConstructor(String.class).newInstance("VTMarkup");
-
-    Method applyMethod = item.getClass().getMethod("apply", actionTypeClass, toolOptionsClass);
-    applyMethod.invoke(item, applyAction, toolOptions);
+    item.apply(applyAction, new ToolOptions("VTMarkup"));
   }
 
-  private boolean isMarkupApplied(Object item) {
-    try {
-      Method getStatus = item.getClass().getMethod("getStatus");
-      Object status = getStatus.invoke(item);
-      if (status != null) {
-        Method isUnappliable = status.getClass().getMethod("isUnappliable");
-        return (Boolean) isUnappliable.invoke(status);
-      }
-    } catch (Exception e) {
-      // Default to not applied
-    }
-    return false;
+  private boolean isMarkupApplied(VTMarkupItem item) {
+    return item.getStatus().isUnappliable();
   }
 
-  private void unapplyMarkupItem(Object item) throws Exception {
-    Method unapplyMethod = item.getClass().getMethod("unapply");
-    unapplyMethod.invoke(item);
+  private void unapplyMarkupItem(VTMarkupItem item) throws VersionTrackingApplyException {
+    item.unapply();
   }
 
-  private VTMarkupItemInfo buildMarkupItemInfo(Object item) {
-    String sourceValue = null;
-    String destValue = null;
-    String sourceAddr = null;
-    String destAddr = null;
-    String typeName = "Unknown";
-    String status = "UNKNOWN";
+  private VTMarkupItemInfo buildMarkupItemInfo(VTMarkupItem item) {
+    String typeName = item.getMarkupType().getDisplayName();
+    Address srcAddr = item.getSourceAddress();
+    Address dstAddr = item.getDestinationAddress();
+    Object srcVal = item.getSourceValue();
+    Object dstVal = item.getCurrentDestinationValue();
 
-    try {
-      Method getSourceValue = item.getClass().getMethod("getSourceValue");
-      Object srcVal = getSourceValue.invoke(item);
-      if (srcVal != null) {
-        sourceValue = srcVal.toString();
-      }
-    } catch (Exception e) {
-      // Skip
-    }
-
-    try {
-      Method getDestValue = item.getClass().getMethod("getCurrentDestinationValue");
-      Object destVal = getDestValue.invoke(item);
-      if (destVal != null) {
-        destValue = destVal.toString();
-      }
-    } catch (Exception e) {
-      // Skip
-    }
-
-    try {
-      Method getSourceAddress = item.getClass().getMethod("getSourceAddress");
-      Object addr = getSourceAddress.invoke(item);
-      if (addr != null) {
-        sourceAddr = addr.toString();
-      }
-    } catch (Exception e) {
-      // Skip
-    }
-
-    try {
-      Method getDestAddress = item.getClass().getMethod("getDestinationAddress");
-      Object addr = getDestAddress.invoke(item);
-      if (addr != null) {
-        destAddr = addr.toString();
-      }
-    } catch (Exception e) {
-      // Skip
-    }
-
-    try {
-      Method getMarkupType = item.getClass().getMethod("getMarkupType");
-      Object markupType = getMarkupType.invoke(item);
-      if (markupType != null) {
-        Method getDisplayName = markupType.getClass().getMethod("getDisplayName");
-        Object name = getDisplayName.invoke(markupType);
-        if (name != null) {
-          typeName = name.toString();
-        }
-      }
-    } catch (Exception e) {
-      // Use default
-    }
-
-    try {
-      Method getStatus = item.getClass().getMethod("getStatus");
-      Object statusObj = getStatus.invoke(item);
-      if (statusObj != null) {
-        status = statusObj.toString();
-      }
-    } catch (Exception e) {
-      // Use default
-    }
-
-    return new VTMarkupItemInfo(typeName, sourceAddr, destAddr, sourceValue, destValue, status);
+    return new VTMarkupItemInfo(
+        typeName,
+        srcAddr != null ? srcAddr.toString() : null,
+        dstAddr != null ? dstAddr.toString() : null,
+        srcVal != null ? srcVal.toString() : null,
+        dstVal != null ? dstVal.toString() : null,
+        item.getStatus().toString());
   }
 }

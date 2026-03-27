@@ -189,6 +189,7 @@ dependencies {
   implementation libs.jetty.ee10.servlet
 
   compileOnly ghidraJarFiles
+  compileOnly libs.jdom.legacy
   testImplementation ghidraJarFiles
 
   testImplementation libs.reflections
