@@ -27,6 +27,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
+import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
@@ -66,7 +67,15 @@ import reactor.core.publisher.Mono;
         - Markup can only be applied to ACCEPTED matches
         - Changes are persisted to the VT session file automatically
         - Use exclude_default_names: true in list_matches to find matches with user-defined source names for propagation
-        - Standard workflow: run correlators -> accept matches -> apply markup
+        - Recommended multi-pass workflow for finding changed functions between binary versions:
+          1. Run exact correlators (symbol_name, exact_bytes, exact_instructions) to establish baseline matches
+          2. accept_bulk the high-confidence exact matches (similarity=1.0)
+          3. Run reference-based correlators (combined_reference, function_reference) with min_similarity=0.5
+          4. Matches with similarity < 1.0 from step 3 are functions that CHANGED between versions
+          5. Use list_matches with min_similarity/max_similarity filters to find specific ranges
+          6. Apply markup to propagate analysis from accepted matches
+        - Reference correlators (function_reference, data_reference, combined_reference) require accepted matches to work — run exact correlators and accept first
+        - Use min_similarity and min_confidence args with run_correlator to tune reference/similarity correlator thresholds
         </important_notes>
 
         <return_value_summary>
@@ -126,6 +135,7 @@ public class VTOperationsTool extends BaseVTTool {
   private static final Map<String, String> CORRELATOR_CLASS_MAP = new HashMap<>();
 
   static {
+    // Exact match correlators (similarity = 1.0, run first)
     CORRELATOR_CLASS_MAP.put(
         "exact_bytes",
         "ghidra.feature.vt.api.correlator.program.ExactMatchBytesProgramCorrelatorFactory");
@@ -133,11 +143,41 @@ public class VTOperationsTool extends BaseVTTool {
         "exact_instructions",
         "ghidra.feature.vt.api.correlator.program.ExactMatchInstructionsProgramCorrelatorFactory");
     CORRELATOR_CLASS_MAP.put(
+        "exact_mnemonics",
+        "ghidra.feature.vt.api.correlator.program.ExactMatchMnemonicsProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
         "exact_data",
         "ghidra.feature.vt.api.correlator.program.ExactDataMatchProgramCorrelatorFactory");
     CORRELATOR_CLASS_MAP.put(
         "symbol_name",
         "ghidra.feature.vt.api.correlator.program.SymbolNameProgramCorrelatorFactory");
+    // Fuzzy/similarity correlators (similarity < 1.0)
+    CORRELATOR_CLASS_MAP.put(
+        "similar_symbol_name",
+        "ghidra.feature.vt.api.correlator.program.SimilarSymbolNameProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
+        "similar_data",
+        "ghidra.feature.vt.api.correlator.program.SimilarDataProgramCorrelatorFactory");
+    // Reference-based correlators (require accepted matches first)
+    CORRELATOR_CLASS_MAP.put(
+        "function_reference",
+        "ghidra.feature.vt.api.correlator.program.FunctionReferenceProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
+        "data_reference",
+        "ghidra.feature.vt.api.correlator.program.DataReferenceProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
+        "combined_reference",
+        "ghidra.feature.vt.api.correlator.program.CombinedFunctionAndDataReferenceProgramCorrelatorFactory");
+    // Duplicate correlators (find ambiguous matches)
+    CORRELATOR_CLASS_MAP.put(
+        "duplicate_function",
+        "ghidra.feature.vt.api.correlator.program.DuplicateFunctionMatchProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
+        "duplicate_data",
+        "ghidra.feature.vt.api.correlator.program.DuplicateDataMatchProgramCorrelatorFactory");
+    CORRELATOR_CLASS_MAP.put(
+        "duplicate_symbol_name",
+        "ghidra.feature.vt.api.correlator.program.DuplicateSymbolNameProgramCorrelatorFactory");
   }
 
   // Mapping of user-friendly names to VT markup type class name substrings
@@ -190,13 +230,21 @@ public class VTOperationsTool extends BaseVTTool {
     schemaRoot.property(
         ARG_MIN_SIMILARITY,
         SchemaBuilder.number(mapper)
-            .description("Minimum similarity score (0.0 to 1.0)")
+            .description(
+                "Minimum similarity score (0.0 to 1.0). For list_matches: filters results."
+                    + " For run_correlator: sets the correlator's similarity threshold"
+                    + " (reference/similarity correlators only).")
             .minimum(0.0)
             .maximum(1.0));
 
     schemaRoot.property(
         ARG_MIN_CONFIDENCE,
-        SchemaBuilder.number(mapper).description("Minimum confidence score (>= 0.0)").minimum(0.0));
+        SchemaBuilder.number(mapper)
+            .description(
+                "Minimum confidence score (>= 0.0). For list_matches: filters results."
+                    + " For run_correlator: sets the correlator's confidence threshold"
+                    + " (reference correlators only).")
+            .minimum(0.0));
 
     schemaRoot.property(
         ARG_MAX_SIMILARITY,
@@ -230,7 +278,20 @@ public class VTOperationsTool extends BaseVTTool {
     schemaRoot.property(
         ARG_CORRELATOR_TYPE,
         SchemaBuilder.string(mapper)
-            .enumValues("exact_bytes", "exact_instructions", "exact_data", "symbol_name")
+            .enumValues(
+                "exact_bytes",
+                "exact_instructions",
+                "exact_mnemonics",
+                "exact_data",
+                "symbol_name",
+                "similar_symbol_name",
+                "similar_data",
+                "function_reference",
+                "data_reference",
+                "combined_reference",
+                "duplicate_function",
+                "duplicate_data",
+                "duplicate_symbol_name")
             .description("Type of correlator to run (for run_correlator)"));
 
     schemaRoot.property(
@@ -944,23 +1005,78 @@ public class VTOperationsTool extends BaseVTTool {
   private List<VTCorrelatorInfo> handleListCorrelators() {
     List<VTCorrelatorInfo> correlators = new ArrayList<>();
 
+    // Exact match correlators (similarity = 1.0, run these first)
     correlators.add(
         new VTCorrelatorInfo(
             "Exact Bytes Match", "exact_bytes", "Finds functions with identical byte sequences"));
-
     correlators.add(
         new VTCorrelatorInfo(
             "Exact Instructions Match",
             "exact_instructions",
-            "Finds functions with identical instruction sequences (ignoring operand" + " values)"));
-
+            "Finds functions with identical instruction sequences (ignoring operand values)"));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Exact Mnemonics Match",
+            "exact_mnemonics",
+            "Finds functions with identical instruction mnemonics (ignoring all operands)"));
     correlators.add(
         new VTCorrelatorInfo(
             "Exact Data Match", "exact_data", "Finds data items with identical byte values"));
-
     correlators.add(
         new VTCorrelatorInfo(
             "Symbol Name Match", "symbol_name", "Finds symbols with matching names"));
+
+    // Fuzzy/similarity correlators (can produce similarity < 1.0)
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Similar Symbol Name Match",
+            "similar_symbol_name",
+            "LSH-based fuzzy symbol name matching (default similarity threshold: 0.5)"));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Similar Data Match",
+            "similar_data",
+            "LSH-based fuzzy data matching (default similarity threshold: 0.5)"));
+
+    // Reference-based correlators (require accepted matches first)
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Function Reference Correlator",
+            "function_reference",
+            "Matches functions by shared references to already-accepted function matches."
+                + " Requires accepted matches. Supports min_similarity and min_confidence"
+                + " options."));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Data Reference Correlator",
+            "data_reference",
+            "Matches functions by shared references to already-accepted data matches."
+                + " Requires accepted matches. Supports min_similarity and min_confidence"
+                + " options."));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Combined Function and Data Reference Correlator",
+            "combined_reference",
+            "Matches functions by combined function and data reference patterns."
+                + " Requires accepted matches. Best for finding changed functions between"
+                + " versions. Supports min_similarity and min_confidence options."));
+
+    // Duplicate correlators (find ambiguous matches)
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Duplicate Function Match",
+            "duplicate_function",
+            "Finds functions with multiple identical matches (ambiguous results)"));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Duplicate Data Match",
+            "duplicate_data",
+            "Finds data items with multiple identical matches (ambiguous results)"));
+    correlators.add(
+        new VTCorrelatorInfo(
+            "Duplicate Symbol Name Match",
+            "duplicate_symbol_name",
+            "Finds symbols with multiple identical name matches (ambiguous results)"));
 
     return correlators;
   }
@@ -973,6 +1089,10 @@ public class VTOperationsTool extends BaseVTTool {
     Optional<String> destMinAddr = getOptionalStringArgument(args, ARG_DEST_MIN_ADDRESS);
     Optional<String> destMaxAddr = getOptionalStringArgument(args, ARG_DEST_MAX_ADDRESS);
     boolean excludeAccepted = getOptionalBooleanArgument(args, ARG_EXCLUDE_ACCEPTED).orElse(true);
+    Optional<Double> minSimilarity =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_SIMILARITY, 0.0, 1.0);
+    Optional<Double> minConfidence =
+        getOptionalBoundedDoubleArgument(args, ARG_MIN_CONFIDENCE, 0.0, null);
 
     String factoryClassName = CORRELATOR_CLASS_MAP.get(correlatorType.toLowerCase());
     if (factoryClassName == null) {
@@ -980,7 +1100,7 @@ public class VTOperationsTool extends BaseVTTool {
           GhidraMcpError.invalid(
               ARG_CORRELATOR_TYPE,
               correlatorType,
-              "must be one of: exact_bytes, exact_instructions, exact_data, symbol_name"));
+              "must be one of: " + String.join(", ", CORRELATOR_CLASS_MAP.keySet())));
     }
 
     return withSession(
@@ -998,7 +1118,14 @@ public class VTOperationsTool extends BaseVTTool {
 
           VTMatchSet matchSet =
               runCorrelatorReflective(
-                  session, factoryClassName, sourceProgram, sourceSet, destProgram, destSet);
+                  session,
+                  factoryClassName,
+                  sourceProgram,
+                  sourceSet,
+                  destProgram,
+                  destSet,
+                  minSimilarity,
+                  minConfidence);
 
           Map<String, Object> result = new HashMap<>();
           result.put("correlator", correlatorType);
@@ -1027,7 +1154,9 @@ public class VTOperationsTool extends BaseVTTool {
       Program sourceProgram,
       AddressSetView sourceSet,
       Program destProgram,
-      AddressSetView destSet)
+      AddressSetView destSet,
+      Optional<Double> minSimilarity,
+      Optional<Double> minConfidence)
       throws GhidraMcpException {
     try {
       Class<?> factoryClass = Class.forName(factoryClassName);
@@ -1044,6 +1173,12 @@ public class VTOperationsTool extends BaseVTTool {
                 .message("Correlator factory returned invalid options type")
                 .build());
       }
+
+      // Apply user-specified option overrides via ToolOptions methods
+      applyCorrelatorOption(
+          options, vtOptionsClass, "Minimum similarity threshold (score)", minSimilarity);
+      applyCorrelatorOption(
+          options, vtOptionsClass, "Confidence threshold (info content)", minConfidence);
 
       Class<?> addressSetViewClass = AddressSetView.class;
       Method createCorrelatorMethod =
@@ -1085,6 +1220,28 @@ public class VTOperationsTool extends BaseVTTool {
               .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
               .message("Failed to run correlator: " + cause.getMessage())
               .build());
+    }
+  }
+
+  /**
+   * Applies a double option to VTOptions if the value is present and the option exists. Silently
+   * ignores options that don't exist for the given correlator.
+   */
+  private void applyCorrelatorOption(
+      Object options, Class<?> vtOptionsClass, String optionName, Optional<Double> value) {
+    if (value.isEmpty()) {
+      return;
+    }
+    try {
+      // VTOptions extends ToolOptions; check if option is registered before setting
+      Method containsMethod = vtOptionsClass.getMethod("contains", String.class);
+      boolean contains = (boolean) containsMethod.invoke(options, optionName);
+      if (contains) {
+        Method setDoubleMethod = vtOptionsClass.getMethod("setDouble", String.class, double.class);
+        setDoubleMethod.invoke(options, optionName, value.get());
+      }
+    } catch (Exception e) {
+      Msg.warn(this, "Failed to set correlator option '" + optionName + "': " + e.getMessage());
     }
   }
 

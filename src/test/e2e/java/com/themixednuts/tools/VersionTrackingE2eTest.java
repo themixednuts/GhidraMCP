@@ -72,13 +72,13 @@ class VersionTrackingE2eTest {
 
   @Test
   @Order(20)
-  void listCorrelatorsReturnsFourTypes() {
+  void listCorrelatorsReturnsAllTypes() {
     InMemoryVTOperationsTool tool = new InMemoryVTOperationsTool(fixture.session());
     Object raw = tool.execute(null, Map.of("action", "list_correlators"), null).block();
 
     @SuppressWarnings("unchecked")
     List<VTCorrelatorInfo> correlators = assertInstanceOf(List.class, raw);
-    assertEquals(4, correlators.size());
+    assertEquals(13, correlators.size());
   }
 
   @Test
