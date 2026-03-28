@@ -45,25 +45,23 @@ import reactor.core.publisher.Mono;
         </use_case>
 
         <important_notes>
-        - Supports list/get for browsing and reading, create/update for mutations
-        - List mode supports regex filtering by name_pattern, category_path, and type_kind
-        - Get mode returns detailed DataTypeReadResult by data_type_id or name+category_path
-        - Supports complex operations like creating structs with all members in one call
-        - Handles category organization and type resolution automatically
-        - Validates data types and provides detailed error messages
-        - Uses transactions for safe modifications
-        - CRITICAL: Use 'update' action instead of 'delete' + 'create' to preserve existing references
-        - For browsing all data types without filtering, use the ghidra://program/{name}/datatypes resource
+        - Actions: list, get, create, update (no "create_category" — use create with data_type_kind="category")
+        - Required param for create/update: data_type_kind (NOT "kind" or "type")
+        - Struct/union members use "members" array (NOT "fields"), with "data_type_path" for types (NOT "type")
+        - Enum values use "entries" array with "name" and "value" keys
+        - Update with members replaces ALL existing members (full replacement, not additive)
+        - Use 'update' instead of 'delete' + 'create' to preserve existing references
+        - For browsing without filtering, use the ghidra://program/{name}/datatypes resource
         </important_notes>
 
-        <member_data_type_resolution>
-        For struct/union members, data type resolution follows this precedence order:
-        1. PRIMARY: 'data_type_id' - Direct lookup by internal ID (most efficient)
-        2. SECONDARY: 'data_type_path' - String-based resolution (e.g., "int", "char *", "/MyCategory/MyStruct")
-
-        At least one of 'data_type_id' or 'data_type_path' must be provided for each member.
-        Use 'data_type_id' when available for better performance and reliability.
-        </member_data_type_resolution>
+        <member_format>
+        Struct/union members: {"name": "field_name", "data_type_path": "int", "comment": "optional"}
+        - data_type_path accepts: "int", "byte", "ushort", "char *", "/MyCategory/MyType", "int[10]"
+        - Alternative: use "data_type_id" (numeric) instead of "data_type_path" for known types
+        - For structs: optional "offset" (-1 or omit to append)
+        Enum entries: {"name": "ENTRY_NAME", "value": 42, "comment": "optional"}
+        Function parameters: {"name": "param1", "type": "int *"}
+        </member_format>
 
         <examples>
         List all data types (first page):
@@ -94,6 +92,15 @@ import reactor.core.publisher.Mono;
           "action": "get",
           "data_type_kind": "struct",
           "data_type_id": 12345
+        }
+
+        Create a category:
+        {
+          "file_name": "program.exe",
+          "action": "create",
+          "data_type_kind": "category",
+          "name": "MyCategory",
+          "category_path": "/"
         }
 
         Create a struct with members:
@@ -1018,6 +1025,7 @@ public class DataTypesTool extends BaseMcpTool {
 
     // Add members if provided
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
+    warnIfWrongMemberKey(args, members);
     processStructMembers(members, dtm, (Structure) addedStruct);
 
     return new CreateDataTypeResult(
@@ -1093,6 +1101,7 @@ public class DataTypesTool extends BaseMcpTool {
 
     // Add members if provided
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
+    warnIfWrongMemberKey(args, members);
     processUnionMembers(members, dtm, newUnion);
 
     DataType addedUnion = dtm.addDataType(newUnion, DataTypeConflictHandler.REPLACE_HANDLER);
@@ -1402,6 +1411,7 @@ public class DataTypesTool extends BaseMcpTool {
     getOptionalStringArgument(args, ARG_COMMENT).ifPresent(struct::setDescription);
 
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
+    warnIfWrongMemberKey(args, members);
     if (members != null && !members.isEmpty()) {
       struct.deleteAll();
       for (Map<String, Object> member : members) {
@@ -1511,6 +1521,7 @@ public class DataTypesTool extends BaseMcpTool {
     getOptionalStringArgument(args, ARG_COMMENT).ifPresent(union::setDescription);
 
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
+    warnIfWrongMemberKey(args, members);
     if (members != null && !members.isEmpty()) {
       UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
 
@@ -1843,6 +1854,20 @@ public class DataTypesTool extends BaseMcpTool {
   }
 
   /** Enhanced member data type resolution with priority: dataTypeId > dataTypePath. */
+  /**
+   * Throws an error if the agent passed "fields" instead of "members", preventing silent failure.
+   */
+  private void warnIfWrongMemberKey(Map<String, Object> args, List<Map<String, Object>> members)
+      throws GhidraMcpException {
+    if (members == null && args.containsKey("fields")) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of(
+              "Unknown parameter 'fields' — use 'members' for struct/union fields",
+              "Rename 'fields' to 'members'. Each member needs 'name' and 'data_type_path'."
+                  + " Example: {\"members\": [{\"name\": \"x\", \"data_type_path\": \"int\"}]}"));
+    }
+  }
+
   private DataType resolveMemberDataType(
       DataTypeManager dtm, Map<String, Object> member, String memberName)
       throws GhidraMcpException {
@@ -1851,11 +1876,25 @@ public class DataTypesTool extends BaseMcpTool {
     Optional<String> dataTypePathOpt = getOptionalStringArgument(member, ARG_DATA_TYPE_PATH);
 
     if (dataTypeIdOpt.isEmpty() && dataTypePathOpt.isEmpty()) {
+      // Check for common agent mistakes
+      String hint =
+          "Each member needs 'data_type_path' (e.g., \"int\", \"byte\", \"char *\") or"
+              + " 'data_type_id' (numeric). Example: {\"name\": \"field1\","
+              + " \"data_type_path\": \"int\"}";
+      if (member.containsKey("type") || member.containsKey("data_type")) {
+        hint =
+            "Found '"
+                + (member.containsKey("type") ? "type" : "data_type")
+                + "' — use 'data_type_path' instead. Example: {\"name\": \""
+                + memberName
+                + "\", \"data_type_path\": \""
+                + member.getOrDefault("type", member.get("data_type"))
+                + "\"}";
+      }
       throw new GhidraMcpException(
           GhidraMcpError.of(
               "Member '" + memberName + "' requires either 'data_type_id' or 'data_type_path'",
-              "Provide either data_type_id (numeric ID) or data_type_path (e.g., 'int',"
-                  + " '/MyCategory/MyType')"));
+              hint));
     }
 
     // 1. PRIMARY: Try data type ID lookup (most direct)
