@@ -288,6 +288,7 @@ public abstract class BaseMcpTool {
     ProgramResourceTracker tracker = new ProgramResourceTracker();
 
     return execute(ctx, args, tool)
+        .subscribeOn(Schedulers.boundedElastic())
         .map(
             result -> {
               long duration = System.currentTimeMillis() - startTime;
