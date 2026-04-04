@@ -1,6 +1,7 @@
 package com.themixednuts.tools;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.DataTypeReadResult;
 import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemoryWriteResult;
@@ -227,6 +229,76 @@ class MutationToolsE2eTest {
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void renameVariableRenamesDecompilerLocalAndVerifiesViaListVariables() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createFixtureWithLocalVariables();
+    try {
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
+
+      // Discover decompiler-generated variable names
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variables =
+          assertInstanceOf(PaginatedResult.class, listRaw);
+      assertFalse(variables.results.isEmpty(), "Expected decompiler to produce local variables");
+
+      // Pick the first non-parameter variable to rename
+      FunctionVariableInfo target =
+          variables.results.stream()
+              .filter(v -> !v.isParameter())
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("No non-parameter variable found to rename"));
+
+      String originalName = target.getEffectiveName();
+      String renamedName = "test_renamed_var";
+
+      // Rename the variable
+      @SuppressWarnings("unchecked")
+      Map<String, Object> renameResult =
+          (Map<String, Object>)
+              tool.execute(
+                      null,
+                      Map.of(
+                          "file_name", "fixture",
+                          "action", "rename_variable",
+                          "address", "0x401000",
+                          "current_name", originalName,
+                          "new_name", renamedName),
+                      null)
+                  .block();
+
+      assertNotNull(renameResult);
+      assertEquals(originalName, renameResult.get("old_name"));
+      assertEquals(renamedName, renameResult.get("new_name"));
+
+      // Verify the rename persisted by listing variables again
+      Object listAfterRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variablesAfter =
+          assertInstanceOf(PaginatedResult.class, listAfterRaw);
+
+      boolean renamedFound =
+          variablesAfter.results.stream().anyMatch(v -> renamedName.equals(v.getEffectiveName()));
+      assertTrue(renamedFound, "Expected to find variable with new name '" + renamedName + "'");
     } finally {
       fixture.close();
     }
