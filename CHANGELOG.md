@@ -7,6 +7,11 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre4] - 2026-04-04
+
+### Added
+- **`functions.rename_variable` action** — Rename local variables within functions using the decompiler's high-level variable mapping via `HighFunctionDBUtil` (closes #38)
+
 ## [0.7.0-pre1] - 2026-03-25
 
 ### Changed
