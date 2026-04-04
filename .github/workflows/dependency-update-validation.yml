@@ -38,7 +38,7 @@ jobs:
           distribution: "temurin"
       - name: Set up Gradle
         if: env.BOT_DEP_PR == 'true'
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Resolve pinned dependency versions
         if: env.BOT_DEP_PR == 'true'
