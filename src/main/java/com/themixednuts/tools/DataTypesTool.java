@@ -49,7 +49,7 @@ import reactor.core.publisher.Mono;
         - Required param for create/update: data_type_kind (NOT "kind" or "type")
         - Struct/union members use "members" array (NOT "fields"), with "data_type_path" for types (NOT "type")
         - Enum values use "entries" array with "name" and "value" keys
-        - Update with members replaces ALL existing members (full replacement, not additive)
+        - Update with members defaults to replacing ALL existing members; use member_update_mode="patch" for granular edits (by offset for structs, by ordinal for unions)
         - Use 'update' instead of 'delete' + 'create' to preserve existing references
         - For browsing without filtering, use the ghidra://program/{name}/datatypes resource
         </important_notes>
@@ -59,6 +59,7 @@ import reactor.core.publisher.Mono;
         - data_type_path accepts: "int", "byte", "ushort", "char *", "/MyCategory/MyType", "int[10]"
         - Alternative: use "data_type_id" (numeric) instead of "data_type_path" for known types
         - For structs: optional "offset" (-1 or omit to append)
+        - For struct patch mode: "offset" is required, only provided fields (name, data_type_path, comment) are updated
         Enum entries: {"name": "ENTRY_NAME", "value": 42, "comment": "optional"}
         Function parameters: {"name": "param1", "type": "int *"}
         </member_format>
@@ -127,6 +128,30 @@ import reactor.core.publisher.Mono;
             {"name": "field3", "data_type_path": "float"}
           ]
         }
+
+        Patch a struct member (rename field at offset 4):
+        {
+          "file_name": "program.exe",
+          "action": "update",
+          "data_type_kind": "struct",
+          "name": "MyStruct",
+          "member_update_mode": "patch",
+          "members": [
+            {"offset": 4, "name": "new_field_name"}
+          ]
+        }
+
+        Patch a struct member (change type and comment at offset 8):
+        {
+          "file_name": "program.exe",
+          "action": "update",
+          "data_type_kind": "struct",
+          "name": "MyStruct",
+          "member_update_mode": "patch",
+          "members": [
+            {"offset": 8, "data_type_path": "long", "comment": "updated comment"}
+          ]
+        }
         </examples>
         """)
 public class DataTypesTool extends BaseMcpTool {
@@ -140,6 +165,7 @@ public class DataTypesTool extends BaseMcpTool {
   public static final String ARG_PARAMETERS = "parameters";
   public static final String ARG_TYPE = "type";
   public static final String ARG_NEW_CATEGORY_PATH = "new_category_path";
+  public static final String ARG_MEMBER_UPDATE_MODE = "member_update_mode";
 
   private static final String ACTION_LIST = "list";
   private static final String ACTION_GET = "get";
@@ -326,6 +352,13 @@ public class DataTypesTool extends BaseMcpTool {
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
                             .description("Alignment: -1=default, 0=machine, >0=explicit"))
                     .property(
+                        ARG_MEMBER_UPDATE_MODE,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .enumValues("replace", "patch")
+                            .description(
+                                "Member update mode: 'replace' (default) deletes all members and"
+                                    + " re-adds; 'patch' updates existing members by offset"))
+                    .property(
                         ARG_MEMBERS,
                         SchemaBuilder.array(mapper)
                             .items(
@@ -349,13 +382,14 @@ public class DataTypesTool extends BaseMcpTool {
                                         ARG_OFFSET,
                                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder
                                             .integer(mapper)
-                                            .description("Offset (-1 for append)"))
+                                            .description(
+                                                "Offset (-1 for append in replace mode; required"
+                                                    + " in patch mode)"))
                                     .property(
                                         ARG_COMMENT,
                                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder
                                             .string(mapper)
-                                            .description("Member comment"))
-                                    .requiredProperty(ARG_NAME))
+                                            .description("Member comment")))
                             .description("Struct members"))),
 
         // === ENUM: Add size (constrained), entries, comment ===
@@ -409,6 +443,13 @@ public class DataTypesTool extends BaseMcpTool {
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                             .description("Comment/description for the data type"))
                     .property(
+                        ARG_MEMBER_UPDATE_MODE,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .enumValues("replace", "patch")
+                            .description(
+                                "Member update mode: 'replace' (default) replaces all members;"
+                                    + " 'patch' updates existing members by ordinal"))
+                    .property(
                         ARG_MEMBERS,
                         SchemaBuilder.array(mapper)
                             .items(
@@ -429,11 +470,17 @@ public class DataTypesTool extends BaseMcpTool {
                                             .integer(mapper)
                                             .description("Member data type ID"))
                                     .property(
+                                        "ordinal",
+                                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder
+                                            .integer(mapper)
+                                            .description(
+                                                "Member ordinal index (required in patch mode,"
+                                                    + " from get action)"))
+                                    .property(
                                         ARG_COMMENT,
                                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder
                                             .string(mapper)
-                                            .description("Member comment"))
-                                    .requiredProperty(ARG_NAME))
+                                            .description("Member comment")))
                             .description("Union members"))),
 
         // === TYPEDEF: Add base_type (required) - NO COMMENT (Ghidra limitation) ===
@@ -778,15 +825,18 @@ public class DataTypesTool extends BaseMcpTool {
           int valueCount = 0;
 
           if (dataType instanceof Structure struct) {
+            DataTypeComponent[] comps = struct.getComponents();
             components =
-                Arrays.stream(struct.getComponents())
-                    .map(
-                        comp ->
+                IntStream.range(0, comps.length)
+                    .mapToObj(
+                        i ->
                             new DataTypeComponentDetail(
-                                Optional.ofNullable(comp.getFieldName()).orElse(""),
-                                comp.getDataType().getName(),
-                                comp.getOffset(),
-                                comp.getLength()))
+                                Optional.ofNullable(comps[i].getFieldName()).orElse(""),
+                                comps[i].getDataType().getName(),
+                                comps[i].getOffset(),
+                                comps[i].getLength(),
+                                comps[i].getComment(),
+                                comps[i].getOrdinal()))
                     .collect(Collectors.toList());
             componentCount = struct.getNumComponents();
           } else if (dataType instanceof ghidra.program.model.data.Enum enumType) {
@@ -797,23 +847,26 @@ public class DataTypesTool extends BaseMcpTool {
                     .collect(Collectors.toList());
             valueCount = enumType.getCount();
           } else if (dataType instanceof Union union) {
+            DataTypeComponent[] comps = union.getComponents();
             components =
-                Arrays.stream(union.getComponents())
-                    .map(
-                        comp ->
+                IntStream.range(0, comps.length)
+                    .mapToObj(
+                        i ->
                             new DataTypeComponentDetail(
-                                Optional.ofNullable(comp.getFieldName()).orElse(""),
-                                comp.getDataType().getName(),
+                                Optional.ofNullable(comps[i].getFieldName()).orElse(""),
+                                comps[i].getDataType().getName(),
                                 null,
-                                comp.getLength()))
+                                comps[i].getLength(),
+                                comps[i].getComment(),
+                                comps[i].getOrdinal()))
                     .collect(Collectors.toList());
             componentCount = union.getNumComponents();
           } else if (dataType instanceof RTTI0DataType) {
             components =
                 List.of(
-                    new DataTypeComponentDetail("vfTablePointer", "Pointer", 0, 8),
-                    new DataTypeComponentDetail("dataPointer", "Pointer", 8, 8),
-                    new DataTypeComponentDetail("name", "NullTerminatedString", 16, -1));
+                    new DataTypeComponentDetail("vfTablePointer", "Pointer", 0, 8, null, 0),
+                    new DataTypeComponentDetail("dataPointer", "Pointer", 8, 8, null, 1),
+                    new DataTypeComponentDetail("name", "NullTerminatedString", 16, -1, null, 2));
             componentCount = 3;
           }
 
@@ -1413,35 +1466,121 @@ public class DataTypesTool extends BaseMcpTool {
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
     warnIfWrongMemberKey(args, members);
     if (members != null && !members.isEmpty()) {
-      struct.deleteAll();
-      for (Map<String, Object> member : members) {
-        String memberName = getRequiredStringArgument(member, ARG_NAME);
-        Integer offset = getOptionalIntArgument(member, ARG_OFFSET).orElse(null);
-        String memberComment = getOptionalStringArgument(member, ARG_COMMENT).orElse(null);
+      String mode = getOptionalStringArgument(args, ARG_MEMBER_UPDATE_MODE).orElse("replace");
 
-        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-        if (memberDataType == null) {
-          String dataTypePath =
-              getOptionalStringArgument(member, ARG_DATA_TYPE_PATH).orElse("not provided");
-          throw new GhidraMcpException(
-              GhidraMcpError.parse("data type for member '" + memberName + "'", dataTypePath));
-        }
-
-        try {
-          if (offset == null || offset == -1) {
-            struct.add(memberDataType, memberName, memberComment);
-          } else {
-            struct.insertAtOffset(
-                offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
-          }
-        } catch (Exception e) {
-          throw new GhidraMcpException(
-              GhidraMcpError.failed("add member '" + memberName + "'", e.getMessage()));
-        }
+      if ("patch".equals(mode)) {
+        patchStructMembers(dtm, struct, members);
+      } else {
+        replaceStructMembers(dtm, struct, members);
       }
     }
 
     return OperationResult.success("update_data_type", "struct", "Struct updated successfully");
+  }
+
+  private void replaceStructMembers(
+      DataTypeManager dtm, Structure struct, List<Map<String, Object>> members)
+      throws GhidraMcpException {
+    struct.deleteAll();
+    for (Map<String, Object> member : members) {
+      String memberName =
+          getOptionalStringArgument(member, ARG_NAME)
+              .orElseThrow(
+                  () ->
+                      new GhidraMcpException(
+                          GhidraMcpError.of(
+                              "Member 'name' is required in replace mode",
+                              "Each member must have a 'name' when using replace mode (the"
+                                  + " default)")));
+      Integer offset = getOptionalIntArgument(member, ARG_OFFSET).orElse(null);
+      String memberComment = getOptionalStringArgument(member, ARG_COMMENT).orElse(null);
+
+      DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+      if (memberDataType == null) {
+        String dataTypePath =
+            getOptionalStringArgument(member, ARG_DATA_TYPE_PATH).orElse("not provided");
+        throw new GhidraMcpException(
+            GhidraMcpError.parse("data type for member '" + memberName + "'", dataTypePath));
+      }
+
+      try {
+        if (offset == null || offset == -1) {
+          struct.add(memberDataType, memberName, memberComment);
+        } else {
+          struct.insertAtOffset(
+              offset, memberDataType, memberDataType.getLength(), memberName, memberComment);
+        }
+      } catch (Exception e) {
+        throw new GhidraMcpException(
+            GhidraMcpError.failed("add member '" + memberName + "'", e.getMessage()));
+      }
+    }
+  }
+
+  private void patchStructMembers(
+      DataTypeManager dtm, Structure struct, List<Map<String, Object>> members)
+      throws GhidraMcpException {
+    for (Map<String, Object> member : members) {
+      int offset =
+          getOptionalIntArgument(member, ARG_OFFSET)
+              .orElseThrow(
+                  () ->
+                      new GhidraMcpException(
+                          GhidraMcpError.of(
+                              "Member 'offset' is required in patch mode",
+                              "Each member must specify 'offset' to identify which existing member"
+                                  + " to update")));
+
+      DataTypeComponent component = struct.getComponentAt(offset);
+      if (component == null) {
+        component = struct.getComponentContaining(offset);
+      }
+      if (component == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.of(
+                "No struct member found at offset " + offset,
+                "Use 'get' action to inspect the struct and find valid offsets"));
+      }
+
+      Optional<Long> dataTypeIdOpt = getOptionalLongArgument(member, ARG_DATA_TYPE_ID);
+      Optional<String> dataTypePathOpt = getOptionalStringArgument(member, ARG_DATA_TYPE_PATH);
+      boolean hasTypeChange = dataTypeIdOpt.isPresent() || dataTypePathOpt.isPresent();
+
+      if (hasTypeChange) {
+        String memberName =
+            getOptionalStringArgument(member, ARG_NAME).orElse(component.getFieldName());
+        String memberComment =
+            getOptionalStringArgument(member, ARG_COMMENT).orElse(component.getComment());
+
+        DataType newType =
+            resolveMemberDataType(
+                dtm, member, memberName != null ? memberName : "field_at_" + offset);
+        if (newType == null) {
+          String dataTypePath = dataTypePathOpt.orElse("not provided");
+          throw new GhidraMcpException(
+              GhidraMcpError.parse("data type for member at offset " + offset, dataTypePath));
+        }
+
+        try {
+          struct.replaceAtOffset(offset, newType, newType.getLength(), memberName, memberComment);
+        } catch (Exception e) {
+          throw new GhidraMcpException(
+              GhidraMcpError.failed("replace member at offset " + offset, e.getMessage()));
+        }
+      } else {
+        try {
+          Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
+          if (nameOpt.isPresent()) {
+            component.setFieldName(nameOpt.get());
+          }
+        } catch (DuplicateNameException e) {
+          throw new GhidraMcpException(
+              GhidraMcpError.failed("rename member at offset " + offset, e.getMessage()));
+        }
+
+        getOptionalStringArgument(member, ARG_COMMENT).ifPresent(component::setComment);
+      }
+    }
   }
 
   private OperationResult updateEnum(
@@ -1523,31 +1662,122 @@ public class DataTypesTool extends BaseMcpTool {
     List<Map<String, Object>> members = getOptionalListArgument(args, ARG_MEMBERS).orElse(null);
     warnIfWrongMemberKey(args, members);
     if (members != null && !members.isEmpty()) {
-      UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
+      String mode = getOptionalStringArgument(args, ARG_MEMBER_UPDATE_MODE).orElse("replace");
 
-      for (Map<String, Object> member : members) {
-        String memberName = getRequiredStringArgument(member, ARG_NAME);
-        String memberComment = getOptionalStringArgument(member, ARG_COMMENT).orElse(null);
-
-        DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
-        if (memberDataType == null) {
-          String dataTypePath =
-              getOptionalStringArgument(member, ARG_DATA_TYPE_PATH).orElse("not provided");
-          throw new GhidraMcpException(
-              GhidraMcpError.parse("data type for member '" + memberName + "'", dataTypePath));
-        }
-
-        updated.add(memberDataType, memberName, memberComment);
-      }
-
-      try {
-        dtm.replaceDataType(union, updated, true);
-      } catch (DataTypeDependencyException e) {
-        throw new GhidraMcpException(GhidraMcpError.failed("update union members", e.getMessage()));
+      if ("patch".equals(mode)) {
+        patchUnionMembers(dtm, union, members);
+      } else {
+        replaceUnionMembers(dtm, union, members);
       }
     }
 
     return OperationResult.success("update_data_type", "union", "Union updated successfully");
+  }
+
+  private void replaceUnionMembers(
+      DataTypeManager dtm, Union union, List<Map<String, Object>> members)
+      throws GhidraMcpException {
+    UnionDataType updated = new UnionDataType(union.getCategoryPath(), union.getName(), dtm);
+
+    for (Map<String, Object> member : members) {
+      String memberName =
+          getOptionalStringArgument(member, ARG_NAME)
+              .orElseThrow(
+                  () ->
+                      new GhidraMcpException(
+                          GhidraMcpError.of(
+                              "Member 'name' is required in replace mode",
+                              "Each member must have a 'name' when using replace mode (the"
+                                  + " default)")));
+      String memberComment = getOptionalStringArgument(member, ARG_COMMENT).orElse(null);
+
+      DataType memberDataType = resolveMemberDataType(dtm, member, memberName);
+      if (memberDataType == null) {
+        String dataTypePath =
+            getOptionalStringArgument(member, ARG_DATA_TYPE_PATH).orElse("not provided");
+        throw new GhidraMcpException(
+            GhidraMcpError.parse("data type for member '" + memberName + "'", dataTypePath));
+      }
+
+      updated.add(memberDataType, memberName, memberComment);
+    }
+
+    try {
+      dtm.replaceDataType(union, updated, true);
+    } catch (DataTypeDependencyException e) {
+      throw new GhidraMcpException(GhidraMcpError.failed("update union members", e.getMessage()));
+    }
+  }
+
+  private void patchUnionMembers(
+      DataTypeManager dtm, Union union, List<Map<String, Object>> members)
+      throws GhidraMcpException {
+    for (Map<String, Object> member : members) {
+      int ordinal =
+          getOptionalIntArgument(member, "ordinal")
+              .orElseThrow(
+                  () ->
+                      new GhidraMcpException(
+                          GhidraMcpError.of(
+                              "Member 'ordinal' is required in patch mode for unions",
+                              "Each member must specify 'ordinal' to identify which existing"
+                                  + " member to update. Use 'get' action to see ordinals.")));
+
+      if (ordinal < 0 || ordinal >= union.getNumComponents()) {
+        throw new GhidraMcpException(
+            GhidraMcpError.of(
+                "Invalid ordinal "
+                    + ordinal
+                    + " (union has "
+                    + union.getNumComponents()
+                    + " members)",
+                "Use 'get' action to inspect the union and find valid ordinals (0-based)"));
+      }
+
+      DataTypeComponent component = union.getComponent(ordinal);
+
+      Optional<Long> dataTypeIdOpt = getOptionalLongArgument(member, ARG_DATA_TYPE_ID);
+      Optional<String> dataTypePathOpt = getOptionalStringArgument(member, ARG_DATA_TYPE_PATH);
+      boolean hasTypeChange = dataTypeIdOpt.isPresent() || dataTypePathOpt.isPresent();
+
+      if (hasTypeChange) {
+        // For type changes on unions: delete old component and insert new one at same ordinal
+        String memberName =
+            getOptionalStringArgument(member, ARG_NAME).orElse(component.getFieldName());
+        String memberComment =
+            getOptionalStringArgument(member, ARG_COMMENT).orElse(component.getComment());
+
+        DataType newType =
+            resolveMemberDataType(
+                dtm, member, memberName != null ? memberName : "member_" + ordinal);
+        if (newType == null) {
+          String dataTypePath = dataTypePathOpt.orElse("not provided");
+          throw new GhidraMcpException(
+              GhidraMcpError.parse("data type for member at ordinal " + ordinal, dataTypePath));
+        }
+
+        try {
+          union.delete(ordinal);
+          union.insert(ordinal, newType, newType.getLength(), memberName, memberComment);
+        } catch (Exception e) {
+          throw new GhidraMcpException(
+              GhidraMcpError.failed("replace member at ordinal " + ordinal, e.getMessage()));
+        }
+      } else {
+        // Name/comment-only update
+        try {
+          Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
+          if (nameOpt.isPresent()) {
+            component.setFieldName(nameOpt.get());
+          }
+        } catch (DuplicateNameException e) {
+          throw new GhidraMcpException(
+              GhidraMcpError.failed("rename member at ordinal " + ordinal, e.getMessage()));
+        }
+
+        getOptionalStringArgument(member, ARG_COMMENT).ifPresent(component::setComment);
+      }
+    }
   }
 
   private OperationResult updateTypedef(

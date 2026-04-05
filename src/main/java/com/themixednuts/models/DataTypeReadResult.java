@@ -84,7 +84,8 @@ public class DataTypeReadResult {
   }
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
-  public record DataTypeComponentDetail(String name, String type, Integer offset, Integer length) {}
+  public record DataTypeComponentDetail(
+      String name, String type, Integer offset, Integer length, String comment, Integer ordinal) {}
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record DataTypeEnumValue(String name, Long value) {}

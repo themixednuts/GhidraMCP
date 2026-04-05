@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -20,6 +21,7 @@ import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
@@ -229,6 +231,561 @@ class MutationToolsE2eTest {
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void patchStructMemberRenamesAndRetypesWithoutFullReplacement() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a struct with three members
+      Object createdRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "create",
+                      "data_type_kind",
+                      "struct",
+                      "name",
+                      "PatchTestStruct",
+                      "members",
+                      List.of(
+                          Map.of("name", "field_a", "data_type_path", "int"),
+                          Map.of("name", "field_b", "data_type_path", "int"),
+                          Map.of("name", "field_c", "data_type_path", "int"))),
+                  null)
+              .block();
+      OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
+      assertTrue(created.isSuccess());
+
+      // Patch: rename field_b at offset 4 and add a comment
+      Object patchedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "update",
+                      "data_type_kind",
+                      "struct",
+                      "name",
+                      "PatchTestStruct",
+                      "member_update_mode",
+                      "patch",
+                      "members",
+                      List.of(Map.of("offset", 4, "name", "renamed_b", "comment", "patched"))),
+                  null)
+              .block();
+      OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
+      assertTrue(patched.isSuccess());
+
+      // Read back and verify: field_a and field_c untouched, field_b renamed
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "struct",
+                      "name", "PatchTestStruct"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+      assertEquals("PatchTestStruct", readBack.getName());
+      assertEquals(3, readBack.getComponentCount());
+
+      // field_a at offset 0 should be unchanged
+      var comp0 = readBack.getComponents().get(0);
+      assertEquals("field_a", comp0.name());
+      assertEquals(0, comp0.offset());
+
+      // field_b at offset 4 should be renamed
+      var comp1 = readBack.getComponents().get(1);
+      assertEquals("renamed_b", comp1.name());
+      assertEquals(4, comp1.offset());
+
+      // field_c at offset 8 should be unchanged
+      var comp2 = readBack.getComponents().get(2);
+      assertEquals("field_c", comp2.name());
+      assertEquals(8, comp2.offset());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void patchStructMemberRetypesFieldAndPreservesOthers() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a helper struct to use as the retype target
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "struct",
+                  "name", "SmallStruct",
+                  "members", List.of(Map.of("name", "val", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Create a struct with two int fields and padding space
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "struct",
+                  "name", "RetypeStruct",
+                  "size", 16,
+                  "members",
+                      List.of(
+                          Map.of("name", "a", "data_type_path", "int", "offset", 0),
+                          Map.of("name", "b", "data_type_path", "int", "offset", 4))),
+              null)
+          .block();
+
+      // Patch: retype field 'b' at offset 4 from int to SmallStruct
+      Object patchedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "update",
+                      "data_type_kind", "struct",
+                      "name", "RetypeStruct",
+                      "member_update_mode", "patch",
+                      "members",
+                          List.of(
+                              Map.of(
+                                  "offset",
+                                  4,
+                                  "data_type_path",
+                                  "SmallStruct",
+                                  "name",
+                                  "b_retyped"))),
+                  null)
+              .block();
+      OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
+      assertTrue(patched.isSuccess());
+
+      // Read back
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "struct",
+                      "name", "RetypeStruct"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+
+      // field 'a' at offset 0 should be unchanged
+      var compA =
+          readBack.getComponents().stream().filter(c -> c.offset() == 0).findFirst().orElseThrow();
+      assertEquals("a", compA.name());
+      assertEquals("int", compA.type());
+
+      // field at offset 4 should now be SmallStruct with new name
+      var compB =
+          readBack.getComponents().stream().filter(c -> c.offset() == 4).findFirst().orElseThrow();
+      assertEquals("b_retyped", compB.name());
+      assertEquals("SmallStruct", compB.type());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void patchStructMemberFailsForInvalidOffset() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a struct
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "struct",
+                  "name", "OffsetTestStruct",
+                  "members", List.of(Map.of("name", "x", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Patch at invalid offset should fail
+      var result =
+          tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "update",
+                  "data_type_kind", "struct",
+                  "name", "OffsetTestStruct",
+                  "member_update_mode", "patch",
+                  "members", List.of(Map.of("offset", 999, "name", "ghost"))),
+              null);
+
+      assertThrows(Exception.class, () -> result.block());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void patchUnionMemberRenamesByOrdinal() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a union with three members
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "union",
+                  "name", "PatchTestUnion",
+                  "members",
+                      List.of(
+                          Map.of("name", "as_int", "data_type_path", "int"),
+                          Map.of("name", "as_float", "data_type_path", "int"),
+                          Map.of("name", "as_bytes", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Patch: rename member at ordinal 1
+      Object patchedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "update",
+                      "data_type_kind", "union",
+                      "name", "PatchTestUnion",
+                      "member_update_mode", "patch",
+                      "members",
+                          List.of(Map.of("ordinal", 1, "name", "as_single", "comment", "renamed"))),
+                  null)
+              .block();
+      OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
+      assertTrue(patched.isSuccess());
+
+      // Read back
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "union",
+                      "name", "PatchTestUnion"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+      assertEquals(3, readBack.getComponentCount());
+
+      // ordinal 0 unchanged
+      assertEquals("as_int", readBack.getComponents().get(0).name());
+      // ordinal 1 renamed
+      assertEquals("as_single", readBack.getComponents().get(1).name());
+      // ordinal 2 unchanged
+      assertEquals("as_bytes", readBack.getComponents().get(2).name());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void patchUnionMemberRetypesByOrdinal() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a helper struct as a retype target
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "struct",
+                  "name", "UnionRetypeTarget",
+                  "members", List.of(Map.of("name", "x", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Create a union
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "union",
+                  "name", "RetypeUnion",
+                  "members",
+                      List.of(
+                          Map.of("name", "val_a", "data_type_path", "int"),
+                          Map.of("name", "val_b", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Patch: retype member at ordinal 0 to UnionRetypeTarget
+      Object patchedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "update",
+                      "data_type_kind", "union",
+                      "name", "RetypeUnion",
+                      "member_update_mode", "patch",
+                      "members",
+                          List.of(Map.of("ordinal", 0, "data_type_path", "UnionRetypeTarget"))),
+                  null)
+              .block();
+      OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
+      assertTrue(patched.isSuccess());
+
+      // Read back and verify type changed but name preserved
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "union",
+                      "name", "RetypeUnion"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+
+      assertEquals("val_a", readBack.getComponents().get(0).name());
+      assertEquals("UnionRetypeTarget", readBack.getComponents().get(0).type());
+      // ordinal 1 untouched
+      assertEquals("val_b", readBack.getComponents().get(1).name());
+      assertEquals("int", readBack.getComponents().get(1).type());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void getStructReturnsComponentCommentsAndOrdinals() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      // Create a struct with commented members
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "struct",
+                  "name", "CommentStruct",
+                  "members",
+                      List.of(
+                          Map.of(
+                              "name", "field1", "data_type_path", "int", "comment", "first field"),
+                          Map.of("name", "field2", "data_type_path", "int"))),
+              null)
+          .block();
+
+      // Read back and verify comments and ordinals
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "struct",
+                      "name", "CommentStruct"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+
+      var comp0 = readBack.getComponents().get(0);
+      assertEquals("first field", comp0.comment());
+      assertNotNull(comp0.ordinal());
+
+      var comp1 = readBack.getComponents().get(1);
+      // No comment should be null (omitted in JSON)
+      assertEquals("field2", comp1.name());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void renameVariableByHighSymbolIdAndVerify() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createFixtureWithLocalVariables();
+    try {
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
+
+      // List variables to get high_symbol_id
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variables =
+          assertInstanceOf(PaginatedResult.class, listRaw);
+
+      // Find a non-parameter variable — prefer high_symbol_id, fall back to symbol_id
+      FunctionVariableInfo target =
+          variables.results.stream()
+              .filter(v -> !v.isParameter())
+              .filter(v -> v.getHighSymbolId() != null || v.getSymbolId() != null)
+              .findFirst()
+              .orElse(null);
+
+      // Skip if no usable variables
+      if (target == null) return;
+
+      String originalName = target.getEffectiveName();
+      long symbolId =
+          target.getHighSymbolId() != null ? target.getHighSymbolId() : target.getSymbolId();
+
+      // Rename by variable_symbol_id
+      @SuppressWarnings("unchecked")
+      Map<String, Object> renameResult =
+          (Map<String, Object>)
+              tool.execute(
+                      null,
+                      Map.of(
+                          "file_name", "fixture",
+                          "action", "rename_variable",
+                          "address", "0x401000",
+                          "variable_symbol_id", symbolId,
+                          "new_name", "renamed_via_id"),
+                      null)
+                  .block();
+
+      assertNotNull(renameResult);
+      assertEquals(originalName, renameResult.get("old_name"));
+      assertEquals("renamed_via_id", renameResult.get("new_name"));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void batchRenameByHighSymbolIdIsOrderIndependent() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createFixtureWithLocalVariables();
+    try {
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
+
+      // List variables and collect all non-parameter variables with IDs
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variables =
+          assertInstanceOf(PaginatedResult.class, listRaw);
+
+      List<FunctionVariableInfo> renameable =
+          variables.results.stream()
+              .filter(v -> !v.isParameter())
+              .filter(v -> v.getHighSymbolId() != null || v.getSymbolId() != null)
+              .collect(Collectors.toList());
+
+      // Need at least 2 variables to test ordering
+      if (renameable.size() < 2) return;
+
+      // Rename in ASCENDING order (the problematic order for name-based renames)
+      // This should work fine with symbol IDs since they're stable
+      for (int i = 0; i < renameable.size(); i++) {
+        FunctionVariableInfo v = renameable.get(i);
+        long symId = v.getHighSymbolId() != null ? v.getHighSymbolId() : v.getSymbolId();
+        String newName = "batch_var_" + i;
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result =
+            (Map<String, Object>)
+                tool.execute(
+                        null,
+                        Map.of(
+                            "file_name", "fixture",
+                            "action", "rename_variable",
+                            "address", "0x401000",
+                            "variable_symbol_id", symId,
+                            "new_name", newName),
+                        null)
+                    .block();
+
+        assertNotNull(result, "Rename failed for variable at index " + i);
+        assertEquals(newName, result.get("new_name"));
+      }
+
+      // Verify all renames persisted
+      Object listAfterRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variablesAfter =
+          assertInstanceOf(PaginatedResult.class, listAfterRaw);
+
+      for (int i = 0; i < renameable.size(); i++) {
+        String expectedName = "batch_var_" + i;
+        boolean found =
+            variablesAfter.results.stream()
+                .anyMatch(v -> expectedName.equals(v.getEffectiveName()));
+        assertTrue(
+            found, "Expected to find variable named '" + expectedName + "' after batch rename");
+      }
     } finally {
       fixture.close();
     }

@@ -28,7 +28,8 @@ import ghidra.program.model.symbol.Symbol;
   "source_type",
   "comment",
   "address",
-  "symbol_id"
+  "symbol_id",
+  "high_symbol_id"
 })
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionVariableInfo {
@@ -52,6 +53,7 @@ public class FunctionVariableInfo {
   private final String comment; // From Variable.getComment()
   private final String address; // Symbol address or MinAddress of storage
   private final Long symbolID; // Symbol ID from Variable.getSymbol()
+  private final Long highSymbolID; // HighSymbol.getId() — stable decompiler-level ID
 
   // Constructor for formal listing Variables
   public FunctionVariableInfo(Variable var) {
@@ -88,6 +90,7 @@ public class FunctionVariableInfo {
       }
     }
     this.decompilerName = null;
+    this.highSymbolID = null;
   }
 
   // Constructor for decompiler-centric variables (HighVariable)
@@ -107,15 +110,11 @@ public class FunctionVariableInfo {
     boolean hvIsParameter = false;
 
     if (highSymbol != null) {
+      this.highSymbolID = highSymbol.getId();
       symbol = highSymbol.getSymbol(); // Get listing Symbol from HighSymbol
       hvIsParameter = highSymbol.isParameter();
-      if (hvIsParameter) {
-        // this.variableCategory = VariableCategory.PARAMETER; // Refine category if
-        // it's a parameter via HighSymbol
-      } else {
-        // Could try to infer stack/register from repVarnode if needed, but
-        // DECOMPILER_SYNTHETIC is a good general category
-      }
+    } else {
+      this.highSymbolID = null;
     }
     this.isParameter = hvIsParameter;
 
@@ -197,6 +196,11 @@ public class FunctionVariableInfo {
   @JsonProperty("symbol_id")
   public Long getSymbolId() {
     return symbolID;
+  }
+
+  @JsonProperty("high_symbol_id")
+  public Long getHighSymbolId() {
+    return highSymbolID;
   }
 
   // Setter for decompilerName, to be used by the listing tool when correlating

@@ -7,6 +7,17 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre5] - 2026-04-05
+
+### Added
+- **Struct/union patch mode** — `member_update_mode="patch"` for granular member edits by offset (structs) or ordinal (unions) without full replacement (closes #40)
+- **Variable retype support** — `new_data_type` parameter on `rename_variable` action to change local variable types via `HighFunctionDBUtil.updateDBVariable`
+- **`variable_symbol_id` targeting** — Stable decompiler-level ID (`high_symbol_id` from `list_variables`) for batch rename/retype operations, avoiding synthetic name renumbering issues (#38)
+- **Component comments and ordinals** — `get` action now returns `comment` and `ordinal` fields for struct/union members
+
+### Fixed
+- **Schema bug** — Multiple `anyOf` blocks on `rename_variable` were overwriting each other; wrapped in `allOf` to compose correctly
+
 ## [0.7.0-pre4] - 2026-04-04
 
 ### Added

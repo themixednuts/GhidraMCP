@@ -56,7 +56,7 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Functions",
     description =
-        "Function lifecycle: list, get, create, update prototypes, list/rename variables.",
+        "Function lifecycle: list, get, create, update prototypes, list/rename/retype variables.",
     mcpName = "functions",
     mcpDescription =
         """
@@ -73,7 +73,8 @@ import reactor.core.publisher.Mono;
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
          - Lists both listing variables and decompiler-generated variables with detailed categorization
-         - Rename local variables using the decompiler's high-level variable mapping
+         - Rename and retype local variables using the decompiler's high-level variable mapping
+         - BATCH RENAMES: Use variable_symbol_id (from list_variables high_symbol_id) instead of current_name. Auto-generated names (bVar0, bVar1, etc.) renumber when any variable is renamed. If you must use current_name, rename in descending order (highest-numbered first)
          - Use `inspect` (action: decompile) for decompilation analysis
          - For browsing all functions without filtering, use the ghidra://program/{name}/functions resource
          </important_notes>
@@ -143,6 +144,34 @@ import reactor.core.publisher.Mono;
           "current_name": "local_10",
           "new_name": "buffer_size"
         }
+
+        Rename a variable by symbol ID (stable for batch operations):
+        {
+          "file_name": "program.exe",
+          "action": "rename_variable",
+          "name": "main",
+          "variable_symbol_id": 12345,
+          "new_name": "buffer_size"
+        }
+
+        Change a local variable's type:
+        {
+          "file_name": "program.exe",
+          "action": "rename_variable",
+          "name": "main",
+          "variable_symbol_id": 12345,
+          "new_data_type": "char *"
+        }
+
+        Rename and retype a variable in one operation:
+        {
+          "file_name": "program.exe",
+          "action": "rename_variable",
+          "name": "main",
+          "variable_symbol_id": 12345,
+          "new_name": "buffer",
+          "new_data_type": "char *"
+        }
         </examples>
         """)
 public class FunctionsTool extends BaseMcpTool {
@@ -161,6 +190,8 @@ public class FunctionsTool extends BaseMcpTool {
   public static final String ARG_PARAMETER_DATA_TYPE = "data_type";
   public static final String ARG_CURRENT_NAME = "current_name";
   public static final String ARG_NEW_NAME = "new_name";
+  public static final String ARG_VARIABLE_SYMBOL_ID = "variable_symbol_id";
+  public static final String ARG_NEW_DATA_TYPE = "new_data_type";
 
   private static final String ACTION_LIST = "list";
   private static final String ACTION_GET = "get";
@@ -351,7 +382,8 @@ public class FunctionsTool extends BaseMcpTool {
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
-        // action=rename_variable: requires function identifier + current_name + new_name
+        // action=rename_variable: requires function identifier + variable targeting + new_name
+        // and/or new_data_type
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
                 SchemaBuilder.objectDraft7(mapper)
@@ -373,20 +405,41 @@ public class FunctionsTool extends BaseMcpTool {
                         SchemaBuilder.string(mapper)
                             .description("Function name for identification"))
                     .property(
+                        ARG_VARIABLE_SYMBOL_ID,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Decompiler symbol ID of the variable to update (from"
+                                    + " list_variables high_symbol_id or symbol_id). Stable"
+                                    + " across renames — preferred for batch operations"))
+                    .property(
                         ARG_CURRENT_NAME,
                         SchemaBuilder.string(mapper)
                             .description(
                                 "Current name of the variable to rename (as shown by"
-                                    + " list_variables effective_name)"))
+                                    + " list_variables effective_name). Use"
+                                    + " variable_symbol_id for batch operations to avoid"
+                                    + " renumbering issues"))
                     .property(
                         ARG_NEW_NAME,
                         SchemaBuilder.string(mapper).description("New name for the variable"))
-                    .requiredProperty(ARG_CURRENT_NAME)
-                    .requiredProperty(ARG_NEW_NAME)
-                    .anyOf(
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))));
+                    .property(
+                        ARG_NEW_DATA_TYPE,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "New data type for the variable (e.g. \"int\", \"char *\","
+                                    + " \"/MyCategory/MyStruct\")"))
+                    .allOf(
+                        SchemaBuilder.objectDraft7(mapper)
+                            .anyOf(
+                                SchemaBuilder.objectDraft7(mapper)
+                                    .requiredProperty(ARG_VARIABLE_SYMBOL_ID),
+                                SchemaBuilder.objectDraft7(mapper)
+                                    .requiredProperty(ARG_CURRENT_NAME)),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .anyOf(
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME)))));
 
     return schemaRoot.build();
   }
@@ -949,8 +1002,27 @@ public class FunctionsTool extends BaseMcpTool {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
     }
 
-    String currentName = getRequiredStringArgument(args, ARG_CURRENT_NAME);
-    String newName = getRequiredStringArgument(args, ARG_NEW_NAME);
+    Optional<String> currentNameOpt = getOptionalStringArgument(args, ARG_CURRENT_NAME);
+    Optional<Long> variableSymbolIdOpt = getOptionalLongArgument(args, ARG_VARIABLE_SYMBOL_ID);
+    Optional<String> newNameOpt = getOptionalStringArgument(args, ARG_NEW_NAME);
+    Optional<String> newDataTypeOpt = getOptionalStringArgument(args, ARG_NEW_DATA_TYPE);
+
+    if (currentNameOpt.isEmpty() && variableSymbolIdOpt.isEmpty()) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.of(
+                  "Either 'current_name' or 'variable_symbol_id' is required",
+                  "Use 'variable_symbol_id' from list_variables for stable targeting in batch"
+                      + " operations")));
+    }
+
+    if (newNameOpt.isEmpty() && newDataTypeOpt.isEmpty()) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.of(
+                  "At least one of 'new_name' or 'new_data_type' is required",
+                  "Provide 'new_name' to rename, 'new_data_type' to retype, or both")));
+    }
 
     return Mono.fromCallable(
             () -> {
@@ -969,7 +1041,7 @@ public class FunctionsTool extends BaseMcpTool {
                 if (results == null || results.getHighFunction() == null) {
                   throw new GhidraMcpException(
                       GhidraMcpError.failed(
-                          "rename variable",
+                          "update variable",
                           "Decompilation failed for function: " + function.getName()));
                 }
 
@@ -978,67 +1050,109 @@ public class FunctionsTool extends BaseMcpTool {
                 if (localSymbolMap == null) {
                   throw new GhidraMcpException(
                       GhidraMcpError.failed(
-                          "rename variable",
+                          "update variable",
                           "No local symbol map available for function: " + function.getName()));
                 }
 
-                HighSymbol targetSymbol = null;
-                java.util.Iterator<HighSymbol> symbolIterator = localSymbolMap.getSymbols();
-                while (symbolIterator.hasNext()) {
-                  HighSymbol sym = symbolIterator.next();
-                  if (currentName.equals(sym.getName())) {
-                    targetSymbol = sym;
-                    break;
+                HighSymbol targetSymbol =
+                    findVariableSymbol(
+                        localSymbolMap,
+                        variableSymbolIdOpt.orElse(null),
+                        currentNameOpt.orElse(null),
+                        function.getName());
+
+                // Resolve data type if requested
+                DataType resolvedType = null;
+                if (newDataTypeOpt.isPresent()) {
+                  DataTypeManager dtm = program.getDataTypeManager();
+                  resolvedType = resolveDataTypeWithFallback(dtm, newDataTypeOpt.get());
+                  if (resolvedType == null) {
+                    throw new GhidraMcpException(
+                        GhidraMcpError.of(
+                            "Cannot resolve data type: " + newDataTypeOpt.get(),
+                            "Use a valid type like 'int', 'char *', 'byte', or a full path like"
+                                + " '/MyCategory/MyStruct'"));
                   }
                 }
 
-                if (targetSymbol == null) {
-                  throw new GhidraMcpException(
-                      GhidraMcpError.notFound(
-                          "variable",
-                          "'" + currentName + "' in function '" + function.getName() + "'"));
-                }
-
-                final HighSymbol symbolToRename = targetSymbol;
-                return new RenameVariableContext(function, symbolToRename, newName);
+                return new UpdateVariableContext(
+                    function, targetSymbol, newNameOpt.orElse(null), resolvedType);
               } finally {
                 decomplib.dispose();
               }
             })
         .flatMap(
-            context ->
-                executeInTransaction(
-                    program,
-                    "MCP - Rename Variable: "
-                        + currentName
-                        + " -> "
-                        + newName
-                        + " in "
-                        + context.function().getName(),
-                    () -> {
-                      try {
-                        HighFunctionDBUtil.updateDBVariable(
-                            context.symbol(), context.newName(), null, SourceType.USER_DEFINED);
-                      } catch (Exception e) {
-                        throw new GhidraMcpException(
-                            GhidraMcpError.failed(
-                                "rename variable",
-                                "Failed to rename '"
-                                    + currentName
-                                    + "' to '"
-                                    + context.newName()
-                                    + "': "
-                                    + e.getMessage()));
-                      }
+            context -> {
+              String oldName = context.symbol().getName();
+              String effectiveNewName = context.newName() != null ? context.newName() : oldName;
+              String description =
+                  "MCP - Update Variable: " + oldName + " in " + context.function().getName();
 
-                      return Map.of(
-                          "function", context.function().getName(),
-                          "old_name", currentName,
-                          "new_name", context.newName());
-                    }));
+              return executeInTransaction(
+                  program,
+                  description,
+                  () -> {
+                    try {
+                      HighFunctionDBUtil.updateDBVariable(
+                          context.symbol(),
+                          effectiveNewName,
+                          context.newDataType(),
+                          SourceType.USER_DEFINED);
+                    } catch (Exception e) {
+                      throw new GhidraMcpException(
+                          GhidraMcpError.failed(
+                              "update variable",
+                              "Failed to update '" + oldName + "': " + e.getMessage()));
+                    }
+
+                    var result = new java.util.LinkedHashMap<String, Object>();
+                    result.put("function", context.function().getName());
+                    result.put("old_name", oldName);
+                    result.put("new_name", effectiveNewName);
+                    if (context.newDataType() != null) {
+                      result.put("new_data_type", context.newDataType().getName());
+                    }
+                    return result;
+                  });
+            });
   }
 
-  private record RenameVariableContext(Function function, HighSymbol symbol, String newName) {}
+  private HighSymbol findVariableSymbol(
+      LocalSymbolMap localSymbolMap, Long variableSymbolId, String currentName, String functionName)
+      throws GhidraMcpException {
+    HighSymbol targetSymbol = null;
+    java.util.Iterator<HighSymbol> symbolIterator = localSymbolMap.getSymbols();
+
+    while (symbolIterator.hasNext()) {
+      HighSymbol sym = symbolIterator.next();
+
+      if (variableSymbolId != null) {
+        // Match against HighSymbol.getId() which works for both listing-backed
+        // and decompiler-synthetic variables (bVar0, etc.)
+        if (sym.getId() == variableSymbolId) {
+          targetSymbol = sym;
+          break;
+        }
+      } else if (currentName != null && currentName.equals(sym.getName())) {
+        targetSymbol = sym;
+        break;
+      }
+    }
+
+    if (targetSymbol == null) {
+      String identifier =
+          variableSymbolId != null
+              ? "variable_symbol_id=" + variableSymbolId
+              : "'" + currentName + "'";
+      throw new GhidraMcpException(
+          GhidraMcpError.notFound("variable", identifier + " in function '" + functionName + "'"));
+    }
+
+    return targetSymbol;
+  }
+
+  private record UpdateVariableContext(
+      Function function, HighSymbol symbol, String newName, DataType newDataType) {}
 
   private PaginatedResult<FunctionVariableInfo> listFunctionVariables(
       Function function, Program program, Map<String, Object> args) {
