@@ -1,10 +1,10 @@
 [versions]
 spotless-plugin = "8.3.0"
 mcp-bom = "0.18.1"
-jackson = "2.21.1"
+jackson = "2.21.2"
 jackson-annotations = "2.21"
 jakarta-servlet = "6.1.0"
-jetty = "12.1.7"
+jetty = "12.1.8"
 junit-jupiter = "6.0.3"
 junit-platform = "6.0.3"
 reflections = "0.10.2"
