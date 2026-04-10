@@ -24,17 +24,34 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 ---
 
 ## ✨ Features
-- 30 MCP tools for reverse engineering, editing, search, and version tracking
+- 14 MCP tools covering analysis, inspection, editing, project workflows, and Version Tracking
+- MCP resources for common program views such as program info, listing, imports/exports, strings, RTTI, and decompilation
+- Built-in MCP prompts and argument completions for common reverse engineering workflows
 - Structured responses with pagination and opaque cursors for large datasets
-- In-memory and project-backed Version Tracking workflows for correlation, match triage, and markup
 
 ### Tool Commands
 
-- **Core analysis:** `analyze_rtti`, `decompile_code`, `demangle_symbol`, `script_guidance`
-- **Read/query:** `read_symbols`, `read_memory_blocks`, `read_functions`, `read_data_types`, `read_listing`, `find_references`, `list_analysis_options`, `list_programs`, `search_memory`
-- **Modify/manage:** `manage_data_types`, `manage_functions`, `manage_memory`, `manage_project`, `manage_symbols`, `delete_bookmark`, `delete_data_type`, `delete_function`, `delete_symbol`
-- **Version tracking:** `manage_vt_session`, `run_vt_correlator`, `read_vt_matches`, `manage_vt_matches`, `manage_vt_markup`
-- **Utilities:** `batch_operations`, `undo_redo`, `read_tool_output`
+- **Analysis & inspection:** `analyze`, `inspect`, `script_guidance`
+- **Program changes:** `annotate`, `functions`, `symbols`, `data_types`, `memory`, `delete`
+- **Project workflows:** `project`, `batch_operations`, `read_tool_output`
+- **Version tracking:** `vt_sessions`, `vt_operations`
+
+### Resource Templates
+
+- **Project overview:** `ghidra://programs`
+- **Program views:** `ghidra://program/{name}/info`, `ghidra://program/{name}/functions`, `ghidra://program/{name}/symbols`, `ghidra://program/{name}/datatypes`, `ghidra://program/{name}/memory`
+- **Triage views:** `ghidra://program/{name}/imports`, `ghidra://program/{name}/exports`, `ghidra://program/{name}/strings`, `ghidra://program/{name}/rtti`
+- **Code views:** `ghidra://program/{name}/listing/{address}`, `ghidra://program/{name}/function/{address}/decompile`
+
+### Prompts
+
+- `analyze_function`
+- `analyze_vtable`
+- `compare_binaries`
+- `find_vulnerabilities`
+- `map_data_structures`
+- `rename_analysis`
+- `triage_binary`
 
 ---
 
@@ -61,8 +78,8 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 > dialog. Close the dialog before continuing, or requests may appear to hang.
 
 > [!TIP]
-> **Missing `file_name`:** Use `list_programs` to see available programs and pass
-> the exact name returned by that tool.
+> **Finding program names:** Use the `ghidra://programs` resource to see the
+> exact program names available in the current project.
 
 ## ⚙️ Configuration
 
@@ -76,6 +93,8 @@ settings:
    - **Server Port**: The port number for the MCP server (default: 8080)
    - **Auto-start Server**: Whether to automatically start the server when
      Ghidra launches
+   - **Request Timeout (seconds)**: Maximum time allowed for an MCP request
+     before timing out (default: 600)
 4. Click **OK** to save your settings.
 
 ## 🛠️ Building from Source
@@ -117,7 +136,7 @@ The steps below are only for building from source.
    - `just update-verification-metadata` refreshes Gradle dependency verification checksums after dependency changes
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.7.0-pre3.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.7.0-pre7.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 
@@ -211,7 +230,7 @@ Use `~/.config/opencode/opencode.json` (or project-level `opencode.json`):
 <summary><strong><img src="https://openai.com/favicon.ico" alt="Codex" width="16" height="16" valign="middle" />&nbsp;Codex CLI</strong></summary>
 
 ```bash
-codex mcp
+codex mcp add ghidra --url http://127.0.0.1:8080/mcp
 ```
 
 Or add this to `~/.codex/config.toml`:

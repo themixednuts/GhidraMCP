@@ -7,6 +7,11 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre7] - 2026-04-09
+
+### Fixed
+- **Codex Streamable HTTP startup compatibility** - Return `405 Method Not Allowed` for pre-session `GET /mcp` requests instead of surfacing a transport-level `400` session-id error, allowing Codex to complete MCP startup correctly (closes #42)
+
 ## [0.7.0-pre6] - 2026-04-09
 
 ### Changed

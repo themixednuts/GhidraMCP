@@ -17,8 +17,17 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema.ResourcesUpdatedNotification;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.eclipse.jetty.ee10.servlet.FilterHolder;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -41,8 +51,9 @@ import org.eclipse.jetty.server.ServerConnector;
 public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
-  private static final String SERVER_VERSION = "0.7.0-pre5";
+  private static final String SERVER_VERSION = "0.7.0-pre7";
   private static final String MCP_PATH_SPEC = "/*";
+  private static final String MCP_SESSION_ID_HEADER = "MCP-Session-Id";
   private static final int DEFAULT_TIMEOUT_SECONDS = 600;
   private static Duration requestTimeout = Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS);
   private static final String SERVER_INSTRUCTIONS =
@@ -568,8 +579,46 @@ public final class GhidraMcpServer {
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath("/");
     server.setHandler(context);
+    context.addFilter(
+        new FilterHolder(new PreSessionStreamableHttpFilter()),
+        MCP_PATH_SPEC,
+        EnumSet.of(DispatcherType.REQUEST));
     context.addServlet(new ServletHolder(transportProvider), MCP_PATH_SPEC);
 
     return server;
+  }
+
+  /**
+   * Enforces spec-friendly behavior for pre-session GET requests.
+   *
+   * <p>For streamable HTTP, a client may probe the endpoint with GET before any session is
+   * established. The underlying Java MCP transport currently returns 400 when the session header is
+   * missing, which breaks some clients. Returning 405 here lets clients fall back to POST-only
+   * request/response mode until a session-backed SSE stream is available.
+   */
+  private static final class PreSessionStreamableHttpFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+        throws java.io.IOException, ServletException {
+      if (!(request instanceof HttpServletRequest httpRequest)
+          || !(response instanceof HttpServletResponse httpResponse)) {
+        chain.doFilter(request, response);
+        return;
+      }
+
+      boolean isGet = "GET".equalsIgnoreCase(httpRequest.getMethod());
+      boolean hasSessionId =
+          httpRequest.getHeader(MCP_SESSION_ID_HEADER) != null
+              && !httpRequest.getHeader(MCP_SESSION_ID_HEADER).isBlank();
+
+      if (isGet && !hasSessionId) {
+        httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+        httpResponse.setHeader("Allow", "POST, DELETE");
+        return;
+      }
+
+      chain.doFilter(request, response);
+    }
   }
 }
