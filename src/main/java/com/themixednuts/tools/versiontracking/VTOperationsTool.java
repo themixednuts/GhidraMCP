@@ -459,59 +459,70 @@ public class VTOperationsTool extends BaseVTTool {
   @Override
   public Mono<? extends Object> execute(
       McpTransportContext context, Map<String, Object> args, PluginTool tool) {
-    return Mono.fromCallable(
-        () -> {
-          String action = getRequiredStringArgument(args, ARG_ACTION);
-          String normalizedAction = action.toLowerCase();
+    String action;
+    try {
+      action = getRequiredStringArgument(args, ARG_ACTION);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
 
-          return switch (normalizedAction) {
-            // Match management
-            case ACTION_ACCEPT -> handleMatchAction(args, VTAssociationStatus.ACCEPTED);
-            case ACTION_REJECT -> handleMatchAction(args, VTAssociationStatus.REJECTED);
-            case ACTION_CLEAR -> handleMatchAction(args, VTAssociationStatus.AVAILABLE);
-            case ACTION_ACCEPT_BULK -> handleBulkAccept(args);
-            case ACTION_REJECT_BULK -> handleBulkReject(args);
-            // Match reading
-            case ACTION_LIST_MATCHES -> handleListMatches(args);
-            // Correlators
-            case ACTION_LIST_CORRELATORS -> handleListCorrelators();
-            case ACTION_RUN_CORRELATOR -> handleRunCorrelator(args);
-            // Markup
-            case ACTION_LIST_MARKUP -> handleListMarkup(args);
-            case ACTION_APPLY_MARKUP -> handleApplyMarkup(args);
-            case ACTION_APPLY_ALL_MARKUP -> handleApplyAllMarkup(args);
-            case ACTION_UNAPPLY_MARKUP -> handleUnapplyMarkup(args);
-            default ->
-                throw new GhidraMcpException(
-                    GhidraMcpError.invalid(
-                        ARG_ACTION,
-                        action,
-                        "must be one of: "
-                            + ACTION_ACCEPT
-                            + ", "
-                            + ACTION_REJECT
-                            + ", "
-                            + ACTION_CLEAR
-                            + ", "
-                            + ACTION_ACCEPT_BULK
-                            + ", "
-                            + ACTION_REJECT_BULK
-                            + ", "
-                            + ACTION_LIST_MATCHES
-                            + ", "
-                            + ACTION_LIST_CORRELATORS
-                            + ", "
-                            + ACTION_RUN_CORRELATOR
-                            + ", "
-                            + ACTION_LIST_MARKUP
-                            + ", "
-                            + ACTION_APPLY_MARKUP
-                            + ", "
-                            + ACTION_APPLY_ALL_MARKUP
-                            + ", "
-                            + ACTION_UNAPPLY_MARKUP));
-          };
-        });
+    String normalizedAction = action.toLowerCase(Locale.ROOT);
+    return switch (normalizedAction) {
+      case ACTION_ACCEPT ->
+          Mono.fromCallable(() -> handleMatchAction(args, VTAssociationStatus.ACCEPTED));
+      case ACTION_REJECT ->
+          Mono.fromCallable(() -> handleMatchAction(args, VTAssociationStatus.REJECTED));
+      case ACTION_CLEAR ->
+          Mono.fromCallable(() -> handleMatchAction(args, VTAssociationStatus.AVAILABLE));
+      case ACTION_ACCEPT_BULK -> Mono.fromCallable(() -> handleBulkAccept(args));
+      case ACTION_REJECT_BULK -> Mono.fromCallable(() -> handleBulkReject(args));
+      case ACTION_LIST_MATCHES -> Mono.fromCallable(() -> handleListMatches(args));
+      case ACTION_LIST_CORRELATORS -> Mono.fromCallable(this::handleListCorrelators);
+      case ACTION_RUN_CORRELATOR ->
+          withTaskMonitor(
+              "vt_operations.run_correlator", monitor -> handleRunCorrelator(args, monitor));
+      case ACTION_LIST_MARKUP ->
+          withTaskMonitor("vt_operations.list_markup", monitor -> handleListMarkup(args, monitor));
+      case ACTION_APPLY_MARKUP ->
+          withTaskMonitor(
+              "vt_operations.apply_markup", monitor -> handleApplyMarkup(args, monitor));
+      case ACTION_APPLY_ALL_MARKUP ->
+          withTaskMonitor(
+              "vt_operations.apply_all_markup", monitor -> handleApplyAllMarkup(args, monitor));
+      case ACTION_UNAPPLY_MARKUP ->
+          withTaskMonitor(
+              "vt_operations.unapply_markup", monitor -> handleUnapplyMarkup(args, monitor));
+      default ->
+          Mono.error(
+              new GhidraMcpException(
+                  GhidraMcpError.invalid(
+                      ARG_ACTION,
+                      action,
+                      "must be one of: "
+                          + ACTION_ACCEPT
+                          + ", "
+                          + ACTION_REJECT
+                          + ", "
+                          + ACTION_CLEAR
+                          + ", "
+                          + ACTION_ACCEPT_BULK
+                          + ", "
+                          + ACTION_REJECT_BULK
+                          + ", "
+                          + ACTION_LIST_MATCHES
+                          + ", "
+                          + ACTION_LIST_CORRELATORS
+                          + ", "
+                          + ACTION_RUN_CORRELATOR
+                          + ", "
+                          + ACTION_LIST_MARKUP
+                          + ", "
+                          + ACTION_APPLY_MARKUP
+                          + ", "
+                          + ACTION_APPLY_ALL_MARKUP
+                          + ", "
+                          + ACTION_UNAPPLY_MARKUP)));
+    };
   }
 
   // =================== Match Management ===================
@@ -1081,7 +1092,8 @@ public class VTOperationsTool extends BaseVTTool {
     return correlators;
   }
 
-  private Object handleRunCorrelator(Map<String, Object> args) throws GhidraMcpException {
+  private Object handleRunCorrelator(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     String correlatorType = getRequiredStringArgument(args, ARG_CORRELATOR_TYPE);
     Optional<String> sourceMinAddr = getOptionalStringArgument(args, ARG_SOURCE_MIN_ADDRESS);
@@ -1105,6 +1117,8 @@ public class VTOperationsTool extends BaseVTTool {
 
     return withSession(
         sessionName,
+        true,
+        monitor,
         session -> {
           Program sourceProgram = session.getSourceProgram();
           Program destProgram = session.getDestinationProgram();
@@ -1125,7 +1139,8 @@ public class VTOperationsTool extends BaseVTTool {
                   destProgram,
                   destSet,
                   minSimilarity,
-                  minConfidence);
+                  minConfidence,
+                  monitor);
 
           Map<String, Object> result = new HashMap<>();
           result.put("correlator", correlatorType);
@@ -1156,7 +1171,8 @@ public class VTOperationsTool extends BaseVTTool {
       Program destProgram,
       AddressSetView destSet,
       Optional<Double> minSimilarity,
-      Optional<Double> minConfidence)
+      Optional<Double> minConfidence,
+      TaskMonitor monitor)
       throws GhidraMcpException {
     try {
       Class<?> factoryClass = Class.forName(factoryClassName);
@@ -1203,7 +1219,7 @@ public class VTOperationsTool extends BaseVTTool {
             Class<?> vtSessionClass = VTSession.class;
             Method correlateMethod =
                 correlator.getClass().getMethod("correlate", vtSessionClass, TaskMonitor.class);
-            return (VTMatchSet) correlateMethod.invoke(correlator, session, TaskMonitor.DUMMY);
+            return (VTMatchSet) correlateMethod.invoke(correlator, session, monitor);
           });
     } catch (ClassNotFoundException e) {
       throw new GhidraMcpException(
@@ -1324,14 +1340,15 @@ public class VTOperationsTool extends BaseVTTool {
 
   // =================== Markup Operations ===================
 
-  private Object handleListMarkup(Map<String, Object> args) throws GhidraMcpException {
+  private Object handleListMarkup(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     return withSession(
         sessionName,
         false,
         session -> {
           VTMatch match = findMatchForMarkup(session, args);
-          Collection<VTMarkupItem> markupItems = getMarkupItems(match);
+          Collection<VTMarkupItem> markupItems = getMarkupItems(match, monitor);
 
           List<VTMarkupItemInfo> results = new ArrayList<>();
           for (VTMarkupItem item : markupItems) {
@@ -1342,7 +1359,8 @@ public class VTOperationsTool extends BaseVTTool {
         });
   }
 
-  private Object handleApplyMarkup(Map<String, Object> args) throws GhidraMcpException {
+  private Object handleApplyMarkup(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     return withSession(
         sessionName,
@@ -1372,7 +1390,7 @@ public class VTOperationsTool extends BaseVTTool {
                   "Failed to apply markup: ",
                   () -> {
                     int applied = 0;
-                    Collection<VTMarkupItem> markupItems = getMarkupItems(match);
+                    Collection<VTMarkupItem> markupItems = getMarkupItems(match, monitor);
 
                     for (VTMarkupItem item : markupItems) {
                       if (!shouldApplyMarkupItem(item, requestedTypes)) {
@@ -1400,7 +1418,8 @@ public class VTOperationsTool extends BaseVTTool {
         });
   }
 
-  private Object handleApplyAllMarkup(Map<String, Object> args) throws GhidraMcpException {
+  private Object handleApplyAllMarkup(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     return withSession(
         sessionName,
@@ -1443,7 +1462,7 @@ public class VTOperationsTool extends BaseVTTool {
                         processed++;
 
                         try {
-                          Collection<VTMarkupItem> markupItems = getMarkupItems(match);
+                          Collection<VTMarkupItem> markupItems = getMarkupItems(match, monitor);
                           for (VTMarkupItem item : markupItems) {
                             if (!shouldApplyMarkupItem(item, requestedTypes)) {
                               continue;
@@ -1490,7 +1509,8 @@ public class VTOperationsTool extends BaseVTTool {
         });
   }
 
-  private Object handleUnapplyMarkup(Map<String, Object> args) throws GhidraMcpException {
+  private Object handleUnapplyMarkup(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     return withSession(
         sessionName,
@@ -1506,7 +1526,7 @@ public class VTOperationsTool extends BaseVTTool {
                   "Failed to unapply markup: ",
                   () -> {
                     int unapplied = 0;
-                    Collection<VTMarkupItem> markupItems = getMarkupItems(match);
+                    Collection<VTMarkupItem> markupItems = getMarkupItems(match, monitor);
 
                     for (VTMarkupItem item : markupItems) {
                       if (!shouldApplyMarkupItem(item, requestedTypes)) {
@@ -1543,9 +1563,10 @@ public class VTOperationsTool extends BaseVTTool {
         .match();
   }
 
-  private Collection<VTMarkupItem> getMarkupItems(VTMatch match) throws GhidraMcpException {
+  private Collection<VTMarkupItem> getMarkupItems(VTMatch match, TaskMonitor monitor)
+      throws GhidraMcpException {
     try {
-      return match.getAssociation().getMarkupItems(TaskMonitor.DUMMY);
+      return match.getAssociation().getMarkupItems(monitor);
     } catch (CancelledException e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution().message("Markup item retrieval was cancelled").build());

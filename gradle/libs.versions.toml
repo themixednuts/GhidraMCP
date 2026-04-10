@@ -1,8 +1,7 @@
 [versions]
 spotless-plugin = "8.3.0"
-mcp-bom = "0.18.1"
-jackson = "2.21.1"
-jackson-annotations = "2.21"
+mcp-bom = "1.1.1"
+jackson = "3.0.3"
 jakarta-servlet = "6.1.0"
 jetty = "12.1.7"
 junit-jupiter = "6.0.3"
@@ -30,10 +29,8 @@ guava = "33.5.0-jre"
 [libraries]
 mcp-bom = { module = "io.modelcontextprotocol.sdk:mcp-bom", version.ref = "mcp-bom" }
 mcp = { module = "io.modelcontextprotocol.sdk:mcp" }
-jackson-datatype-jdk8 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jdk8", version.ref = "jackson" }
-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
-jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
-jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson-annotations" }
+jackson-bom = { module = "tools.jackson:jackson-bom", version.ref = "jackson" }
+jackson-databind = { module = "tools.jackson.core:jackson-databind" }
 jakarta-servlet-api = { module = "jakarta.servlet:jakarta.servlet-api", version.ref = "jakarta-servlet" }
 jetty-server = { module = "org.eclipse.jetty:jetty-server", version.ref = "jetty" }
 jetty-ee10-servlet = { module = "org.eclipse.jetty.ee10:jetty-ee10-servlet", version.ref = "jetty" }

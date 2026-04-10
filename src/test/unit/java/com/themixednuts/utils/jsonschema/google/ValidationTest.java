@@ -2,13 +2,13 @@ package com.themixednuts.utils.jsonschema.google;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.google.validation.ValidationMessage;
 import com.themixednuts.utils.jsonschema.google.validation.Validator;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Validation tests for Google AI API schemas using our custom Validator. Tests that our generated
@@ -21,14 +21,14 @@ class ValidationTest {
 
   @BeforeEach
   void setUp() {
-    mapper = new ObjectMapper();
+    mapper = tools.jackson.databind.json.JsonMapper.builder().build();
   }
 
   private Set<ValidationMessage> validate(
       com.themixednuts.utils.jsonschema.JsonSchema ourSchema, Object data) {
     JsonNode dataNode = mapper.valueToTree(data);
     return Validator.validate(
-        (com.fasterxml.jackson.databind.node.ObjectNode) ourSchema.getNode(), dataNode);
+        (tools.jackson.databind.node.ObjectNode) ourSchema.getNode(), dataNode);
   }
 
   // ========== String Validation ==========

@@ -1,7 +1,7 @@
 package com.themixednuts.services;
 
 import ghidra.framework.plugintool.ServiceInfo;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import java.util.List;
 
 /** Service interface for providing configured MCP tool specifications. */

@@ -12,9 +12,11 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.*;
 import reactor.core.publisher.Mono;
+import reactor.util.context.ContextView;
 
 /**
  * Batch operations tool that executes multiple tool calls in sequence within a single transaction.
@@ -294,13 +296,23 @@ public class BatchOperationsTool extends BaseMcpTool {
       }
     }
 
-    return getProgram(args, tool)
-        .flatMap(
-            program ->
-                Mono.fromCallable(
-                    () ->
-                        executeBatchInSingleTransaction(
-                            program, context, args, operations, availableTools, tool)));
+    return Mono.deferContextual(
+        contextView ->
+            getProgram(args, tool)
+                .flatMap(
+                    program ->
+                        withTaskMonitor(
+                            "batch_operations.execute",
+                            monitor ->
+                                executeBatchInSingleTransaction(
+                                    program,
+                                    context,
+                                    args,
+                                    operations,
+                                    availableTools,
+                                    tool,
+                                    monitor,
+                                    contextView))));
   }
 
   private BatchOperationResult executeBatchInSingleTransaction(
@@ -309,17 +321,22 @@ public class BatchOperationsTool extends BaseMcpTool {
       Map<String, Object> batchArgs,
       List<Map<String, Object>> operations,
       Map<String, BaseMcpTool> availableTools,
-      PluginTool pluginTool) {
+      PluginTool pluginTool,
+      TaskMonitor monitor,
+      ContextView parentContext) {
     int txId = -1;
     boolean commit = false;
     List<BatchOperationResult.IndividualOperationResult> results = new ArrayList<>();
 
     try {
       txId = program.startTransaction("Batch Operations");
+      monitor.initialize(operations.size());
 
       for (int i = 0; i < operations.size(); i++) {
         Map<String, Object> operation = operations.get(i);
         String toolName = getOptionalStringArgument(operation, ARG_TOOL).orElse("");
+        monitor.setMessage(
+            "Running batch operation " + (i + 1) + "/" + operations.size() + ": " + toolName);
         Map<String, Object> operationArgs = getRequiredMapArgument(operation, ARG_ARGUMENTS);
         Map<String, Object> toolArgs = new HashMap<>(operationArgs);
         toolArgs.put(ARG_FILE_NAME, batchArgs.get(ARG_FILE_NAME));
@@ -343,7 +360,11 @@ public class BatchOperationsTool extends BaseMcpTool {
         }
 
         try {
-          Object result = toolInstance.execute(context, toolArgs, pluginTool).block();
+          Object result =
+              toolInstance
+                  .execute(context, toolArgs, pluginTool)
+                  .contextWrite(ctx -> ctx.putAll(parentContext))
+                  .block();
           results.add(BatchOperationResult.IndividualOperationResult.success(i, toolName, result));
         } catch (Exception e) {
           Throwable root = unwrapExecutionException(e);
@@ -367,6 +388,8 @@ public class BatchOperationsTool extends BaseMcpTool {
           results.add(BatchOperationResult.IndividualOperationResult.failure(i, toolName, error));
           throw new GhidraMcpException(error, root);
         }
+
+        monitor.setProgress(i + 1L);
       }
 
       commit = true;
@@ -383,6 +406,24 @@ public class BatchOperationsTool extends BaseMcpTool {
         }
       }
     }
+  }
+
+  private BatchOperationResult executeBatchInSingleTransaction(
+      Program program,
+      McpTransportContext context,
+      Map<String, Object> batchArgs,
+      List<Map<String, Object>> operations,
+      Map<String, BaseMcpTool> availableTools,
+      PluginTool pluginTool) {
+    return executeBatchInSingleTransaction(
+        program,
+        context,
+        batchArgs,
+        operations,
+        availableTools,
+        pluginTool,
+        TaskMonitor.DUMMY,
+        reactor.util.context.Context.empty());
   }
 
   private BatchOperationResult buildBatchResult(

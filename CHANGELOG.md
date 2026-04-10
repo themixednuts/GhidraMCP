@@ -7,6 +7,13 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre6] - 2026-04-09
+
+### Changed
+- **MCP transport upgrade** - Replaced the stateless servlet transport with full Streamable HTTP, upgraded the MCP Java SDK to `1.1.1`, and migrated JSON handling to the Jackson 3 stack used by the latest SDK.
+- **Live capability updates** - Tools, prompts, resources, and resource templates now refresh in-place when options change, with correct `listChanged` and `resources/updated` notifications instead of requiring a full restart for every feature toggle.
+- **Progress and logging semantics** - Long-running operations now use MCP progress notifications for task advancement and reserve log notifications for lifecycle and phase messages, including nested tool calls executed through `batch_operations`.
+
 ## [0.7.0-pre5] - 2026-04-05
 
 ### Added

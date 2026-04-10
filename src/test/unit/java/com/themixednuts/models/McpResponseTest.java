@@ -2,9 +2,9 @@ package com.themixednuts.models;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Serialization tests for McpResponse using a vanilla ObjectMapper.
@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 class McpResponseTest {
 
   /** Vanilla mapper — no Jdk8Module, same as what the MCP SDK uses internally. */
-  private static final ObjectMapper VANILLA_MAPPER = new ObjectMapper();
+  private static final ObjectMapper VANILLA_MAPPER =
+      tools.jackson.databind.json.JsonMapper.builder().build();
 
   @Test
   @DisplayName("Success response should serialize with vanilla ObjectMapper")

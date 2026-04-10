@@ -1,15 +1,15 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Abstract base class for all schema builder implementations. Provides shared implementation logic

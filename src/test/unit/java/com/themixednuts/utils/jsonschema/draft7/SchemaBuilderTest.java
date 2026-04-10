@@ -2,10 +2,10 @@ package com.themixednuts.utils.jsonschema.draft7;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Tests for Draft 7 SchemaBuilder API and JSON serialization. These tests verify that schemas are
@@ -18,7 +18,7 @@ class SchemaBuilderTest {
 
   @BeforeEach
   void setUp() {
-    mapper = new ObjectMapper();
+    mapper = tools.jackson.databind.json.JsonMapper.builder().build();
   }
 
   // ========== Basic Type Tests ==========

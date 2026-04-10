@@ -2,10 +2,10 @@ package com.themixednuts.utils.jsonschema.google;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Tests for Google AI API SchemaBuilder API and JSON serialization. These tests verify that schemas
@@ -22,7 +22,7 @@ class SchemaBuilderTest {
 
   @BeforeEach
   void setUp() {
-    mapper = new ObjectMapper();
+    mapper = tools.jackson.databind.json.JsonMapper.builder().build();
   }
 
   // ========== Basic Type Tests ==========
@@ -403,15 +403,14 @@ class SchemaBuilderTest {
     assertThrows(
         NullPointerException.class,
         () ->
-            SchemaBuilder.object()
-                .property("name", (com.fasterxml.jackson.databind.node.ObjectNode) null));
+            SchemaBuilder.object().property("name", (tools.jackson.databind.node.ObjectNode) null));
   }
 
   @Test
   void array_nullItemSchema_throwsException() {
     assertThrows(
         NullPointerException.class,
-        () -> SchemaBuilder.array().items((com.fasterxml.jackson.databind.node.ObjectNode) null));
+        () -> SchemaBuilder.array().items((tools.jackson.databind.node.ObjectNode) null));
   }
 
   // ========== Additional Constraint Violation Tests ==========

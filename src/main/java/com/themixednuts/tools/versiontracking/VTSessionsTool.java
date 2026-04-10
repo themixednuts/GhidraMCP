@@ -130,34 +130,39 @@ public class VTSessionsTool extends BaseVTTool {
   @Override
   public Mono<? extends Object> execute(
       McpTransportContext context, Map<String, Object> args, PluginTool tool) {
-    return Mono.fromCallable(
-        () -> {
-          String action = getRequiredStringArgument(args, ARG_ACTION);
-          String normalizedAction = action.toLowerCase();
+    String action;
+    try {
+      action = getRequiredStringArgument(args, ARG_ACTION);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
 
-          return switch (normalizedAction) {
-            case ACTION_CREATE -> handleCreate(args);
-            case ACTION_OPEN -> handleOpen(args);
-            case ACTION_LIST -> handleList();
-            case ACTION_CLOSE -> handleClose(args);
-            case ACTION_INFO -> handleInfo(args);
-            default ->
-                throw new GhidraMcpException(
-                    GhidraMcpError.invalid(
-                        ARG_ACTION,
-                        action,
-                        "must be one of: "
-                            + ACTION_CREATE
-                            + ", "
-                            + ACTION_OPEN
-                            + ", "
-                            + ACTION_LIST
-                            + ", "
-                            + ACTION_CLOSE
-                            + ", "
-                            + ACTION_INFO));
-          };
-        });
+    String normalizedAction = action.toLowerCase();
+    return switch (normalizedAction) {
+      case ACTION_CREATE ->
+          withTaskMonitor("vt_sessions.create", monitor -> handleCreate(args, monitor));
+      case ACTION_OPEN -> withTaskMonitor("vt_sessions.open", monitor -> handleOpen(args, monitor));
+      case ACTION_LIST -> Mono.fromCallable(this::handleList);
+      case ACTION_CLOSE ->
+          withTaskMonitor("vt_sessions.close", monitor -> handleClose(args, monitor));
+      case ACTION_INFO -> withTaskMonitor("vt_sessions.info", monitor -> handleInfo(args, monitor));
+      default ->
+          Mono.error(
+              new GhidraMcpException(
+                  GhidraMcpError.invalid(
+                      ARG_ACTION,
+                      action,
+                      "must be one of: "
+                          + ACTION_CREATE
+                          + ", "
+                          + ACTION_OPEN
+                          + ", "
+                          + ACTION_LIST
+                          + ", "
+                          + ACTION_CLOSE
+                          + ", "
+                          + ACTION_INFO)));
+    };
   }
 
   /** Creates a VT session using reflection to avoid compile-time dependency on VTSessionDB. */
@@ -193,7 +198,8 @@ public class VTSessionsTool extends BaseVTTool {
     }
   }
 
-  private VTSessionInfo handleCreate(Map<String, Object> args) throws GhidraMcpException {
+  private VTSessionInfo handleCreate(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
     String sourceFile = getRequiredStringArgument(args, ARG_SOURCE_FILE);
     String destinationFile = getRequiredStringArgument(args, ARG_DESTINATION_FILE);
@@ -221,8 +227,8 @@ public class VTSessionsTool extends BaseVTTool {
               "must reference a different program than source_file"));
     }
 
-    Program sourceProgram = openProgram(sourceDomainFile, sourceFile, false);
-    Program destProgram = openProgram(destinationDomainFile, destinationFile, true);
+    Program sourceProgram = openProgram(sourceDomainFile, sourceFile, false, monitor);
+    Program destProgram = openProgram(destinationDomainFile, destinationFile, true, monitor);
 
     try {
       // Create VT session using reflection
@@ -234,7 +240,7 @@ public class VTSessionsTool extends BaseVTTool {
         DomainFile sessionFile =
             createTarget
                 .folder()
-                .createFile(createTarget.fileName(), (DomainObject) session, TaskMonitor.DUMMY);
+                .createFile(createTarget.fileName(), (DomainObject) session, monitor);
 
         Msg.info(this, "Created VT session: " + sessionFile.getPathname());
 
@@ -266,9 +272,10 @@ public class VTSessionsTool extends BaseVTTool {
     }
   }
 
-  private VTSessionInfo handleOpen(Map<String, Object> args) throws GhidraMcpException {
+  private VTSessionInfo handleOpen(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
-    return readSessionInfo(sessionName);
+    return readSessionInfo(sessionName, monitor);
   }
 
   private List<String> handleList() throws GhidraMcpException {
@@ -287,7 +294,8 @@ public class VTSessionsTool extends BaseVTTool {
     return sessionPaths;
   }
 
-  private OperationResult handleClose(Map<String, Object> args) throws GhidraMcpException {
+  private OperationResult handleClose(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
 
     Project project = getActiveProject();
@@ -303,7 +311,7 @@ public class VTSessionsTool extends BaseVTTool {
     // Acquire and release one reference from this tool instance.
     DomainObject sessionObject = null;
     try {
-      sessionObject = sessionFile.getDomainObject(this, false, false, TaskMonitor.DUMMY);
+      sessionObject = sessionFile.getDomainObject(this, false, false, monitor);
     } catch (Exception e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
@@ -336,19 +344,22 @@ public class VTSessionsTool extends BaseVTTool {
     return OperationResult.success(ACTION_CLOSE, sessionName, "Session closed successfully");
   }
 
-  private VTSessionInfo handleInfo(Map<String, Object> args) throws GhidraMcpException {
+  private VTSessionInfo handleInfo(Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     String sessionName = getRequiredStringArgument(args, ARG_SESSION_NAME);
-    return readSessionInfo(sessionName);
+    return readSessionInfo(sessionName, monitor);
   }
 
-  private VTSessionInfo readSessionInfo(String sessionName) throws GhidraMcpException {
-    return withSession(sessionName, false, this::buildSessionInfo);
+  private VTSessionInfo readSessionInfo(String sessionName, TaskMonitor monitor)
+      throws GhidraMcpException {
+    return withSession(sessionName, false, monitor, this::buildSessionInfo);
   }
 
-  private Program openProgram(DomainFile domainFile, String identifierForErrors, boolean forUpdate)
+  private Program openProgram(
+      DomainFile domainFile, String identifierForErrors, boolean forUpdate, TaskMonitor monitor)
       throws GhidraMcpException {
     try {
-      DomainObject obj = domainFile.getDomainObject(this, forUpdate, false, TaskMonitor.DUMMY);
+      DomainObject obj = domainFile.getDomainObject(this, forUpdate, false, monitor);
       if (obj instanceof Program) {
         return (Program) obj;
       }

@@ -1,8 +1,8 @@
 package com.themixednuts.utils.jsonschema;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Optional;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * An immutable representation of a JSON Schema, built using schema builders. Provides methods to
@@ -10,7 +10,8 @@ import java.util.Optional;
  */
 public final class JsonSchema {
 
-  private static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+  private static final ObjectMapper DEFAULT_MAPPER =
+      tools.jackson.databind.json.JsonMapper.builder().build();
   private final ObjectNode schemaNode;
 
   /**

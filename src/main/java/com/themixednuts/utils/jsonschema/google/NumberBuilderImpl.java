@@ -1,10 +1,10 @@
 package com.themixednuts.utils.jsonschema.google;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.INumberSchemaBuilder;
 import java.math.BigDecimal;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
 
 /** Implementation of INumberSchemaBuilder for building number-type schemas per Google AI API. */
 final class NumberBuilderImpl extends AbstractSchemaBuilderImpl<INumberSchemaBuilder>

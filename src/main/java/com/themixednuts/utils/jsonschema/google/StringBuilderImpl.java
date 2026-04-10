@@ -1,11 +1,11 @@
 package com.themixednuts.utils.jsonschema.google;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IStringSchemaBuilder;
 import java.util.List;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 
 /** Implementation of IStringSchemaBuilder for building string-type schemas per Google AI API. */
 final class StringBuilderImpl extends AbstractSchemaBuilderImpl<IStringSchemaBuilder>

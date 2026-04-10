@@ -1,8 +1,8 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.INullSchemaBuilder;
+import tools.jackson.databind.ObjectMapper;
 
 /** Implementation of INullSchemaBuilder for building null-type schemas. */
 final class NullBuilderImpl extends AbstractSchemaBuilderImpl<INullSchemaBuilder>

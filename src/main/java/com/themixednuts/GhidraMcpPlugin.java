@@ -5,11 +5,15 @@ import com.themixednuts.services.IGhidraMcpPromptProvider;
 import com.themixednuts.services.IGhidraMcpResourceProvider;
 import com.themixednuts.services.IGhidraMcpToolProvider;
 import com.themixednuts.utils.ToolOutputStore;
+import ghidra.app.events.ProgramActivatedPluginEvent;
+import ghidra.app.events.ProgramClosedPluginEvent;
+import ghidra.app.events.ProgramOpenedPluginEvent;
 import ghidra.framework.main.ApplicationLevelOnlyPlugin;
 import ghidra.framework.options.OptionType;
 import ghidra.framework.options.OptionsChangeListener;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.Plugin;
+import ghidra.framework.plugintool.PluginEvent;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
@@ -33,6 +37,11 @@ import javax.swing.Timer;
     description =
         "Exposes program data via MCP (Model Context Protocol) HTTP API for AI-assisted reverse"
             + " engineering.",
+    eventsConsumed = {
+      ProgramOpenedPluginEvent.class,
+      ProgramClosedPluginEvent.class,
+      ProgramActivatedPluginEvent.class
+    },
     servicesProvided = {
       IGhidraMcpToolProvider.class,
       IGhidraMcpResourceProvider.class,
@@ -65,15 +74,24 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
   private int currentTimeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
   private OptionsChangeListener optionsListener;
   private Timer restartTimer;
+  private boolean pendingFullRestart;
+  private final GhidraResourceUpdateTracker resourceUpdateTracker;
 
   public GhidraMcpPlugin(PluginTool tool) {
     super(tool);
 
     Msg.info(this, "Initializing GhidraMCP plugin");
+    resourceUpdateTracker = new GhidraResourceUpdateTracker();
 
     initializeOptions();
     registerProviders();
     scheduleServerStart();
+  }
+
+  @Override
+  protected void init() {
+    super.init();
+    resourceUpdateTracker.start();
   }
 
   private void initializeOptions() {
@@ -123,7 +141,7 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
             if (newPort != currentPort) {
               Msg.info(this, "Port changing from " + currentPort + " to " + newPort);
               currentPort = newPort;
-              scheduleServerRestart();
+              scheduleServerReconfigure(true);
             }
           } else if (TIMEOUT_OPTION.equals(name)) {
             int newTimeout = (Integer) newValue;
@@ -132,11 +150,14 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
                   this,
                   "Timeout changing from " + currentTimeoutSeconds + "s to " + newTimeout + "s");
               currentTimeoutSeconds = newTimeout;
-              scheduleServerRestart();
+              scheduleServerReconfigure(true);
             }
+          } else if (TOOL_OUTPUT_DIR_OPTION.equals(name)) {
+            return;
+          } else if (isCompletionOption(name)) {
+            scheduleServerReconfigure(true);
           } else {
-            // Tool option changed - restart to pick up new configuration
-            scheduleServerRestart();
+            scheduleServerReconfigure(false);
           }
         };
     options.addOptionsChangeListener(optionsListener);
@@ -157,7 +178,13 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         });
   }
 
-  private void scheduleServerRestart() {
+  private boolean isCompletionOption(String optionName) {
+    return optionName != null && optionName.startsWith("Completion: ");
+  }
+
+  private void scheduleServerReconfigure(boolean restartRequired) {
+    pendingFullRestart |= restartRequired;
+
     if (restartTimer != null && restartTimer.isRunning()) {
       restartTimer.stop();
     }
@@ -166,11 +193,28 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         new Timer(
             RESTART_DEBOUNCE_MS,
             e -> {
-              Msg.info(this, "Restarting MCP server due to configuration change");
-              GhidraMcpServer.restart(currentPort, currentTimeoutSeconds, tool);
+              boolean restart = pendingFullRestart;
+              pendingFullRestart = false;
+
+              if (restart) {
+                Msg.info(this, "Restarting MCP server due to configuration change");
+                GhidraMcpServer.restart(currentPort, currentTimeoutSeconds, tool);
+                return;
+              }
+
+              Msg.info(this, "Refreshing live MCP features due to configuration change");
+              if (!GhidraMcpServer.refreshFeatures(tool)) {
+                Msg.info(this, "Falling back to MCP server restart after refresh failure");
+                GhidraMcpServer.restart(currentPort, currentTimeoutSeconds, tool);
+              }
             });
     restartTimer.setRepeats(false);
     restartTimer.start();
+  }
+
+  @Override
+  public void processEvent(PluginEvent event) {
+    resourceUpdateTracker.processEvent(event);
   }
 
   @Override
@@ -182,6 +226,8 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
     if (restartTimer != null) {
       restartTimer.stop();
     }
+
+    resourceUpdateTracker.stop();
 
     GhidraMcpServer.stop();
     Msg.info(this, "GhidraMCP plugin disposed");

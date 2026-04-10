@@ -180,10 +180,8 @@ dependencies {
 
   implementation platform(libs.mcp.bom)
   implementation libs.mcp
-  implementation libs.jackson.datatype.jdk8
+  implementation platform(libs.jackson.bom)
   implementation libs.jackson.databind
-  implementation libs.jackson.core
-  implementation libs.jackson.annotations
   implementation libs.jakarta.servlet.api
   implementation libs.jetty.server
   implementation libs.jetty.ee10.servlet

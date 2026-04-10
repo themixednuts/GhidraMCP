@@ -1,8 +1,8 @@
 package com.themixednuts.utils.jsonschema.draft7.traits;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import java.util.List;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Capability interface for anyOf keyword. All schema types support anyOf - the schema must validate

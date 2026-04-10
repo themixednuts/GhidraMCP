@@ -789,11 +789,12 @@ public class AnalyzeTool extends BaseMcpTool {
   // =================== RTTI Action ===================
 
   private Mono<? extends Object> handleRtti(Program program, Map<String, Object> args) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "analyze.rtti",
+        monitor -> {
           String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
           boolean fromVtable = getOptionalBooleanArgument(args, ARG_FROM_VTABLE).orElse(false);
-          RTTIAnalysisResult result = analyzeRTTIAtAddress(program, addressStr, args);
+          RTTIAnalysisResult result = analyzeRTTIAtAddress(program, addressStr, args, monitor);
 
           if (fromVtable) {
             // Wrap result with vtable context info
@@ -808,7 +809,8 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   private RTTIAnalysisResult analyzeRTTIAtAddress(
-      Program program, String addressStr, Map<String, Object> args) throws GhidraMcpException {
+      Program program, String addressStr, Map<String, Object> args, TaskMonitor monitor)
+      throws GhidraMcpException {
     try {
       Address address = program.getAddressFactory().getAddress(addressStr);
       if (address == null) {
@@ -854,7 +856,8 @@ public class AnalyzeTool extends BaseMcpTool {
         }
 
         try {
-          RTTIAnalysisResult result = backend.analyzeAtAddress(program, address, addressStr, args);
+          RTTIAnalysisResult result =
+              backend.analyzeAtAddress(program, address, addressStr, args, monitor);
           if (result != null && result.isValid()) {
             return result;
           }
@@ -954,7 +957,11 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   private RTTIAnalysisResult analyzeMicrosoftRttiAtAddress(
-      Program program, Address address, String addressStr, Map<String, Object> args)
+      Program program,
+      Address address,
+      String addressStr,
+      Map<String, Object> args,
+      TaskMonitor monitor)
       throws Exception {
     DataValidationOptions validationOptions = buildValidationOptions(args);
     Map<RTTIAnalysisResult.RttiType, String> failureReasons = new LinkedHashMap<>();
@@ -1073,14 +1080,14 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   private RTTIAnalysisResult analyzeGoRttiAtAddress(
-      Program program, Address address, String addressStr) throws Exception {
-    GoRttiMapper goBinary = GoRttiMapper.getGoBinary(program, TaskMonitor.DUMMY);
+      Program program, Address address, String addressStr, TaskMonitor monitor) throws Exception {
+    GoRttiMapper goBinary = GoRttiMapper.getGoBinary(program, monitor);
     if (goBinary == null) {
       throw new IllegalArgumentException("program does not appear to contain Go RTTI metadata");
     }
 
     try {
-      goBinary.init(TaskMonitor.DUMMY);
+      goBinary.init(monitor);
 
       Map<RTTIAnalysisResult.RttiType, String> failureReasons = new LinkedHashMap<>();
       RTTIAnalysisResult result =
@@ -1482,7 +1489,11 @@ public class AnalyzeTool extends BaseMcpTool {
     boolean canAnalyzeProgram(Program program);
 
     RTTIAnalysisResult analyzeAtAddress(
-        Program program, Address address, String addressStr, Map<String, Object> args)
+        Program program,
+        Address address,
+        String addressStr,
+        Map<String, Object> args,
+        TaskMonitor monitor)
         throws Exception;
   }
 
@@ -1499,9 +1510,13 @@ public class AnalyzeTool extends BaseMcpTool {
 
     @Override
     public RTTIAnalysisResult analyzeAtAddress(
-        Program program, Address address, String addressStr, Map<String, Object> args)
+        Program program,
+        Address address,
+        String addressStr,
+        Map<String, Object> args,
+        TaskMonitor monitor)
         throws Exception {
-      return analyzeMicrosoftRttiAtAddress(program, address, addressStr, args);
+      return analyzeMicrosoftRttiAtAddress(program, address, addressStr, args, monitor);
     }
   }
 
@@ -1518,7 +1533,11 @@ public class AnalyzeTool extends BaseMcpTool {
 
     @Override
     public RTTIAnalysisResult analyzeAtAddress(
-        Program program, Address address, String addressStr, Map<String, Object> args) {
+        Program program,
+        Address address,
+        String addressStr,
+        Map<String, Object> args,
+        TaskMonitor monitor) {
       return analyzeItaniumRttiAtAddress(program, address, addressStr);
     }
   }
@@ -1536,9 +1555,13 @@ public class AnalyzeTool extends BaseMcpTool {
 
     @Override
     public RTTIAnalysisResult analyzeAtAddress(
-        Program program, Address address, String addressStr, Map<String, Object> args)
+        Program program,
+        Address address,
+        String addressStr,
+        Map<String, Object> args,
+        TaskMonitor monitor)
         throws Exception {
-      return analyzeGoRttiAtAddress(program, address, addressStr);
+      return analyzeGoRttiAtAddress(program, address, addressStr, monitor);
     }
   }
 
@@ -1605,8 +1628,9 @@ public class AnalyzeTool extends BaseMcpTool {
   @SuppressWarnings("unchecked")
   private Mono<PaginatedResult<Map<String, Object>>> handleListRtti(
       Program program, Map<String, Object> args) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "analyze.list_rtti",
+        monitor -> {
           Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
           Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
           int pageSize =
@@ -1664,7 +1688,7 @@ public class AnalyzeTool extends BaseMcpTool {
           // Try structured RTTI0 discovery via type_info vftable
           Address typeInfoVftable = null;
           try {
-            typeInfoVftable = RttiUtil.findTypeInfoVftableAddress(program, TaskMonitor.DUMMY);
+            typeInfoVftable = RttiUtil.findTypeInfoVftableAddress(program, monitor);
           } catch (Exception ignored) {
             // Fall back to byte pattern scan
           }
@@ -1685,7 +1709,7 @@ public class AnalyzeTool extends BaseMcpTool {
                 new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
 
             ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-            searcher.findAll(accumulator, TaskMonitor.DUMMY);
+            searcher.findAll(accumulator, monitor);
 
             // Phase 1: Validate each RTTI0 using TypeDescriptorModel
             for (MemoryMatch match : accumulator) {
@@ -1750,7 +1774,7 @@ public class AnalyzeTool extends BaseMcpTool {
                 new MemorySearcher(byteSource, matcher, searchSet, MAX_RTTI_SCAN);
 
             ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-            searcher.findAll(accumulator, TaskMonitor.DUMMY);
+            searcher.findAll(accumulator, monitor);
 
             for (MemoryMatch match : accumulator) {
               Address found = match.getAddress();
@@ -1792,7 +1816,7 @@ public class AnalyzeTool extends BaseMcpTool {
           }
 
           // Phase 3: Enrich with RTTI4 (Complete Object Locator) data
-          enrichWithRtti4Data(program, memory, classMap);
+          enrichWithRtti4Data(program, memory, classMap, monitor);
 
           // Phase 4: Build the output class list
           // Lambda entries get an enclosing_method field; real class entries get aggregated
@@ -2154,7 +2178,10 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   private void enrichWithRtti4Data(
-      Program program, Memory memory, Map<String, Map<String, Object>> classMap) {
+      Program program,
+      Memory memory,
+      Map<String, Map<String, Object>> classMap,
+      TaskMonitor monitor) {
     try {
       Address imageBase = program.getImageBase();
       if (imageBase == null) {
@@ -2197,7 +2224,7 @@ public class AnalyzeTool extends BaseMcpTool {
       MemorySearcher searcher = new MemorySearcher(byteSource, matcher, rdataSet, 100000);
 
       ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-      searcher.findAll(accumulator, TaskMonitor.DUMMY);
+      searcher.findAll(accumulator, monitor);
 
       for (MemoryMatch match : accumulator) {
         try {
@@ -2343,15 +2370,16 @@ public class AnalyzeTool extends BaseMcpTool {
   // =================== Graph Action (Control Flow) ===================
 
   private Mono<Map<String, Object>> handleGraph(Program program, Map<String, Object> args) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "analyze.graph",
+        monitor -> {
           Function function = resolveFunction(program, args);
-          return buildControlFlowGraph(program, function);
+          return buildControlFlowGraph(program, function, monitor);
         });
   }
 
-  private Map<String, Object> buildControlFlowGraph(Program program, Function function)
-      throws Exception {
+  private Map<String, Object> buildControlFlowGraph(
+      Program program, Function function, TaskMonitor monitor) throws Exception {
     BasicBlockModel blockModel = new BasicBlockModel(program);
     List<Map<String, Object>> nodes = new ArrayList<>();
     List<Map<String, Object>> edges = new ArrayList<>();
@@ -2359,8 +2387,7 @@ public class AnalyzeTool extends BaseMcpTool {
     int nodeId = 0;
 
     // Iterate code blocks within the function body
-    CodeBlockIterator blockIter =
-        blockModel.getCodeBlocksContaining(function.getBody(), TaskMonitor.DUMMY);
+    CodeBlockIterator blockIter = blockModel.getCodeBlocksContaining(function.getBody(), monitor);
     while (blockIter.hasNext()) {
       CodeBlock block = blockIter.next();
       Address startAddr = block.getMinAddress();
@@ -2378,14 +2405,14 @@ public class AnalyzeTool extends BaseMcpTool {
     }
 
     // Build edges by iterating destinations
-    blockIter = blockModel.getCodeBlocksContaining(function.getBody(), TaskMonitor.DUMMY);
+    blockIter = blockModel.getCodeBlocksContaining(function.getBody(), monitor);
     while (blockIter.hasNext()) {
       CodeBlock block = blockIter.next();
       Address sourceAddr = block.getMinAddress();
       Integer sourceId = blockIdMap.get(sourceAddr);
       if (sourceId == null) continue;
 
-      CodeBlockReferenceIterator destIter = block.getDestinations(TaskMonitor.DUMMY);
+      CodeBlockReferenceIterator destIter = block.getDestinations(monitor);
       while (destIter.hasNext()) {
         CodeBlockReference ref = destIter.next();
         Address destAddr = ref.getDestinationAddress();
@@ -2411,8 +2438,9 @@ public class AnalyzeTool extends BaseMcpTool {
   // =================== Call Graph Action ===================
 
   private Mono<Map<String, Object>> handleCallGraph(Program program, Map<String, Object> args) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "analyze.call_graph",
+        monitor -> {
           int depth = getBoundedIntArgumentOrDefault(args, ARG_DEPTH, DEFAULT_DEPTH, 1, MAX_DEPTH);
           String direction =
               getOptionalStringArgument(args, ARG_DIRECTION)
@@ -2442,12 +2470,12 @@ public class AnalyzeTool extends BaseMcpTool {
             fm.getFunctions(true).forEach(roots::add);
           }
 
-          return buildCallGraph(roots, depth, direction, maxResults);
+          return buildCallGraph(roots, depth, direction, maxResults, monitor);
         });
   }
 
   private Map<String, Object> buildCallGraph(
-      List<Function> roots, int depth, String direction, int maxResults) {
+      List<Function> roots, int depth, String direction, int maxResults, TaskMonitor monitor) {
     Set<String> visitedAddresses = new LinkedHashSet<>();
     Map<String, Map<String, Object>> nodeMap = new LinkedHashMap<>();
     List<Map<String, Object>> edges = new ArrayList<>();
@@ -2474,7 +2502,7 @@ public class AnalyzeTool extends BaseMcpTool {
       String funcAddr = func.getEntryPoint().toString();
 
       if (DIRECTION_CALLEES.equals(direction) || DIRECTION_BOTH.equals(direction)) {
-        for (Function callee : func.getCalledFunctions(TaskMonitor.DUMMY)) {
+        for (Function callee : func.getCalledFunctions(monitor)) {
           String calleeAddr = callee.getEntryPoint().toString();
           if (!nodeMap.containsKey(calleeAddr)) {
             if (nodeMap.size() >= maxResults) {
@@ -2498,7 +2526,7 @@ public class AnalyzeTool extends BaseMcpTool {
       }
 
       if (DIRECTION_CALLERS.equals(direction) || DIRECTION_BOTH.equals(direction)) {
-        for (Function caller : func.getCallingFunctions(TaskMonitor.DUMMY)) {
+        for (Function caller : func.getCallingFunctions(monitor)) {
           String callerAddr = caller.getEntryPoint().toString();
           if (!nodeMap.containsKey(callerAddr)) {
             if (nodeMap.size() >= maxResults) {

@@ -1,8 +1,8 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.IBooleanSchemaBuilder;
+import tools.jackson.databind.ObjectMapper;
 
 /** Implementation of IBooleanSchemaBuilder for building boolean-type schemas. */
 final class BooleanBuilderImpl extends AbstractSchemaBuilderImpl<IBooleanSchemaBuilder>

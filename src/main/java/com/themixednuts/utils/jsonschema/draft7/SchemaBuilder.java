@@ -1,7 +1,5 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.draft7.traits.IAnyOf;
@@ -12,6 +10,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Builder for JSON Schema Draft 7 (pure standard with conditional support).
@@ -37,7 +37,8 @@ import java.util.Objects;
  *     7</a>
  */
 public class SchemaBuilder {
-  static final ObjectMapper DEFAULT_MAPPER = new ObjectMapper();
+  static final ObjectMapper DEFAULT_MAPPER =
+      tools.jackson.databind.json.JsonMapper.builder().build();
   private static final String TYPE = "type";
   private static final String TITLE = "title";
   private static final String DESCRIPTION = "description";

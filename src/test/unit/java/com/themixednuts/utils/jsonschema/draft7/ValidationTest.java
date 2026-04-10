@@ -2,8 +2,6 @@ package com.themixednuts.utils.jsonschema.draft7;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.networknt.schema.Error;
 import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
@@ -12,6 +10,8 @@ import com.networknt.schema.dialect.Dialects;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Validation tests for Draft 7 schemas using NetworkNT JSON Schema Validator 2.0. Tests that our
@@ -25,7 +25,7 @@ class ValidationTest {
 
   @BeforeEach
   void setUp() {
-    mapper = new ObjectMapper();
+    mapper = tools.jackson.databind.json.JsonMapper.builder().build();
     schemaRegistry = SchemaRegistry.withDialect(Dialects.getDraft7());
   }
 

@@ -2,7 +2,6 @@ package com.themixednuts.tools;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -11,6 +10,7 @@ import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.node.ObjectNode;
 
 class BaseMcpToolSchemaProfileTest {
 

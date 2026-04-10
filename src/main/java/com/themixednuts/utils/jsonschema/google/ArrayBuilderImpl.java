@@ -1,11 +1,11 @@
 package com.themixednuts.utils.jsonschema.google;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IArraySchemaBuilder;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** Implementation of IArraySchemaBuilder for building array-type schemas per Google AI API. */
 final class ArrayBuilderImpl extends AbstractSchemaBuilderImpl<IArraySchemaBuilder>

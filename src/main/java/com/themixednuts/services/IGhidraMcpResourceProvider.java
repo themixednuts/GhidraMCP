@@ -1,8 +1,8 @@
 package com.themixednuts.services;
 
 import ghidra.framework.plugintool.ServiceInfo;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceTemplateSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceTemplateSpecification;
 import java.util.List;
 
 /**

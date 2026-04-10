@@ -1,9 +1,9 @@
 package com.themixednuts.utils.jsonschema.google;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IIntegerSchemaBuilder;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
 
 /** Implementation of IIntegerSchemaBuilder for building integer-type schemas per Google AI API. */
 final class IntegerBuilderImpl extends AbstractSchemaBuilderImpl<IIntegerSchemaBuilder>

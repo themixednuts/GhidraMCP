@@ -28,7 +28,6 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.util.datastruct.ListAccumulator;
-import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.Arrays;
 import java.util.Collections;
@@ -755,8 +754,9 @@ public class MemoryTool extends BaseMcpTool {
   }
 
   private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "memory.search",
+        monitor -> {
           String searchTypeStr = getRequiredStringArgument(args, ARG_SEARCH_TYPE);
           SearchType searchType = SearchType.fromValue(searchTypeStr);
 
@@ -867,7 +867,7 @@ public class MemoryTool extends BaseMcpTool {
               new MemorySearcher(byteSource, matcher, searchAddressSet, searchLimit);
 
           ListAccumulator<MemoryMatch> accumulator = new ListAccumulator<>();
-          searcher.findAll(accumulator, TaskMonitor.DUMMY);
+          searcher.findAll(accumulator, monitor);
 
           List<SearchResult> allResults =
               accumulator.stream()

@@ -10,7 +10,7 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncCompletionSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncCompletionSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CompleteReference;
 import io.modelcontextprotocol.spec.McpSchema.CompleteResult;
 import java.util.ArrayList;
@@ -66,7 +66,9 @@ public class GhidraMcpCompletions implements IGhidraMcpCompletionProvider {
           specs.add(
               new AsyncCompletionSpecification(
                   reference,
-                  (ctx, request) -> routeCompletionRequest(completionGroup, ctx, request)));
+                  (exchange, request) ->
+                      routeCompletionRequest(
+                          completionGroup, exchange.transportContext(), request)));
           Msg.debug(
               this,
               "Registered completion group for "

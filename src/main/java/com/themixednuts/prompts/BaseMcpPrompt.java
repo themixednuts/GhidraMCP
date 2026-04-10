@@ -1,6 +1,5 @@
 package com.themixednuts.prompts;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.themixednuts.annotation.GhidraMcpPrompt;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -10,7 +9,7 @@ import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncPromptSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
 import io.modelcontextprotocol.spec.McpSchema.GetPromptRequest;
 import io.modelcontextprotocol.spec.McpSchema.GetPromptResult;
 import io.modelcontextprotocol.spec.McpSchema.Prompt;
@@ -21,6 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import java.util.List;
 import java.util.Map;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Abstract base class for MCP prompts. Provides reverse engineering workflow prompts for AI
@@ -81,7 +81,7 @@ public abstract class BaseMcpPrompt {
     Prompt prompt = new Prompt(getName(), getTitle(), getDescription(), getArguments());
 
     return new AsyncPromptSpecification(
-        prompt, (ctx, request) -> handleGetPrompt(ctx, request, tool));
+        prompt, (exchange, request) -> handleGetPrompt(exchange.transportContext(), request, tool));
   }
 
   /** Handles a get prompt request. */

@@ -787,6 +787,12 @@ class VersionTrackingE2eTest {
     protected VTSession openVTSession(String sessionName, boolean forUpdate) {
       return openVTSession(sessionName);
     }
+
+    @Override
+    protected VTSession openVTSession(
+        String sessionName, boolean forUpdate, ghidra.util.task.TaskMonitor monitor) {
+      return openVTSession(sessionName);
+    }
   }
 
   @GhidraMcpTool(
@@ -809,6 +815,12 @@ class VersionTrackingE2eTest {
 
     @Override
     protected VTSession openVTSession(String sessionName, boolean forUpdate) {
+      return openVTSession(sessionName);
+    }
+
+    @Override
+    protected VTSession openVTSession(
+        String sessionName, boolean forUpdate, ghidra.util.task.TaskMonitor monitor) {
       return openVTSession(sessionName);
     }
   }

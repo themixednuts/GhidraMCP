@@ -1,7 +1,5 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import com.themixednuts.utils.jsonschema.JsonSchemaType;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.IArraySchemaBuilder;
@@ -9,6 +7,8 @@ import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.IObjectSchemaBuild
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** Implementation of IArraySchemaBuilder for building array-type schemas. */
 final class ArrayBuilderImpl extends AbstractSchemaBuilderImpl<IArraySchemaBuilder>

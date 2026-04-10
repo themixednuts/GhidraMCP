@@ -35,7 +35,7 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
-import ghidra.util.task.ConsoleTaskMonitor;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -980,10 +980,11 @@ public class FunctionsTool extends BaseMcpTool {
       return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
     }
 
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "functions.list_variables",
+        monitor -> {
           Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
-          return listFunctionVariables(function, program, args);
+          return listFunctionVariables(function, program, args, monitor);
         });
   }
 
@@ -1024,8 +1025,9 @@ public class FunctionsTool extends BaseMcpTool {
                   "Provide 'new_name' to rename, 'new_data_type' to retype, or both")));
     }
 
-    return Mono.fromCallable(
-            () -> {
+    return withTaskMonitor(
+            "functions.rename_variable",
+            monitor -> {
               Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
 
               DecompInterface decomplib = new DecompInterface();
@@ -1034,9 +1036,7 @@ public class FunctionsTool extends BaseMcpTool {
                 decomplib.openProgram(program);
                 DecompileResults results =
                     decomplib.decompileFunction(
-                        function,
-                        decomplib.getOptions().getDefaultTimeout(),
-                        new ConsoleTaskMonitor());
+                        function, decomplib.getOptions().getDefaultTimeout(), monitor);
 
                 if (results == null || results.getHighFunction() == null) {
                   throw new GhidraMcpException(
@@ -1061,7 +1061,6 @@ public class FunctionsTool extends BaseMcpTool {
                         currentNameOpt.orElse(null),
                         function.getName());
 
-                // Resolve data type if requested
                 DataType resolvedType = null;
                 if (newDataTypeOpt.isPresent()) {
                   DataTypeManager dtm = program.getDataTypeManager();
@@ -1155,7 +1154,7 @@ public class FunctionsTool extends BaseMcpTool {
       Function function, HighSymbol symbol, String newName, DataType newDataType) {}
 
   private PaginatedResult<FunctionVariableInfo> listFunctionVariables(
-      Function function, Program program, Map<String, Object> args) {
+      Function function, Program program, Map<String, Object> args, TaskMonitor monitor) {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
@@ -1169,7 +1168,7 @@ public class FunctionsTool extends BaseMcpTool {
       decomplib.openProgram(program);
       DecompileResults results =
           decomplib.decompileFunction(
-              function, decomplib.getOptions().getDefaultTimeout(), new ConsoleTaskMonitor());
+              function, decomplib.getOptions().getDefaultTimeout(), monitor);
 
       if (results == null) {
         ghidra.util.Msg.warn(

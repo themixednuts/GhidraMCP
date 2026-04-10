@@ -8,7 +8,7 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncPromptSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceLoader;

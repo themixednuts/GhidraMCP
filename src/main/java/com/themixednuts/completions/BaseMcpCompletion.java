@@ -7,7 +7,7 @@ import com.themixednuts.utils.GhidraStateUtils;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncCompletionSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncCompletionSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CompleteReference;
 import io.modelcontextprotocol.spec.McpSchema.CompleteRequest;
 import io.modelcontextprotocol.spec.McpSchema.CompleteResult;
@@ -82,7 +82,8 @@ public abstract class BaseMcpCompletion {
   /** Creates an AsyncCompletionSpecification for this completion handler. */
   public AsyncCompletionSpecification toCompletionSpecification(PluginTool tool) {
     return new AsyncCompletionSpecification(
-        getReference(), (ctx, request) -> handleComplete(ctx, request, tool));
+        getReference(),
+        (exchange, request) -> handleComplete(exchange.transportContext(), request, tool));
   }
 
   /** Handles a completion request. */

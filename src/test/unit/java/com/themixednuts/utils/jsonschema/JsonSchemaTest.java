@@ -2,12 +2,12 @@ package com.themixednuts.utils.jsonschema;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** Comprehensive unit tests for JsonSchema class. */
 class JsonSchemaTest {
@@ -17,7 +17,7 @@ class JsonSchemaTest {
 
   @BeforeEach
   void setUp() {
-    mapper = new ObjectMapper();
+    mapper = tools.jackson.databind.json.JsonMapper.builder().build();
     schema = SchemaBuilder.string().minLength(1).maxLength(10).build();
   }
 

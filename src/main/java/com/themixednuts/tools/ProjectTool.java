@@ -17,7 +17,6 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
-import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -404,8 +403,9 @@ public class ProjectTool extends BaseMcpTool {
   // =================== run_analysis ===================
 
   private Mono<? extends Object> handleRunAnalysis(Program program) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "project.run_analysis",
+        monitor -> {
           AutoAnalysisManager analysisManager = AutoAnalysisManager.getAnalysisManager(program);
           if (analysisManager == null) {
             throw new GhidraMcpException(
@@ -414,7 +414,7 @@ public class ProjectTool extends BaseMcpTool {
           }
 
           analysisManager.reAnalyzeAll(program.getMemory());
-          analysisManager.startAnalysis(TaskMonitor.DUMMY);
+          analysisManager.startAnalysis(monitor);
 
           return OperationResult.success(
               ACTION_RUN_ANALYSIS,
@@ -426,8 +426,9 @@ public class ProjectTool extends BaseMcpTool {
   // =================== save ===================
 
   private Mono<? extends Object> handleSave(Program program) {
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "project.save",
+        monitor -> {
           ghidra.framework.model.DomainFile domainFile = program.getDomainFile();
           if (domainFile == null) {
             throw new GhidraMcpException(
@@ -440,7 +441,7 @@ public class ProjectTool extends BaseMcpTool {
                     "save", "Program cannot be saved (read-only or no write permission)."));
           }
 
-          domainFile.save(TaskMonitor.DUMMY);
+          domainFile.save(monitor);
 
           return OperationResult.success(
               ACTION_SAVE,

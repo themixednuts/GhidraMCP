@@ -1,15 +1,11 @@
 package com.themixednuts.tools;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
+import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.OpaqueCursorCodec;
@@ -31,14 +27,15 @@ import ghidra.util.Msg;
 import ghidra.util.Swing;
 import ghidra.util.data.DataTypeParser;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
+import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.server.McpAsyncServerExchange;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
-import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,6 +46,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Abstract base class for all Ghidra MCP tools. Provides standardized handling for:
@@ -74,6 +76,8 @@ public abstract class BaseMcpTool {
   protected static final ObjectMapper mapper = JsonMapperHolder.getMapper();
 
   private static final Object PROGRAM_TRACKER_CONTEXT_KEY = new Object();
+  private static final Object EXCHANGE_CONTEXT_KEY = new Object();
+  private static final Object PROGRESS_TOKEN_CONTEXT_KEY = new Object();
 
   private static final class ProgramResourceTracker {
     private final List<Program> programs = new CopyOnWriteArrayList<>();
@@ -100,6 +104,11 @@ public abstract class BaseMcpTool {
   protected static final int DEFAULT_PAGE_LIMIT = 50;
 
   protected static final int MAX_PAGE_LIMIT = 500;
+
+  @FunctionalInterface
+  protected interface TaskMonitorCallback<T> {
+    T execute(TaskMonitor monitor) throws Exception;
+  }
 
   private static final int INLINE_RESPONSE_CHAR_LIMIT = 16_000;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
@@ -209,8 +218,14 @@ public abstract class BaseMcpTool {
                         .title(annotation.title().isEmpty() ? null : annotation.title())
                         .annotations(createToolAnnotations(annotation))
                         .build(),
-                    (ctx, request) ->
-                        executeWithEnvelope(ctx, request.arguments(), tool, annotation)))
+                    (exchange, request) ->
+                        executeWithEnvelope(
+                            exchange,
+                            exchange.transportContext(),
+                            request.arguments(),
+                            request.progressToken(),
+                            tool,
+                            annotation)))
         .orElse(null);
   }
 
@@ -277,8 +292,10 @@ public abstract class BaseMcpTool {
 
   /** Wraps execution with timing, error normalization, and response envelope. */
   private Mono<CallToolResult> executeWithEnvelope(
+      McpAsyncServerExchange exchange,
       McpTransportContext ctx,
       Map<String, Object> args,
+      Object progressToken,
       PluginTool tool,
       GhidraMcpTool annotation) {
 
@@ -318,8 +335,53 @@ public abstract class BaseMcpTool {
                   McpResponse.error(toolName, operation, normalized.getErr(), duration);
               return createErrorResultInternal(response, normalized);
             })
-        .contextWrite(context -> context.put(PROGRAM_TRACKER_CONTEXT_KEY, tracker))
+        .contextWrite(
+            context ->
+                context
+                    .put(PROGRAM_TRACKER_CONTEXT_KEY, tracker)
+                    .put(EXCHANGE_CONTEXT_KEY, exchange)
+                    .put(PROGRESS_TOKEN_CONTEXT_KEY, progressToken))
         .doFinally(signal -> tracker.releaseAll(this));
+  }
+
+  protected <T> Mono<T> withTaskMonitor(String loggerName, TaskMonitorCallback<T> callback) {
+    return Mono.deferContextual(
+        contextView ->
+            Mono.fromCallable(
+                () -> {
+                  GhidraMcpTaskMonitor monitor = createTaskMonitor(contextView, loggerName);
+                  monitor.start("Started " + loggerName);
+                  try {
+                    T result = callback.execute(monitor);
+                    monitor.complete("Completed " + loggerName);
+                    return result;
+                  } catch (Exception e) {
+                    monitor.fail("Failed " + loggerName + ": " + summarizeMonitorError(e));
+                    throw e;
+                  }
+                }));
+  }
+
+  private GhidraMcpTaskMonitor createTaskMonitor(
+      reactor.util.context.ContextView contextView, String loggerName) {
+    McpAsyncServerExchange exchange = contextView.getOrDefault(EXCHANGE_CONTEXT_KEY, null);
+    Object progressToken = contextView.getOrDefault(PROGRESS_TOKEN_CONTEXT_KEY, null);
+    return new GhidraMcpTaskMonitor(exchange, progressToken, loggerName);
+  }
+
+  private String summarizeMonitorError(Throwable throwable) {
+    Throwable current = throwable;
+    while (current.getCause() != null
+        && current.getCause() != current
+        && current instanceof RuntimeException) {
+      current = current.getCause();
+    }
+
+    String message = current.getMessage();
+    if (message == null || message.isBlank()) {
+      return current.getClass().getSimpleName();
+    }
+    return message;
   }
 
   /** Extracts operation type from args (for action-based tools). */
@@ -408,7 +470,7 @@ public abstract class BaseMcpTool {
       }
 
       return buildStructuredToolResult(response, false);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
 
       McpResponse<?> errorResponse =
@@ -1305,7 +1367,7 @@ public abstract class BaseMcpTool {
       return Optional.of(
           new McpSchema.JsonSchema(
               type, properties, required, additionalProperties, defs, definitions));
-    } catch (IOException e) {
+    } catch (JacksonException e) {
       Msg.error(
           this,
           "Failed to convert schema for tool '" + annotation.mcpName() + "': " + e.getMessage(),
@@ -1342,7 +1404,7 @@ public abstract class BaseMcpTool {
             structured -> {
               try {
                 return mapper.writeValueAsString(structured);
-              } catch (JsonProcessingException e) {
+              } catch (JacksonException e) {
                 return "";
               }
             })

@@ -1,7 +1,6 @@
 package com.themixednuts.resources;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpResource;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -13,8 +12,8 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceTemplateSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceTemplateSpecification;
 import io.modelcontextprotocol.spec.McpSchema.ReadResourceRequest;
 import io.modelcontextprotocol.spec.McpSchema.ReadResourceResult;
 import io.modelcontextprotocol.spec.McpSchema.Resource;
@@ -28,6 +27,8 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import reactor.core.publisher.Mono;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Abstract base class for MCP resources. Provides common functionality for exposing Ghidra data as
@@ -106,7 +107,7 @@ public abstract class BaseMcpResource {
             .build();
 
     return new AsyncResourceSpecification(
-        resource, (ctx, request) -> handleRead(ctx, request, tool));
+        resource, (exchange, request) -> handleRead(exchange.transportContext(), request, tool));
   }
 
   /** Creates an AsyncResourceTemplateSpecification for template resources. */
@@ -124,7 +125,7 @@ public abstract class BaseMcpResource {
             .build();
 
     return new AsyncResourceTemplateSpecification(
-        template, (ctx, request) -> handleRead(ctx, request, tool));
+        template, (exchange, request) -> handleRead(exchange.transportContext(), request, tool));
   }
 
   /** Handles a read resource request. */
@@ -133,6 +134,7 @@ public abstract class BaseMcpResource {
     String uri = request.uri();
 
     return read(ctx, uri, tool)
+        .doOnNext(ignored -> GhidraMcpServer.recordResourceRead(uri))
         .map(
             content ->
                 new ReadResourceResult(
@@ -248,7 +250,7 @@ public abstract class BaseMcpResource {
   protected String toJson(Object obj) throws GhidraMcpException {
     try {
       return JsonMapperHolder.toJson(obj);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new GhidraMcpException(GhidraMcpErrorUtils.unexpectedError("resource", "toJson", e));
     }
   }

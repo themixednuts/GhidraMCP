@@ -1,8 +1,9 @@
 package com.themixednuts.utils;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.json.JsonWriteFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonWriteFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Singleton holder for shared ObjectMapper instance. Provides a consistently configured
@@ -17,10 +18,7 @@ public final class JsonMapperHolder {
   }
 
   private static ObjectMapper createMapper() {
-    ObjectMapper mapper = new ObjectMapper();
-    mapper.getFactory().configure(JsonWriteFeature.ESCAPE_NON_ASCII.mappedFeature(), true);
-    mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
-    return mapper;
+    return JsonMapper.builder().enable(JsonWriteFeature.ESCAPE_NON_ASCII).build();
   }
 
   /** Gets the shared ObjectMapper instance. */
@@ -33,9 +31,9 @@ public final class JsonMapperHolder {
    *
    * @param obj The object to serialize
    * @return The JSON string
-   * @throws JsonProcessingException If serialization fails
+   * @throws JacksonException If serialization fails
    */
-  public static String toJson(Object obj) throws JsonProcessingException {
+  public static String toJson(Object obj) throws JacksonException {
     return INSTANCE.writeValueAsString(obj);
   }
 }

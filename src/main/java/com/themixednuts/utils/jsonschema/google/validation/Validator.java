@@ -1,14 +1,14 @@
 package com.themixednuts.utils.jsonschema.google.validation;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Validator for Google AI API schemas.
@@ -434,7 +434,7 @@ public class Validator {
     // properties - validate each property
     if (schema.has("properties")) {
       ObjectNode properties = (ObjectNode) schema.get("properties");
-      Iterator<Map.Entry<String, JsonNode>> fields = object.fields();
+      Iterator<Map.Entry<String, JsonNode>> fields = object.properties().iterator();
       while (fields.hasNext()) {
         Map.Entry<String, JsonNode> field = fields.next();
         String propName = field.getKey();

@@ -46,12 +46,17 @@ public abstract class BaseVTTool extends BaseMcpTool {
 
   protected VTSession openVTSession(String sessionName, boolean forUpdate)
       throws GhidraMcpException {
+    return openVTSession(sessionName, forUpdate, TaskMonitor.DUMMY);
+  }
+
+  protected VTSession openVTSession(String sessionName, boolean forUpdate, TaskMonitor monitor)
+      throws GhidraMcpException {
     Project project = getActiveProject();
     DomainFile sessionFile =
         VTDomainFileResolver.resolveSessionFile(project, sessionName, ARG_SESSION_NAME);
 
     try {
-      DomainObject obj = sessionFile.getDomainObject(this, forUpdate, false, TaskMonitor.DUMMY);
+      DomainObject obj = sessionFile.getDomainObject(this, forUpdate, false, monitor);
       if (obj instanceof VTSession) {
         return (VTSession) obj;
       }
@@ -106,14 +111,20 @@ public abstract class BaseVTTool extends BaseMcpTool {
 
   protected <T> T withSession(String sessionName, boolean forUpdate, VTSessionCallback<T> callback)
       throws GhidraMcpException {
-    VTSession session = openVTSession(sessionName, forUpdate);
+    return withSession(sessionName, forUpdate, TaskMonitor.DUMMY, callback);
+  }
+
+  protected <T> T withSession(
+      String sessionName, boolean forUpdate, TaskMonitor monitor, VTSessionCallback<T> callback)
+      throws GhidraMcpException {
+    VTSession session = openVTSession(sessionName, forUpdate, monitor);
     try {
       return callback.execute(session);
     } finally {
       // Save before release — must happen after all transactions are closed
       if (forUpdate && session.canSave()) {
         try {
-          session.save("MCP", ghidra.util.task.TaskMonitor.DUMMY);
+          session.save("MCP", monitor);
         } catch (Exception e) {
           ghidra.util.Msg.warn(this, "Failed to save VT session: " + e.getMessage());
         }

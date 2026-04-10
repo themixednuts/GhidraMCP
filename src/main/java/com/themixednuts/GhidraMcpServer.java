@@ -7,27 +7,33 @@ import com.themixednuts.services.IGhidraMcpToolProvider;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.common.McpTransportContext;
+import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServer;
-import io.modelcontextprotocol.server.McpStatelessAsyncServer;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncCompletionSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncPromptSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncResourceTemplateSpecification;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncCompletionSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceTemplateSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
+import io.modelcontextprotocol.spec.McpSchema.ResourcesUpdatedNotification;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 
 /**
- * Manages the lifecycle of the embedded Jetty server with a stateless MCP server.
+ * Manages the lifecycle of the embedded Jetty server with a streamable HTTP MCP server.
  *
  * <p>This server is designed to be used with ApplicationLevelOnlyPlugin which ensures only a single
  * plugin instance exists. Therefore, we don't need reference counting.
@@ -59,9 +65,13 @@ public final class GhidraMcpServer {
           + "Pass file_name explicitly when operating on program data.";
 
   private static final Object lock = new Object();
+  private static final String PROGRAMS_RESOURCE_URI = "ghidra://programs";
   private static Server jettyServer;
-  private static McpStatelessAsyncServer mcpServer;
-  private static HttpServletStatelessServerTransport transportProvider;
+  private static McpAsyncServer mcpServer;
+  private static HttpServletStreamableServerTransportProvider transportProvider;
+  private static McpSpecifications currentSpecifications;
+  private static final Map<String, Set<String>> observedProgramResourceUris =
+      new ConcurrentHashMap<>();
 
   private GhidraMcpServer() {
     // Prevent instantiation
@@ -90,6 +100,7 @@ public final class GhidraMcpServer {
         mcpServer = createMcpServer(specs);
         jettyServer = createJettyServer(port);
         jettyServer.start();
+        currentSpecifications = specs;
 
         Msg.info(
             GhidraMcpServer.class,
@@ -143,6 +154,96 @@ public final class GhidraMcpServer {
     return jettyServer != null && jettyServer.isRunning() && mcpServer != null;
   }
 
+  /** Records a successfully-read concrete resource URI for future update notifications. */
+  public static void recordResourceRead(String uri) {
+    if (uri == null || uri.isBlank()) {
+      return;
+    }
+
+    String programName = extractProgramName(uri);
+    if (programName == null || programName.isBlank()) {
+      return;
+    }
+
+    observedProgramResourceUris
+        .computeIfAbsent(programName, ignored -> ConcurrentHashMap.newKeySet())
+        .add(uri);
+  }
+
+  /** Emits a resource-updated notification for the static program list resource. */
+  public static void notifyProgramsResourceUpdated() {
+    notifyResourceUpdated(PROGRAMS_RESOURCE_URI);
+  }
+
+  /** Emits resource-updated notifications for observed concrete resources in a program. */
+  public static void notifyProgramResourcesUpdated(String programName) {
+    if (programName == null || programName.isBlank()) {
+      return;
+    }
+
+    Set<String> observedUris = observedProgramResourceUris.get(programName);
+    if (observedUris == null || observedUris.isEmpty()) {
+      return;
+    }
+
+    for (String uri : new HashSet<>(observedUris)) {
+      notifyResourceUpdated(uri);
+    }
+  }
+
+  /** Re-keys observed resource URIs after a program rename. */
+  public static void renameTrackedResourceProgram(String oldProgramName, String newProgramName) {
+    if (oldProgramName == null
+        || oldProgramName.isBlank()
+        || newProgramName == null
+        || newProgramName.isBlank()
+        || oldProgramName.equals(newProgramName)) {
+      return;
+    }
+
+    Set<String> oldUris = observedProgramResourceUris.remove(oldProgramName);
+    if (oldUris == null || oldUris.isEmpty()) {
+      return;
+    }
+
+    String oldSegment = encodeProgramName(oldProgramName);
+    String newSegment = encodeProgramName(newProgramName);
+    Set<String> newUris =
+        observedProgramResourceUris.computeIfAbsent(
+            newProgramName, ignored -> ConcurrentHashMap.newKeySet());
+    for (String uri : oldUris) {
+      newUris.add(
+          uri.replace(
+              "ghidra://program/" + oldSegment + "/", "ghidra://program/" + newSegment + "/"));
+    }
+  }
+
+  /** Refreshes the live tool/resource/prompt set without restarting the server. */
+  public static boolean refreshFeatures(PluginTool tool) {
+    synchronized (lock) {
+      if (!isRunning() || mcpServer == null || currentSpecifications == null) {
+        return false;
+      }
+
+      try {
+        McpSpecifications newSpecifications = loadSpecifications(tool);
+
+        syncTools(currentSpecifications.tools, newSpecifications.tools);
+        syncResources(currentSpecifications.resources, newSpecifications.resources);
+        syncResourceTemplates(
+            currentSpecifications.resourceTemplates, newSpecifications.resourceTemplates);
+        syncPrompts(currentSpecifications.prompts, newSpecifications.prompts);
+
+        currentSpecifications = newSpecifications;
+        Msg.info(GhidraMcpServer.class, "Refreshed live MCP tools/resources/prompts");
+        return true;
+      } catch (Exception e) {
+        Msg.error(GhidraMcpServer.class, "Failed to refresh live MCP features", e);
+        return false;
+      }
+    }
+  }
+
   /** Returns the server version. */
   public static String getVersion() {
     return SERVER_VERSION;
@@ -175,7 +276,119 @@ public final class GhidraMcpServer {
     }
 
     transportProvider = null;
+    currentSpecifications = null;
+    observedProgramResourceUris.clear();
     return success;
+  }
+
+  private static void notifyResourceUpdated(String uri) {
+    synchronized (lock) {
+      if (!isRunning() || mcpServer == null || uri == null || uri.isBlank()) {
+        return;
+      }
+
+      try {
+        mcpServer.notifyResourcesUpdated(new ResourcesUpdatedNotification(uri)).block();
+      } catch (Exception e) {
+        Msg.warn(GhidraMcpServer.class, "Failed to notify MCP resource update for " + uri, e);
+      }
+    }
+  }
+
+  private static String extractProgramName(String uri) {
+    String prefix = "ghidra://program/";
+    if (!uri.startsWith(prefix)) {
+      return null;
+    }
+
+    int start = prefix.length();
+    int end = uri.indexOf('/', start);
+    if (end < 0) {
+      return null;
+    }
+
+    String encodedProgramName = uri.substring(start, end);
+    return java.net.URLDecoder.decode(encodedProgramName, java.nio.charset.StandardCharsets.UTF_8);
+  }
+
+  private static String encodeProgramName(String programName) {
+    return java.net.URLEncoder.encode(programName, java.nio.charset.StandardCharsets.UTF_8)
+        .replace("+", "%20");
+  }
+
+  private static void syncTools(
+      List<AsyncToolSpecification> currentTools, List<AsyncToolSpecification> newTools) {
+    Map<String, AsyncToolSpecification> currentByName =
+        indexBy(currentTools, spec -> spec.tool().name());
+    Map<String, AsyncToolSpecification> newByName = indexBy(newTools, spec -> spec.tool().name());
+
+    removeMissing(
+        currentByName.keySet(), newByName.keySet(), name -> mcpServer.removeTool(name).block());
+    addMissing(newByName, currentByName.keySet(), spec -> mcpServer.addTool(spec).block());
+  }
+
+  private static void syncResources(
+      List<AsyncResourceSpecification> currentResources,
+      List<AsyncResourceSpecification> newResources) {
+    Map<String, AsyncResourceSpecification> currentByUri =
+        indexBy(currentResources, spec -> spec.resource().uri());
+    Map<String, AsyncResourceSpecification> newByUri =
+        indexBy(newResources, spec -> spec.resource().uri());
+
+    removeMissing(
+        currentByUri.keySet(), newByUri.keySet(), uri -> mcpServer.removeResource(uri).block());
+    addMissing(newByUri, currentByUri.keySet(), spec -> mcpServer.addResource(spec).block());
+  }
+
+  private static void syncResourceTemplates(
+      List<AsyncResourceTemplateSpecification> currentTemplates,
+      List<AsyncResourceTemplateSpecification> newTemplates) {
+    Map<String, AsyncResourceTemplateSpecification> currentByUriTemplate =
+        indexBy(currentTemplates, spec -> spec.resourceTemplate().uriTemplate());
+    Map<String, AsyncResourceTemplateSpecification> newByUriTemplate =
+        indexBy(newTemplates, spec -> spec.resourceTemplate().uriTemplate());
+
+    removeMissing(
+        currentByUriTemplate.keySet(),
+        newByUriTemplate.keySet(),
+        uriTemplate -> mcpServer.removeResourceTemplate(uriTemplate).block());
+    addMissing(
+        newByUriTemplate,
+        currentByUriTemplate.keySet(),
+        spec -> mcpServer.addResourceTemplate(spec).block());
+  }
+
+  private static void syncPrompts(
+      List<AsyncPromptSpecification> currentPrompts, List<AsyncPromptSpecification> newPrompts) {
+    Map<String, AsyncPromptSpecification> currentByName =
+        indexBy(currentPrompts, spec -> spec.prompt().name());
+    Map<String, AsyncPromptSpecification> newByName =
+        indexBy(newPrompts, spec -> spec.prompt().name());
+
+    removeMissing(
+        currentByName.keySet(), newByName.keySet(), name -> mcpServer.removePrompt(name).block());
+    addMissing(newByName, currentByName.keySet(), spec -> mcpServer.addPrompt(spec).block());
+  }
+
+  private static <T> Map<String, T> indexBy(
+      List<T> specifications, Function<T, String> keyFunction) {
+    return specifications.stream()
+        .collect(Collectors.toMap(keyFunction, Function.identity(), (left, right) -> right));
+  }
+
+  private static void removeMissing(
+      Set<String> currentKeys, Set<String> newKeys, java.util.function.Consumer<String> remover) {
+    currentKeys.stream().filter(key -> !newKeys.contains(key)).forEach(remover);
+  }
+
+  private static <T> void addMissing(
+      Map<String, T> newSpecifications,
+      Set<String> currentKeys,
+      java.util.function.Consumer<T> adder) {
+    newSpecifications.entrySet().stream()
+        .filter(entry -> !currentKeys.contains(entry.getKey()))
+        .map(Map.Entry::getValue)
+        .forEach(adder);
   }
 
   /** Container for all loaded MCP specifications. */
@@ -263,9 +476,9 @@ public final class GhidraMcpServer {
     return new McpSpecifications(tools, resources, resourceTemplates, prompts, completions);
   }
 
-  private static McpStatelessAsyncServer createMcpServer(McpSpecifications specs) {
+  private static McpAsyncServer createMcpServer(McpSpecifications specs) {
     transportProvider =
-        HttpServletStatelessServerTransport.builder()
+        HttpServletStreamableServerTransportProvider.builder()
             .contextExtractor(
                 request -> {
                   Map<String, Object> contextValues = new LinkedHashMap<>();
@@ -301,10 +514,15 @@ public final class GhidraMcpServer {
                 })
             .build();
 
-    ServerCapabilities.Builder capabilities = ServerCapabilities.builder().tools(true);
+    ServerCapabilities.Builder capabilities = ServerCapabilities.builder();
+    capabilities.logging();
+
+    if (!specs.tools.isEmpty()) {
+      capabilities.tools(true);
+    }
 
     if (specs.hasResources()) {
-      capabilities.resources(false, false);
+      capabilities.resources(true, true);
     }
     if (specs.hasPrompts()) {
       capabilities.prompts(true);

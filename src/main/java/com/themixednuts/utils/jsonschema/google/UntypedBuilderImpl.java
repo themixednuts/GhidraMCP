@@ -1,7 +1,5 @@
 package com.themixednuts.utils.jsonschema.google;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.themixednuts.utils.jsonschema.IBuildableSchemaType;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.traits.IAnyOf;
@@ -10,6 +8,8 @@ import com.themixednuts.utils.jsonschema.google.traits.IGoogleSpecific;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Builder for Google AI API schemas WITHOUT a base type constraint. Used for anyOf schemas where

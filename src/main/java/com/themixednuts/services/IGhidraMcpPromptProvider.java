@@ -1,7 +1,7 @@
 package com.themixednuts.services;
 
 import ghidra.framework.plugintool.ServiceInfo;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncPromptSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
 import java.util.List;
 
 /**

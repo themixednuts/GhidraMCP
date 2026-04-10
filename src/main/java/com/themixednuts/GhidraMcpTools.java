@@ -1,6 +1,5 @@
 package com.themixednuts;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.services.IGhidraMcpToolProvider;
 import com.themixednuts.tools.BaseMcpTool;
@@ -9,11 +8,12 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.AsyncToolSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import java.util.List;
 import java.util.Objects;
 import java.util.ServiceLoader;
 import java.util.stream.Collectors;
+import tools.jackson.core.JacksonException;
 
 /**
  * Service implementation responsible for discovering, filtering (based on Ghidra Tool Options), and
@@ -48,11 +48,10 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
    * AsyncToolSpecification}.
    *
    * @return A list of {@code AsyncToolSpecification} for all enabled tools.
-   * @throws JsonProcessingException If there is an error serializing a tool's schema.
+   * @throws JacksonException If there is an error serializing a tool's schema.
    */
   @Override
-  public List<AsyncToolSpecification> getAvailableToolSpecifications()
-      throws JsonProcessingException {
+  public List<AsyncToolSpecification> getAvailableToolSpecifications() throws JacksonException {
     return ServiceLoader.load(BaseMcpTool.class).stream()
         .filter(
             provider -> {

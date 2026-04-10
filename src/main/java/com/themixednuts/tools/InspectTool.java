@@ -6,7 +6,6 @@ import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.ReferenceInfo;
-import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
@@ -366,11 +365,12 @@ public class InspectTool extends BaseMcpTool {
     }
 
     // Otherwise resolve as function
-    return Mono.fromCallable(
-        () -> {
+    return withTaskMonitor(
+        "inspect.decompile",
+        monitor -> {
           Function targetFunction = resolveFunctionForDecompilation(program, args);
           return performDecompilation(
-              program, targetFunction, includePcode, includeAst, timeout, annotation);
+              program, targetFunction, includePcode, includeAst, timeout, annotation, monitor);
         });
   }
 
@@ -433,8 +433,9 @@ public class InspectTool extends BaseMcpTool {
     return parseAddress(program, addressStr, "inspect.decompile")
         .flatMap(
             addressResult ->
-                Mono.fromCallable(
-                    () -> {
+                withTaskMonitor(
+                    "inspect.decompile",
+                    monitor -> {
                       Address address = addressResult.getAddress();
                       Function function = getOrCreateFunction(program, address);
 
@@ -445,14 +446,20 @@ public class InspectTool extends BaseMcpTool {
 
                         if (instruction != null) {
                           return analyzeInstructionPcode(instruction, address);
-                        } else {
-                          throw new GhidraMcpException(
-                              GhidraMcpError.notFound("function or instruction", addressStr));
                         }
+
+                        throw new GhidraMcpException(
+                            GhidraMcpError.notFound("function or instruction", addressStr));
                       }
 
                       return performDecompilation(
-                          program, function, includePcode, includeAst, timeout, annotation);
+                          program,
+                          function,
+                          includePcode,
+                          includeAst,
+                          timeout,
+                          annotation,
+                          monitor);
                     }));
   }
 
@@ -498,12 +505,12 @@ public class InspectTool extends BaseMcpTool {
       boolean includePcode,
       boolean includeAst,
       int timeout,
-      GhidraMcpTool annotation)
+      GhidraMcpTool annotation,
+      TaskMonitor monitor)
       throws GhidraMcpException {
     DecompInterface decomp = new DecompInterface();
     try {
       decomp.openProgram(program);
-      TaskMonitor monitor = new GhidraMcpTaskMonitor(null, "Decompiling " + function.getName());
 
       DecompileResults decompResult = decomp.decompileFunction(function, timeout, monitor);
 
