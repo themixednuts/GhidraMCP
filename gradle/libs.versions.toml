@@ -1,5 +1,5 @@
 [versions]
-spotless-plugin = "8.3.0"
+spotless-plugin = "8.4.0"
 mcp-bom = "1.1.1"
 jackson = "3.0.3"
 jakarta-servlet = "6.1.0"
