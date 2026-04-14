@@ -450,8 +450,10 @@ public abstract class BaseMcpTool {
                       null,
                       null,
                       Map.of(
-                          "exception_type", "NullPointerException",
-                          "root_cause", describeThrowable(rootCause(t)))))
+                          "exception_type",
+                          "NullPointerException",
+                          "root_cause",
+                          describeThrowable(rootCause(t)))))
               .build();
       return new GhidraMcpException(error, t);
     }

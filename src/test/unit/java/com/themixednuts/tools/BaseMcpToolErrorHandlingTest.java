@@ -57,7 +57,11 @@ class BaseMcpToolErrorHandlingTest {
     AsyncToolSpecification specification = tool.specification(null);
     McpAsyncServerExchange exchange =
         new McpAsyncServerExchange(
-            "session-1", mock(McpLoggableSession.class), null, null, mock(McpTransportContext.class));
+            "session-1",
+            mock(McpLoggableSession.class),
+            null,
+            null,
+            mock(McpTransportContext.class));
     McpSchema.CallToolRequest request =
         new McpSchema.CallToolRequest("failing_tool", Map.of("value", "ignored"));
 
