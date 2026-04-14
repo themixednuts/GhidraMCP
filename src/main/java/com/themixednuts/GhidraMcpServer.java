@@ -51,7 +51,7 @@ import org.eclipse.jetty.server.ServerConnector;
 public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
-  private static final String SERVER_VERSION = "0.7.0-pre7";
+  private static final String SERVER_VERSION = "0.7.0-pre8";
   private static final String MCP_PATH_SPEC = "/*";
   private static final String MCP_SESSION_ID_HEADER = "MCP-Session-Id";
   private static final int DEFAULT_TIMEOUT_SECONDS = 600;

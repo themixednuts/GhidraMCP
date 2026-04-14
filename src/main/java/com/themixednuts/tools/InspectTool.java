@@ -520,7 +520,8 @@ public class InspectTool extends BaseMcpTool {
           .orElseGet(() -> createFailedDecompilation(function, decompResult));
 
     } catch (Exception e) {
-      throw new GhidraMcpException(GhidraMcpError.failed("decompilation", e.getMessage()));
+      throw new GhidraMcpException(
+          GhidraMcpError.failed("decompilation", describeDecompilationFailure(e)), e);
     } finally {
       decomp.dispose();
     }
@@ -592,6 +593,19 @@ public class InspectTool extends BaseMcpTool {
             "has_local_symbols", highFunc.getLocalSymbolMap() != null,
             "has_global_symbols", highFunc.getGlobalSymbolMap() != null,
             "basic_blocks", highFunc.getBasicBlocks().size()));
+  }
+
+  private String describeDecompilationFailure(Throwable throwable) {
+    if (throwable == null) {
+      return "Unknown decompilation error";
+    }
+
+    String message = throwable.getMessage();
+    if (message == null || message.isBlank()) {
+      return throwable.getClass().getSimpleName();
+    }
+
+    return throwable.getClass().getSimpleName() + ": " + message;
   }
 
   // =================== Listing Action ===================

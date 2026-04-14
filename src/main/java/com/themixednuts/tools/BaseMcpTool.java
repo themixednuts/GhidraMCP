@@ -336,11 +336,16 @@ public abstract class BaseMcpTool {
               return createErrorResultInternal(response, normalized);
             })
         .contextWrite(
-            context ->
-                context
-                    .put(PROGRAM_TRACKER_CONTEXT_KEY, tracker)
-                    .put(EXCHANGE_CONTEXT_KEY, exchange)
-                    .put(PROGRESS_TOKEN_CONTEXT_KEY, progressToken))
+            context -> {
+              var updated = context.put(PROGRAM_TRACKER_CONTEXT_KEY, tracker);
+              if (exchange != null) {
+                updated = updated.put(EXCHANGE_CONTEXT_KEY, exchange);
+              }
+              if (progressToken != null) {
+                updated = updated.put(PROGRESS_TOKEN_CONTEXT_KEY, progressToken);
+              }
+              return updated;
+            })
         .doFinally(signal -> tracker.releaseAll(this));
   }
 
@@ -420,7 +425,7 @@ public abstract class BaseMcpTool {
       GhidraMcpError error =
           GhidraMcpError.validation()
               .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-              .message(t.getMessage())
+              .message(describeThrowable(t))
               .context(
                   new GhidraMcpError.ErrorContext(
                       toolName,
@@ -429,29 +434,44 @@ public abstract class BaseMcpTool {
                       null,
                       Map.of("exception_type", "IllegalArgumentException")))
               .build();
-      return new GhidraMcpException(error);
+      return new GhidraMcpException(error, t);
     }
 
-    // NullPointerException - convert to validation error
+    // NullPointerException indicates a server-side bug or unexpected state, not bad user input.
     if (t instanceof NullPointerException) {
       GhidraMcpError error =
-          GhidraMcpError.validation()
-              .errorCode(GhidraMcpError.ErrorCode.MISSING_REQUIRED_ARGUMENT)
-              .message("Null value encountered: " + t.getMessage())
+          GhidraMcpError.internal()
+              .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+              .message("Internal error: " + describeThrowable(t))
               .context(
                   new GhidraMcpError.ErrorContext(
                       toolName,
                       operation,
                       null,
                       null,
-                      Map.of("exception_type", "NullPointerException")))
+                      Map.of(
+                          "exception_type", "NullPointerException",
+                          "root_cause", describeThrowable(rootCause(t)))))
               .build();
-      return new GhidraMcpException(error);
+      return new GhidraMcpException(error, t);
     }
 
     // All other exceptions - convert to internal error
-    GhidraMcpError error = GhidraMcpErrorUtils.unexpectedError(toolName, operation, t);
-    return new GhidraMcpException(error);
+    GhidraMcpError error =
+        GhidraMcpError.internal()
+            .errorCode(GhidraMcpError.ErrorCode.UNEXPECTED_ERROR)
+            .message("Internal error: " + describeThrowable(t))
+            .context(
+                new GhidraMcpError.ErrorContext(
+                    toolName,
+                    operation,
+                    null,
+                    null,
+                    Map.of(
+                        "exception_type", t.getClass().getSimpleName(),
+                        "root_cause", describeThrowable(rootCause(t)))))
+            .build();
+    return new GhidraMcpException(error, t);
   }
 
   // =================== Result Creation ===================
@@ -538,16 +558,41 @@ public abstract class BaseMcpTool {
 
   private Mono<CallToolResult> createErrorResultInternal(
       McpResponse<?> response, GhidraMcpException exception) {
-    Msg.error(
-        this,
+    String logMessage =
         "Tool error - "
             + exception.getErrorType()
             + " ["
             + exception.getErrorCode()
             + "]: "
-            + exception.getMessage());
+            + exception.getMessage();
+    if (exception.getCause() != null) {
+      Msg.error(this, logMessage, exception.getCause());
+    } else {
+      Msg.error(this, logMessage, exception);
+    }
 
     return Mono.just(buildStructuredToolResult(response, true));
+  }
+
+  private static Throwable rootCause(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null && current.getCause() != null && current.getCause() != current) {
+      current = current.getCause();
+    }
+    return current;
+  }
+
+  private static String describeThrowable(Throwable throwable) {
+    if (throwable == null) {
+      return "Unknown error";
+    }
+
+    String message = throwable.getMessage();
+    if (message == null || message.isBlank()) {
+      return throwable.getClass().getSimpleName();
+    }
+
+    return throwable.getClass().getSimpleName() + ": " + message;
   }
 
   // =================== Argument Parsing (throws GhidraMcpException) ===================

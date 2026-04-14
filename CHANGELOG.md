@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0-pre8] - 2026-04-14
+
+### Fixed
+- **Null progress token transport crash** - Guard Reactor context writes in the streamable HTTP tool wrapper so `tools/call` requests without a progress token no longer fail with `NullPointerException: value` (closes #44)
+- **Internal error diagnostics** - Preserve exception causes and stack traces for unexpected tool failures so decompilation and transport issues log actionable diagnostics instead of flattened `-32603` messages
+
 ## [0.7.0-pre7] - 2026-04-09
 
 ### Fixed
