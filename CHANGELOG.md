@@ -7,6 +7,9 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+### Fixed
+- **64-bit symbol ID precision loss** — `functions.list_variables` now serializes `symbol_id` and `high_symbol_id` as JSON strings, and `functions.rename_variable` accepts `variable_symbol_id` as either a string or an integer. Prevents truncation of IDs above 2^53 by JSON parsers that decode numbers as 64-bit floats (#38)
+
 ## [0.7.0-pre8] - 2026-04-14
 
 ### Fixed

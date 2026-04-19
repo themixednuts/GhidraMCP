@@ -406,11 +406,17 @@ public class FunctionsTool extends BaseMcpTool {
                             .description("Function name for identification"))
                     .property(
                         ARG_VARIABLE_SYMBOL_ID,
-                        SchemaBuilder.integer(mapper)
+                        SchemaBuilder.anyOf(
+                                SchemaBuilder.string(mapper).pattern("^-?\\d+$"),
+                                SchemaBuilder.integer(mapper))
                             .description(
                                 "Decompiler symbol ID of the variable to update (from"
                                     + " list_variables high_symbol_id or symbol_id). Stable"
-                                    + " across renames — preferred for batch operations"))
+                                    + " across renames — preferred for batch operations. Pass"
+                                    + " as a STRING (e.g. \"4614873502636310661\") for IDs"
+                                    + " above 2^53 to avoid JSON number precision loss in"
+                                    + " 64-bit-float JSON parsers; integers are also accepted"
+                                    + " for small IDs"))
                     .property(
                         ARG_CURRENT_NAME,
                         SchemaBuilder.string(mapper)

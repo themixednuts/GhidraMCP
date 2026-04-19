@@ -25,7 +25,7 @@ import tools.jackson.databind.node.ObjectNode;
  *         SchemaBuilder.integer().minimum(0)).build();
  * }</pre>
  */
-final class UntypedBuilderImpl
+public final class UntypedBuilderImpl
     implements IBuildableSchemaType,
         ICommonMetadata<UntypedBuilderImpl>,
         IComposition<UntypedBuilderImpl>,

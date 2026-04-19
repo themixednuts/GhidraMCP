@@ -1,5 +1,6 @@
 package com.themixednuts.models;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -193,12 +194,16 @@ public class FunctionVariableInfo {
     return address;
   }
 
+  // Serialized as a JSON string so 64-bit IDs survive JS-style JSON parsers
+  // that lose precision above 2^53 (see #38).
   @JsonProperty("symbol_id")
+  @JsonFormat(shape = JsonFormat.Shape.STRING)
   public Long getSymbolId() {
     return symbolID;
   }
 
   @JsonProperty("high_symbol_id")
+  @JsonFormat(shape = JsonFormat.Shape.STRING)
   public Long getHighSymbolId() {
     return highSymbolID;
   }
