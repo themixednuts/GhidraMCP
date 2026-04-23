@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RTTIAnalysisResult;
+import com.themixednuts.models.RttiListEntry;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
@@ -61,6 +62,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -87,9 +89,9 @@ import reactor.core.publisher.Mono;
         """
         <use_case>
         Decode, visualize, and analyze structure. Demangle mangled C++ symbols, analyze RTTI
-        metadata (Microsoft, Itanium, Go), list all RTTI classes with demangling/lambda
-        method extraction/base class hierarchies, visualize control flow graphs of functions,
-        and extract caller/callee call graphs. Use this tool when you need to understand symbol
+        metadata (Microsoft, Itanium, Go), list RTTI-discovered classes as compact summary rows
+        with demangled names and lambda context, visualize control flow graphs of functions, and
+        extract caller/callee call graphs. Use this tool when you need to understand symbol
         names, class hierarchies, function control flow, or call relationships.
         </use_case>
 
@@ -114,11 +116,12 @@ import reactor.core.publisher.Mono;
         <return_value_summary>
         - demangle: DemangleResult with original/demangled symbol, type, namespace, class info
         - rtti: RTTIAnalysisResult with detected type, validity, class hierarchy
-        - list_rtti: Paginated MSVC RTTI class list (PE only; Itanium ABI not supported).
-          Real class entries have a 'methods' array (discovered via lambda RTTI).
-          Lambda entries have an 'enclosing_method' object with name/class/namespace/demangled
-          fields identifying the function that contains the lambda.
-          Use custom_tags to tag classes by template patterns (e.g., sp_ms_deleter → smart_ptr_managed)
+        - list_rtti: Paginated MSVC RTTI class summaries (PE only; Itanium ABI not supported).
+          Each row includes compact identifiers such as name, mangled symbol, type_kind,
+          rtti0_address, and summary counts like method_count or base_class_count when available.
+          Lambda rows flatten enclosing method context into simple fields instead of nested objects.
+          Use action=rtti with rtti0_address for full RTTI hierarchy details.
+          Use custom_tags to label classes by template patterns (e.g., sp_ms_deleter → smart_ptr_managed)
         - graph: Control flow graph with nodes (basic blocks) and edges (flow connections)
         - call_graph: Call graph with function nodes and caller/callee edges
         </return_value_summary>
@@ -1626,7 +1629,7 @@ public class AnalyzeTool extends BaseMcpTool {
   // =================== List RTTI Action ===================
 
   @SuppressWarnings("unchecked")
-  private Mono<PaginatedResult<Map<String, Object>>> handleListRtti(
+  private Mono<PaginatedResult<RttiListEntry>> handleListRtti(
       Program program, Map<String, Object> args) {
     return withTaskMonitor(
         "analyze.list_rtti",
@@ -1818,53 +1821,23 @@ public class AnalyzeTool extends BaseMcpTool {
           // Phase 3: Enrich with RTTI4 (Complete Object Locator) data
           enrichWithRtti4Data(program, memory, classMap, monitor);
 
-          // Phase 4: Build the output class list
-          // Lambda entries get an enclosing_method field; real class entries get aggregated
-          // methods.
-          List<Map<String, Object>> allClasses = new ArrayList<>();
+          // Phase 4: Build compact summary rows for the output list.
+          List<RttiListEntry> allClasses = new ArrayList<>();
           for (var entry : classMap.entrySet()) {
             Map<String, Object> classInfo = new LinkedHashMap<>(entry.getValue());
             String mangledKey = entry.getKey();
             String className = extractClassNameFromMangled(mangledKey);
             boolean isLambda = mangledKey.contains("<lambda");
-
-            if (isLambda) {
-              // Lambda entry: the enclosing method info is already stored in methodMap
-              // under the class from the nested AST. Add it as enclosing_method for context.
-              // The lambda's own operator() is not useful — skip it.
-              classInfo.remove("methods");
-            } else {
-              // Real class entry: aggregate methods discovered via lambdas
-              List<Map<String, String>> methods = new ArrayList<>();
-              Set<String> seenMethods = new LinkedHashSet<>();
-              if (className != null) {
-                for (var methodEntry : methodMap.entrySet()) {
-                  if (methodEntry.getKey().equals(className)) {
-                    for (Map<String, String> method : methodEntry.getValue()) {
-                      String methodName = method.get("name");
-                      if (methodName != null && seenMethods.add(methodName)) {
-                        methods.add(method);
-                      }
-                    }
-                  }
-                }
-              }
-              classInfo.put("methods", methods);
-            }
-
-            // Merge agent-defined custom tags
-            Set<String> tags = new LinkedHashSet<>();
-            for (var tagEntry : classCustomTags.entrySet()) {
-              String tagClass = tagEntry.getKey();
-              if (className != null && className.equals(tagClass)) {
-                tags.addAll(tagEntry.getValue());
-              }
-            }
-            if (!tags.isEmpty()) {
-              classInfo.put("custom_tags", new ArrayList<>(tags));
-            }
-
-            allClasses.add(classInfo);
+            Integer methodCount =
+                isLambda
+                    ? null
+                    : countDistinctMethodNames(className != null ? methodMap.get(className) : null);
+            allClasses.add(
+                createRttiListEntry(
+                    classInfo,
+                    methodCount,
+                    getCustomTagsForClass(classCustomTags, className),
+                    isLambda));
           }
 
           // Add classes only discovered through lambda RTTI (not having their own RTTI0)
@@ -1884,8 +1857,12 @@ public class AnalyzeTool extends BaseMcpTool {
               classInfo.put("mangled", null);
               classInfo.put("type_kind", "class");
               classInfo.put("rtti0_address", null);
-              classInfo.put("methods", methodEntry.getValue());
-              allClasses.add(classInfo);
+              allClasses.add(
+                  createRttiListEntry(
+                      classInfo,
+                      countDistinctMethodNames(methodEntry.getValue()),
+                      getCustomTagsForClass(classCustomTags, className),
+                      false));
             }
           }
 
@@ -1894,13 +1871,20 @@ public class AnalyzeTool extends BaseMcpTool {
             Pattern filter = nameFilter;
             allClasses.removeIf(
                 cls -> {
-                  String name = (String) cls.get("name");
-                  String mangled = (String) cls.get("mangled");
+                  String name = cls.getName();
+                  String mangled = cls.getMangled();
                   boolean nameMatches = name != null && filter.matcher(name).find();
                   boolean mangledMatches = mangled != null && filter.matcher(mangled).find();
                   return !nameMatches && !mangledMatches;
                 });
           }
+
+          allClasses.sort(
+              Comparator.comparing(
+                      RttiListEntry::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                  .thenComparing(
+                      RttiListEntry::getMangled,
+                      Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
 
           // Phase 6: Paginate
           int totalSize = allClasses.size();
@@ -1908,7 +1892,7 @@ public class AnalyzeTool extends BaseMcpTool {
           if (startIndex > totalSize) {
             startIndex = totalSize;
           }
-          List<Map<String, Object>> page = allClasses.subList(startIndex, endIndex);
+          List<RttiListEntry> page = allClasses.subList(startIndex, endIndex);
 
           String nextCursor = null;
           if (endIndex < totalSize) {
@@ -1917,6 +1901,72 @@ public class AnalyzeTool extends BaseMcpTool {
 
           return new PaginatedResult<>(page, nextCursor);
         });
+  }
+
+  private RttiListEntry createRttiListEntry(
+      Map<String, Object> classInfo,
+      Integer methodCount,
+      List<String> customTags,
+      boolean isLambda) {
+    Integer baseClassCount = null;
+    Object baseClassesObj = classInfo.get("base_classes");
+    if (baseClassesObj instanceof List<?> baseClasses && !baseClasses.isEmpty()) {
+      baseClassCount = baseClasses.size();
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, String> enclosingMethod =
+        classInfo.get("enclosing_method") instanceof Map<?, ?> rawMap
+            ? (Map<String, String>) rawMap
+            : null;
+
+    return new RttiListEntry(
+        (String) classInfo.get("name"),
+        (String) classInfo.get("mangled"),
+        (String) classInfo.get("type_kind"),
+        (String) classInfo.get("rtti0_address"),
+        methodCount,
+        baseClassCount,
+        customTags.isEmpty() ? null : customTags,
+        isLambda ? Boolean.TRUE : null,
+        enclosingMethod != null ? enclosingMethod.get("name") : null,
+        enclosingMethod != null ? enclosingMethod.get("class") : null,
+        enclosingMethod != null ? enclosingMethod.get("namespace") : null,
+        enclosingMethod != null ? enclosingMethod.get("demangled") : null,
+        enclosingMethod != null ? enclosingMethod.get("address") : null,
+        enclosingMethod != null ? enclosingMethod.get("candidate_addresses") : null);
+  }
+
+  private Integer countDistinctMethodNames(List<Map<String, String>> methods) {
+    if (methods == null || methods.isEmpty()) {
+      return null;
+    }
+
+    Set<String> seenMethodNames = new LinkedHashSet<>();
+    for (Map<String, String> method : methods) {
+      String methodName = method.get("name");
+      if (methodName != null && !methodName.isBlank()) {
+        seenMethodNames.add(methodName);
+      }
+    }
+
+    if (!seenMethodNames.isEmpty()) {
+      return seenMethodNames.size();
+    }
+    return methods.size();
+  }
+
+  private List<String> getCustomTagsForClass(
+      Map<String, Set<String>> classCustomTags, String className) {
+    if (className == null) {
+      return List.of();
+    }
+
+    Set<String> tags = classCustomTags.get(className);
+    if (tags == null || tags.isEmpty()) {
+      return List.of();
+    }
+    return new ArrayList<>(tags);
   }
 
   private String readCStringFromMemory(Memory memory, Address addr, int maxLen) {

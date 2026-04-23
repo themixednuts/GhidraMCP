@@ -1,167 +1,89 @@
 package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Parameter;
-import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.HighVariable;
-import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.Symbol;
 
 /**
- * Represents detailed information about a variable (parameter, local, or decompiler-generated)
- * within a function.
+ * Compact variable targeting information for decompiler-backed function variables.
+ *
+ * <p>This model intentionally mirrors the identifier needed by functions.update_variable /
+ * functions.rename_variable rather than echoing the full listing/decompiler variable state.
  */
-@JsonPropertyOrder({
-  "effective_name",
-  "listing_name",
-  "decompiler_name",
-  "variable_category",
-  "is_parameter",
-  "data_type",
-  "storage",
-  "source_type",
-  "comment",
-  "address",
-  "symbol_id",
-  "high_symbol_id"
-})
+@JsonPropertyOrder({"name", "variable_symbol_id", "data_type", "storage", "is_parameter"})
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class FunctionVariableInfo {
+public final class FunctionVariableInfo {
 
-  public enum VariableCategory {
-    PARAMETER,
-    LOCAL_STACK,
-    LOCAL_REGISTER,
-    LOCAL_OTHER, // For listing variables with storage not easily categorized as stack/register
-    DECOMPILER_SYNTHETIC // For variables primarily identified via decompiler, may not have direct
-    // listing Variable
-  }
-
-  private String listingName; // Name from Variable.getName()
-  private String decompilerName; // Name from HighVariable.getName()
-  private final VariableCategory variableCategory;
+  private final String name;
+  private final Long variableSymbolId;
   private final String dataType;
-  private final String storage; // From VariableStorage or HighVariable varnode
-  private final String sourceType; // From Variable.getSource(), or "DECOMPILER" if synthetic
-  private final boolean isParameter;
-  private final String comment; // From Variable.getComment()
-  private final String address; // Symbol address or MinAddress of storage
-  private final Long symbolID; // Symbol ID from Variable.getSymbol()
-  private final Long highSymbolID; // HighSymbol.getId() — stable decompiler-level ID
+  private final String storage;
+  private final Boolean isParameter;
 
-  // Constructor for formal listing Variables
-  public FunctionVariableInfo(Variable var) {
-    this.listingName = var.getName();
-    this.dataType = var.getDataType().getDisplayName();
-    this.storage = var.getVariableStorage().toString();
-    this.sourceType = var.getSource().toString();
-    this.isParameter = var instanceof Parameter;
-
-    if (var instanceof Parameter) {
-      this.variableCategory = VariableCategory.PARAMETER;
-    } else if (var.isStackVariable()) {
-      this.variableCategory = VariableCategory.LOCAL_STACK;
-    } else if (var.isRegisterVariable()) {
-      this.variableCategory = VariableCategory.LOCAL_REGISTER;
-    } else {
-      this.variableCategory = VariableCategory.LOCAL_OTHER;
-    }
-
-    String cmt = var.getComment();
-    this.comment = (cmt == null || cmt.trim().isEmpty()) ? null : cmt;
-
-    Symbol symbol = var.getSymbol();
-    if (symbol != null) {
-      this.symbolID = symbol.getID();
-      Address symAddr = symbol.getAddress();
-      this.address = (symAddr != null && symAddr.isMemoryAddress()) ? symAddr.toString() : null;
-    } else {
-      this.symbolID = null;
-      if (var.isMemoryVariable() && var.getMinAddress() != null) {
-        this.address = var.getMinAddress().toString();
-      } else {
-        this.address = null;
-      }
-    }
-    this.decompilerName = null;
-    this.highSymbolID = null;
+  public FunctionVariableInfo(Variable variable, Long variableSymbolId) {
+    this(variable, variableSymbolId, true);
   }
 
-  // Constructor for decompiler-centric variables (HighVariable)
-  public FunctionVariableInfo(HighVariable highVar, Program program) {
-    this.listingName = null;
-    this.decompilerName = highVar.getName();
-    this.dataType = highVar.getDataType().getDisplayName();
-
-    Varnode repVarnode = highVar.getRepresentative();
-    this.storage = repVarnode != null ? repVarnode.toString() : "<unknown_decompiler_storage>";
-
-    this.sourceType = "DECOMPILER";
-    this.variableCategory = VariableCategory.DECOMPILER_SYNTHETIC;
-
-    HighSymbol highSymbol = highVar.getSymbol();
-    Symbol symbol = null;
-    boolean hvIsParameter = false;
-
-    if (highSymbol != null) {
-      this.highSymbolID = highSymbol.getId();
-      symbol = highSymbol.getSymbol(); // Get listing Symbol from HighSymbol
-      hvIsParameter = highSymbol.isParameter();
-    } else {
-      this.highSymbolID = null;
-    }
-    this.isParameter = hvIsParameter;
-
-    this.comment = null; // HighVariable doesn't directly have comments
-
-    if (symbol != null) {
-      this.symbolID = symbol.getID();
-      Address symAddr = symbol.getAddress();
-      this.address = (symAddr != null && symAddr.isMemoryAddress()) ? symAddr.toString() : null;
-    } else {
-      this.symbolID = null;
-      // For HighVariables, address might be inferred from its representative varnode
-      if (repVarnode != null && repVarnode.isAddress()) {
-        this.address = repVarnode.getAddress().toString();
-      } else {
-        this.address = null;
-      }
-    }
+  public FunctionVariableInfo(Variable variable, Long variableSymbolId, boolean includeMetadata) {
+    String rawName = variable.getName();
+    this.name = rawName == null || rawName.isBlank() ? "<unnamed_variable>" : rawName;
+    Symbol symbol = variable.getSymbol();
+    this.variableSymbolId =
+        variableSymbolId != null ? variableSymbolId : symbol != null ? symbol.getID() : null;
+    this.dataType =
+        includeMetadata && variable.getDataType() != null
+            ? variable.getDataType().getDisplayName()
+            : null;
+    this.storage =
+        includeMetadata && variable.getVariableStorage() != null
+            ? variable.getVariableStorage().toString()
+            : null;
+    this.isParameter = includeMetadata ? variable instanceof Parameter : null;
   }
 
-  // Getter for the name that should be primarily used for display/identification
-  @JsonGetter("effective_name")
-  public String getEffectiveName() {
-    if (decompilerName != null && !decompilerName.trim().isEmpty()) {
-      return decompilerName;
-    }
-    if (listingName != null && !listingName.trim().isEmpty()) {
-      return listingName;
-    }
-    return "<unnamed_variable>"; // Fallback if both are somehow null/empty
+  public FunctionVariableInfo(HighSymbol highSymbol) {
+    this(highSymbol, true);
   }
 
-  // Standard Getters
-  @JsonProperty("listing_name")
-  public String getListingName() {
-    return listingName;
+  public FunctionVariableInfo(HighSymbol highSymbol, boolean includeMetadata) {
+    HighVariable highVariable = highSymbol.getHighVariable();
+    String rawName =
+        highVariable != null && highVariable.getName() != null && !highVariable.getName().isBlank()
+            ? highVariable.getName()
+            : highSymbol.getName();
+    this.name = rawName == null || rawName.isBlank() ? "<unnamed_variable>" : rawName;
+    this.variableSymbolId = highSymbol.getId();
+    this.dataType =
+        includeMetadata && highVariable != null && highVariable.getDataType() != null
+            ? highVariable.getDataType().getDisplayName()
+            : includeMetadata && highSymbol.getDataType() != null
+                ? highSymbol.getDataType().getDisplayName()
+                : null;
+    this.storage =
+        includeMetadata && highVariable != null && highVariable.getRepresentative() != null
+            ? highVariable.getRepresentative().toString()
+            : includeMetadata && highSymbol.getStorage() != null
+                ? highSymbol.getStorage().toString()
+                : null;
+    this.isParameter = includeMetadata ? highSymbol.isParameter() : null;
   }
 
-  @JsonProperty("decompiler_name")
-  public String getDecompilerName() {
-    return decompilerName;
+  @JsonProperty("name")
+  public String getName() {
+    return name;
   }
 
-  @JsonProperty("variable_category")
-  public VariableCategory getVariableCategory() {
-    return variableCategory;
+  @JsonProperty("variable_symbol_id")
+  @JsonFormat(shape = JsonFormat.Shape.STRING)
+  public Long getVariableSymbolId() {
+    return variableSymbolId;
   }
 
   @JsonProperty("data_type")
@@ -174,46 +96,28 @@ public class FunctionVariableInfo {
     return storage;
   }
 
-  @JsonProperty("source_type")
-  public String getSourceType() {
-    return sourceType;
-  }
-
   @JsonProperty("is_parameter")
-  public boolean isParameter() {
+  public Boolean getIsParameter() {
     return isParameter;
   }
 
-  @JsonProperty("comment")
-  public String getComment() {
-    return comment;
+  @JsonIgnore
+  public boolean isParameter() {
+    return Boolean.TRUE.equals(isParameter);
   }
 
-  @JsonProperty("address")
-  public String getAddress() {
-    return address;
+  @JsonIgnore
+  public String getEffectiveName() {
+    return name;
   }
 
-  // Serialized as a JSON string so 64-bit IDs survive JS-style JSON parsers
-  // that lose precision above 2^53 (see #38).
-  @JsonProperty("symbol_id")
-  @JsonFormat(shape = JsonFormat.Shape.STRING)
+  @JsonIgnore
   public Long getSymbolId() {
-    return symbolID;
+    return variableSymbolId;
   }
 
-  @JsonProperty("high_symbol_id")
-  @JsonFormat(shape = JsonFormat.Shape.STRING)
+  @JsonIgnore
   public Long getHighSymbolId() {
-    return highSymbolID;
-  }
-
-  // Setter for decompilerName, to be used by the listing tool when correlating
-  public void setDecompilerName(String decompilerName) {
-    this.decompilerName = decompilerName;
-  }
-
-  public void setListingName(String listingName) {
-    this.listingName = listingName;
+    return variableSymbolId;
   }
 }

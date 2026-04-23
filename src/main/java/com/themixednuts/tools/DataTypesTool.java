@@ -3,7 +3,7 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.CreateDataTypeResult;
-import com.themixednuts.models.DataTypeInfo;
+import com.themixednuts.models.DataTypeListEntry;
 import com.themixednuts.models.DataTypeReadResult;
 import com.themixednuts.models.DataTypeReadResult.DataTypeComponentDetail;
 import com.themixednuts.models.DataTypeReadResult.DataTypeEnumValue;
@@ -46,6 +46,7 @@ import reactor.core.publisher.Mono;
 
         <important_notes>
         - Actions: list, get, create, update (no "create_category" — use create with data_type_kind="category")
+        - list returns compact summary rows; use get to fetch full struct/union/enum/function details
         - Required param for create/update: data_type_kind (NOT "kind" or "type")
         - Struct/union members use "members" array (NOT "fields"), with "data_type_path" for types (NOT "type")
         - Enum values use "entries" array with "name" and "value" keys
@@ -633,13 +634,13 @@ public class DataTypesTool extends BaseMcpTool {
             });
   }
 
-  private Mono<PaginatedResult<DataTypeInfo>> handleList(
+  private Mono<PaginatedResult<DataTypeListEntry>> handleList(
       Program program, Map<String, Object> args) {
     return Mono.fromCallable(() -> listDataTypes(program, args));
   }
 
-  private PaginatedResult<DataTypeInfo> listDataTypes(Program program, Map<String, Object> args)
-      throws GhidraMcpException {
+  private PaginatedResult<DataTypeListEntry> listDataTypes(
+      Program program, Map<String, Object> args) throws GhidraMcpException {
     DataTypeManager dtm = program.getDataTypeManager();
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
@@ -668,7 +669,7 @@ public class DataTypesTool extends BaseMcpTool {
     final Pattern finalNamePattern = namePattern;
     String normalizedCategoryFilter = categoryFilterOpt.map(String::toLowerCase).orElse(null);
     String normalizedTypeKind = typeKindOpt.map(String::toLowerCase).orElse(null);
-    List<DataTypeInfo> allMatches =
+    List<DataTypeListEntry> allMatches =
         candidates.stream()
             .filter(
                 dataType -> {
@@ -693,23 +694,15 @@ public class DataTypesTool extends BaseMcpTool {
 
                   return true;
                 })
-            .map(
-                dataType -> {
-                  DataTypeInfo info = new DataTypeInfo(dataType);
-                  info.getDetails().setDataTypeId(dtm.getID(dataType));
-                  return info;
-                })
-            .sorted(
-                Comparator.comparing(
-                    dataTypeInfo -> dataTypeInfo.getDetails().getPath(),
-                    String.CASE_INSENSITIVE_ORDER))
+            .map(dataType -> createListEntry(dataType, dtm))
+            .sorted(Comparator.comparing(DataTypeListEntry::getPath, String.CASE_INSENSITIVE_ORDER))
             .toList();
 
     int startIndex = 0;
     if (cursorPath != null && !cursorPath.isBlank()) {
       boolean cursorMatched = false;
       for (int i = 0; i < allMatches.size(); i++) {
-        if (allMatches.get(i).getDetails().getPath().equalsIgnoreCase(cursorPath)) {
+        if (allMatches.get(i).getPath().equalsIgnoreCase(cursorPath)) {
           startIndex = i + 1;
           cursorMatched = true;
           break;
@@ -726,24 +719,67 @@ public class DataTypesTool extends BaseMcpTool {
     }
 
     int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<DataTypeInfo> paginatedMatches =
+    List<DataTypeListEntry> paginatedMatches =
         new ArrayList<>(allMatches.subList(startIndex, endExclusive));
 
     boolean hasMore = paginatedMatches.size() > pageSize;
-    List<DataTypeInfo> results =
+    List<DataTypeListEntry> results =
         hasMore
             ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
             : new ArrayList<>(paginatedMatches);
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
-      DataTypeInfo lastItem = results.get(results.size() - 1);
-      nextCursor =
-          OpaqueCursorCodec.encodeV1(
-              lastItem.getDetails().getName(), lastItem.getDetails().getPath());
+      DataTypeListEntry lastItem = results.get(results.size() - 1);
+      nextCursor = OpaqueCursorCodec.encodeV1(lastItem.getName(), lastItem.getPath());
     }
 
     return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private DataTypeListEntry createListEntry(DataType dataType, DataTypeManager dtm) {
+    String kind = classifyDataTypeKind(dataType);
+    Integer memberCount = null;
+    Integer entryCount = null;
+
+    if (dataType instanceof Structure structure) {
+      memberCount = structure.getNumComponents();
+    } else if (dataType instanceof Union union) {
+      memberCount = union.getNumComponents();
+    } else if (dataType instanceof ghidra.program.model.data.Enum enumDt) {
+      entryCount = (int) enumDt.getCount();
+    }
+
+    return new DataTypeListEntry(
+        dataType.getDisplayName(),
+        dataType.getPathName(),
+        dtm.getID(dataType),
+        kind,
+        dataType.getAlignedLength(),
+        memberCount,
+        entryCount);
+  }
+
+  private String classifyDataTypeKind(DataType dataType) {
+    if (dataType instanceof Structure) {
+      return "struct";
+    }
+    if (dataType instanceof Union) {
+      return "union";
+    }
+    if (dataType instanceof ghidra.program.model.data.Enum) {
+      return "enum";
+    }
+    if (dataType instanceof TypeDef) {
+      return "typedef";
+    }
+    if (dataType instanceof Pointer) {
+      return "pointer";
+    }
+    if (dataType instanceof FunctionDefinitionDataType) {
+      return "function_definition";
+    }
+    return "other";
   }
 
   private String parseListCursorPath(String cursorValue) {

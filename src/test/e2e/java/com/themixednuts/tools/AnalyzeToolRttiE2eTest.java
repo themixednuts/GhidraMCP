@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.models.RTTIAnalysisResult;
+import com.themixednuts.models.RttiListEntry;
+import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -188,6 +190,80 @@ class AnalyzeToolRttiE2eTest {
           "VfTable.rtti0Address should match RTTI0 fixture symbol");
     } finally {
       builder.dispose();
+    }
+  }
+
+  @Test
+  void listRttiReturnsCompactSummaryRows() throws Exception {
+    assumeTrue(Boolean.getBoolean("rtti.integration"), "Set -Drtti.integration=true to run");
+    assumeTrue(RttiFixtureSupport.isWindows(), "MSVC fixture build requires Windows");
+
+    Path repoRoot = Paths.get("").toAbsolutePath();
+    RttiFixtureSupport.FixtureArtifacts artifacts =
+        RttiFixtureSupport.buildMsvcX64Fixture(repoRoot);
+
+    GhidraE2eRuntimeSupport.ensureGhidraRuntimeInitialized(repoRoot);
+
+    Object consumer = new Object();
+    ProgramBuilder builder;
+    Program program;
+    try {
+      builder = new ProgramBuilder("msvc_rtti_fixture", ProgramBuilder._X64, "windows", consumer);
+      program = builder.getProgram();
+    } catch (Throwable t) {
+      assumeTrue(false, "Skipping: Ghidra x64 language runtime unavailable: " + t.getMessage());
+      return;
+    }
+
+    try {
+      PeProgramMappingSupport.configurePeMetadataForVisualStudio(program);
+      PeProgramMappingSupport.mapPortableExecutableIntoProgram(
+          builder, program, artifacts.exePath());
+
+      AnalyzeTool tool = new InMemoryAnalyzeTool(program);
+      McpTransportContext context = Mockito.mock(McpTransportContext.class);
+      ghidra.framework.plugintool.PluginTool pluginTool =
+          Mockito.mock(ghidra.framework.plugintool.PluginTool.class);
+
+      Object rawResult =
+          tool.execute(
+                  context,
+                  Map.of("file_name", "msvc_rtti_fixture", "action", "list_rtti", "page_size", 50),
+                  pluginTool)
+              .block();
+
+      @SuppressWarnings("unchecked")
+      PaginatedResult<RttiListEntry> result = assertInstanceOf(PaginatedResult.class, rawResult);
+      assertFalse(result.results.isEmpty());
+
+      RttiListEntry diamond =
+          result.results.stream()
+              .filter(
+                  entry ->
+                      (entry.getName() != null && entry.getName().contains("Diamond"))
+                          || (entry.getMangled() != null && entry.getMangled().contains("Diamond")))
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("Expected Diamond RTTI summary entry"));
+
+      assertNotNull(diamond.getRtti0Address());
+      assertNotNull(diamond.getBaseClassCount());
+      assertTrue(diamond.getBaseClassCount() > 0);
+      assertFalse(hasAccessor(RttiListEntry.class, "getMethods"));
+      assertFalse(hasAccessor(RttiListEntry.class, "getBaseClasses"));
+      assertFalse(hasAccessor(RttiListEntry.class, "getVtables"));
+      assertFalse(hasAccessor(RttiListEntry.class, "getEnclosingMethod"));
+      assertTrue(hasAccessor(RttiListEntry.class, "getBaseClassCount"));
+    } finally {
+      builder.dispose();
+    }
+  }
+
+  private static boolean hasAccessor(Class<?> type, String methodName) {
+    try {
+      type.getMethod(methodName);
+      return true;
+    } catch (NoSuchMethodException e) {
+      return false;
     }
   }
 

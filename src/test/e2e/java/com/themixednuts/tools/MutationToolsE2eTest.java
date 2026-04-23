@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.models.DataTypeListEntry;
 import com.themixednuts.models.DataTypeReadResult;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionVariableInfo;
@@ -231,6 +232,89 @@ class MutationToolsE2eTest {
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void listDataTypesReturnsCompactSummaryRows() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name",
+                  "fixture",
+                  "action",
+                  "create",
+                  "data_type_kind",
+                  "struct",
+                  "name",
+                  "CompactListStruct",
+                  "members",
+                  List.of(
+                      Map.of("name", "field_a", "data_type_path", "int"),
+                      Map.of("name", "field_b", "data_type_path", "char *"))),
+              null)
+          .block();
+
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "name_pattern",
+                      "^CompactListStruct$",
+                      "page_size",
+                      10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<DataTypeListEntry> listed = assertInstanceOf(PaginatedResult.class, listRaw);
+
+      assertFalse(listed.results.isEmpty(), "Expected matching data type summary row");
+      DataTypeListEntry entry = listed.results.get(0);
+      assertEquals("CompactListStruct", entry.getName());
+      assertEquals("struct", entry.getKind());
+      assertNotNull(entry.getDataTypeId());
+      assertEquals(2, entry.getMemberCount());
+      assertTrue(entry.getPath().endsWith("/CompactListStruct"));
+
+      @SuppressWarnings("unchecked")
+      Map<String, Object> serialized = BaseMcpTool.mapper.convertValue(entry, Map.class);
+      assertFalse(serialized.containsKey("details"));
+      assertFalse(serialized.containsKey("members"));
+      assertFalse(serialized.containsKey("entries"));
+      assertFalse(serialized.containsKey("description"));
+      assertFalse(serialized.containsKey("category"));
+      assertEquals(Long.toString(entry.getDataTypeId()), serialized.get("data_type_id"));
+
+      Object readBackRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "get",
+                      "data_type_kind",
+                      "struct",
+                      "name",
+                      "CompactListStruct"),
+                  null)
+              .block();
+      DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
+      assertEquals(2, readBack.getComponentCount());
     } finally {
       fixture.close();
     }
@@ -654,7 +738,7 @@ class MutationToolsE2eTest {
   }
 
   @Test
-  void renameVariableByHighSymbolIdAndVerify() throws Exception {
+  void listVariablesReturnsCompactStableVariableTargets() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
 
@@ -667,27 +751,97 @@ class MutationToolsE2eTest {
       Object listRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000"),
                   null)
               .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionVariableInfo> variables =
           assertInstanceOf(PaginatedResult.class, listRaw);
 
-      // Find a non-parameter variable — prefer high_symbol_id, fall back to symbol_id
+      assertFalse(variables.results.isEmpty(), "Expected decompiler variable targets");
+      assertEquals(
+          variables.results.size(),
+          variables.results.stream()
+              .map(FunctionVariableInfo::getVariableSymbolId)
+              .distinct()
+              .count());
+
+      FunctionVariableInfo target = variables.results.get(0);
+
+      String serialized = BaseMcpTool.mapper.writeValueAsString(target);
+      assertTrue(serialized.contains("\"name\":\"" + target.getName() + "\""));
+      assertTrue(
+          serialized.contains(
+              "\"variable_symbol_id\":\"" + Long.toString(target.getVariableSymbolId()) + "\""));
+      assertFalse(serialized.contains("\"data_type\""), serialized);
+      assertFalse(serialized.contains("\"storage\""), serialized);
+      assertFalse(serialized.contains("\"is_parameter\""), serialized);
+      assertFalse(serialized.contains("\"effective_name\""));
+      assertFalse(serialized.contains("\"symbol_id\""));
+      assertFalse(serialized.contains("\"high_symbol_id\""));
+
+      Object verboseListRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> verboseVariables =
+          assertInstanceOf(PaginatedResult.class, verboseListRaw);
+      FunctionVariableInfo verboseTarget =
+          verboseVariables.results.stream()
+              .filter(v -> target.getVariableSymbolId().equals(v.getVariableSymbolId()))
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("Verbose variable listing lost target"));
+      String verboseSerialized = BaseMcpTool.mapper.writeValueAsString(verboseTarget);
+      assertTrue(verboseSerialized.contains("\"data_type\""));
+      assertTrue(verboseSerialized.contains("\"storage\""));
+      assertTrue(verboseSerialized.contains("\"is_parameter\""));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void renameVariableByStringVariableSymbolIdAndVerify() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createFixtureWithLocalVariables();
+    try {
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
+
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variables =
+          assertInstanceOf(PaginatedResult.class, listRaw);
+
       FunctionVariableInfo target =
           variables.results.stream()
               .filter(v -> !v.isParameter())
-              .filter(v -> v.getHighSymbolId() != null || v.getSymbolId() != null)
               .findFirst()
-              .orElse(null);
+              .orElseThrow(() -> new AssertionError("No non-parameter variable found"));
 
-      // Skip if no usable variables
-      if (target == null) return;
-
-      String originalName = target.getEffectiveName();
-      long symbolId =
-          target.getHighSymbolId() != null ? target.getHighSymbolId() : target.getSymbolId();
+      String originalName = target.getName();
+      String variableSymbolId = Long.toString(target.getVariableSymbolId());
 
       // Rename by variable_symbol_id
       @SuppressWarnings("unchecked")
@@ -697,14 +851,15 @@ class MutationToolsE2eTest {
                       null,
                       Map.of(
                           "file_name", "fixture",
-                          "action", "rename_variable",
+                          "action", "update_variable",
                           "address", "0x401000",
-                          "variable_symbol_id", symbolId,
+                          "variable_symbol_id", variableSymbolId,
                           "new_name", "renamed_via_id"),
                       null)
                   .block();
 
       assertNotNull(renameResult);
+      assertEquals(variableSymbolId, renameResult.get("variable_symbol_id"));
       assertEquals(originalName, renameResult.get("old_name"));
       assertEquals("renamed_via_id", renameResult.get("new_name"));
     } finally {
@@ -726,7 +881,11 @@ class MutationToolsE2eTest {
       Object listRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -734,10 +893,7 @@ class MutationToolsE2eTest {
           assertInstanceOf(PaginatedResult.class, listRaw);
 
       List<FunctionVariableInfo> renameable =
-          variables.results.stream()
-              .filter(v -> !v.isParameter())
-              .filter(v -> v.getHighSymbolId() != null || v.getSymbolId() != null)
-              .collect(Collectors.toList());
+          variables.results.stream().filter(v -> !v.isParameter()).collect(Collectors.toList());
 
       // Need at least 2 variables to test ordering
       if (renameable.size() < 2) return;
@@ -746,7 +902,7 @@ class MutationToolsE2eTest {
       // This should work fine with symbol IDs since they're stable
       for (int i = 0; i < renameable.size(); i++) {
         FunctionVariableInfo v = renameable.get(i);
-        long symId = v.getHighSymbolId() != null ? v.getHighSymbolId() : v.getSymbolId();
+        String variableSymbolId = Long.toString(v.getVariableSymbolId());
         String newName = "batch_var_" + i;
 
         @SuppressWarnings("unchecked")
@@ -756,14 +912,15 @@ class MutationToolsE2eTest {
                         null,
                         Map.of(
                             "file_name", "fixture",
-                            "action", "rename_variable",
+                            "action", "update_variable",
                             "address", "0x401000",
-                            "variable_symbol_id", symId,
+                            "variable_symbol_id", variableSymbolId,
                             "new_name", newName),
                         null)
                     .block();
 
         assertNotNull(result, "Rename failed for variable at index " + i);
+        assertEquals(variableSymbolId, result.get("variable_symbol_id"));
         assertEquals(newName, result.get("new_name"));
       }
 
@@ -771,18 +928,20 @@ class MutationToolsE2eTest {
       Object listAfterRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
                   null)
               .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionVariableInfo> variablesAfter =
           assertInstanceOf(PaginatedResult.class, listAfterRaw);
-
       for (int i = 0; i < renameable.size(); i++) {
         String expectedName = "batch_var_" + i;
         boolean found =
-            variablesAfter.results.stream()
-                .anyMatch(v -> expectedName.equals(v.getEffectiveName()));
+            variablesAfter.results.stream().anyMatch(v -> expectedName.equals(v.getName()));
         assertTrue(
             found, "Expected to find variable named '" + expectedName + "' after batch rename");
       }
@@ -805,7 +964,11 @@ class MutationToolsE2eTest {
       Object listRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
                   null)
               .block();
       @SuppressWarnings("unchecked")
@@ -820,7 +983,7 @@ class MutationToolsE2eTest {
               .findFirst()
               .orElseThrow(() -> new AssertionError("No non-parameter variable found to rename"));
 
-      String originalName = target.getEffectiveName();
+      String originalName = target.getName();
       String renamedName = "test_renamed_var";
 
       // Rename the variable
@@ -846,16 +1009,91 @@ class MutationToolsE2eTest {
       Object listAfterRaw =
           tool.execute(
                   null,
-                  Map.of("file_name", "fixture", "action", "list_variables", "address", "0x401000"),
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
                   null)
               .block();
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionVariableInfo> variablesAfter =
           assertInstanceOf(PaginatedResult.class, listAfterRaw);
-
       boolean renamedFound =
-          variablesAfter.results.stream().anyMatch(v -> renamedName.equals(v.getEffectiveName()));
+          variablesAfter.results.stream().anyMatch(v -> renamedName.equals(v.getName()));
       assertTrue(renamedFound, "Expected to find variable with new name '" + renamedName + "'");
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void updateVariableRetypesLocalUsingStringVariableSymbolId() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createFixtureWithLocalVariables();
+    try {
+      FunctionsTool tool = new InMemoryFunctionsTool(fixture.program());
+
+      Object listRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variables =
+          assertInstanceOf(PaginatedResult.class, listRaw);
+
+      FunctionVariableInfo target =
+          variables.results.stream()
+              .filter(v -> !v.isParameter())
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("No non-parameter variable found to retype"));
+
+      String variableSymbolId = Long.toString(target.getVariableSymbolId());
+
+      @SuppressWarnings("unchecked")
+      Map<String, Object> updateResult =
+          (Map<String, Object>)
+              tool.execute(
+                      null,
+                      Map.of(
+                          "file_name", "fixture",
+                          "action", "update_variable",
+                          "address", "0x401000",
+                          "variable_symbol_id", variableSymbolId,
+                          "new_data_type", "float"),
+                      null)
+                  .block();
+
+      assertNotNull(updateResult);
+      assertEquals(variableSymbolId, updateResult.get("variable_symbol_id"));
+      assertEquals("float", updateResult.get("new_data_type"));
+
+      Object listAfterRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "list_variables",
+                      "address", "0x401000",
+                      "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionVariableInfo> variablesAfter =
+          assertInstanceOf(PaginatedResult.class, listAfterRaw);
+      boolean floatFound =
+          variablesAfter.results.stream().anyMatch(v -> "float".equals(v.getDataType()));
+
+      assertTrue(floatFound, "Expected to find a local variable retyped to float");
     } finally {
       fixture.close();
     }

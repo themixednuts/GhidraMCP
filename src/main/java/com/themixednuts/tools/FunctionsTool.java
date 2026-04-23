@@ -26,7 +26,9 @@ import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.Variable;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighSymbol;
@@ -38,18 +40,14 @@ import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
 
@@ -63,8 +61,8 @@ import reactor.core.publisher.Mono;
          <use_case>
          Function lifecycle operations for reverse engineering workflows. List and browse functions
          with filtering and pagination, get detailed function info by identifier, create functions,
-         update function prototypes, list function variables with detailed categorization, and
-         rename local variables within functions.
+         update function prototypes, list stable decompiler variable targets, and rename/retype
+         local variables within functions.
          </use_case>
 
          <important_notes>
@@ -72,9 +70,9 @@ import reactor.core.publisher.Mono;
          - List mode supports regex filtering by name_pattern and cursor-based pagination
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
-         - Lists both listing variables and decompiler-generated variables with detailed categorization
-         - Rename and retype local variables using the decompiler's high-level variable mapping
-         - BATCH RENAMES: Use variable_symbol_id (from list_variables high_symbol_id) instead of current_name. Auto-generated names (bVar0, bVar1, etc.) renumber when any variable is renamed. If you must use current_name, rename in descending order (highest-numbered first)
+         - list_variables returns stable variable targets used by update_variable / rename_variable; pass verbose=true to include data_type, storage, and is_parameter metadata
+         - update_variable (rename_variable also supported as a compatibility alias) can rename and/or retype locals and parameters
+         - BATCH RENAMES: Use variable_symbol_id (from list_variables variable_symbol_id) instead of current_name. Auto-generated names (bVar0, bVar1, etc.) renumber when any variable is renamed. If you must use current_name, rename in descending order (highest-numbered first)
          - Use `inspect` (action: decompile) for decompilation analysis
          - For browsing all functions without filtering, use the ghidra://program/{name}/functions resource
          </important_notes>
@@ -129,12 +127,20 @@ import reactor.core.publisher.Mono;
           "address": "0x401000"
         }
 
-        List variables in a function:
-        {
-          "file_name": "program.exe",
-          "action": "list_variables",
-          "name": "main"
-        }
+         List variables in a function (compact default):
+         {
+           "file_name": "program.exe",
+           "action": "list_variables",
+           "name": "main"
+         }
+
+         List variables with metadata:
+         {
+           "file_name": "program.exe",
+           "action": "list_variables",
+           "name": "main",
+           "verbose": true
+         }
 
         Rename a local variable:
         {
@@ -148,27 +154,27 @@ import reactor.core.publisher.Mono;
         Rename a variable by symbol ID (stable for batch operations):
         {
           "file_name": "program.exe",
-          "action": "rename_variable",
+          "action": "update_variable",
           "name": "main",
-          "variable_symbol_id": 12345,
+          "variable_symbol_id": "12345",
           "new_name": "buffer_size"
         }
 
         Change a local variable's type:
         {
           "file_name": "program.exe",
-          "action": "rename_variable",
+          "action": "update_variable",
           "name": "main",
-          "variable_symbol_id": 12345,
+          "variable_symbol_id": "12345",
           "new_data_type": "char *"
         }
 
         Rename and retype a variable in one operation:
         {
           "file_name": "program.exe",
-          "action": "rename_variable",
+          "action": "update_variable",
           "name": "main",
-          "variable_symbol_id": 12345,
+          "variable_symbol_id": "12345",
           "new_name": "buffer",
           "new_data_type": "char *"
         }
@@ -192,6 +198,7 @@ public class FunctionsTool extends BaseMcpTool {
   public static final String ARG_NEW_NAME = "new_name";
   public static final String ARG_VARIABLE_SYMBOL_ID = "variable_symbol_id";
   public static final String ARG_NEW_DATA_TYPE = "new_data_type";
+  public static final String ARG_VERBOSE = "verbose";
 
   private static final String ACTION_LIST = "list";
   private static final String ACTION_GET = "get";
@@ -199,6 +206,7 @@ public class FunctionsTool extends BaseMcpTool {
   private static final String ACTION_UPDATE_PROTOTYPE = "update_prototype";
   private static final String ACTION_LIST_VARIABLES = "list_variables";
   private static final String ACTION_RENAME_VARIABLE = "rename_variable";
+  private static final String ACTION_UPDATE_VARIABLE = "update_variable";
 
   @Override
   public JsonSchema schema() {
@@ -216,7 +224,8 @@ public class FunctionsTool extends BaseMcpTool {
                 ACTION_CREATE,
                 ACTION_UPDATE_PROTOTYPE,
                 ACTION_LIST_VARIABLES,
-                ACTION_RENAME_VARIABLE)
+                ACTION_RENAME_VARIABLE,
+                ACTION_UPDATE_VARIABLE)
             .description("Action to perform on functions"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
@@ -341,7 +350,7 @@ public class FunctionsTool extends BaseMcpTool {
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
         // action=list_variables: requires at least one identifier (symbol_id, address,
         // name);
-        // allows cursor
+        // allows cursor and verbose metadata
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
                 SchemaBuilder.objectDraft7(mapper)
@@ -365,8 +374,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor (format:"
-                                    + " v1:<base64url_storage>:<base64url_variable_name>)"))
+                                "Pagination cursor (format: v1:<base64url_variable_symbol_id>)"))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -378,18 +386,26 @@ public class FunctionsTool extends BaseMcpTool {
                                     + ")")
                             .minimum(1)
                             .maximum(MAX_PAGE_LIMIT))
+                    .property(
+                        ARG_VERBOSE,
+                        SchemaBuilder.bool(mapper)
+                            .description(
+                                "Include variable metadata fields (data_type, storage,"
+                                    + " is_parameter). Default false returns only name and"
+                                    + " variable_symbol_id"))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
-        // action=rename_variable: requires function identifier + variable targeting + new_name
-        // and/or new_data_type
+        // action=rename_variable/update_variable: requires function identifier + variable
+        // targeting + new_name and/or new_data_type
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
                 SchemaBuilder.objectDraft7(mapper)
                     .property(
                         ARG_ACTION,
-                        SchemaBuilder.string(mapper).constValue(ACTION_RENAME_VARIABLE)),
+                        SchemaBuilder.string(mapper)
+                            .enumValues(ACTION_RENAME_VARIABLE, ACTION_UPDATE_VARIABLE)),
                 SchemaBuilder.objectDraft7(mapper)
                     .property(
                         ARG_SYMBOL_ID,
@@ -411,18 +427,17 @@ public class FunctionsTool extends BaseMcpTool {
                                 SchemaBuilder.integer(mapper))
                             .description(
                                 "Decompiler symbol ID of the variable to update (from"
-                                    + " list_variables high_symbol_id or symbol_id). Stable"
-                                    + " across renames — preferred for batch operations. Pass"
-                                    + " as a STRING (e.g. \"4614873502636310661\") for IDs"
-                                    + " above 2^53 to avoid JSON number precision loss in"
-                                    + " 64-bit-float JSON parsers; integers are also accepted"
-                                    + " for small IDs"))
+                                    + " list_variables variable_symbol_id). Stable across"
+                                    + " renames — preferred for batch operations. Pass as a"
+                                    + " STRING (e.g. \"4614873502636310661\") for IDs above"
+                                    + " 2^53 to avoid JSON number precision loss in 64-bit-float"
+                                    + " JSON parsers; integers are also accepted for small IDs"))
                     .property(
                         ARG_CURRENT_NAME,
                         SchemaBuilder.string(mapper)
                             .description(
                                 "Current name of the variable to rename (as shown by"
-                                    + " list_variables effective_name). Use"
+                                    + " list_variables name). Use"
                                     + " variable_symbol_id for batch operations to avoid"
                                     + " renumbering issues"))
                     .property(
@@ -475,14 +490,16 @@ public class FunctionsTool extends BaseMcpTool {
                 case ACTION_UPDATE_PROTOTYPE ->
                     handleUpdatePrototype(program, tool, args, annotation);
                 case ACTION_LIST_VARIABLES -> handleListVariables(program, args, annotation);
-                case ACTION_RENAME_VARIABLE -> handleRenameVariable(program, args, annotation);
+                case ACTION_RENAME_VARIABLE, ACTION_UPDATE_VARIABLE ->
+                    handleUpdateVariable(
+                        program, args, annotation, action.toLowerCase(Locale.ROOT));
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
                           ARG_ACTION,
                           action,
                           "must be one of: list, get, create, update_prototype, list_variables,"
-                              + " rename_variable");
+                              + " rename_variable, update_variable");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -994,9 +1011,9 @@ public class FunctionsTool extends BaseMcpTool {
         });
   }
 
-  private Mono<? extends Object> handleRenameVariable(
-      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
-    String toolOperation = annotation.mcpName() + ".rename_variable";
+  private Mono<? extends Object> handleUpdateVariable(
+      Program program, Map<String, Object> args, GhidraMcpTool annotation, String actionName) {
+    String toolOperation = annotation.mcpName() + "." + actionName;
 
     FunctionIdentifiers identifiers;
     try {
@@ -1032,59 +1049,34 @@ public class FunctionsTool extends BaseMcpTool {
     }
 
     return withTaskMonitor(
-            "functions.rename_variable",
+            "functions." + actionName,
             monitor -> {
               Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
+              LocalSymbolMap localSymbolMap =
+                  getDecompilerLocalSymbolMap(program, function, monitor, "update variable");
 
-              DecompInterface decomplib = new DecompInterface();
-              try {
-                decomplib.setOptions(new DecompileOptions());
-                decomplib.openProgram(program);
-                DecompileResults results =
-                    decomplib.decompileFunction(
-                        function, decomplib.getOptions().getDefaultTimeout(), monitor);
+              HighSymbol targetSymbol =
+                  findVariableSymbol(
+                      localSymbolMap,
+                      variableSymbolIdOpt.orElse(null),
+                      currentNameOpt.orElse(null),
+                      function.getName());
 
-                if (results == null || results.getHighFunction() == null) {
+              DataType resolvedType = null;
+              if (newDataTypeOpt.isPresent()) {
+                DataTypeManager dtm = program.getDataTypeManager();
+                resolvedType = resolveDataTypeWithFallback(dtm, newDataTypeOpt.get());
+                if (resolvedType == null) {
                   throw new GhidraMcpException(
-                      GhidraMcpError.failed(
-                          "update variable",
-                          "Decompilation failed for function: " + function.getName()));
+                      GhidraMcpError.of(
+                          "Cannot resolve data type: " + newDataTypeOpt.get(),
+                          "Use a valid type like 'int', 'char *', 'byte', or a full path like"
+                              + " '/MyCategory/MyStruct'"));
                 }
-
-                HighFunction highFunction = results.getHighFunction();
-                LocalSymbolMap localSymbolMap = highFunction.getLocalSymbolMap();
-                if (localSymbolMap == null) {
-                  throw new GhidraMcpException(
-                      GhidraMcpError.failed(
-                          "update variable",
-                          "No local symbol map available for function: " + function.getName()));
-                }
-
-                HighSymbol targetSymbol =
-                    findVariableSymbol(
-                        localSymbolMap,
-                        variableSymbolIdOpt.orElse(null),
-                        currentNameOpt.orElse(null),
-                        function.getName());
-
-                DataType resolvedType = null;
-                if (newDataTypeOpt.isPresent()) {
-                  DataTypeManager dtm = program.getDataTypeManager();
-                  resolvedType = resolveDataTypeWithFallback(dtm, newDataTypeOpt.get());
-                  if (resolvedType == null) {
-                    throw new GhidraMcpException(
-                        GhidraMcpError.of(
-                            "Cannot resolve data type: " + newDataTypeOpt.get(),
-                            "Use a valid type like 'int', 'char *', 'byte', or a full path like"
-                                + " '/MyCategory/MyStruct'"));
-                  }
-                }
-
-                return new UpdateVariableContext(
-                    function, targetSymbol, newNameOpt.orElse(null), resolvedType);
-              } finally {
-                decomplib.dispose();
               }
+
+              return new UpdateVariableContext(
+                  function, targetSymbol, newNameOpt.orElse(null), resolvedType);
             })
         .flatMap(
             context -> {
@@ -1112,6 +1104,7 @@ public class FunctionsTool extends BaseMcpTool {
 
                     var result = new java.util.LinkedHashMap<String, Object>();
                     result.put("function", context.function().getName());
+                    result.put("variable_symbol_id", Long.toString(context.symbol().getId()));
                     result.put("old_name", oldName);
                     result.put("new_name", effectiveNewName);
                     if (context.newDataType() != null) {
@@ -1135,6 +1128,11 @@ public class FunctionsTool extends BaseMcpTool {
         // Match against HighSymbol.getId() which works for both listing-backed
         // and decompiler-synthetic variables (bVar0, etc.)
         if (sym.getId() == variableSymbolId) {
+          targetSymbol = sym;
+          break;
+        }
+        Symbol listingSymbol = sym.getSymbol();
+        if (listingSymbol != null && listingSymbol.getID() == variableSymbolId) {
           targetSymbol = sym;
           break;
         }
@@ -1163,58 +1161,68 @@ public class FunctionsTool extends BaseMcpTool {
       Function function, Program program, Map<String, Object> args, TaskMonitor monitor) {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+    boolean verbose = getOptionalBooleanArgument(args, ARG_VERBOSE).orElse(false);
+    LocalSymbolMap localSymbolMap =
+        getDecompilerLocalSymbolMap(program, function, monitor, "list variables");
 
-    Stream<FunctionVariableInfo> listingVarStream =
-        Arrays.stream(function.getAllVariables()).map(FunctionVariableInfo::new);
-
-    Stream<FunctionVariableInfo> decompilerVarStream = Stream.empty();
-    DecompInterface decomplib = new DecompInterface();
-    try {
-      decomplib.setOptions(new DecompileOptions());
-      decomplib.openProgram(program);
-      DecompileResults results =
-          decomplib.decompileFunction(
-              function, decomplib.getOptions().getDefaultTimeout(), monitor);
-
-      if (results == null) {
-        ghidra.util.Msg.warn(
-            this, "Decompiler returned null results for function: " + function.getName());
-      } else {
-        HighFunction hf = results.getHighFunction();
-        if (hf != null) {
-          LocalSymbolMap localSymbolMap = hf.getLocalSymbolMap();
-          if (localSymbolMap != null) {
-            java.util.Iterator<HighSymbol> highSymbolIterator = localSymbolMap.getSymbols();
-            decompilerVarStream =
-                StreamSupport.stream(
-                        Spliterators.spliteratorUnknownSize(
-                            highSymbolIterator, Spliterator.ORDERED),
-                        false)
-                    .map(HighSymbol::getHighVariable)
-                    .filter(java.util.Objects::nonNull)
-                    .map(hv -> new FunctionVariableInfo(hv, program));
-          }
-        } else {
-          ghidra.util.Msg.warn(
-              this,
-              "Decompilation did not yield a HighFunction for function: " + function.getName());
+    java.util.Set<String> representedVariableKeys = new java.util.LinkedHashSet<>();
+    List<VariableListEntry> variableEntries = new ArrayList<>();
+    java.util.Iterator<HighSymbol> symbolIterator = localSymbolMap.getSymbols();
+    while (symbolIterator.hasNext()) {
+      HighSymbol symbol = symbolIterator.next();
+      if (symbol != null && !symbol.isHiddenReturn()) {
+        Variable functionVariable = HighFunctionDBUtil.getFunctionVariable(symbol);
+        if (functionVariable != null) {
+          representedVariableKeys.add(variableIdentityKey(functionVariable));
         }
-      }
-    } catch (Exception e) {
-      ghidra.util.Msg.error(
-          this, "Error during decompilation for ListFunctionVariables: " + e.getMessage(), e);
-    } finally {
-      if (decomplib != null) {
-        decomplib.dispose();
+        FunctionVariableInfo info = new FunctionVariableInfo(symbol, verbose);
+        variableEntries.add(
+            new VariableListEntry(
+                info,
+                symbol.isParameter() ? 0 : 1,
+                symbol.isParameter() ? symbol.getCategoryIndex() : 0,
+                symbol.getStorage() != null ? symbol.getStorage().toString() : info.getStorage(),
+                symbol.getId()));
       }
     }
 
+    for (Variable variable : function.getAllVariables()) {
+      String variableKey = variableIdentityKey(variable);
+      if (!representedVariableKeys.add(variableKey)) {
+        continue;
+      }
+      Long variableSymbolId = variable.getSymbol() != null ? variable.getSymbol().getID() : null;
+      FunctionVariableInfo info = new FunctionVariableInfo(variable, variableSymbolId, verbose);
+      int parameterOrdinal = variable instanceof Parameter parameter ? parameter.getOrdinal() : 0;
+      variableEntries.add(
+          new VariableListEntry(
+              info,
+              info.isParameter() ? 0 : 1,
+              parameterOrdinal,
+              info.getStorage(),
+              info.getVariableSymbolId() != null ? info.getVariableSymbolId() : Long.MAX_VALUE));
+    }
+
+    variableEntries.sort(
+        Comparator.comparingInt(VariableListEntry::sortGroup)
+            .thenComparingInt(VariableListEntry::sortIndex)
+            .thenComparing(entry -> entry.storage() != null ? entry.storage() : "")
+            .thenComparingLong(VariableListEntry::sortId));
+
+    List<VariableListEntry> deduplicatedEntries = new ArrayList<>();
+    java.util.Set<String> seenVariableKeys = new java.util.LinkedHashSet<>();
+    for (VariableListEntry entry : variableEntries) {
+      FunctionVariableInfo variableInfo = entry.info();
+      String dedupeKey =
+          variableInfo.getVariableSymbolId() != null
+              ? "id:" + variableInfo.getVariableSymbolId()
+              : "name:" + variableInfo.getName() + "|storage:" + entry.storage();
+      if (seenVariableKeys.add(dedupeKey)) {
+        deduplicatedEntries.add(entry);
+      }
+    }
     List<FunctionVariableInfo> variablesToList =
-        Stream.concat(listingVarStream, decompilerVarStream)
-            .sorted(
-                Comparator.comparing(FunctionVariableInfo::getStorage)
-                    .thenComparing(FunctionVariableInfo::getEffectiveName))
-            .collect(Collectors.toList());
+        deduplicatedEntries.stream().map(VariableListEntry::info).collect(Collectors.toList());
 
     VariableCursor cursor = cursorOpt.map(this::parseVariableCursor).orElse(null);
 
@@ -1223,8 +1231,8 @@ public class FunctionsTool extends BaseMcpTool {
       boolean cursorMatched = false;
       for (int i = 0; i < variablesToList.size(); i++) {
         FunctionVariableInfo variableInfo = variablesToList.get(i);
-        if (variableInfo.getStorage().equals(cursor.storage)
-            && variableInfo.getEffectiveName().equals(cursor.name)) {
+        if (variableInfo.getVariableSymbolId() != null
+            && variableInfo.getVariableSymbolId().longValue() == cursor.variableSymbolId) {
           startIndex = i + 1;
           cursorMatched = true;
           break;
@@ -1250,32 +1258,79 @@ public class FunctionsTool extends BaseMcpTool {
     String nextCursor = null;
     if (hasMore && !resultsForPage.isEmpty()) {
       FunctionVariableInfo lastItem = resultsForPage.get(resultsForPage.size() - 1);
-      nextCursor = encodeVariableCursor(lastItem.getStorage(), lastItem.getEffectiveName());
+      nextCursor = encodeVariableCursor(lastItem.getVariableSymbolId());
     }
 
     return new PaginatedResult<>(resultsForPage, nextCursor);
   }
 
   private VariableCursor parseVariableCursor(String cursorValue) {
-    List<String> parts =
-        decodeOpaqueCursorV1(
-            cursorValue, 2, ARG_CURSOR, "v1:<base64url_storage>:<base64url_variable_name>");
-    return new VariableCursor(parts.get(0), parts.get(1), cursorValue);
+    String variableSymbolId =
+        decodeOpaqueCursorSingleV1(cursorValue, ARG_CURSOR, "v1:<base64url_variable_symbol_id>");
+    try {
+      return new VariableCursor(Long.parseLong(variableSymbolId), cursorValue);
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR, cursorValue, "contains an invalid variable_symbol_id component"));
+    }
   }
 
-  private String encodeVariableCursor(String storage, String name) {
-    return OpaqueCursorCodec.encodeV1(storage, name);
+  private String encodeVariableCursor(Long variableSymbolId) {
+    if (variableSymbolId == null) {
+      return null;
+    }
+    return OpaqueCursorCodec.encodeV1(Long.toString(variableSymbolId));
   }
 
   private static final class VariableCursor {
-    private final String storage;
-    private final String name;
+    private final long variableSymbolId;
     private final String rawCursor;
 
-    private VariableCursor(String storage, String name, String rawCursor) {
-      this.storage = storage;
-      this.name = name;
+    private VariableCursor(long variableSymbolId, String rawCursor) {
+      this.variableSymbolId = variableSymbolId;
       this.rawCursor = rawCursor;
+    }
+  }
+
+  private String variableIdentityKey(Variable variable) {
+    Symbol symbol = variable.getSymbol();
+    if (symbol != null) {
+      return "symbol:" + symbol.getID();
+    }
+    return "storage:" + variable.getVariableStorage() + "|param:" + (variable instanceof Parameter);
+  }
+
+  private record VariableListEntry(
+      FunctionVariableInfo info, int sortGroup, int sortIndex, String storage, long sortId) {}
+
+  private LocalSymbolMap getDecompilerLocalSymbolMap(
+      Program program, Function function, TaskMonitor monitor, String operationLabel) {
+    DecompInterface decompInterface = new DecompInterface();
+    try {
+      decompInterface.setOptions(new DecompileOptions());
+      decompInterface.openProgram(program);
+      DecompileResults results =
+          decompInterface.decompileFunction(
+              function, decompInterface.getOptions().getDefaultTimeout(), monitor);
+
+      if (results == null || results.getHighFunction() == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.failed(
+                operationLabel, "Decompilation failed for function: " + function.getName()));
+      }
+
+      HighFunction highFunction = results.getHighFunction();
+      LocalSymbolMap localSymbolMap = highFunction.getLocalSymbolMap();
+      if (localSymbolMap == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.failed(
+                operationLabel,
+                "No local symbol map available for function: " + function.getName()));
+      }
+      return localSymbolMap;
+    } finally {
+      decompInterface.dispose();
     }
   }
 

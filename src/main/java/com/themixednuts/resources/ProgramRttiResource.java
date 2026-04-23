@@ -29,14 +29,16 @@ import reactor.core.publisher.Mono;
 
 /**
  * Fast RTTI index resource. Returns raw mangled names and addresses only — no demangling, no lambda
- * parsing, no RTTI4 chain traversal. Use analyze tool (action: list_rtti) for full processing.
+ * parsing, no RTTI4 chain traversal. Use analyze tool (action: list_rtti) for compact summaries or
+ * analyze (action: rtti) for full RTTI chain details.
  */
 @GhidraMcpResource(
     uri = "ghidra://program/{name}/rtti",
     name = "Program RTTI",
     description =
         "Fast index of MSVC RTTI type descriptors — raw mangled names and addresses. Use"
-            + " analyze (action: list_rtti) for demangled names, methods, and class hierarchies.",
+            + " analyze (action: list_rtti) for compact RTTI summaries or analyze"
+            + " (action: rtti) for detailed class hierarchy inspection.",
     mimeType = "application/json",
     template = true)
 public class ProgramRttiResource extends BaseMcpResource {
