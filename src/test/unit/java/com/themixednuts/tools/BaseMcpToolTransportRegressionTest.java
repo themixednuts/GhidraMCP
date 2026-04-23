@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.models.McpResponse;
+import com.themixednuts.utils.CursorDataResult;
+import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.client.McpAsyncClient;
@@ -17,8 +20,11 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -31,16 +37,163 @@ class BaseMcpToolTransportRegressionTest {
 
   @Test
   void streamableToolsCallWithoutProgressTokenReturnsStructuredError() throws Exception {
-    FailingTool tool = new FailingTool();
-    AsyncToolSpecification specification = tool.specification(null);
+    try (TransportFixture fixture = openTransport(new FailingTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("failing_tool", Map.of());
 
+      assertNotNull(result);
+      assertEquals(Boolean.TRUE, result.isError());
+      assertNotNull(result.structuredContent());
+      assertTrue(result.structuredContent() instanceof Map<?, ?>);
+
+      Map<String, Object> structured = structured(result);
+      assertEquals(Boolean.FALSE, structured.get("success"));
+      assertTrue(structured.get("error") instanceof Map<?, ?>);
+
+      @SuppressWarnings("unchecked")
+      Map<String, Object> error = (Map<String, Object>) structured.get("error");
+      assertEquals("internal", error.get("error_type"));
+      assertTrue(String.valueOf(error.get("message")).contains("NullPointerException: value"));
+      assertFalse(result.content().isEmpty());
+    }
+  }
+
+  @Test
+  void successfulToolsCanReturnTextWhilePreservingStructuredContent() throws Exception {
+    try (TransportFixture fixture = openTransport(new TextRenderingTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("text_rendering_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertEquals(Boolean.TRUE, structured.get("success"));
+      assertEquals("structured", dataMap(structured).get("mode"));
+      assertEquals("00401000 90 NOP", text(result));
+    }
+  }
+
+  @Test
+  void cursorDataResultsExposeTextInDataWithoutWrappingItInAJsonArray() throws Exception {
+    try (TransportFixture fixture = openTransport(new CursorTextTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("cursor_text_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertEquals(Boolean.TRUE, structured.get("success"));
+      assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", structured.get("data"));
+      assertEquals("cursor-2", structured.get("next_cursor"));
+      assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", text(result));
+    }
+  }
+
+  @Test
+  void oversizedSuccessResponsesKeepRetrievalMetadataAndInlinePreview() throws Exception {
+    try (TransportFixture fixture = openTransport(new LargeTextTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("large_text_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      Map<String, Object> data = dataMap(structured);
+      assertEquals(
+          "Output exceeded inline size and was stored for chunked retrieval.", data.get("message"));
+      assertEquals("read_tool_output", data.get("retrieval_tool"));
+      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, data.get("stored_format"));
+      assertEquals(ToolOutputStore.VIEW_TEXT, data.get("preferred_read_view"));
+      assertEquals(Boolean.TRUE, data.get("inline_preview_available"));
+      assertEquals(Boolean.TRUE, data.get("text_available"));
+      assertNotNull(data.get("output_id"));
+
+      String preview = text(result);
+      assertTrue(preview.contains("LINE 0000"));
+      assertTrue(preview.length() < LargeTextTool.LARGE_TEXT.length());
+    }
+  }
+
+  @Test
+  void readToolOutputTrimsEscapedChunksBeforeTheyBecomeOversizedAgain() throws Exception {
+    String sessionId = "ses_transport_" + UUID.randomUUID().toString().replace("-", "");
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(sessionId, "fixture_tool", "execute", buildEscapedPayload());
+
+    try (TransportFixture fixture = openTransport(new ReadToolOutputTool().specification(null))) {
+      McpSchema.CallToolResult result =
+          fixture.callTool(
+              "read_tool_output",
+              Map.of(
+                  "action",
+                  "read",
+                  "session_id",
+                  sessionId,
+                  "output_id",
+                  ref.outputId(),
+                  "max_chars",
+                  ToolOutputStore.MAX_READ_CHUNK_CHARS));
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      Map<String, Object> data = dataMap(structured);
+      assertTrue(data.containsKey("content"), "Expected an inline output chunk");
+      assertEquals(ref.outputId(), data.get("outputId"));
+      assertEquals(
+          ToolOutputStore.MAX_READ_CHUNK_CHARS, ((Number) data.get("requestedChars")).intValue());
+      assertEquals(ToolOutputStore.VIEW_JSON, data.get("view"));
+      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, data.get("contentFormat"));
+      assertTrue(((Number) data.get("returnedChars")).intValue() > 0);
+      assertTrue(
+          ((Number) data.get("returnedChars")).intValue()
+              < ((Number) data.get("requestedChars")).intValue());
+      assertEquals(Boolean.TRUE, data.get("hasMore"));
+      assertTrue(((Number) data.get("remainingChars")).intValue() > 0);
+    }
+  }
+
+  private static Map<String, Object> structured(McpSchema.CallToolResult result) {
+    @SuppressWarnings("unchecked")
+    Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
+    return structured;
+  }
+
+  private static Map<String, Object> dataMap(Map<String, Object> structured) {
+    @SuppressWarnings("unchecked")
+    Map<String, Object> data = (Map<String, Object>) structured.get("data");
+    return data;
+  }
+
+  private static String text(McpSchema.CallToolResult result) {
+    return result.content().stream()
+        .filter(TextContent.class::isInstance)
+        .map(TextContent.class::cast)
+        .map(TextContent::text)
+        .findFirst()
+        .orElse("");
+  }
+
+  private static String buildEscapedPayload() {
+    StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < 2500; i++) {
+      builder
+          .append("{\"line\":")
+          .append(i)
+          .append(",\"text\":\"quoted \\\"value\\\" \\\\ path\"}\n");
+    }
+    return builder.toString();
+  }
+
+  private static TransportFixture openTransport(AsyncToolSpecification... specifications)
+      throws Exception {
     HttpServletStreamableServerTransportProvider transportProvider =
         HttpServletStreamableServerTransportProvider.builder().build();
     McpAsyncServer server =
         McpServer.async(transportProvider)
             .serverInfo("test-server", "1.0.0")
             .capabilities(McpSchema.ServerCapabilities.builder().tools(true).build())
-            .tools(specification)
+            .tools(specifications)
             .build();
 
     Server jetty = new Server(0);
@@ -56,33 +209,24 @@ class BaseMcpToolTransportRegressionTest {
     McpAsyncClient client =
         McpClient.async(clientTransport)
             .clientInfo(new McpSchema.Implementation("test-client", "1.0.0"))
-            .requestTimeout(Duration.ofSeconds(5))
-            .initializationTimeout(Duration.ofSeconds(5))
+            .requestTimeout(Duration.ofSeconds(10))
+            .initializationTimeout(Duration.ofSeconds(10))
             .build();
 
-    try {
-      McpSchema.InitializeResult initializeResult = client.initialize().block();
-      assertNotNull(initializeResult);
+    McpSchema.InitializeResult initializeResult = client.initialize().block();
+    assertNotNull(initializeResult);
 
-      McpSchema.CallToolResult result =
-          client.callTool(new McpSchema.CallToolRequest("failing_tool", Map.of())).block();
+    return new TransportFixture(client, server, jetty);
+  }
 
-      assertNotNull(result);
-      assertEquals(Boolean.TRUE, result.isError());
-      assertNotNull(result.structuredContent());
-      assertTrue(result.structuredContent() instanceof Map<?, ?>);
+  private record TransportFixture(McpAsyncClient client, McpAsyncServer server, Server jetty)
+      implements AutoCloseable {
+    private McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
+      return client.callTool(new McpSchema.CallToolRequest(name, args)).block();
+    }
 
-      @SuppressWarnings("unchecked")
-      Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
-      assertEquals(Boolean.FALSE, structured.get("success"));
-      assertTrue(structured.get("error") instanceof Map<?, ?>);
-
-      @SuppressWarnings("unchecked")
-      Map<String, Object> error = (Map<String, Object>) structured.get("error");
-      assertEquals("internal", error.get("error_type"));
-      assertTrue(String.valueOf(error.get("message")).contains("NullPointerException: value"));
-      assertFalse(result.content().isEmpty());
-    } finally {
+    @Override
+    public void close() throws Exception {
       client.closeGracefully().block(Duration.ofSeconds(5));
       server.closeGracefully().block(Duration.ofSeconds(5));
       jetty.stop();
@@ -108,6 +252,98 @@ class BaseMcpToolTransportRegressionTest {
     public Mono<? extends Object> execute(
         McpTransportContext context, Map<String, Object> args, PluginTool tool) {
       return Mono.error(new NullPointerException("value"));
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Text Rendering Tool",
+      description = "Test helper tool that returns text and structured content",
+      mcpName = "text_rendering_tool",
+      mcpDescription = "Test helper tool that returns text and structured content")
+  private static final class TextRenderingTool extends BaseMcpTool {
+    @Override
+    public JsonSchema schema() {
+      ObjectNode root = mapper.createObjectNode();
+      root.put("type", "object");
+      root.set("properties", mapper.createObjectNode());
+      return new JsonSchema(root);
+    }
+
+    @Override
+    protected Optional<String> createSuccessTextContent(
+        McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
+      return Optional.of("00401000 90 NOP");
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(Map.of("mode", "structured", "kind", "listing"));
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Large Text Tool",
+      description = "Test helper tool that forces oversized output storage",
+      mcpName = "large_text_tool",
+      mcpDescription = "Test helper tool that forces oversized output storage")
+  private static final class LargeTextTool extends BaseMcpTool {
+    private static final String LARGE_TEXT = buildLargeText();
+
+    @Override
+    public JsonSchema schema() {
+      ObjectNode root = mapper.createObjectNode();
+      root.put("type", "object");
+      root.set("properties", mapper.createObjectNode());
+      return new JsonSchema(root);
+    }
+
+    @Override
+    protected Optional<String> createSuccessTextContent(
+        McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
+      return Optional.of(LARGE_TEXT);
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(Map.of("kind", "decompile", "decompiled_code", LARGE_TEXT));
+    }
+
+    private static String buildLargeText() {
+      StringBuilder builder = new StringBuilder();
+      for (int i = 0; i < 3000; i++) {
+        builder.append(String.format("LINE %04d: int value_%04d = %d;%n", i, i, i));
+      }
+      return builder.toString();
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Cursor Text Tool",
+      description = "Test helper tool that returns compact paged text",
+      mcpName = "cursor_text_tool",
+      mcpDescription = "Test helper tool that returns compact paged text")
+  private static final class CursorTextTool extends BaseMcpTool {
+    @Override
+    public JsonSchema schema() {
+      ObjectNode root = mapper.createObjectNode();
+      root.put("type", "object");
+      root.set("properties", mapper.createObjectNode());
+      return new JsonSchema(root);
+    }
+
+    @Override
+    protected Optional<String> createSuccessTextContent(
+        McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
+      return Optional.ofNullable(response.getData()).map(Object::toString);
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(
+          new CursorDataResult<>("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", "cursor-2"));
     }
   }
 }

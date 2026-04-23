@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class ListingInfo {
   private final String address;
   private final String label;
+  private final String byteString;
   private final String mnemonic;
   private final String operands;
   private final String dataRepresentation;
@@ -19,6 +20,7 @@ public class ListingInfo {
   public ListingInfo(
       String address,
       String label,
+      String byteString,
       String instruction,
       String mnemonic,
       String operands,
@@ -29,6 +31,7 @@ public class ListingInfo {
       String comment) {
     this.address = address;
     this.label = label;
+    this.byteString = byteString;
     // Note: 'instruction' param kept for backward compatibility but not stored
     // (it's redundant: instruction = mnemonic + " " + operands)
     this.mnemonic = mnemonic;
@@ -48,6 +51,11 @@ public class ListingInfo {
   @JsonProperty("label")
   public String getLabel() {
     return label;
+  }
+
+  @JsonProperty("byte_string")
+  public String getByteString() {
+    return byteString;
   }
 
   @JsonProperty("mnemonic")

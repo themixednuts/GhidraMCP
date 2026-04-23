@@ -15,11 +15,12 @@ class ToolOutputStoreTest {
         ToolOutputStore.store(sessionId, "unit_test_tool", "execute", "abcdefghijklmnopqrstuvwxyz");
 
     ToolOutputStore.OutputChunk chunk =
-        ToolOutputStore.readOutput(sessionId, ref.outputId(), null, 0, 5);
+        ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 5);
 
     assertEquals(sessionId, chunk.sessionId());
     assertEquals(ref.outputId(), chunk.outputId());
     assertEquals("abcde", chunk.content());
+    assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
     assertTrue(chunk.hasMore());
     assertEquals(5, chunk.nextOffset());
   }
@@ -31,11 +32,34 @@ class ToolOutputStoreTest {
         ToolOutputStore.store(sessionId, "unit_test_tool", "execute", "0123456789");
 
     ToolOutputStore.OutputChunk chunk =
-        ToolOutputStore.readOutput(sessionId, null, ref.fileName(), 3, 4);
+        ToolOutputStore.readOutput(sessionId, null, ref.fileName(), "auto", 3, 4);
 
     assertEquals("3456", chunk.content());
     assertTrue(chunk.hasMore());
     assertEquals(7, chunk.nextOffset());
+  }
+
+  @Test
+  void shouldPreferTextViewWhenAvailable() throws Exception {
+    String sessionId = "ses_test_" + UUID.randomUUID().toString().replace("-", "");
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(
+            sessionId, "unit_test_tool", "execute", "{\"success\":true}", "plain text payload");
+
+    assertEquals(ToolOutputStore.VIEW_TEXT, ref.preferredView());
+    assertTrue(ref.textAvailable());
+
+    ToolOutputStore.OutputChunk autoChunk =
+        ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 100);
+    assertEquals(ToolOutputStore.VIEW_TEXT, autoChunk.view());
+    assertEquals(ToolOutputStore.FORMAT_PLAIN_TEXT, autoChunk.contentFormat());
+    assertEquals("plain text payload", autoChunk.content());
+
+    ToolOutputStore.OutputChunk jsonChunk =
+        ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "json", 0, 100);
+    assertEquals(ToolOutputStore.VIEW_JSON, jsonChunk.view());
+    assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, jsonChunk.contentFormat());
+    assertEquals("{\"success\":true}", jsonChunk.content());
   }
 
   @Test

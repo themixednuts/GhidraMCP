@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.McpResponse;
+import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.GhidraStateUtils;
@@ -110,7 +111,8 @@ public abstract class BaseMcpTool {
     T execute(TaskMonitor monitor) throws Exception;
   }
 
-  private static final int INLINE_RESPONSE_CHAR_LIMIT = 16_000;
+  protected static final int INLINE_RESPONSE_CHAR_LIMIT = 16_000;
+  private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
   private static final java.util.Set<String> SUPPORTED_TOP_LEVEL_SCHEMA_KEYS =
       java.util.Set.of(
@@ -169,6 +171,15 @@ public abstract class BaseMcpTool {
    * @return The {@link JsonSchema} representing the JSON schema definition.
    */
   public abstract JsonSchema schema();
+
+  /**
+   * Optionally provides plain-text content for successful tool responses while preserving the
+   * structured response envelope.
+   */
+  protected Optional<String> createSuccessTextContent(
+      McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
+    return Optional.empty();
+  }
 
   /**
    * Executes the core logic of the tool asynchronously. This method should return the raw result
@@ -311,8 +322,15 @@ public abstract class BaseMcpTool {
               long duration = System.currentTimeMillis() - startTime;
               McpResponse<?> response;
 
-              // Handle PaginatedResult specially to flatten cursor to root level
-              if (result instanceof PaginatedResult<?> paginated) {
+              // Handle cursor-bearing wrappers specially to flatten cursor to root level.
+              if (result instanceof CursorDataResult<?> cursorData) {
+                response =
+                    new McpResponse.Builder<>()
+                        .data(cursorData.data)
+                        .nextCursor(cursorData.nextCursor)
+                        .durationMs(duration)
+                        .build();
+              } else if (result instanceof PaginatedResult<?> paginated) {
                 response =
                     McpResponse.paginated(
                         toolName,
@@ -481,17 +499,23 @@ public abstract class BaseMcpTool {
   private CallToolResult createSuccessResultInternal(
       McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
     try {
+      String successText =
+          createSuccessTextContent(response, args, toolName, operation)
+              .filter(text -> text != null && !text.isBlank())
+              .orElse(null);
       String jsonResult = mapper.writeValueAsString(response);
 
       if (jsonResult.length() > INLINE_RESPONSE_CHAR_LIMIT) {
         String requestedSessionId =
             getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
         ToolOutputStore.StoredOutputRef outputRef =
-            ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult);
-        response = wrapOversizedOutput(response, outputRef);
+            ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult, successText);
+        response = wrapOversizedOutput(response, outputRef, successText != null);
+        jsonResult = mapper.writeValueAsString(response);
       }
 
-      return buildStructuredToolResult(response, false);
+      String inlineText = fitTextContentWithinBudget(successText, jsonResult.length());
+      return buildStructuredToolResult(response, false, inlineText);
     } catch (JacksonException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
 
@@ -509,14 +533,17 @@ public abstract class BaseMcpTool {
                           null,
                           Map.of("exception_type", e.getClass().getSimpleName())))
                   .build());
-      return buildStructuredToolResult(errorResponse, true);
+      return buildStructuredToolResult(errorResponse, true, null);
     }
   }
 
-  private CallToolResult buildStructuredToolResult(McpResponse<?> response, boolean isError) {
+  private CallToolResult buildStructuredToolResult(
+      McpResponse<?> response, boolean isError, String successTextContent) {
     CallToolResult.Builder builder =
         CallToolResult.builder().structuredContent(response).isError(isError);
-    if (isError && response.getError() != null) {
+    if (successTextContent != null && !successTextContent.isBlank()) {
+      builder.addTextContent(successTextContent);
+    } else if (isError && response.getError() != null) {
       String errorText = response.getError().getMessage();
       String hint = response.getError().getHint();
       if (hint != null) {
@@ -528,27 +555,38 @@ public abstract class BaseMcpTool {
   }
 
   private McpResponse<?> wrapOversizedOutput(
-      McpResponse<?> originalResponse, ToolOutputStore.StoredOutputRef outputRef) {
-    Map<String, Object> inlineNotice =
+      McpResponse<?> originalResponse,
+      ToolOutputStore.StoredOutputRef outputRef,
+      boolean inlinePreviewAvailable) {
+    Map<String, Object> inlineNotice = new LinkedHashMap<>();
+    inlineNotice.put(
+        "message", "Output exceeded inline size and was stored for chunked retrieval.");
+    inlineNotice.put("retrieval_tool", TOOL_OUTPUT_READER_NAME);
+    inlineNotice.put("session_id", outputRef.sessionId());
+    inlineNotice.put("output_id", outputRef.outputId());
+    inlineNotice.put("output_file_name", outputRef.fileName());
+    inlineNotice.put("tool_name", outputRef.toolName());
+    inlineNotice.put("operation", outputRef.operation());
+    inlineNotice.put("stored_format", outputRef.storedFormat());
+    inlineNotice.put("preferred_read_view", outputRef.preferredView());
+    inlineNotice.put("available_views", outputRef.availableViews());
+    inlineNotice.put("text_available", outputRef.textAvailable());
+    inlineNotice.put("inline_preview_available", inlinePreviewAvailable);
+    inlineNotice.put("preferred_total_chars", outputRef.preferredTotalChars());
+    inlineNotice.put("text_total_chars", outputRef.textTotalChars());
+    inlineNotice.put("total_chars", outputRef.totalChars());
+    inlineNotice.put("inline_limit_chars", INLINE_RESPONSE_CHAR_LIMIT);
+    inlineNotice.put(
+        "suggested_read_args",
         Map.of(
-            "message",
-            "Output exceeded inline size and was stored for chunked retrieval.",
-            "retrieval_tool",
-            TOOL_OUTPUT_READER_NAME,
+            ARG_ACTION,
+            "read",
             "session_id",
             outputRef.sessionId(),
             "output_id",
             outputRef.outputId(),
-            "output_file_name",
-            outputRef.fileName(),
-            "tool_name",
-            outputRef.toolName(),
-            "operation",
-            outputRef.operation(),
-            "total_chars",
-            outputRef.totalChars(),
-            "inline_limit_chars",
-            INLINE_RESPONSE_CHAR_LIMIT);
+            "view",
+            outputRef.preferredView()));
 
     return new McpResponse.Builder<Object>()
         .data(inlineNotice)
@@ -573,7 +611,71 @@ public abstract class BaseMcpTool {
       Msg.error(this, logMessage, exception);
     }
 
-    return Mono.just(buildStructuredToolResult(response, true));
+    return Mono.just(buildStructuredToolResult(response, true, null));
+  }
+
+  private String fitTextContentWithinBudget(String textContent, int structuredResponseChars) {
+    if (textContent == null || textContent.isBlank()) {
+      return null;
+    }
+
+    int maxSerializedChars =
+        INLINE_RESPONSE_CHAR_LIMIT - structuredResponseChars - TEXT_CONTENT_SERIALIZATION_OVERHEAD;
+    if (maxSerializedChars <= 0) {
+      return null;
+    }
+
+    return truncateTextToSerializedBudget(textContent.stripTrailing(), maxSerializedChars);
+  }
+
+  private String truncateTextToSerializedBudget(String textContent, int maxSerializedChars) {
+    if (textContent == null || textContent.isBlank() || maxSerializedChars <= 0) {
+      return null;
+    }
+
+    if (serializedStringLength(textContent) <= maxSerializedChars) {
+      return textContent;
+    }
+
+    String suffix = "\n...[truncated]";
+    int low = 0;
+    int high = textContent.length();
+    String best = null;
+
+    while (low <= high) {
+      int mid = (low + high) >>> 1;
+      String candidate = buildTruncatedText(textContent, mid, suffix);
+      int serializedLength = serializedStringLength(candidate);
+
+      if (serializedLength <= maxSerializedChars) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return best;
+  }
+
+  private String buildTruncatedText(String textContent, int endExclusive, String suffix) {
+    if (endExclusive >= textContent.length()) {
+      return textContent;
+    }
+
+    String truncated = textContent.substring(0, Math.max(0, endExclusive)).stripTrailing();
+    if (truncated.isEmpty()) {
+      return suffix.stripLeading();
+    }
+    return truncated + suffix;
+  }
+
+  private int serializedStringLength(String value) {
+    try {
+      return mapper.writeValueAsString(value).length();
+    } catch (JacksonException e) {
+      return Integer.MAX_VALUE;
+    }
   }
 
   private static Throwable rootCause(Throwable throwable) {

@@ -93,6 +93,7 @@ class ReadToolOutputE2eTest {
 
       // Assert exact JSON match
       assertEquals(originalJson, chunk.content(), "Stored and retrieved JSON must be identical");
+      assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
       assertFalse(chunk.hasMore(), "Full content should fit in one chunk");
       assertEquals(originalJson.length(), chunk.totalChars());
 
@@ -180,6 +181,7 @@ class ReadToolOutputE2eTest {
 
         assertEquals(offset, chunk.offset());
         assertEquals(originalJson.length(), chunk.totalChars());
+        assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
         reassembled.append(chunk.content());
 
         if (!chunk.hasMore()) {
@@ -266,6 +268,7 @@ class ReadToolOutputE2eTest {
 
       assertEquals("functions", ourOutput.toolName());
       assertEquals("execute", ourOutput.operation());
+      assertEquals(ToolOutputStore.VIEW_JSON, ourOutput.preferredView());
       assertEquals(json.length(), ourOutput.totalChars());
       assertEquals(ref.fileName(), ourOutput.fileName());
 
@@ -289,6 +292,32 @@ class ReadToolOutputE2eTest {
     } finally {
       fixture.close();
     }
+  }
+
+  @Test
+  void readOutputPrefersStoredPlainTextViewWhenAvailable() throws Exception {
+    String sessionId = "ses_e2e_text_pref";
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(
+            sessionId,
+            "inspect",
+            "decompile",
+            "{\"success\":true,\"data\":{\"decompiled_code\":\"int main(){}\"}}",
+            "int main(){}");
+
+    Object chunkRaw =
+        readOutputTool
+            .execute(
+                null,
+                Map.of("action", "read", "session_id", sessionId, "output_id", ref.outputId()),
+                null)
+            .block();
+    ToolOutputStore.OutputChunk chunk =
+        assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
+
+    assertEquals(ToolOutputStore.VIEW_TEXT, chunk.view());
+    assertEquals(ToolOutputStore.FORMAT_PLAIN_TEXT, chunk.contentFormat());
+    assertEquals("int main(){}", chunk.content());
   }
 
   // ---------------------------------------------------------------------------

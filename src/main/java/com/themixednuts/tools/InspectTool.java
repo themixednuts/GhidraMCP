@@ -6,8 +6,8 @@ import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.ReferenceInfo;
+import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.OpaqueCursorCodec;
-import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
@@ -118,6 +118,28 @@ import reactor.core.publisher.Mono;
         </examples>
         """)
 public class InspectTool extends BaseMcpTool {
+
+  @Override
+  protected Optional<String> createSuccessTextContent(
+      com.themixednuts.models.McpResponse<?> response,
+      Map<String, Object> args,
+      String toolName,
+      String operation) {
+    Object data = response.getData();
+
+    if (data instanceof String text && !text.isBlank()) {
+      return Optional.of(text);
+    }
+
+    if (ACTION_DECOMPILE.equals(operation)) {
+      return renderDecompileText(data);
+    }
+    if (ACTION_LISTING.equals(operation)) {
+      return renderListingText(data);
+    }
+
+    return Optional.empty();
+  }
 
   public static final String ARG_INCLUDE_PCODE = "include_pcode";
   public static final String ARG_INCLUDE_AST = "include_ast";
@@ -780,7 +802,7 @@ public class InspectTool extends BaseMcpTool {
                 }));
   }
 
-  private PaginatedResult<ListingInfo> listListingInRange(
+  private CursorDataResult<String> listListingInRange(
       Program program,
       Address startAddr,
       Address endAddr,
@@ -868,12 +890,13 @@ public class InspectTool extends BaseMcpTool {
       nextCursor = OpaqueCursorCodec.encodeV1(results.get(results.size() - 1).getAddress());
     }
 
-    return new PaginatedResult<>(results, nextCursor);
+    return new CursorDataResult<>(renderListingText(results).orElse(""), nextCursor);
   }
 
   private ListingInfo createListingInfo(Program program, CodeUnit codeUnit) {
     String address = codeUnit.getMinAddress().toString();
     String label = null;
+    String byteString = formatCodeUnitBytes(codeUnit);
     String instruction = null;
     String mnemonic = null;
     String operands = null;
@@ -906,12 +929,8 @@ public class InspectTool extends BaseMcpTool {
       Instruction instr = (Instruction) codeUnit;
       type = "instruction";
       mnemonic = instr.getMnemonicString();
-      instruction = instr.toString();
-      // Extract operands from the full instruction string
-      String fullStr = instr.toString();
-      if (fullStr.contains(" ")) {
-        operands = fullStr.substring(fullStr.indexOf(" ") + 1);
-      }
+      operands = formatInstructionOperands(instr);
+      instruction = operands == null || operands.isBlank() ? mnemonic : mnemonic + " " + operands;
     } else if (codeUnit instanceof Data) {
       Data data = (Data) codeUnit;
       type = "data";
@@ -924,6 +943,7 @@ public class InspectTool extends BaseMcpTool {
     return new ListingInfo(
         address,
         label,
+        byteString,
         instruction,
         mnemonic,
         operands,
@@ -932,6 +952,184 @@ public class InspectTool extends BaseMcpTool {
         length,
         functionName,
         comment);
+  }
+
+  private Optional<String> renderDecompileText(Object data) {
+    if (data instanceof String text && !text.isBlank()) {
+      return Optional.of(text);
+    }
+    if (data instanceof DecompilationResult result) {
+      return Optional.ofNullable(result.getDecompiledCode()).filter(code -> !code.isBlank());
+    }
+    if (data instanceof Map<?, ?> map) {
+      Object decompiledCode = map.get("decompiled_code");
+      if (decompiledCode instanceof String code && !code.isBlank()) {
+        return Optional.of(code);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private Optional<String> renderListingText(Object data) {
+    if (data instanceof String text && !text.isBlank()) {
+      return Optional.of(text);
+    }
+    if (data instanceof ListingInfo listingInfo) {
+      return Optional.of(
+          renderListingLine(
+              listingInfo,
+              listingInfo.getByteString() != null ? listingInfo.getByteString().length() : 0));
+    }
+    if (!(data instanceof List<?> rows) || rows.isEmpty()) {
+      return Optional.empty();
+    }
+
+    List<ListingInfo> listings =
+        rows.stream().filter(ListingInfo.class::isInstance).map(ListingInfo.class::cast).toList();
+    if (listings.isEmpty()) {
+      return Optional.empty();
+    }
+
+    int byteColumnWidth =
+        listings.stream()
+            .map(ListingInfo::getByteString)
+            .filter(bytes -> bytes != null && !bytes.isBlank())
+            .mapToInt(String::length)
+            .max()
+            .orElse(0);
+
+    return Optional.of(
+        listings.stream()
+            .map(listing -> renderListingLine(listing, byteColumnWidth))
+            .collect(Collectors.joining("\n")));
+  }
+
+  private String renderListingLine(ListingInfo listing, int byteColumnWidth) {
+    StringBuilder line = new StringBuilder(listing.getAddress());
+
+    if (byteColumnWidth > 0) {
+      line.append(' ');
+      String bytes = Optional.ofNullable(listing.getByteString()).orElse("");
+      line.append(String.format("%-" + byteColumnWidth + "s", bytes));
+    }
+
+    String body;
+    if ("instruction".equals(listing.getType())) {
+      String mnemonic = Optional.ofNullable(listing.getMnemonic()).orElse("");
+      String operands = Optional.ofNullable(listing.getOperands()).orElse("");
+      body = operands.isBlank() ? mnemonic : mnemonic + " " + operands;
+    } else {
+      body = Optional.ofNullable(listing.getDataRepresentation()).orElse(listing.getType());
+    }
+
+    if (!body.isBlank()) {
+      line.append(' ').append(body);
+    }
+    if (listing.getComment() != null && !listing.getComment().isBlank()) {
+      line.append(" ; ").append(listing.getComment());
+    }
+
+    return line.toString().stripTrailing();
+  }
+
+  private String renderReferencesText(List<ReferenceInfo> references, boolean referencesToMode) {
+    if (references.isEmpty()) {
+      return "";
+    }
+
+    int addressWidth =
+        references.stream()
+            .map(
+                reference ->
+                    referencesToMode ? reference.getFromAddress() : reference.getToAddress())
+            .filter(address -> address != null && !address.isBlank())
+            .mapToInt(String::length)
+            .max()
+            .orElse(0);
+
+    int typeWidth =
+        references.stream()
+            .map(ReferenceInfo::getReferenceType)
+            .filter(type -> type != null && !type.isBlank())
+            .mapToInt(String::length)
+            .max()
+            .orElse(0);
+
+    return references.stream()
+        .map(reference -> renderReferenceLine(reference, referencesToMode, addressWidth, typeWidth))
+        .collect(Collectors.joining("\n"));
+  }
+
+  private String renderReferenceLine(
+      ReferenceInfo reference, boolean referencesToMode, int addressWidth, int typeWidth) {
+    String endpointAddress =
+        referencesToMode ? reference.getFromAddress() : reference.getToAddress();
+    String endpointSymbol = referencesToMode ? reference.getFromSymbol() : reference.getToSymbol();
+
+    StringBuilder line = new StringBuilder();
+    line.append(
+        String.format(
+            "%-" + Math.max(addressWidth, 1) + "s",
+            Optional.ofNullable(endpointAddress).orElse("")));
+
+    String referenceType = Optional.ofNullable(reference.getReferenceType()).orElse("");
+    if (!referenceType.isBlank()) {
+      line.append(' ').append(String.format("%-" + Math.max(typeWidth, 1) + "s", referenceType));
+    }
+
+    if (endpointSymbol != null && !endpointSymbol.isBlank()) {
+      line.append(' ').append(endpointSymbol);
+    }
+
+    return line.toString().stripTrailing();
+  }
+
+  private String formatInstructionOperands(Instruction instruction) {
+    int operandCount = instruction.getNumOperands();
+    if (operandCount <= 0) {
+      return null;
+    }
+
+    StringBuilder builder = new StringBuilder();
+    for (int operandIndex = 0; operandIndex < operandCount; operandIndex++) {
+      String separator = Optional.ofNullable(instruction.getSeparator(operandIndex)).orElse("");
+      String operand =
+          Optional.ofNullable(instruction.getDefaultOperandRepresentation(operandIndex)).orElse("");
+
+      if (!separator.isEmpty()) {
+        builder.append(separator);
+      }
+      builder.append(operand);
+    }
+
+    String trailingSeparator =
+        Optional.ofNullable(instruction.getSeparator(operandCount)).orElse("");
+    if (!trailingSeparator.isEmpty()) {
+      builder.append(trailingSeparator);
+    }
+
+    String operands = builder.toString().trim();
+    return operands.isEmpty() ? null : operands;
+  }
+
+  private String formatCodeUnitBytes(CodeUnit codeUnit) {
+    try {
+      byte[] bytes = codeUnit.getBytes();
+      if (bytes == null || bytes.length == 0) {
+        return null;
+      }
+
+      StringBuilder builder = new StringBuilder(bytes.length * 3 - 1);
+      for (int i = 0; i < bytes.length; i++) {
+        if (i > 0) {
+          builder.append(' ');
+        }
+        builder.append(String.format("%02x", Byte.toUnsignedInt(bytes[i])));
+      }
+      return builder.toString();
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   // =================== References Actions ===================
@@ -976,7 +1174,7 @@ public class InspectTool extends BaseMcpTool {
             });
   }
 
-  private Mono<PaginatedResult<ReferenceInfo>> findReferencesTo(
+  private Mono<CursorDataResult<String>> findReferencesTo(
       Program program,
       Address address,
       String referenceType,
@@ -990,7 +1188,7 @@ public class InspectTool extends BaseMcpTool {
 
           // Use native hasReferencesTo() for early exit
           if (!refManager.hasReferencesTo(address)) {
-            return new PaginatedResult<>(List.of(), null);
+            return new CursorDataResult<>("", null);
           }
 
           try {
@@ -1027,7 +1225,7 @@ public class InspectTool extends BaseMcpTool {
               nextCursor = buildReferencesToCursor(results.get(results.size() - 1));
             }
 
-            return new PaginatedResult<>(results, nextCursor);
+            return new CursorDataResult<>(renderReferencesText(results, true), nextCursor);
           } catch (GhidraMcpException e) {
             throw e;
           } catch (Exception e) {
@@ -1037,7 +1235,7 @@ public class InspectTool extends BaseMcpTool {
         });
   }
 
-  private Mono<PaginatedResult<ReferenceInfo>> findReferencesFrom(
+  private Mono<CursorDataResult<String>> findReferencesFrom(
       Program program,
       Address address,
       String referenceType,
@@ -1051,7 +1249,7 @@ public class InspectTool extends BaseMcpTool {
 
           // Use native hasReferencesFrom() for early exit
           if (!refManager.hasReferencesFrom(address)) {
-            return new PaginatedResult<>(List.of(), null);
+            return new CursorDataResult<>("", null);
           }
 
           Reference[] referencesArray = refManager.getReferencesFrom(address);
@@ -1089,7 +1287,7 @@ public class InspectTool extends BaseMcpTool {
               nextCursor = buildReferencesFromCursor(results.get(results.size() - 1));
             }
 
-            return new PaginatedResult<>(results, nextCursor);
+            return new CursorDataResult<>(renderReferencesText(results, false), nextCursor);
           } catch (GhidraMcpException e) {
             throw e;
           } catch (Exception e) {

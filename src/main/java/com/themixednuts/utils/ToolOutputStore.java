@@ -25,17 +25,21 @@ import java.util.concurrent.atomic.AtomicLong;
  * entries are evicted to keep disk usage bounded.
  */
 public final class ToolOutputStore {
+  public static final String VIEW_JSON = "json";
+  public static final String VIEW_TEXT = "text";
+  public static final String FORMAT_MCP_RESPONSE_JSON = "mcp_response_json";
+  public static final String FORMAT_PLAIN_TEXT = "plain_text";
 
   public static final int DEFAULT_LIST_PAGE_SIZE = 25;
   public static final int MAX_LIST_PAGE_SIZE = 200;
-  public static final int DEFAULT_READ_CHUNK_CHARS = 12_000;
+  public static final int DEFAULT_READ_CHUNK_CHARS = 14_000;
 
   /**
-   * Maximum chunk size for read operations. Must stay below the inline response char limit (16,000)
-   * to avoid the response being re-stored as oversized output, which would cause infinite
-   * recursion. The JSON envelope overhead (~500 chars) is accounted for.
+   * Maximum raw chunk size callers may request when reading stored output. The read tool may still
+   * trim the returned chunk further so the serialized MCP response remains inline-safe after JSON
+   * escaping.
    */
-  public static final int MAX_READ_CHUNK_CHARS = 14_000;
+  public static final int MAX_READ_CHUNK_CHARS = 32_000;
 
   private static final long SESSION_TTL_MS = Duration.ofHours(6).toMillis();
   private static final int MAX_SESSIONS = 100;
@@ -54,7 +58,13 @@ public final class ToolOutputStore {
       String fileName,
       String toolName,
       String operation,
+      String storedFormat,
+      String preferredView,
+      List<String> availableViews,
+      boolean textAvailable,
       int totalChars,
+      Integer preferredTotalChars,
+      Integer textTotalChars,
       long createdAtMs) {}
 
   /** Summary information for listing available output sessions. */
@@ -68,7 +78,13 @@ public final class ToolOutputStore {
       String fileName,
       String toolName,
       String operation,
+      String storedFormat,
+      String preferredView,
+      List<String> availableViews,
+      boolean textAvailable,
       int totalChars,
+      Integer preferredTotalChars,
+      Integer textTotalChars,
       long createdAtMs) {}
 
   /** A chunk of stored output content. */
@@ -78,10 +94,15 @@ public final class ToolOutputStore {
       String fileName,
       String toolName,
       String operation,
+      String view,
+      String contentFormat,
+      String preferredView,
+      List<String> availableViews,
       int offset,
       int requestedChars,
       int returnedChars,
       int totalChars,
+      int remainingChars,
       boolean hasMore,
       Integer nextOffset,
       String content) {}
@@ -108,25 +129,37 @@ public final class ToolOutputStore {
     private final String fileName;
     private final String toolName;
     private final String operation;
+    private final String storedFormat;
     private final int totalChars;
+    private final Integer textTotalChars;
     private final long createdAtMs;
     private final Path filePath;
+    private final Path textFilePath;
+    private final String textFileName;
 
     OutputMetadata(
         String outputId,
         String fileName,
         String toolName,
         String operation,
+        String storedFormat,
         int totalChars,
+        Integer textTotalChars,
         long createdAtMs,
-        Path filePath) {
+        Path filePath,
+        Path textFilePath,
+        String textFileName) {
       this.outputId = outputId;
       this.fileName = fileName;
       this.toolName = toolName;
       this.operation = operation;
+      this.storedFormat = storedFormat;
       this.totalChars = totalChars;
+      this.textTotalChars = textTotalChars;
       this.createdAtMs = createdAtMs;
       this.filePath = filePath;
+      this.textFilePath = textFilePath;
+      this.textFileName = textFileName;
     }
   }
 
@@ -137,6 +170,16 @@ public final class ToolOutputStore {
   /** Stores output content in the backing temp directory. */
   public static StoredOutputRef store(
       String requestedSessionId, String toolName, String operation, String content) {
+    return store(requestedSessionId, toolName, operation, content, null);
+  }
+
+  /** Stores output content plus an optional preferred plain-text rendering. */
+  public static StoredOutputRef store(
+      String requestedSessionId,
+      String toolName,
+      String operation,
+      String content,
+      String preferredTextContent) {
     String sessionId =
         Optional.ofNullable(requestedSessionId)
             .map(String::trim)
@@ -155,13 +198,30 @@ public final class ToolOutputStore {
     String safeOperation = sanitizeSegment(operation, 32);
     String fileName = safeTool + "-" + safeOperation + "-" + outputId + ".json";
     Path outputFile = sessionDirectory.resolve(fileName);
+    String textFileName = safeTool + "-" + safeOperation + "-" + outputId + ".txt";
+    Path textFile = sessionDirectory.resolve(textFileName);
 
     String payload = Objects.requireNonNullElse(content, "");
     writeFile(outputFile, payload);
+    String textPayload =
+        Optional.ofNullable(preferredTextContent).filter(value -> !value.isBlank()).orElse(null);
+    if (textPayload != null) {
+      writeFile(textFile, textPayload);
+    }
 
     OutputMetadata metadata =
         new OutputMetadata(
-            outputId, fileName, toolName, operation, payload.length(), now, outputFile);
+            outputId,
+            fileName,
+            toolName,
+            operation,
+            FORMAT_MCP_RESPONSE_JSON,
+            payload.length(),
+            textPayload != null ? textPayload.length() : null,
+            now,
+            outputFile,
+            textPayload != null ? textFile : null,
+            textPayload != null ? textFileName : null);
 
     synchronized (LOCK) {
       cleanupExpiredSessionsLocked();
@@ -184,7 +244,13 @@ public final class ToolOutputStore {
           metadata.fileName,
           metadata.toolName,
           metadata.operation,
+          metadata.storedFormat,
+          preferredView(metadata),
+          availableViews(metadata),
+          metadata.textFilePath != null,
           metadata.totalChars,
+          preferredTotalChars(metadata),
+          metadata.textTotalChars,
           metadata.createdAtMs);
     }
   }
@@ -238,7 +304,13 @@ public final class ToolOutputStore {
                           metadata.fileName,
                           metadata.toolName,
                           metadata.operation,
+                          metadata.storedFormat,
+                          preferredView(metadata),
+                          availableViews(metadata),
+                          metadata.textFilePath != null,
                           metadata.totalChars,
+                          preferredTotalChars(metadata),
+                          metadata.textTotalChars,
                           metadata.createdAtMs))
               .toList();
     }
@@ -248,7 +320,7 @@ public final class ToolOutputStore {
 
   /** Reads a chunk from a stored output entry. */
   public static OutputChunk readOutput(
-      String sessionId, String outputId, String fileName, int offset, int maxChars)
+      String sessionId, String outputId, String fileName, String view, int offset, int maxChars)
       throws GhidraMcpException {
     SessionBucket bucket;
     OutputMetadata metadata;
@@ -264,9 +336,14 @@ public final class ToolOutputStore {
     int effectiveMaxChars =
         normalizePageSize(maxChars, DEFAULT_READ_CHUNK_CHARS, MAX_READ_CHUNK_CHARS);
 
+    String resolvedView = resolveView(view, metadata);
+    Path contentPath = getContentPath(metadata, resolvedView);
+    String contentFormat =
+        VIEW_TEXT.equals(resolvedView) ? FORMAT_PLAIN_TEXT : metadata.storedFormat;
+
     String allContent;
     try {
-      allContent = readFile(metadata.filePath);
+      allContent = readFile(contentPath);
     } catch (IllegalStateException e) {
       throw new GhidraMcpException(
           GhidraMcpError.notFound("tool output file", bucket.sessionId + "/" + metadata.fileName));
@@ -281,6 +358,7 @@ public final class ToolOutputStore {
     String chunk = allContent.substring(effectiveOffset, endIndex);
     boolean hasMore = endIndex < totalChars;
     Integer nextOffset = hasMore ? endIndex : null;
+    int remainingChars = Math.max(0, totalChars - endIndex);
 
     return new OutputChunk(
         bucket.sessionId,
@@ -288,10 +366,15 @@ public final class ToolOutputStore {
         metadata.fileName,
         metadata.toolName,
         metadata.operation,
+        resolvedView,
+        contentFormat,
+        preferredView(metadata),
+        availableViews(metadata),
         effectiveOffset,
         effectiveMaxChars,
         chunk.length(),
         totalChars,
+        remainingChars,
         hasMore,
         nextOffset,
         chunk);
@@ -337,6 +420,55 @@ public final class ToolOutputStore {
     return metadata;
   }
 
+  private static String resolveView(String requestedView, OutputMetadata metadata)
+      throws GhidraMcpException {
+    String normalizedView =
+        Optional.ofNullable(requestedView)
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .orElse("auto");
+
+    return switch (normalizedView) {
+      case "auto" -> preferredView(metadata);
+      case VIEW_JSON -> VIEW_JSON;
+      case VIEW_TEXT -> {
+        if (metadata.textFilePath == null) {
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  "view",
+                  requestedView,
+                  "text view is unavailable for this output; available views: "
+                      + String.join(", ", availableViews(metadata))));
+        }
+        yield VIEW_TEXT;
+      }
+      default ->
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  "view", requestedView, "must be one of: auto, " + VIEW_TEXT + ", " + VIEW_JSON));
+    };
+  }
+
+  private static Path getContentPath(OutputMetadata metadata, String view) {
+    return VIEW_TEXT.equals(view) && metadata.textFilePath != null
+        ? metadata.textFilePath
+        : metadata.filePath;
+  }
+
+  private static String preferredView(OutputMetadata metadata) {
+    return metadata.textFilePath != null ? VIEW_TEXT : VIEW_JSON;
+  }
+
+  private static Integer preferredTotalChars(OutputMetadata metadata) {
+    return VIEW_TEXT.equals(preferredView(metadata))
+        ? metadata.textTotalChars
+        : metadata.totalChars;
+  }
+
+  private static List<String> availableViews(OutputMetadata metadata) {
+    return metadata.textFilePath != null ? List.of(VIEW_TEXT, VIEW_JSON) : List.of(VIEW_JSON);
+  }
+
   private static void cleanupExpiredSessionsLocked() {
     long cutoff = System.currentTimeMillis() - SESSION_TTL_MS;
     List<String> expiredSessions = new ArrayList<>();
@@ -377,6 +509,9 @@ public final class ToolOutputStore {
     OutputMetadata removed = bucket.outputs.remove(oldestOutputId);
     if (removed != null) {
       deleteFileQuietly(removed.filePath);
+      if (removed.textFilePath != null) {
+        deleteFileQuietly(removed.textFilePath);
+      }
     }
   }
 

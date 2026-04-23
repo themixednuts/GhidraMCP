@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.DecompilationResult;
-import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.tools.MemoryTool.SearchResult;
+import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
@@ -92,13 +92,10 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ReferenceInfo> firstPage =
-          assertInstanceOf(PaginatedResult.class, firstPageRaw);
-      assertEquals(1, firstPage.results.size());
+      CursorDataResult<String> firstPage = assertInstanceOf(CursorDataResult.class, firstPageRaw);
       assertNotNull(firstPage.nextCursor);
-      assertTrue(
-          firstPage.results.stream()
-              .allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
+      assertTrue(firstPage.data.lines().count() == 1);
+      assertTrue(firstPage.data.contains("DATA"));
 
       Object secondPageRaw =
           tool.execute(
@@ -113,13 +110,12 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ReferenceInfo> secondPage =
-          assertInstanceOf(PaginatedResult.class, secondPageRaw);
-      assertEquals(1, secondPage.results.size());
+      CursorDataResult<String> secondPage = assertInstanceOf(CursorDataResult.class, secondPageRaw);
+      assertTrue(secondPage.data.lines().count() == 1);
 
       Set<String> pagedTargets =
-          java.util.stream.Stream.concat(firstPage.results.stream(), secondPage.results.stream())
-              .map(ReferenceInfo::getToAddress)
+          java.util.stream.Stream.concat(firstPage.data.lines(), secondPage.data.lines())
+              .map(line -> line.split("\\s+", 3)[0].toLowerCase())
               .collect(Collectors.toSet());
       assertTrue(
           pagedTargets.stream().anyMatch(address -> address.toLowerCase().contains("401000")));
@@ -138,18 +134,11 @@ class AnalysisToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ReferenceInfo> incoming =
-          assertInstanceOf(PaginatedResult.class, incomingRaw);
+      CursorDataResult<String> incoming = assertInstanceOf(CursorDataResult.class, incomingRaw);
 
-      assertTrue(
-          incoming.results.stream()
-              .allMatch(ref -> "DATA".equalsIgnoreCase(ref.getReferenceType())));
-      assertTrue(
-          incoming.results.stream()
-              .anyMatch(ref -> ref.getFromAddress().toLowerCase().contains("401060")));
-      assertTrue(
-          incoming.results.stream()
-              .anyMatch(ref -> ref.getFromAddress().toLowerCase().contains("401062")));
+      assertTrue(incoming.data.lines().allMatch(line -> line.contains("DATA")));
+      assertTrue(incoming.data.lines().anyMatch(line -> line.toLowerCase().contains("401060")));
+      assertTrue(incoming.data.lines().anyMatch(line -> line.toLowerCase().contains("401062")));
     } finally {
       fixture.close();
     }

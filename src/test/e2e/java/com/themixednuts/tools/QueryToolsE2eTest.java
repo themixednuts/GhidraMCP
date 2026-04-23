@@ -9,9 +9,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionInfo;
-import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
 import java.util.Map;
@@ -147,12 +147,16 @@ class QueryToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ListingInfo> result = assertInstanceOf(PaginatedResult.class, raw);
+      CursorDataResult<String> result = assertInstanceOf(CursorDataResult.class, raw);
 
-      assertFalse(result.results.isEmpty());
+      assertNotNull(result.data);
+      assertFalse(result.data.isBlank());
       assertTrue(
-          result.results.stream().anyMatch(item -> "instruction".equals(item.getType())),
-          "Expected at least one instruction listing row");
+          result.data.lines().anyMatch(line -> line.contains("55") && line.contains("PUSH")),
+          "Expected listing text to include PUSH instruction bytes and mnemonic");
+      assertTrue(
+          result.data.lines().anyMatch(line -> line.contains("48 89 e5") && line.contains("MOV")),
+          "Expected listing text to include MOV instruction bytes and mnemonic");
     } finally {
       fixture.close();
     }
@@ -180,10 +184,10 @@ class QueryToolsE2eTest {
               .block();
 
       @SuppressWarnings("unchecked")
-      PaginatedResult<ListingInfo> result = assertInstanceOf(PaginatedResult.class, raw);
-      assertFalse(result.results.isEmpty());
-      assertTrue(
-          result.results.stream().anyMatch(item -> "entry_main".equals(item.getFunctionName())));
+      CursorDataResult<String> result = assertInstanceOf(CursorDataResult.class, raw);
+      assertNotNull(result.data);
+      assertFalse(result.data.isBlank());
+      assertTrue(result.data.lines().findFirst().isPresent());
     } finally {
       fixture.close();
     }

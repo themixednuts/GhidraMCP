@@ -28,6 +28,7 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 - MCP resources for common program views such as program info, listing, imports/exports, strings, RTTI, and decompilation
 - Built-in MCP prompts and argument completions for common reverse engineering workflows
 - Structured responses with pagination and opaque cursors for large datasets
+- Oversized outputs can be resumed with `read_tool_output`, which prefers plain-text agent-facing views when available and still supports raw JSON retrieval
 
 ### Tool Commands
 
