@@ -25,6 +25,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -289,6 +290,7 @@ public final class GhidraMcpServer {
     transportProvider = null;
     currentSpecifications = null;
     observedProgramResourceUris.clear();
+    PreSessionStreamableHttpFilter.invalidateSessionsMapCache();
     return success;
   }
 
@@ -525,6 +527,8 @@ public final class GhidraMcpServer {
                 })
             .build();
 
+    installStickySessionsMap(transportProvider);
+
     ServerCapabilities.Builder capabilities = ServerCapabilities.builder();
     capabilities.logging();
 
@@ -589,14 +593,109 @@ public final class GhidraMcpServer {
   }
 
   /**
-   * Enforces spec-friendly behavior for pre-session GET requests.
+   * Reflectively replaces the SDK's private {@code sessions} map with one that ignores the eager
+   * removal performed on SSE write failure (see upstream java-sdk issues #902 and #920).
+   *
+   * <p>The SDK's {@code HttpServletStreamableMcpSessionTransport.sendMessage} catch block removes
+   * the session from the map on the first transient SSE write failure, so the next client POST
+   * fails with "Session not found" even though the client's session would otherwise still be usable
+   * and the SDK's {@code doGet} handler supports SSE reconnect for an existing session.
+   *
+   * <p>The wrapper delegates all operations to a real {@link ConcurrentHashMap} but suppresses
+   * {@code remove} calls that originate from the inner transport class, while still honoring
+   * removals from the outer provider's {@code doDelete} handler (legitimate client-initiated
+   * session termination). If reflection fails (e.g. the SDK renames the field in a future release),
+   * we log a warning and leave the default behavior in place; the {@code
+   * PreSessionStreamableHttpFilter} still provides a clean 404 fallback for stale session ids.
+   */
+  private static void installStickySessionsMap(
+      HttpServletStreamableServerTransportProvider provider) {
+    if (provider == null) {
+      return;
+    }
+    try {
+      Field field = HttpServletStreamableServerTransportProvider.class.getDeclaredField("sessions");
+      field.setAccessible(true);
+      Object original = field.get(provider);
+      StickySessionsMap<Object> wrapper = new StickySessionsMap<>();
+      if (original instanceof Map<?, ?> existing) {
+        for (Map.Entry<?, ?> entry : existing.entrySet()) {
+          wrapper.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+      }
+      field.set(provider, wrapper);
+      Msg.info(
+          GhidraMcpServer.class,
+          "Installed sticky sessions map to survive transient SSE write failures");
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      Msg.warn(
+          GhidraMcpServer.class,
+          "Failed to install sticky sessions map; transient SSE write failures may drop sessions: "
+              + e.getMessage());
+    }
+  }
+
+  /**
+   * {@link ConcurrentHashMap} whose {@code remove} operations become no-ops when invoked from the
+   * SDK's inner transport class. See {@link #installStickySessionsMap} for rationale.
+   */
+  private static final class StickySessionsMap<V> extends ConcurrentHashMap<String, V> {
+
+    private static final String INNER_TRANSPORT_CLASS_SUFFIX =
+        "$HttpServletStreamableMcpSessionTransport";
+
+    @Override
+    public V remove(Object key) {
+      if (isEagerSseRemoval()) {
+        return get(key);
+      }
+      return super.remove(key);
+    }
+
+    @Override
+    public boolean remove(Object key, Object value) {
+      if (isEagerSseRemoval()) {
+        return false;
+      }
+      return super.remove(key, value);
+    }
+
+    private static boolean isEagerSseRemoval() {
+      return StackWalker.getInstance()
+          .walk(
+              frames ->
+                  frames
+                      .limit(25)
+                      .anyMatch(
+                          frame -> frame.getClassName().endsWith(INNER_TRANSPORT_CLASS_SUFFIX)));
+    }
+  }
+
+  /**
+   * Enforces spec-friendly behavior for pre-session and stale-session streamable HTTP requests.
    *
    * <p>For streamable HTTP, a client may probe the endpoint with GET before any session is
-   * established. The underlying Java MCP transport currently returns 400 when the session header is
-   * missing, which breaks some clients. Returning 405 here lets clients fall back to POST-only
-   * request/response mode until a session-backed SSE stream is available.
+   * established. The underlying Java MCP transport returns 400 when the session header is missing,
+   * which breaks some clients; returning 405 here lets them fall back to POST-only mode until a
+   * session-backed SSE stream is available.
+   *
+   * <p>Separately, the SDK serializes a stack-trace-laden {@code McpError} as the body when it
+   * rejects an unknown session id (see upstream issues #902 and #920). We pre-check the session via
+   * reflection on the transport provider and emit a clean, minimal 404 instead, so clients get a
+   * terse signal to drop the session and reinitialize.
    */
   private static final class PreSessionStreamableHttpFilter implements Filter {
+
+    private static final String SDK_SESSIONS_FIELD_NAME = "sessions";
+    private static volatile HttpServletStreamableServerTransportProvider cachedProviderRef;
+    private static volatile Map<String, ?> cachedSessionsMap;
+    private static volatile boolean sessionsReflectionUnavailable;
+
+    static void invalidateSessionsMapCache() {
+      cachedProviderRef = null;
+      cachedSessionsMap = null;
+      sessionsReflectionUnavailable = false;
+    }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -607,10 +706,9 @@ public final class GhidraMcpServer {
         return;
       }
 
+      String sessionHeader = httpRequest.getHeader(MCP_SESSION_ID_HEADER);
+      boolean hasSessionId = sessionHeader != null && !sessionHeader.isBlank();
       boolean isGet = "GET".equalsIgnoreCase(httpRequest.getMethod());
-      boolean hasSessionId =
-          httpRequest.getHeader(MCP_SESSION_ID_HEADER) != null
-              && !httpRequest.getHeader(MCP_SESSION_ID_HEADER).isBlank();
 
       if (isGet && !hasSessionId) {
         httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
@@ -618,7 +716,89 @@ public final class GhidraMcpServer {
         return;
       }
 
+      if (hasSessionId && !isKnownSession(sessionHeader)) {
+        writeSessionNotFound(httpResponse, sessionHeader);
+        return;
+      }
+
       chain.doFilter(request, response);
+    }
+
+    private static boolean isKnownSession(String sessionId) {
+      Map<String, ?> sessions = resolveSessionsMap();
+      if (sessions == null) {
+        return true;
+      }
+      return sessions.containsKey(sessionId);
+    }
+
+    private static Map<String, ?> resolveSessionsMap() {
+      if (sessionsReflectionUnavailable) {
+        return null;
+      }
+      HttpServletStreamableServerTransportProvider current = transportProvider;
+      if (current == null) {
+        return null;
+      }
+      Map<String, ?> cached = cachedSessionsMap;
+      if (cached != null && cachedProviderRef == current) {
+        return cached;
+      }
+      try {
+        Field field =
+            HttpServletStreamableServerTransportProvider.class.getDeclaredField(
+                SDK_SESSIONS_FIELD_NAME);
+        field.setAccessible(true);
+        Object value = field.get(current);
+        if (value instanceof Map<?, ?> map) {
+          @SuppressWarnings("unchecked")
+          Map<String, ?> typed = (Map<String, ?>) map;
+          cachedProviderRef = current;
+          cachedSessionsMap = typed;
+          return typed;
+        }
+      } catch (ReflectiveOperationException e) {
+        Msg.warn(
+            GhidraMcpServer.class,
+            "MCP SDK sessions field unavailable; stale-session pre-check disabled: "
+                + e.getMessage());
+        sessionsReflectionUnavailable = true;
+      }
+      return null;
+    }
+
+    private static void writeSessionNotFound(HttpServletResponse response, String sessionId)
+        throws java.io.IOException {
+      response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+      response.setContentType("application/json");
+      response.setCharacterEncoding("UTF-8");
+      String body =
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Session not found: "
+              + escapeJsonString(sessionId)
+              + "\"},\"id\":null}";
+      response.getWriter().write(body);
+    }
+
+    private static String escapeJsonString(String value) {
+      StringBuilder sb = new StringBuilder(value.length() + 2);
+      for (int i = 0; i < value.length(); i++) {
+        char c = value.charAt(i);
+        switch (c) {
+          case '"' -> sb.append("\\\"");
+          case '\\' -> sb.append("\\\\");
+          case '\n' -> sb.append("\\n");
+          case '\r' -> sb.append("\\r");
+          case '\t' -> sb.append("\\t");
+          default -> {
+            if (c < 0x20) {
+              sb.append(String.format("\\u%04x", (int) c));
+            } else {
+              sb.append(c);
+            }
+          }
+        }
+      }
+      return sb.toString();
     }
   }
 }
