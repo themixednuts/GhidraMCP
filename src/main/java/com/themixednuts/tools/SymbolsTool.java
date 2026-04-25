@@ -404,7 +404,17 @@ public class SymbolsTool extends BaseMcpTool {
     String normalizedSourceType = sourceTypeOpt.map(String::toLowerCase).orElse(null);
     String normalizedNamespace = namespaceOpt.map(String::toLowerCase).orElse(null);
 
-    List<SymbolInfo> allMatches = new ArrayList<>();
+    // Stream-select the next pageSize+1 candidates instead of materializing every match.
+    // We keep at most pageSize+1 Symbols in a max-heap ordered by (name, address); when the
+    // heap overflows we evict the largest. This avoids O(n log n) sorting on multi-million-
+    // symbol tables when only a single page is needed.
+    int heapCapacity = pageSize + 1;
+    Comparator<Symbol> symbolOrder =
+        Comparator.<Symbol, String>comparing(Symbol::getName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(s -> s.getAddress().toString(), String.CASE_INSENSITIVE_ORDER);
+    PriorityQueue<Symbol> heap = new PriorityQueue<>(heapCapacity, symbolOrder.reversed());
+
+    boolean cursorMatched = cursor == null;
     SymbolIterator symbolIterator = symbolTable.getAllSymbols(true);
     while (symbolIterator.hasNext()) {
       Symbol symbol = symbolIterator.next();
@@ -431,43 +441,43 @@ public class SymbolsTool extends BaseMcpTool {
         continue;
       }
 
-      allMatches.add(new SymbolInfo(symbol));
-    }
-
-    allMatches.sort(
-        Comparator.comparing(SymbolInfo::getName, String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(SymbolInfo::getAddress, String.CASE_INSENSITIVE_ORDER));
-
-    int startIndex = 0;
-    if (cursor != null) {
-      boolean matched = false;
-      for (int i = 0; i < allMatches.size(); i++) {
-        SymbolInfo symbolInfo = allMatches.get(i);
-        if (symbolInfo.getName().equalsIgnoreCase(cursor.name)
-            && symbolInfo.getAddress().equalsIgnoreCase(cursor.address)) {
-          startIndex = i + 1;
-          matched = true;
-          break;
+      if (cursor != null) {
+        int cmp = compareCursor(symbol, cursor);
+        if (cmp == 0) {
+          cursorMatched = true;
+          continue;
+        }
+        if (cmp < 0) {
+          continue;
         }
       }
-      if (!matched) {
-        throw new GhidraMcpException(
-            GhidraMcpError.invalid(
-                ARG_CURSOR,
-                cursor.toCursorString(),
-                "cursor is invalid or no longer present in this symbol listing"));
+
+      // Heap admission: keep only the smallest pageSize+1 elements seen so far.
+      if (heap.size() < heapCapacity) {
+        heap.offer(symbol);
+      } else if (symbolOrder.compare(symbol, heap.peek()) < 0) {
+        heap.poll();
+        heap.offer(symbol);
       }
     }
 
-    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<SymbolInfo> paginatedMatches =
-        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+    if (!cursorMatched) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR,
+              cursor.toCursorString(),
+              "cursor is invalid or no longer present in this symbol listing"));
+    }
 
-    boolean hasMore = paginatedMatches.size() > pageSize;
-    List<SymbolInfo> results =
-        hasMore
-            ? new ArrayList<>(paginatedMatches.subList(0, pageSize))
-            : new ArrayList<>(paginatedMatches);
+    List<Symbol> ordered = new ArrayList<>(heap);
+    ordered.sort(symbolOrder);
+
+    boolean hasMore = ordered.size() > pageSize;
+    List<Symbol> pageSymbols = hasMore ? ordered.subList(0, pageSize) : ordered;
+    List<SymbolInfo> results = new ArrayList<>(pageSymbols.size());
+    for (Symbol s : pageSymbols) {
+      results.add(new SymbolInfo(s));
+    }
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
@@ -476,6 +486,14 @@ public class SymbolsTool extends BaseMcpTool {
     }
 
     return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private static int compareCursor(Symbol symbol, SymbolCursorPosition cursor) {
+    int byName = String.CASE_INSENSITIVE_ORDER.compare(symbol.getName(), cursor.name);
+    if (byName != 0) {
+      return byName;
+    }
+    return String.CASE_INSENSITIVE_ORDER.compare(symbol.getAddress().toString(), cursor.address);
   }
 
   private SymbolType parseSymbolType(String typeStr) {

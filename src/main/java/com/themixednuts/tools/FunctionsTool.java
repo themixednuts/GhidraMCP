@@ -67,7 +67,7 @@ import reactor.core.publisher.Mono;
 
          <important_notes>
          - Supports multiple function identification methods (name, address, symbol ID)
-         - List mode supports regex filtering by name_pattern and cursor-based pagination
+         - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, and cursor-based pagination
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
          - list_variables returns stable variable targets used by update_variable / rename_variable; pass verbose=true to include data_type, storage, and is_parameter metadata
@@ -89,6 +89,14 @@ import reactor.core.publisher.Mono;
           "file_name": "program.exe",
           "action": "list",
           "name_pattern": ".*decrypt.*"
+        }
+
+        List functions whose entry points fall in a range:
+        {
+          "file_name": "program.exe",
+          "action": "list",
+          "address_start": "0x140001000",
+          "address_end":   "0x140002000"
         }
 
         Get a function by address:
@@ -199,6 +207,8 @@ public class FunctionsTool extends BaseMcpTool {
   public static final String ARG_VARIABLE_SYMBOL_ID = "variable_symbol_id";
   public static final String ARG_NEW_DATA_TYPE = "new_data_type";
   public static final String ARG_VERBOSE = "verbose";
+  public static final String ARG_ADDRESS_START = "address_start";
+  public static final String ARG_ADDRESS_END = "address_end";
 
   private static final String ACTION_LIST = "list";
   private static final String ACTION_GET = "get";
@@ -241,6 +251,20 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_NAME_PATTERN,
                         SchemaBuilder.string(mapper)
                             .description("Optional regex pattern to filter function names"))
+                    .property(
+                        ARG_ADDRESS_START,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Optional inclusive lower bound on the function entry point"
+                                    + " address")
+                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                    .property(
+                        ARG_ADDRESS_END,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Optional inclusive upper bound on the function entry point"
+                                    + " address")
+                            .pattern("^(0x)?[0-9a-fA-F]+$"))
                     .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
@@ -517,6 +541,8 @@ public class FunctionsTool extends BaseMcpTool {
 
     Optional<String> namePatternOpt = getOptionalStringArgument(args, ARG_NAME_PATTERN);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    Optional<String> addressStartOpt = getOptionalStringArgument(args, ARG_ADDRESS_START);
+    Optional<String> addressEndOpt = getOptionalStringArgument(args, ARG_ADDRESS_END);
 
     FunctionCursor cursor =
         cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
@@ -531,8 +557,14 @@ public class FunctionsTool extends BaseMcpTool {
       }
     }
 
+    AddressSet addressBounds =
+        buildAddressBounds(program, addressStartOpt.orElse(null), addressEndOpt.orElse(null));
+
     List<FunctionInfo> allMatches = new ArrayList<>();
-    FunctionIterator funcIter = functionManager.getFunctions(true);
+    FunctionIterator funcIter =
+        addressBounds != null
+            ? functionManager.getFunctions(addressBounds, true)
+            : functionManager.getFunctions(true);
     while (funcIter.hasNext()) {
       Function function = funcIter.next();
       if (namePattern != null && !namePattern.matcher(function.getName()).matches()) {

@@ -18,6 +18,7 @@ import ghidra.features.base.memsearch.searcher.MemoryMatch;
 import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
@@ -100,6 +101,16 @@ import reactor.core.publisher.Mono;
           "search_type": "hex",
           "search_value": "55 48 89 e5"
         }
+
+        Search a bounded address range for a string:
+        {
+          "file_name": "program.exe",
+          "action": "search",
+          "search_type": "string",
+          "search_value": "decrypt",
+          "address_start": "0x140001000",
+          "address_end":   "0x140100000"
+        }
         </examples>
         """)
 public class MemoryTool extends BaseMcpTool {
@@ -114,6 +125,8 @@ public class MemoryTool extends BaseMcpTool {
   public static final String ARG_SEARCH_TYPE = "search_type";
   public static final String ARG_SEARCH_VALUE = "search_value";
   public static final String ARG_CASE_SENSITIVE = "case_sensitive";
+  public static final String ARG_ADDRESS_START = "address_start";
+  public static final String ARG_ADDRESS_END = "address_end";
 
   private static final String ACTION_READ = "read";
   private static final String ACTION_WRITE = "write";
@@ -320,6 +333,20 @@ public class MemoryTool extends BaseMcpTool {
         ARG_CASE_SENSITIVE,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.bool(mapper)
             .description("Whether string/regex searches are case sensitive (default false)"));
+
+    schemaRoot.property(
+        ARG_ADDRESS_START,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+            .description(
+                "Optional inclusive lower bound restricting search to this address or higher")
+            .pattern("^(0x)?[0-9a-fA-F]+$"));
+
+    schemaRoot.property(
+        ARG_ADDRESS_END,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+            .description(
+                "Optional inclusive upper bound restricting search to this address or lower")
+            .pattern("^(0x)?[0-9a-fA-F]+$"));
 
     // pagination properties
     schemaRoot.property(
@@ -770,6 +797,8 @@ public class MemoryTool extends BaseMcpTool {
           boolean caseSensitive =
               getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
           Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+          Optional<String> addressStartOpt = getOptionalStringArgument(args, ARG_ADDRESS_START);
+          Optional<String> addressEndOpt = getOptionalStringArgument(args, ARG_ADDRESS_END);
           int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
           if (searchValue.trim().isEmpty()) {
@@ -850,13 +879,21 @@ public class MemoryTool extends BaseMcpTool {
                     .build());
           }
 
-          // If we have a cursor, restrict the search to addresses after the cursor
+          // Apply optional explicit bounds (address_start/address_end) on top of the full set,
+          // then advance past the cursor if pagination is in progress.
           AddressSetView searchAddressSet = fullAddressSet;
+          AddressSet bounds =
+              buildAddressBounds(program, addressStartOpt.orElse(null), addressEndOpt.orElse(null));
+          if (bounds != null) {
+            searchAddressSet = fullAddressSet.intersect(bounds);
+            if (searchAddressSet.isEmpty()) {
+              return new PaginatedResult<>(Collections.<SearchResult>emptyList(), null);
+            }
+          }
           if (startAddress != null) {
             searchAddressSet =
-                fullAddressSet.intersectRange(startAddress, fullAddressSet.getMaxAddress());
+                searchAddressSet.intersectRange(startAddress, searchAddressSet.getMaxAddress());
             if (searchAddressSet.isEmpty()) {
-              // No more addresses to search — end of results
               return new PaginatedResult<>(Collections.<SearchResult>emptyList(), null);
             }
           }

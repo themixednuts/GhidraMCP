@@ -19,6 +19,7 @@ import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Function;
@@ -830,6 +831,59 @@ public abstract class BaseMcpTool {
   protected String decodeOpaqueCursorSingleV1(
       String cursorValue, String argumentName, String expectedFormat) throws GhidraMcpException {
     return decodeOpaqueCursorV1(cursorValue, 1, argumentName, expectedFormat).get(0);
+  }
+
+  /**
+   * Builds an inclusive {@link AddressSet} from optional {@code address_start} and {@code
+   * address_end} string arguments. Returns {@code null} when neither is supplied (callers should
+   * treat that as "no bound applied"). Either bound alone is honored.
+   *
+   * @throws GhidraMcpException if a bound cannot be parsed or {@code address_start} is greater than
+   *     {@code address_end}.
+   */
+  protected AddressSet buildAddressBounds(Program program, String startStr, String endStr)
+      throws GhidraMcpException {
+    if ((startStr == null || startStr.isBlank()) && (endStr == null || endStr.isBlank())) {
+      return null;
+    }
+    Address start =
+        (startStr == null || startStr.isBlank())
+            ? program.getMinAddress()
+            : parseAddressBound(program, startStr, "address_start");
+    Address end =
+        (endStr == null || endStr.isBlank())
+            ? program.getMaxAddress()
+            : parseAddressBound(program, endStr, "address_end");
+    if (start == null || end == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.validation()
+              .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+              .message("Program has no address space available for bounding")
+              .build());
+    }
+    if (start.compareTo(end) > 0) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              "address_start",
+              startStr,
+              "address_start (" + start + ") must be <= address_end (" + end + ")"));
+    }
+    return new AddressSet(start, end);
+  }
+
+  private Address parseAddressBound(Program program, String value, String argumentName)
+      throws GhidraMcpException {
+    try {
+      Address address = program.getAddressFactory().getAddress(value);
+      if (address == null) {
+        throw new GhidraMcpException(GhidraMcpError.parse(argumentName, value));
+      }
+      return address;
+    } catch (GhidraMcpException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new GhidraMcpException(GhidraMcpError.parse(argumentName, value));
+    }
   }
 
   private Optional<Long> parseStrictIntegralValue(Object valueNode) {
