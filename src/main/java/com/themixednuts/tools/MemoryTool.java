@@ -24,16 +24,22 @@ import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.DataUtilities;
 import ghidra.program.model.data.DataUtilities.ClearDataMode;
+import ghidra.program.model.data.PointerDataType;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.util.datastruct.ListAccumulator;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -111,6 +117,16 @@ import reactor.core.publisher.Mono;
           "address_start": "0x140001000",
           "address_end":   "0x140100000"
         }
+
+        Apply a function-pointer vtable starting at an address. Walks forward
+        defining each slot as a pointer and creating the target function until
+        a slot fails the function-pointer test or another structure begins:
+        {
+          "file_name": "program.exe",
+          "action": "apply_vtable",
+          "address": "0x140100000",
+          "max_slots": 64
+        }
         </examples>
         """)
 public class MemoryTool extends BaseMcpTool {
@@ -127,6 +143,7 @@ public class MemoryTool extends BaseMcpTool {
   public static final String ARG_CASE_SENSITIVE = "case_sensitive";
   public static final String ARG_ADDRESS_START = "address_start";
   public static final String ARG_ADDRESS_END = "address_end";
+  public static final String ARG_MAX_SLOTS = "max_slots";
 
   private static final String ACTION_READ = "read";
   private static final String ACTION_WRITE = "write";
@@ -134,6 +151,10 @@ public class MemoryTool extends BaseMcpTool {
   private static final String ACTION_UNDEFINE = "undefine";
   private static final String ACTION_LIST_BLOCKS = "list_blocks";
   private static final String ACTION_SEARCH = "search";
+  private static final String ACTION_APPLY_VTABLE = "apply_vtable";
+
+  private static final int DEFAULT_VTABLE_MAX_SLOTS = 256;
+  private static final int MAX_VTABLE_MAX_SLOTS = 4096;
 
   /** Enumeration of supported memory search types. */
   public enum SearchType {
@@ -244,7 +265,8 @@ public class MemoryTool extends BaseMcpTool {
                 ACTION_DEFINE,
                 ACTION_UNDEFINE,
                 ACTION_LIST_BLOCKS,
-                ACTION_SEARCH)
+                ACTION_SEARCH,
+                ACTION_APPLY_VTABLE)
             .description("Memory operation to perform"));
 
     schemaRoot.property(
@@ -348,6 +370,18 @@ public class MemoryTool extends BaseMcpTool {
                 "Optional inclusive upper bound restricting search to this address or lower")
             .pattern("^(0x)?[0-9a-fA-F]+$"));
 
+    schemaRoot.property(
+        ARG_MAX_SLOTS,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+            .description(
+                "apply_vtable: maximum function-pointer slots to walk forward (default: "
+                    + DEFAULT_VTABLE_MAX_SLOTS
+                    + ", max: "
+                    + MAX_VTABLE_MAX_SLOTS
+                    + ")")
+            .minimum(1)
+            .maximum(MAX_VTABLE_MAX_SLOTS));
+
     // pagination properties
     schemaRoot.property(
         ARG_CURSOR,
@@ -419,6 +453,16 @@ public class MemoryTool extends BaseMcpTool {
                             .constValue(ACTION_UNDEFINE)),
                 com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
                     .requiredProperty(ARG_ADDRESS)),
+        // action=apply_vtable requires address
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_APPLY_VTABLE)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_ADDRESS)),
         // action=search requires search_type and search_value
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -459,12 +503,14 @@ public class MemoryTool extends BaseMcpTool {
                 case ACTION_UNDEFINE -> handleUndefine(program, args, annotation);
                 case ACTION_LIST_BLOCKS -> handleListBlocks(program, args);
                 case ACTION_SEARCH -> handleSearch(program, args);
+                case ACTION_APPLY_VTABLE -> handleApplyVtable(program, args);
                 default -> {
                   GhidraMcpError error =
                       GhidraMcpError.invalid(
                           "action",
                           action,
-                          "use: read, write, define, undefine, list_blocks, search");
+                          "use: read, write, define, undefine, list_blocks, search,"
+                              + " apply_vtable");
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -1000,6 +1046,116 @@ public class MemoryTool extends BaseMcpTool {
           }
 
           return new PaginatedResult<>(resultsForPage, nextCursor);
+        });
+  }
+
+  /**
+   * Walks a vtable starting at the supplied address. For each pointer-sized slot, validates that
+   * the value points to a function entry (per {@link #followFunctionPointer}), defines the slot as
+   * a pointer if it isn't already, and creates the target function when it doesn't exist. Stops at
+   * the first slot that fails the function-pointer test or that has its own incoming reference
+   * (boundary signal that we've stepped into another structure).
+   */
+  private Mono<? extends Object> handleApplyVtable(Program program, Map<String, Object> args) {
+    String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+    final int maxSlots =
+        getOptionalIntArgument(args, ARG_MAX_SLOTS).orElse(DEFAULT_VTABLE_MAX_SLOTS);
+    if (maxSlots < 1 || maxSlots > MAX_VTABLE_MAX_SLOTS) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_MAX_SLOTS,
+                  String.valueOf(maxSlots),
+                  "must be between 1 and " + MAX_VTABLE_MAX_SLOTS)));
+    }
+
+    return executeInTransaction(
+        program,
+        "MCP - Apply vtable at " + addressStr,
+        () -> {
+          Address start;
+          try {
+            start = program.getAddressFactory().getAddress(addressStr);
+          } catch (Exception e) {
+            throw new GhidraMcpException(GhidraMcpError.parse(ARG_ADDRESS, addressStr));
+          }
+          if (start == null) {
+            throw new GhidraMcpException(GhidraMcpError.parse(ARG_ADDRESS, addressStr));
+          }
+
+          int ptrSize = program.getDefaultPointerSize();
+          if (ptrSize != 4 && ptrSize != 8) {
+            throw new GhidraMcpException(
+                GhidraMcpError.failed(
+                    "apply_vtable", "Unsupported default pointer size: " + ptrSize));
+          }
+          if (start.getOffset() % ptrSize != 0) {
+            throw new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_ADDRESS, addressStr, "address must be aligned to pointer size " + ptrSize));
+          }
+
+          DataTypeManager dtm = program.getDataTypeManager();
+          PointerDataType pointerType = new PointerDataType(dtm);
+
+          List<Map<String, Object>> entries = new ArrayList<>();
+          String stopReason = "max_slots";
+
+          Address slot = start;
+          for (int i = 0; i < maxSlots; i++) {
+            // Boundary detection: any slot beyond the first with an incoming reference is the
+            // start of a new structure, not a continuation of the vtable.
+            if (i > 0) {
+              ReferenceIterator refs = program.getReferenceManager().getReferencesTo(slot);
+              if (refs.hasNext()) {
+                stopReason = "boundary_ref";
+                break;
+              }
+            }
+
+            Data existing = program.getListing().getDefinedDataAt(slot);
+            if (existing != null && !existing.isPointer()) {
+              stopReason = "conflict_data";
+              break;
+            }
+
+            Function target = followFunctionPointer(program, slot);
+            if (target == null) {
+              stopReason = "not_function";
+              break;
+            }
+
+            if (existing == null) {
+              try {
+                DataUtilities.createData(
+                    program, slot, pointerType, ptrSize, ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
+              } catch (Exception e) {
+                stopReason = "define_failed";
+                break;
+              }
+            }
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("slot_address", slot.toString());
+            entry.put("target_address", target.getEntryPoint().toString());
+            entry.put("function_name", target.getName());
+            entries.add(entry);
+
+            try {
+              slot = slot.add(ptrSize);
+            } catch (Exception e) {
+              stopReason = "address_overflow";
+              break;
+            }
+          }
+
+          Map<String, Object> result = new LinkedHashMap<>();
+          result.put("start_address", start.toString());
+          result.put("slot_size", ptrSize);
+          result.put("slot_count", entries.size());
+          result.put("stop_reason", stopReason);
+          result.put("entries", entries);
+          return result;
         });
   }
 
