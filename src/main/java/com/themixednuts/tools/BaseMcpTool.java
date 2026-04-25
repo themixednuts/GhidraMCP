@@ -25,6 +25,11 @@ import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.Msg;
 import ghidra.util.Swing;
 import ghidra.util.data.DataTypeParser;
@@ -1094,12 +1099,23 @@ public abstract class BaseMcpTool {
   // =================== Function Auto-Creation ===================
 
   /**
-   * Gets the function at or containing the given address. If no function exists but there is valid
-   * code (an instruction) at the address, auto-creates a function there. This eliminates
-   * round-trips where agents would have to create the function first.
+   * Gets the function at or containing the given address. If no function exists at the address
+   * itself but the address has strong evidence of being a function entry, auto-creates a function
+   * there. This eliminates round-trips where agents would otherwise have to call {@code
+   * functions.create} before retrying.
    *
-   * <p>Returns {@code null} if no function could be found or created (e.g. the address contains
-   * undefined bytes or the {@link CreateFunctionCmd} fails).
+   * <p>"Strong evidence" means all of:
+   *
+   * <ul>
+   *   <li>The address sits in an initialized, executable memory block.
+   *   <li>An instruction begins at the address (not data, not mid-instruction).
+   *   <li>And at least one of: a {@link SymbolType#FUNCTION} symbol already lives at the address,
+   *       <em>or</em> at least one CALL-type reference points to it.
+   * </ul>
+   *
+   * <p>If those don't hold, the method returns {@code null} rather than fabricating a function in
+   * the middle of data, padding, jump tables, or orphan disassembly. Returns the containing
+   * function unchanged when the address falls inside an existing function body — never fragments.
    *
    * @param program The program to search and potentially modify
    * @param address The address to look up
@@ -1108,24 +1124,21 @@ public abstract class BaseMcpTool {
   protected Function getOrCreateFunction(Program program, Address address) {
     FunctionManager fm = program.getFunctionManager();
 
-    // Try exact match first
     Function function = fm.getFunctionAt(address);
     if (function != null) {
       return function;
     }
 
-    // Try containing function
+    // Don't fragment existing functions: if the address is inside one, return that.
     function = fm.getFunctionContaining(address);
     if (function != null) {
       return function;
     }
 
-    // No function — check if there's valid code (an instruction) at the address
-    if (program.getListing().getInstructionAt(address) == null) {
+    if (!isLikelyFunctionEntry(program, address)) {
       return null;
     }
 
-    // Auto-create within a transaction
     int txId = program.startTransaction("MCP - Auto-create function at " + address);
     try {
       CreateFunctionCmd cmd = new CreateFunctionCmd(address);
@@ -1139,6 +1152,32 @@ public abstract class BaseMcpTool {
       program.endTransaction(txId, false);
       return null;
     }
+  }
+
+  /**
+   * Conservative classifier used by {@link #getOrCreateFunction(Program, Address)}: returns true
+   * only when the evidence for a function entry is strong enough that auto-creation is safe.
+   */
+  private static boolean isLikelyFunctionEntry(Program program, Address address) {
+    MemoryBlock block = program.getMemory().getBlock(address);
+    if (block == null || !block.isExecute() || !block.isInitialized()) {
+      return false;
+    }
+    if (program.getListing().getInstructionAt(address) == null) {
+      return false;
+    }
+    Symbol primary = program.getSymbolTable().getPrimarySymbol(address);
+    if (primary != null && primary.getSymbolType() == SymbolType.FUNCTION) {
+      return true;
+    }
+    ReferenceIterator refs = program.getReferenceManager().getReferencesTo(address);
+    while (refs.hasNext()) {
+      Reference ref = refs.next();
+      if (ref.getReferenceType().isCall()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // =================== Transaction Management ===================

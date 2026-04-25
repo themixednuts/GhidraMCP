@@ -639,6 +639,9 @@ public class FunctionsTool extends BaseMcpTool {
     Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
     if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
       Function function = functionManager.getFunctionAt(symbol.getAddress());
+      if (function == null) {
+        function = getOrCreateFunction(program, symbol.getAddress());
+      }
       if (function != null) {
         return new FunctionInfo(function);
       }
@@ -656,7 +659,7 @@ public class FunctionsTool extends BaseMcpTool {
     try {
       Address functionAddress = program.getAddressFactory().getAddress(addressStr);
       if (functionAddress != null) {
-        Function function = functionManager.getFunctionContaining(functionAddress);
+        Function function = getOrCreateFunction(program, functionAddress);
         if (function != null) {
           return new FunctionInfo(function);
         }
