@@ -523,7 +523,6 @@ public class DeleteTool extends BaseMcpTool {
               }
 
               return new DataTypeDeleteResult(
-                  true,
                   "Successfully deleted " + dataTypeKind + " '" + actualName + "'",
                   actualName,
                   categoryPath.toString());
@@ -628,7 +627,6 @@ public class DeleteTool extends BaseMcpTool {
     }
 
     return new DataTypeDeleteResult(
-        true,
         "Successfully deleted category '" + targetPath.getPath() + "'",
         targetPath.getName(),
         parentPath.getPath());

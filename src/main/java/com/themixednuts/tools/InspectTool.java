@@ -541,12 +541,17 @@ public class InspectTool extends BaseMcpTool {
       decomp.openProgram(program);
 
       DecompileResults decompResult = decomp.decompileFunction(function, timeout, monitor);
+      if (decompResult == null || !decompResult.decompileCompleted()) {
+        String errorMsg =
+            Optional.ofNullable(decompResult)
+                .map(DecompileResults::getErrorMessage)
+                .orElse("Unknown decompilation error");
+        throw new GhidraMcpException(GhidraMcpError.failed("decompilation", errorMsg));
+      }
+      return createSuccessfulDecompilation(function, decompResult, includePcode, includeAst);
 
-      return Optional.ofNullable(decompResult)
-          .filter(DecompileResults::decompileCompleted)
-          .map(result -> createSuccessfulDecompilation(function, result, includePcode, includeAst))
-          .orElseGet(() -> createFailedDecompilation(function, decompResult));
-
+    } catch (GhidraMcpException e) {
+      throw e;
     } catch (Exception e) {
       throw new GhidraMcpException(
           GhidraMcpError.failed("decompilation", describeDecompilationFailure(e)), e);
@@ -564,11 +569,10 @@ public class InspectTool extends BaseMcpTool {
 
     DecompilationResult result =
         new DecompilationResult(
-            "function", function.getName(), function.getEntryPoint().toString(), true, code, null);
-
-    result.setParameterCount(function.getParameterCount());
-    result.setReturnType(function.getReturnType().getName());
-    result.setBodySize((int) function.getBody().getNumAddresses());
+            function.getName(),
+            function.getEntryPoint().toString(),
+            code,
+            (int) function.getBody().getNumAddresses());
 
     Optional.ofNullable(decompResult.getHighFunction())
         .filter(hf -> includePcode)
@@ -576,25 +580,9 @@ public class InspectTool extends BaseMcpTool {
 
     Optional.ofNullable(decompResult.getHighFunction())
         .filter(hf -> includeAst)
-        .ifPresent(hf -> addAstInformation(result, hf));
+        .ifPresent(hf -> result.setBasicBlockCount(hf.getBasicBlocks().size()));
 
     return result;
-  }
-
-  private DecompilationResult createFailedDecompilation(
-      Function function, DecompileResults decompResult) {
-    String errorMsg =
-        Optional.ofNullable(decompResult)
-            .map(DecompileResults::getErrorMessage)
-            .orElse("Unknown decompilation error");
-
-    return new DecompilationResult(
-        "function",
-        function.getName(),
-        function.getEntryPoint().toString(),
-        false,
-        "// Decompilation failed: " + errorMsg,
-        errorMsg);
   }
 
   private void addPcodeOperations(DecompilationResult result, HighFunction highFunc) {
@@ -613,14 +601,6 @@ public class InspectTool extends BaseMcpTool {
                         "operation", op.toString()))
             .collect(Collectors.toList());
     result.setPcodeOperations(pcodeOps);
-  }
-
-  private void addAstInformation(DecompilationResult result, HighFunction highFunc) {
-    result.setAstInfo(
-        Map.of(
-            "has_local_symbols", highFunc.getLocalSymbolMap() != null,
-            "has_global_symbols", highFunc.getGlobalSymbolMap() != null,
-            "basic_blocks", highFunc.getBasicBlocks().size()));
   }
 
   private String describeDecompilationFailure(Throwable throwable) {

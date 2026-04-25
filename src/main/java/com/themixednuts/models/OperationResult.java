@@ -6,42 +6,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Standardized operation result for create, update, delete operations. Provides consistent response
- * format across all tools.
+ * Standardized payload for create / update / delete operations. Failures are reported on the
+ * envelope, so this class only carries the per-operation context that's useful on a success: which
+ * operation ran, what target it touched, a human-readable message, and any extras the tool wants to
+ * attach. Tools should throw {@code GhidraMcpException} for failures rather than building an {@code
+ * OperationResult} with a failure flag.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class OperationResult {
-  private final boolean success;
   private final String operation;
   private final String target;
   private final String message;
-  private final String details;
 
-  // Optional additional data
   private Object result;
   private List<String> warnings;
   private Map<String, Object> metadata;
 
-  public OperationResult(boolean success, String operation, String target, String message) {
-    this.success = success;
+  public OperationResult(String operation, String target, String message) {
     this.operation = operation;
     this.target = target;
     this.message = message;
-    this.details = null;
-  }
-
-  public OperationResult(
-      boolean success, String operation, String target, String message, String details) {
-    this.success = success;
-    this.operation = operation;
-    this.target = target;
-    this.message = message;
-    this.details = details;
-  }
-
-  @JsonProperty("success")
-  public boolean isSuccess() {
-    return success;
   }
 
   @JsonProperty("operation")
@@ -57,11 +41,6 @@ public class OperationResult {
   @JsonProperty("message")
   public String getMessage() {
     return message;
-  }
-
-  @JsonProperty("details")
-  public String getDetails() {
-    return details;
   }
 
   @JsonProperty("result")
@@ -94,17 +73,7 @@ public class OperationResult {
     return this;
   }
 
-  // Static factory methods for common patterns
   public static OperationResult success(String operation, String target, String message) {
-    return new OperationResult(true, operation, target, message);
-  }
-
-  public static OperationResult failure(String operation, String target, String message) {
-    return new OperationResult(false, operation, target, message);
-  }
-
-  public static OperationResult failure(
-      String operation, String target, String message, String details) {
-    return new OperationResult(false, operation, target, message, details);
+    return new OperationResult(operation, target, message);
   }
 }

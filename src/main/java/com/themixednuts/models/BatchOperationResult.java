@@ -5,41 +5,22 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
- * Result of a batch operation containing all individual operation results. Used by
- * BatchOperationsTool to return structured results for multiple tool executions.
+ * Result of a batch operation. The envelope reports whether the batch ran; this payload reports how
+ * many of the batched sub-operations succeeded and the per-operation outcomes. The total count is
+ * implicit in {@code operations.size()} and the overall success flag is implicit in {@code
+ * failed_operations == 0}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class BatchOperationResult {
-  private final boolean success;
-  private final int totalOperations;
   private final int successfulOperations;
   private final int failedOperations;
   private final List<IndividualOperationResult> operations;
-  private final String message;
 
   public BatchOperationResult(
-      boolean success,
-      int totalOperations,
-      int successfulOperations,
-      int failedOperations,
-      List<IndividualOperationResult> operations,
-      String message) {
-    this.success = success;
-    this.totalOperations = totalOperations;
+      int successfulOperations, int failedOperations, List<IndividualOperationResult> operations) {
     this.successfulOperations = successfulOperations;
     this.failedOperations = failedOperations;
     this.operations = operations;
-    this.message = message;
-  }
-
-  @JsonProperty("success")
-  public boolean isSuccess() {
-    return success;
-  }
-
-  @JsonProperty("total_operations")
-  public int getTotalOperations() {
-    return totalOperations;
   }
 
   @JsonProperty("successful_operations")
@@ -55,11 +36,6 @@ public class BatchOperationResult {
   @JsonProperty("operations")
   public List<IndividualOperationResult> getOperations() {
     return operations;
-  }
-
-  @JsonProperty("message")
-  public String getMessage() {
-    return message;
   }
 
   /** Represents a single operation result within a batch. */

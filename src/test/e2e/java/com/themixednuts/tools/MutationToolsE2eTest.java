@@ -62,7 +62,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       MemoryWriteResult writeResult = assertInstanceOf(MemoryWriteResult.class, writeRaw);
-      assertTrue(writeResult.isSuccess());
       assertEquals(3, writeResult.getBytesWritten());
 
       Object readAfterRaw =
@@ -188,7 +187,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
-      assertTrue(created.isSuccess());
       assertEquals("create_data_type", created.getOperation());
       assertEquals("enum", created.getTarget());
 
@@ -212,7 +210,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult updated = assertInstanceOf(OperationResult.class, updatedRaw);
-      assertTrue(updated.isSuccess());
       assertEquals("update_data_type", updated.getOperation());
       assertEquals("enum", updated.getTarget());
 
@@ -351,7 +348,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
-      assertTrue(created.isSuccess());
 
       // Patch: rename field_b at offset 4 and add a comment
       Object patchedRaw =
@@ -373,7 +369,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
-      assertTrue(patched.isSuccess());
 
       // Read back and verify: field_a and field_c untouched, field_b renamed
       Object readBackRaw =
@@ -469,7 +464,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
-      assertTrue(patched.isSuccess());
 
       // Read back
       Object readBackRaw =
@@ -582,7 +576,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
-      assertTrue(patched.isSuccess());
 
       // Read back
       Object readBackRaw =
@@ -661,7 +654,6 @@ class MutationToolsE2eTest {
                   null)
               .block();
       OperationResult patched = assertInstanceOf(OperationResult.class, patchedRaw);
-      assertTrue(patched.isSuccess());
 
       // Read back and verify type changed but name preserved
       Object readBackRaw =

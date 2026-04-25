@@ -59,7 +59,6 @@ class DeleteToolE2eTest {
                   null)
               .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
-      assertTrue(deleted.isSuccess());
       assertEquals("delete_function", deleted.getOperation());
       assertEquals("temp_delete_function", deleted.getMetadata().get("name"));
 
@@ -104,7 +103,6 @@ class DeleteToolE2eTest {
                   null)
               .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
-      assertTrue(deleted.isSuccess());
       assertEquals("delete_symbol", deleted.getOperation());
       assertEquals("temp_delete_symbol", deleted.getMetadata().get("name"));
 
@@ -167,7 +165,6 @@ class DeleteToolE2eTest {
                   null)
               .block();
       DataTypeDeleteResult deleted = assertInstanceOf(DataTypeDeleteResult.class, deletedRaw);
-      assertTrue(deleted.isSuccess());
       assertEquals("TempDeleteEnum", deleted.getDeletedType());
 
       DataType afterDelete =
@@ -212,7 +209,6 @@ class DeleteToolE2eTest {
                   null)
               .block();
       OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
-      assertTrue(created.isSuccess());
 
       Object deletedRaw =
           deleteTool
@@ -234,7 +230,6 @@ class DeleteToolE2eTest {
                   null)
               .block();
       OperationResult deleted = assertInstanceOf(OperationResult.class, deletedRaw);
-      assertTrue(deleted.isSuccess());
       assertEquals("delete_bookmark", deleted.getOperation());
       assertEquals(1, deleted.getMetadata().get("deleted_count"));
 

@@ -174,14 +174,12 @@ class AnalysisToolsE2eTest {
               .block();
       DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
 
-      assertTrue(result.isDecompilationSuccessful());
       assertTrue(result.getEntryAddress().toLowerCase().contains("401000"));
       assertNotNull(result.getDecompiledCode());
       assertFalse(result.getDecompiledCode().isBlank());
       assertNotNull(result.getPcodeOperations());
       assertFalse(result.getPcodeOperations().isEmpty());
-      assertNotNull(result.getAstInfo());
-      assertTrue(result.getAstInfo().containsKey("basic_blocks"));
+      assertNotNull(result.getBasicBlockCount());
     } finally {
       fixture.close();
     }
@@ -209,7 +207,6 @@ class AnalysisToolsE2eTest {
               .block();
       DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
 
-      assertTrue(result.isDecompilationSuccessful());
       assertEquals("entry_main", result.getTargetName());
       assertNotNull(result.getDecompiledCode());
     } finally {

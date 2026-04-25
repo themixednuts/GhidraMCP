@@ -434,21 +434,7 @@ public class BatchOperationsTool extends BaseMcpTool {
                 .filter(BatchOperationResult.IndividualOperationResult::isSuccess)
                 .count();
     int failCount = results.size() - successCount;
-
-    return new BatchOperationResult(
-        failCount == 0,
-        results.size(),
-        successCount,
-        failCount,
-        results,
-        failCount == 0
-            ? "All " + results.size() + " operations completed successfully"
-            : "Batch operation failed at operation "
-                + results.stream()
-                    .filter(r -> !r.isSuccess())
-                    .findFirst()
-                    .map(BatchOperationResult.IndividualOperationResult::getOperationIndex)
-                    .orElse(-1));
+    return new BatchOperationResult(successCount, failCount, results);
   }
 
   private Map<String, BaseMcpTool> loadAvailableTools() {

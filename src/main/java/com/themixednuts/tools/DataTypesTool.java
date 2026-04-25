@@ -988,10 +988,11 @@ public class DataTypesTool extends BaseMcpTool {
               args,
               annotation);
       default ->
-          OperationResult.failure(
-              "update_data_type",
-              dataTypeKind,
-              "Update not supported for data type kind: " + dataTypeKind);
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  "data_type_kind",
+                  dataTypeKind,
+                  "Update not supported for data type kind: " + dataTypeKind));
     };
   }
 

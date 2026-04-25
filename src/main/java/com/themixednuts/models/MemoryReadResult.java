@@ -7,7 +7,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class MemoryReadResult {
 
   private final String address;
-  private final int length;
   private final String hexData;
   private final String readable;
   private final int bytesRequested;
@@ -15,25 +14,18 @@ public class MemoryReadResult {
   private final String decodedString;
 
   public MemoryReadResult(
-      String address,
-      int length,
-      String hexData,
-      String readable,
-      int bytesRequested,
-      int bytesRead) {
-    this(address, length, hexData, readable, bytesRequested, bytesRead, null);
+      String address, String hexData, String readable, int bytesRequested, int bytesRead) {
+    this(address, hexData, readable, bytesRequested, bytesRead, null);
   }
 
   public MemoryReadResult(
       String address,
-      int length,
       String hexData,
       String readable,
       int bytesRequested,
       int bytesRead,
       String decodedString) {
     this.address = address;
-    this.length = length;
     this.hexData = hexData;
     this.readable = readable;
     this.bytesRequested = bytesRequested;
@@ -44,11 +36,6 @@ public class MemoryReadResult {
   @JsonProperty("address")
   public String getAddress() {
     return address;
-  }
-
-  @JsonProperty("length")
-  public int getLength() {
-    return length;
   }
 
   @JsonProperty("hex_data")

@@ -178,8 +178,7 @@ class UtilityToolsE2eTest {
               .block();
 
       BatchOperationResult result = assertInstanceOf(BatchOperationResult.class, raw);
-      assertTrue(result.isSuccess());
-      assertEquals(2, result.getTotalOperations());
+      assertEquals(2, result.getOperations().size());
       assertEquals(2, result.getSuccessfulOperations());
       assertEquals(0, result.getFailedOperations());
       assertTrue(

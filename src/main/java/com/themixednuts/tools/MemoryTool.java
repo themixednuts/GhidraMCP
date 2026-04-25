@@ -569,13 +569,7 @@ public class MemoryTool extends BaseMcpTool {
           String decodedString = detectAsciiString(bytesRead);
 
           return new MemoryReadResult(
-              address.toString(),
-              actualBytesRead,
-              hexData,
-              readable,
-              length,
-              actualBytesRead,
-              decodedString);
+              address.toString(), hexData, readable, length, actualBytesRead, decodedString);
         });
   }
 
@@ -649,7 +643,7 @@ public class MemoryTool extends BaseMcpTool {
           // Write to memory
           try {
             program.getMemory().setBytes(address, bytes);
-            return new MemoryWriteResult(true, address.toString(), bytes.length, bytesHex);
+            return new MemoryWriteResult(address.toString(), bytes.length, bytesHex);
           } catch (MemoryAccessException e) {
             GhidraMcpError error =
                 GhidraMcpError.failed("memory write", "address " + addressStr + " is not writable");

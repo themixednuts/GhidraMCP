@@ -6,21 +6,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class MemoryWriteResult {
 
-  private final boolean success;
   private final String address;
   private final int bytesWritten;
   private final String hexData;
 
-  public MemoryWriteResult(boolean success, String address, int bytesWritten, String hexData) {
-    this.success = success;
+  public MemoryWriteResult(String address, int bytesWritten, String hexData) {
     this.address = address;
     this.bytesWritten = bytesWritten;
     this.hexData = hexData;
-  }
-
-  @JsonProperty("success")
-  public boolean isSuccess() {
-    return success;
   }
 
   @JsonProperty("address")
