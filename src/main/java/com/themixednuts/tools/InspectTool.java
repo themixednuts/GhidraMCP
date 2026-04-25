@@ -430,6 +430,9 @@ public class InspectTool extends BaseMcpTool {
         throw new GhidraMcpException(GhidraMcpError.parse("address", addressArg));
       }
       Function function = getOrCreateFunction(program, functionAddress);
+      if (function == null) {
+        function = followFunctionPointer(program, functionAddress);
+      }
       if (function != null) {
         return function;
       }
@@ -460,6 +463,9 @@ public class InspectTool extends BaseMcpTool {
                     monitor -> {
                       Address address = addressResult.getAddress();
                       Function function = getOrCreateFunction(program, address);
+                      if (function == null) {
+                        function = followFunctionPointer(program, address);
+                      }
 
                       if (function == null) {
                         // No function and auto-create failed — check for raw instruction

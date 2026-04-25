@@ -520,10 +520,47 @@ public class MemoryTool extends BaseMcpTool {
           // Generate hex representation and readable ASCII
           String hexData = HexFormat.of().formatHex(bytesRead);
           String readable = generateReadableString(bytesRead);
+          String decodedString = detectAsciiString(bytesRead);
 
           return new MemoryReadResult(
-              address.toString(), actualBytesRead, hexData, readable, length, actualBytesRead);
+              address.toString(),
+              actualBytesRead,
+              hexData,
+              readable,
+              length,
+              actualBytesRead,
+              decodedString);
         });
+  }
+
+  /**
+   * Returns the decoded string when {@code bytes} starts with at least 4 printable ASCII characters
+   * terminated by a null byte; otherwise {@code null}. Tab/newline/CR are accepted inside the
+   * string. The check is intentionally strict so the result, when present, is unambiguous enough
+   * that an agent can rely on it without further validation.
+   */
+  private static String detectAsciiString(byte[] bytes) {
+    if (bytes == null || bytes.length < 5) {
+      return null;
+    }
+    int terminator = -1;
+    for (int i = 0; i < bytes.length; i++) {
+      if (bytes[i] == 0) {
+        terminator = i;
+        break;
+      }
+    }
+    if (terminator < 4) {
+      return null;
+    }
+    for (int i = 0; i < terminator; i++) {
+      byte b = bytes[i];
+      boolean printable = (b >= 0x20 && b <= 0x7E) || b == 0x09 || b == 0x0A || b == 0x0D;
+      if (!printable) {
+        return null;
+      }
+    }
+    return new String(bytes, 0, terminator, java.nio.charset.StandardCharsets.US_ASCII);
   }
 
   private Mono<? extends Object> handleWrite(

@@ -660,6 +660,9 @@ public class FunctionsTool extends BaseMcpTool {
       Address functionAddress = program.getAddressFactory().getAddress(addressStr);
       if (functionAddress != null) {
         Function function = getOrCreateFunction(program, functionAddress);
+        if (function == null) {
+          function = followFunctionPointer(program, functionAddress);
+        }
         if (function != null) {
           return new FunctionInfo(function);
         }

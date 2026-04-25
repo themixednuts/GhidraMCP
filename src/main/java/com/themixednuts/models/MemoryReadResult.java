@@ -12,6 +12,7 @@ public class MemoryReadResult {
   private final String readable;
   private final int bytesRequested;
   private final int bytesRead;
+  private final String decodedString;
 
   public MemoryReadResult(
       String address,
@@ -20,12 +21,24 @@ public class MemoryReadResult {
       String readable,
       int bytesRequested,
       int bytesRead) {
+    this(address, length, hexData, readable, bytesRequested, bytesRead, null);
+  }
+
+  public MemoryReadResult(
+      String address,
+      int length,
+      String hexData,
+      String readable,
+      int bytesRequested,
+      int bytesRead,
+      String decodedString) {
     this.address = address;
     this.length = length;
     this.hexData = hexData;
     this.readable = readable;
     this.bytesRequested = bytesRequested;
     this.bytesRead = bytesRead;
+    this.decodedString = decodedString;
   }
 
   @JsonProperty("address")
@@ -56,5 +69,10 @@ public class MemoryReadResult {
   @JsonProperty("bytes_read")
   public int getBytesRead() {
     return bytesRead;
+  }
+
+  @JsonProperty("decoded_string")
+  public String getDecodedString() {
+    return decodedString;
   }
 }

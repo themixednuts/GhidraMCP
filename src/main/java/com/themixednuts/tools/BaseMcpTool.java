@@ -22,9 +22,12 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
@@ -1152,6 +1155,88 @@ public abstract class BaseMcpTool {
       program.endTransaction(txId, false);
       return null;
     }
+  }
+
+  /**
+   * If {@code pointerAddress} holds a pointer-sized, aligned value pointing to executable memory
+   * that itself looks like a function entry, follow the pointer and return (creating the target
+   * function via {@link #getOrCreateFunction(Program, Address)} if needed). Returns {@code null}
+   * when the location does not 100% safely resolve to a function pointer.
+   *
+   * <p>Designed for vtable slots and dispatch-table entries where the agent has the address of the
+   * pointer, not the function itself.
+   */
+  protected Function followFunctionPointer(Program program, Address pointerAddress) {
+    if (pointerAddress == null) {
+      return null;
+    }
+
+    Memory memory = program.getMemory();
+    MemoryBlock block = memory.getBlock(pointerAddress);
+    if (block == null || !block.isInitialized()) {
+      return null;
+    }
+
+    // Don't reinterpret code as data.
+    if (program.getListing().getInstructionContaining(pointerAddress) != null) {
+      return null;
+    }
+
+    int ptrSize = program.getDefaultPointerSize();
+    if (ptrSize != 4 && ptrSize != 8) {
+      return null;
+    }
+
+    // If Ghidra already has a defined pointer here, trust that — handles relocations and exotic
+    // address spaces that raw byte parsing would miss.
+    Data data = program.getListing().getDefinedDataAt(pointerAddress);
+    if (data != null && data.isPointer()) {
+      Object value = data.getValue();
+      if (value instanceof Address target) {
+        return getOrCreateFunction(program, target);
+      }
+      return null;
+    }
+
+    // Otherwise require pointer-size alignment and read the bytes manually.
+    if (pointerAddress.getOffset() % ptrSize != 0) {
+      return null;
+    }
+
+    byte[] bytes = new byte[ptrSize];
+    try {
+      if (memory.getBytes(pointerAddress, bytes) != ptrSize) {
+        return null;
+      }
+    } catch (MemoryAccessException e) {
+      return null;
+    }
+
+    long target = 0;
+    if (memory.isBigEndian()) {
+      for (int i = 0; i < ptrSize; i++) {
+        target = (target << 8) | (bytes[i] & 0xFF);
+      }
+    } else {
+      for (int i = ptrSize - 1; i >= 0; i--) {
+        target = (target << 8) | (bytes[i] & 0xFF);
+      }
+    }
+    if (target == 0) {
+      return null;
+    }
+
+    Address targetAddress;
+    try {
+      targetAddress = program.getAddressFactory().getDefaultAddressSpace().getAddress(target);
+    } catch (Exception e) {
+      return null;
+    }
+    if (targetAddress == null) {
+      return null;
+    }
+
+    return getOrCreateFunction(program, targetAddress);
   }
 
   /**
