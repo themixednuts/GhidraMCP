@@ -453,9 +453,16 @@ spotless {
   enforceCheck = false
   java {
     target 'src/**/*.java'
-    bumpThisNumberIfACustomStepChanges(2)
+    bumpThisNumberIfACustomStepChanges(3)
     custom('googleJavaFormat') { source ->
-      def javaExecutable = new File(System.getProperty('java.home'), 'bin/java').absolutePath
+      // Append .exe on Windows. CreateProcess is documented to auto-append .exe when no
+      // extension is given, but on some Windows installs (EDR / Smart App Control / WDAC)
+      // the extensionless path triggers ERROR_ELEVATION_REQUIRED (740) instead of resolving
+      // cleanly. Being explicit avoids that whole category of "spotless requires elevation"
+      // false-positives. Gradle's own test/worker fork uses OperatingSystem.getExecutable
+      // which already does this — we just match that here.
+      def javaBin = System.getProperty('os.name').toLowerCase().contains('windows') ? 'java.exe' : 'java'
+      def javaExecutable = new File(System.getProperty('java.home'), "bin/${javaBin}").absolutePath
       def classpath =
         configurations.googleJavaFormatTool.files.collect { it.absolutePath }.join(File.pathSeparator)
       def process =
