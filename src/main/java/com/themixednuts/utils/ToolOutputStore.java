@@ -25,8 +25,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * entries are evicted to keep disk usage bounded.
  */
 public final class ToolOutputStore {
+  public static final String VIEW_ENVELOPE_JSON = "envelope_json";
   public static final String VIEW_JSON = "json";
   public static final String VIEW_TEXT = "text";
+  public static final String FORMAT_JSON = "json";
   public static final String FORMAT_MCP_RESPONSE_JSON = "mcp_response_json";
   public static final String FORMAT_PLAIN_TEXT = "plain_text";
 
@@ -51,6 +53,29 @@ public final class ToolOutputStore {
   private static final Object LOCK = new Object();
   private static final Map<String, SessionBucket> SESSIONS = new LinkedHashMap<>();
 
+  /** Stored payload variants for an oversized tool result. */
+  public record StoredOutputViews(
+      String jsonContent, String envelopeJsonContent, String textContent) {
+    public StoredOutputViews {
+      jsonContent = Objects.requireNonNullElse(jsonContent, "");
+      envelopeJsonContent = Objects.requireNonNullElse(envelopeJsonContent, jsonContent);
+      textContent = Optional.ofNullable(textContent).filter(value -> !value.isBlank()).orElse(null);
+    }
+
+    public static StoredOutputViews jsonOnly(String jsonContent) {
+      return new StoredOutputViews(jsonContent, jsonContent, null);
+    }
+
+    public static StoredOutputViews jsonAndText(String jsonContent, String textContent) {
+      return new StoredOutputViews(jsonContent, jsonContent, textContent);
+    }
+
+    public static StoredOutputViews withEnvelope(
+        String jsonContent, String envelopeJsonContent, String textContent) {
+      return new StoredOutputViews(jsonContent, envelopeJsonContent, textContent);
+    }
+  }
+
   /** Reference information returned when output is stored out-of-band. */
   public record StoredOutputRef(
       String sessionId,
@@ -58,13 +83,9 @@ public final class ToolOutputStore {
       String fileName,
       String toolName,
       String operation,
-      String storedFormat,
       String preferredView,
       List<String> availableViews,
-      boolean textAvailable,
-      int totalChars,
-      Integer preferredTotalChars,
-      Integer textTotalChars,
+      Map<String, Integer> viewTotalChars,
       long createdAtMs) {}
 
   /** Summary information for listing available output sessions. */
@@ -78,13 +99,9 @@ public final class ToolOutputStore {
       String fileName,
       String toolName,
       String operation,
-      String storedFormat,
       String preferredView,
       List<String> availableViews,
-      boolean textAvailable,
-      int totalChars,
-      Integer preferredTotalChars,
-      Integer textTotalChars,
+      Map<String, Integer> viewTotalChars,
       long createdAtMs) {}
 
   /** A chunk of stored output content. */
@@ -98,6 +115,7 @@ public final class ToolOutputStore {
       String contentFormat,
       String preferredView,
       List<String> availableViews,
+      Map<String, Integer> viewTotalChars,
       int offset,
       int requestedChars,
       int returnedChars,
@@ -129,37 +147,37 @@ public final class ToolOutputStore {
     private final String fileName;
     private final String toolName;
     private final String operation;
-    private final String storedFormat;
-    private final int totalChars;
+    private final int jsonTotalChars;
+    private final int envelopeTotalChars;
     private final Integer textTotalChars;
     private final long createdAtMs;
     private final Path filePath;
+    private final Path envelopeFilePath;
     private final Path textFilePath;
-    private final String textFileName;
 
     OutputMetadata(
         String outputId,
         String fileName,
         String toolName,
         String operation,
-        String storedFormat,
-        int totalChars,
+        int jsonTotalChars,
+        int envelopeTotalChars,
         Integer textTotalChars,
         long createdAtMs,
         Path filePath,
-        Path textFilePath,
-        String textFileName) {
+        Path envelopeFilePath,
+        Path textFilePath) {
       this.outputId = outputId;
       this.fileName = fileName;
       this.toolName = toolName;
       this.operation = operation;
-      this.storedFormat = storedFormat;
-      this.totalChars = totalChars;
+      this.jsonTotalChars = jsonTotalChars;
+      this.envelopeTotalChars = envelopeTotalChars;
       this.textTotalChars = textTotalChars;
       this.createdAtMs = createdAtMs;
       this.filePath = filePath;
+      this.envelopeFilePath = envelopeFilePath;
       this.textFilePath = textFilePath;
-      this.textFileName = textFileName;
     }
   }
 
@@ -169,17 +187,27 @@ public final class ToolOutputStore {
 
   /** Stores output content in the backing temp directory. */
   public static StoredOutputRef store(
-      String requestedSessionId, String toolName, String operation, String content) {
-    return store(requestedSessionId, toolName, operation, content, null);
+      String requestedSessionId, String toolName, String operation, String jsonContent) {
+    return store(requestedSessionId, toolName, operation, StoredOutputViews.jsonOnly(jsonContent));
   }
 
-  /** Stores output content plus an optional preferred plain-text rendering. */
+  /** Stores JSON output content plus an optional preferred plain-text rendering. */
   public static StoredOutputRef store(
       String requestedSessionId,
       String toolName,
       String operation,
-      String content,
+      String jsonContent,
       String preferredTextContent) {
+    return store(
+        requestedSessionId,
+        toolName,
+        operation,
+        StoredOutputViews.jsonAndText(jsonContent, preferredTextContent));
+  }
+
+  /** Stores output payload plus optional sidecar views for envelope/debug retrieval. */
+  public static StoredOutputRef store(
+      String requestedSessionId, String toolName, String operation, StoredOutputViews views) {
     String sessionId =
         Optional.ofNullable(requestedSessionId)
             .map(String::trim)
@@ -198,13 +226,19 @@ public final class ToolOutputStore {
     String safeOperation = sanitizeSegment(operation, 32);
     String fileName = safeTool + "-" + safeOperation + "-" + outputId + ".json";
     Path outputFile = sessionDirectory.resolve(fileName);
+    String envelopeFileName = safeTool + "-" + safeOperation + "-" + outputId + ".response.json";
+    Path envelopeFile = sessionDirectory.resolve(envelopeFileName);
     String textFileName = safeTool + "-" + safeOperation + "-" + outputId + ".txt";
     Path textFile = sessionDirectory.resolve(textFileName);
 
-    String payload = Objects.requireNonNullElse(content, "");
-    writeFile(outputFile, payload);
+    writeFile(outputFile, views.jsonContent());
+    Path storedEnvelopePath = outputFile;
+    if (!Objects.equals(views.jsonContent(), views.envelopeJsonContent())) {
+      writeFile(envelopeFile, views.envelopeJsonContent());
+      storedEnvelopePath = envelopeFile;
+    }
     String textPayload =
-        Optional.ofNullable(preferredTextContent).filter(value -> !value.isBlank()).orElse(null);
+        Optional.ofNullable(views.textContent()).filter(value -> !value.isBlank()).orElse(null);
     if (textPayload != null) {
       writeFile(textFile, textPayload);
     }
@@ -215,13 +249,13 @@ public final class ToolOutputStore {
             fileName,
             toolName,
             operation,
-            FORMAT_MCP_RESPONSE_JSON,
-            payload.length(),
+            views.jsonContent().length(),
+            views.envelopeJsonContent().length(),
             textPayload != null ? textPayload.length() : null,
             now,
             outputFile,
-            textPayload != null ? textFile : null,
-            textPayload != null ? textFileName : null);
+            storedEnvelopePath,
+            textPayload != null ? textFile : null);
 
     synchronized (LOCK) {
       cleanupExpiredSessionsLocked();
@@ -244,13 +278,9 @@ public final class ToolOutputStore {
           metadata.fileName,
           metadata.toolName,
           metadata.operation,
-          metadata.storedFormat,
           preferredView(metadata),
           availableViews(metadata),
-          metadata.textFilePath != null,
-          metadata.totalChars,
-          preferredTotalChars(metadata),
-          metadata.textTotalChars,
+          viewTotalChars(metadata),
           metadata.createdAtMs);
     }
   }
@@ -304,13 +334,9 @@ public final class ToolOutputStore {
                           metadata.fileName,
                           metadata.toolName,
                           metadata.operation,
-                          metadata.storedFormat,
                           preferredView(metadata),
                           availableViews(metadata),
-                          metadata.textFilePath != null,
-                          metadata.totalChars,
-                          preferredTotalChars(metadata),
-                          metadata.textTotalChars,
+                          viewTotalChars(metadata),
                           metadata.createdAtMs))
               .toList();
     }
@@ -338,8 +364,7 @@ public final class ToolOutputStore {
 
     String resolvedView = resolveView(view, metadata);
     Path contentPath = getContentPath(metadata, resolvedView);
-    String contentFormat =
-        VIEW_TEXT.equals(resolvedView) ? FORMAT_PLAIN_TEXT : metadata.storedFormat;
+    String contentFormat = contentFormatForView(resolvedView);
 
     String allContent;
     try {
@@ -370,6 +395,7 @@ public final class ToolOutputStore {
         contentFormat,
         preferredView(metadata),
         availableViews(metadata),
+        viewTotalChars(metadata),
         effectiveOffset,
         effectiveMaxChars,
         chunk.length(),
@@ -431,6 +457,7 @@ public final class ToolOutputStore {
     return switch (normalizedView) {
       case "auto" -> preferredView(metadata);
       case VIEW_JSON -> VIEW_JSON;
+      case VIEW_ENVELOPE_JSON -> VIEW_ENVELOPE_JSON;
       case VIEW_TEXT -> {
         if (metadata.textFilePath == null) {
           throw new GhidraMcpException(
@@ -445,28 +472,53 @@ public final class ToolOutputStore {
       default ->
           throw new GhidraMcpException(
               GhidraMcpError.invalid(
-                  "view", requestedView, "must be one of: auto, " + VIEW_TEXT + ", " + VIEW_JSON));
+                  "view",
+                  requestedView,
+                  "must be one of: auto, "
+                      + VIEW_TEXT
+                      + ", "
+                      + VIEW_JSON
+                      + ", "
+                      + VIEW_ENVELOPE_JSON));
     };
   }
 
   private static Path getContentPath(OutputMetadata metadata, String view) {
-    return VIEW_TEXT.equals(view) && metadata.textFilePath != null
-        ? metadata.textFilePath
-        : metadata.filePath;
+    if (VIEW_TEXT.equals(view) && metadata.textFilePath != null) {
+      return metadata.textFilePath;
+    }
+    if (VIEW_ENVELOPE_JSON.equals(view)) {
+      return metadata.envelopeFilePath;
+    }
+    return metadata.filePath;
   }
 
   private static String preferredView(OutputMetadata metadata) {
     return metadata.textFilePath != null ? VIEW_TEXT : VIEW_JSON;
   }
 
-  private static Integer preferredTotalChars(OutputMetadata metadata) {
-    return VIEW_TEXT.equals(preferredView(metadata))
-        ? metadata.textTotalChars
-        : metadata.totalChars;
+  private static List<String> availableViews(OutputMetadata metadata) {
+    return metadata.textFilePath != null
+        ? List.of(VIEW_TEXT, VIEW_JSON, VIEW_ENVELOPE_JSON)
+        : List.of(VIEW_JSON, VIEW_ENVELOPE_JSON);
   }
 
-  private static List<String> availableViews(OutputMetadata metadata) {
-    return metadata.textFilePath != null ? List.of(VIEW_TEXT, VIEW_JSON) : List.of(VIEW_JSON);
+  private static Map<String, Integer> viewTotalChars(OutputMetadata metadata) {
+    LinkedHashMap<String, Integer> viewTotalChars = new LinkedHashMap<>();
+    if (metadata.textFilePath != null && metadata.textTotalChars != null) {
+      viewTotalChars.put(VIEW_TEXT, metadata.textTotalChars);
+    }
+    viewTotalChars.put(VIEW_JSON, metadata.jsonTotalChars);
+    viewTotalChars.put(VIEW_ENVELOPE_JSON, metadata.envelopeTotalChars);
+    return viewTotalChars;
+  }
+
+  private static String contentFormatForView(String view) {
+    return switch (view) {
+      case VIEW_TEXT -> FORMAT_PLAIN_TEXT;
+      case VIEW_ENVELOPE_JSON -> FORMAT_MCP_RESPONSE_JSON;
+      default -> FORMAT_JSON;
+    };
   }
 
   private static void cleanupExpiredSessionsLocked() {
@@ -509,6 +561,9 @@ public final class ToolOutputStore {
     OutputMetadata removed = bucket.outputs.remove(oldestOutputId);
     if (removed != null) {
       deleteFileQuietly(removed.filePath);
+      if (removed.envelopeFilePath != null && !removed.envelopeFilePath.equals(removed.filePath)) {
+        deleteFileQuietly(removed.envelopeFilePath);
+      }
       if (removed.textFilePath != null) {
         deleteFileQuietly(removed.textFilePath);
       }

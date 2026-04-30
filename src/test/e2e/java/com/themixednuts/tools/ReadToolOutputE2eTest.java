@@ -48,7 +48,7 @@ class ReadToolOutputE2eTest {
   }
 
   // ---------------------------------------------------------------------------
-  // FunctionsTool output → store → read back → assert exact match
+  // FunctionsTool output → store → read payload back → assert exact match
   // ---------------------------------------------------------------------------
 
   @Test
@@ -68,19 +68,24 @@ class ReadToolOutputE2eTest {
       PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(funcResult.results.isEmpty(), "Fixture should have functions");
 
-      // Wrap in McpResponse exactly as executeWithEnvelope does for PaginatedResult
+      // Build payload + envelope exactly as executeWithEnvelope would
+      String payloadJson = mapper.writeValueAsString(funcResult.results);
       McpResponse<?> envelope =
           McpResponse.paginated(
               "functions", "execute", funcResult.results, funcResult.nextCursor, null, 42L);
-      String originalJson = mapper.writeValueAsString(envelope);
+      String envelopeJson = mapper.writeValueAsString(envelope);
 
       // Store it (simulating the oversized-output path)
       String sessionId = "ses_e2e_func_output";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "functions", "execute", originalJson);
-      assertEquals(originalJson.length(), ref.totalChars());
+          ToolOutputStore.store(
+              sessionId,
+              "functions",
+              "execute",
+              ToolOutputStore.StoredOutputViews.withEnvelope(payloadJson, envelopeJson, null));
+      assertEquals(payloadJson.length(), ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
 
-      // Use ReadToolOutputTool to read it back
+      // Use ReadToolOutputTool to read the actual payload back
       Object chunkRaw =
           readOutputTool
               .execute(
@@ -91,26 +96,46 @@ class ReadToolOutputE2eTest {
       ToolOutputStore.OutputChunk chunk =
           assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
 
-      // Assert exact JSON match
-      assertEquals(originalJson, chunk.content(), "Stored and retrieved JSON must be identical");
+      // Assert exact JSON payload match
+      assertEquals(payloadJson, chunk.content(), "Stored and retrieved JSON must be identical");
       assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
+      assertEquals(ToolOutputStore.FORMAT_JSON, chunk.contentFormat());
       assertFalse(chunk.hasMore(), "Full content should fit in one chunk");
-      assertEquals(originalJson.length(), chunk.totalChars());
+      assertEquals(payloadJson.length(), chunk.totalChars());
 
-      // Parse retrieved JSON and verify structure
+      // Parse retrieved JSON payload and verify structure
       JsonNode retrieved = mapper.readTree(chunk.content());
-      assertTrue(retrieved.get("success").asBoolean());
-      assertNotNull(retrieved.get("data"));
-      assertTrue(retrieved.get("data").isArray());
-      assertEquals(funcResult.results.size(), retrieved.get("data").size());
+      assertTrue(retrieved.isArray());
+      assertEquals(funcResult.results.size(), retrieved.size());
 
       // Verify each function entry has expected fields
       for (int i = 0; i < funcResult.results.size(); i++) {
         FunctionInfo expected = funcResult.results.get(i);
-        JsonNode actual = retrieved.get("data").get(i);
+        JsonNode actual = retrieved.get(i);
         assertEquals(expected.getName(), actual.get("name").asText());
         assertEquals(expected.getEntryPoint(), actual.get("entry_point").asText());
       }
+
+      Object envelopeChunkRaw =
+          readOutputTool
+              .execute(
+                  null,
+                  Map.of(
+                      "action",
+                      "read",
+                      "session_id",
+                      sessionId,
+                      "output_id",
+                      ref.outputId(),
+                      "view",
+                      ToolOutputStore.VIEW_ENVELOPE_JSON),
+                  null)
+              .block();
+      ToolOutputStore.OutputChunk envelopeChunk =
+          assertInstanceOf(ToolOutputStore.OutputChunk.class, envelopeChunkRaw);
+      assertEquals(ToolOutputStore.VIEW_ENVELOPE_JSON, envelopeChunk.view());
+      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, envelopeChunk.contentFormat());
+      assertEquals(envelopeJson, envelopeChunk.content());
     } finally {
       fixture.close();
     }
@@ -147,19 +172,24 @@ class ReadToolOutputE2eTest {
       PaginatedResult<SymbolInfo> symbolResult = assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(symbolResult.results.isEmpty());
 
-      // Wrap and serialize
+      // Build payload + envelope
+      String payloadJson = mapper.writeValueAsString(symbolResult.results);
       McpResponse<?> envelope =
           McpResponse.paginated(
               "symbols", "execute", symbolResult.results, symbolResult.nextCursor, null, 7L);
-      String originalJson = mapper.writeValueAsString(envelope);
+      String envelopeJson = mapper.writeValueAsString(envelope);
 
       // Store
       String sessionId = "ses_e2e_symbol_output";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "symbols", "execute", originalJson);
+          ToolOutputStore.store(
+              sessionId,
+              "symbols",
+              "execute",
+              ToolOutputStore.StoredOutputViews.withEnvelope(payloadJson, envelopeJson, null));
 
       // Read back in small chunks to exercise pagination
-      int chunkSize = Math.max(50, originalJson.length() / 3);
+      int chunkSize = Math.max(50, payloadJson.length() / 3);
       StringBuilder reassembled = new StringBuilder();
       int offset = 0;
 
@@ -180,7 +210,7 @@ class ReadToolOutputE2eTest {
             assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
 
         assertEquals(offset, chunk.offset());
-        assertEquals(originalJson.length(), chunk.totalChars());
+        assertEquals(payloadJson.length(), chunk.totalChars());
         assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
         reassembled.append(chunk.content());
 
@@ -193,17 +223,16 @@ class ReadToolOutputE2eTest {
       }
 
       // Verify reassembled content is byte-identical to original
-      assertEquals(originalJson, reassembled.toString());
+      assertEquals(payloadJson, reassembled.toString());
 
       // Parse and verify symbol data integrity
       JsonNode retrieved = mapper.readTree(reassembled.toString());
-      assertTrue(retrieved.get("success").asBoolean());
-      JsonNode dataArray = retrieved.get("data");
-      assertEquals(symbolResult.results.size(), dataArray.size());
+      assertTrue(retrieved.isArray());
+      assertEquals(symbolResult.results.size(), retrieved.size());
 
       for (int i = 0; i < symbolResult.results.size(); i++) {
         SymbolInfo expected = symbolResult.results.get(i);
-        JsonNode actual = dataArray.get(i);
+        JsonNode actual = retrieved.get(i);
         assertEquals(expected.getName(), actual.get("name").asText());
         assertEquals(expected.getAddress(), actual.get("address").asText());
       }
@@ -231,13 +260,18 @@ class ReadToolOutputE2eTest {
       @SuppressWarnings("unchecked")
       PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
 
+      String payloadJson = mapper.writeValueAsString(funcResult.results);
       McpResponse<?> envelope =
           McpResponse.success("functions", "execute", funcResult.results, 15L);
-      String json = mapper.writeValueAsString(envelope);
+      String envelopeJson = mapper.writeValueAsString(envelope);
 
       String sessionId = "ses_e2e_metadata";
       ToolOutputStore.StoredOutputRef ref =
-          ToolOutputStore.store(sessionId, "functions", "execute", json);
+          ToolOutputStore.store(
+              sessionId,
+              "functions",
+              "execute",
+              ToolOutputStore.StoredOutputViews.withEnvelope(payloadJson, envelopeJson, null));
 
       // list_sessions — find our session
       Object sessionsRaw =
@@ -269,7 +303,10 @@ class ReadToolOutputE2eTest {
       assertEquals("functions", ourOutput.toolName());
       assertEquals("execute", ourOutput.operation());
       assertEquals(ToolOutputStore.VIEW_JSON, ourOutput.preferredView());
-      assertEquals(json.length(), ourOutput.totalChars());
+      assertEquals(payloadJson.length(), ourOutput.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
+      assertEquals(
+          envelopeJson.length(),
+          ourOutput.viewTotalChars().get(ToolOutputStore.VIEW_ENVELOPE_JSON));
       assertEquals(ref.fileName(), ourOutput.fileName());
 
       // read by file name — alternative lookup path
@@ -288,7 +325,7 @@ class ReadToolOutputE2eTest {
               .block();
       ToolOutputStore.OutputChunk byName =
           assertInstanceOf(ToolOutputStore.OutputChunk.class, byNameRaw);
-      assertEquals(json, byName.content());
+      assertEquals(payloadJson, byName.content());
     } finally {
       fixture.close();
     }
@@ -302,8 +339,10 @@ class ReadToolOutputE2eTest {
             sessionId,
             "inspect",
             "decompile",
-            "{\"success\":true,\"data\":{\"decompiled_code\":\"int main(){}\"}}",
-            "int main(){}");
+            ToolOutputStore.StoredOutputViews.withEnvelope(
+                "{\"decompiled_code\":\"int main(){}\"}",
+                "{\"success\":true,\"data\":{\"decompiled_code\":\"int main(){}\"}}",
+                "int main(){}"));
 
     Object chunkRaw =
         readOutputTool
@@ -318,6 +357,26 @@ class ReadToolOutputE2eTest {
     assertEquals(ToolOutputStore.VIEW_TEXT, chunk.view());
     assertEquals(ToolOutputStore.FORMAT_PLAIN_TEXT, chunk.contentFormat());
     assertEquals("int main(){}", chunk.content());
+
+    Object jsonChunkRaw =
+        readOutputTool
+            .execute(
+                null,
+                Map.of(
+                    "action",
+                    "read",
+                    "session_id",
+                    sessionId,
+                    "output_id",
+                    ref.outputId(),
+                    "view",
+                    ToolOutputStore.VIEW_JSON),
+                null)
+            .block();
+    ToolOutputStore.OutputChunk jsonChunk =
+        assertInstanceOf(ToolOutputStore.OutputChunk.class, jsonChunkRaw);
+    assertEquals(ToolOutputStore.FORMAT_JSON, jsonChunk.contentFormat());
+    assertEquals("{\"decompiled_code\":\"int main(){}\"}", jsonChunk.content());
   }
 
   // ---------------------------------------------------------------------------

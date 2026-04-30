@@ -512,13 +512,25 @@ public abstract class BaseMcpTool {
           createSuccessTextContent(response, args, toolName, operation)
               .filter(text -> text != null && !text.isBlank())
               .orElse(null);
+      if ((successText == null || successText.isBlank())
+          && response.getData() instanceof CharSequence text
+          && !text.toString().isBlank()) {
+        successText = text.toString();
+      }
+
+      String payloadJson = mapper.writeValueAsString(response.getData());
       String jsonResult = mapper.writeValueAsString(response);
 
       if (jsonResult.length() > INLINE_RESPONSE_CHAR_LIMIT) {
         String requestedSessionId =
             getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
         ToolOutputStore.StoredOutputRef outputRef =
-            ToolOutputStore.store(requestedSessionId, toolName, operation, jsonResult, successText);
+            ToolOutputStore.store(
+                requestedSessionId,
+                toolName,
+                operation,
+                ToolOutputStore.StoredOutputViews.withEnvelope(
+                    payloadJson, jsonResult, successText));
         response = wrapOversizedOutput(response, outputRef, successText != null);
         jsonResult = mapper.writeValueAsString(response);
       }
@@ -576,14 +588,10 @@ public abstract class BaseMcpTool {
     inlineNotice.put("output_file_name", outputRef.fileName());
     inlineNotice.put("tool_name", outputRef.toolName());
     inlineNotice.put("operation", outputRef.operation());
-    inlineNotice.put("stored_format", outputRef.storedFormat());
     inlineNotice.put("preferred_read_view", outputRef.preferredView());
     inlineNotice.put("available_views", outputRef.availableViews());
-    inlineNotice.put("text_available", outputRef.textAvailable());
+    inlineNotice.put("view_total_chars", outputRef.viewTotalChars());
     inlineNotice.put("inline_preview_available", inlinePreviewAvailable);
-    inlineNotice.put("preferred_total_chars", outputRef.preferredTotalChars());
-    inlineNotice.put("text_total_chars", outputRef.textTotalChars());
-    inlineNotice.put("total_chars", outputRef.totalChars());
     inlineNotice.put("inline_limit_chars", INLINE_RESPONSE_CHAR_LIMIT);
     inlineNotice.put(
         "suggested_read_args",

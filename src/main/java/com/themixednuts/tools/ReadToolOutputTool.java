@@ -35,8 +35,10 @@ import reactor.core.publisher.Mono;
         - Use action=list_sessions to discover available sessions.
         - Use action=list_outputs with session_id to browse stored outputs.
         - Use action=read with session_id plus output_id or output_file_name to fetch chunks.
-        - read defaults to the output's preferred agent-facing view, usually plain text when available.
-        - Set view=json when you need the original stored MCP response envelope.
+        - read defaults to the output's preferred agent-facing view, usually plain text when available,
+          otherwise the original tool data serialized as JSON.
+        - Set view=json when you want the stored tool payload as JSON.
+        - Set view=envelope_json when you need the original stored structured response envelope.
         - Read chunks are best-effort capped so the serialized MCP response stays inline-safe.
         - List cursors are opaque v1 values.
         </important_notes>
@@ -120,7 +122,11 @@ public class ReadToolOutputTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_VIEW,
         SchemaBuilder.string(mapper)
-            .enumValues(VIEW_AUTO, ToolOutputStore.VIEW_TEXT, ToolOutputStore.VIEW_JSON)
+            .enumValues(
+                VIEW_AUTO,
+                ToolOutputStore.VIEW_TEXT,
+                ToolOutputStore.VIEW_JSON,
+                ToolOutputStore.VIEW_ENVELOPE_JSON)
             .description(
                 "Preferred representation for read action. 'auto' uses the output's preferred"
                     + " agent-facing view.")
@@ -316,6 +322,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
         original.contentFormat(),
         original.preferredView(),
         original.availableViews(),
+        original.viewTotalChars(),
         original.offset(),
         original.requestedChars(),
         resizedContent.length(),
@@ -340,13 +347,9 @@ public class ReadToolOutputTool extends BaseMcpTool {
                 + String.join("/", info.availableViews())
                 + " chars=");
 
-    Integer preferredChars = info.preferredTotalChars();
-    builder.append(preferredChars != null ? preferredChars : info.totalChars());
-
-    if (info.textAvailable() && info.textTotalChars() != null) {
-      builder.append(" text_chars=").append(info.textTotalChars());
-    }
-    builder.append(" stored_chars=").append(info.totalChars());
+    Integer preferredChars = info.viewTotalChars().get(info.preferredView());
+    builder.append(preferredChars != null ? preferredChars : 0);
+    builder.append(" by_view=").append(info.viewTotalChars());
     return builder.toString();
   }
 }
