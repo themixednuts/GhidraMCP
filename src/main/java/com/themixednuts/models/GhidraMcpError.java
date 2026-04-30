@@ -47,12 +47,22 @@ public class GhidraMcpError {
     return hint;
   }
 
-  @JsonProperty("error_type")
+  /**
+   * Coarse error category. Excluded from JSON — agents reason from {@code message}/{@code hint}
+   * prose, not from enum codes. Kept on the model for server-side logs and tests.
+   */
+  @JsonIgnore
   public String getPayloadErrorType() {
     return errorType.name().toLowerCase(Locale.ROOT);
   }
 
-  @JsonProperty("error_code")
+  /**
+   * Specific error enum (e.g. {@code invalid_argument_value}, {@code not_found}). Excluded from
+   * JSON for the same reason as {@code error_type}: agents never branch on it, and the message
+   * conveys the same information in human-readable form. Kept as a programmatic accessor for logs,
+   * exception construction, and tests.
+   */
+  @JsonIgnore
   public String getPayloadErrorCode() {
     return payloadCode.name().toLowerCase(Locale.ROOT);
   }
@@ -387,12 +397,20 @@ public class GhidraMcpError {
 
   // =================== Supporting Records ===================
 
+  /**
+   * Context attached to an error. {@code toolName} and {@code operation} are kept for in-process
+   * use (logging, exception construction) but excluded from JSON since the agent already knows
+   * which call it just made — sending them back is pure echo. {@code inputArguments} is also
+   * excluded for the same reason: the agent has the full request in its conversation history.
+   * {@code providedValues} and {@code metadata} are agent-actionable and remain serialized.
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
   public record ErrorContext(
-      String toolName,
-      String operation,
-      Object inputArguments,
-      Object providedValues,
-      Object metadata) {}
+      @JsonIgnore String toolName,
+      @JsonIgnore String operation,
+      @JsonIgnore Object inputArguments,
+      @JsonProperty("provided_values") Object providedValues,
+      @JsonProperty("metadata") Object metadata) {}
 
   public record ErrorSuggestion(
       SuggestionType type,

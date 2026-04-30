@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,12 +14,12 @@ import java.util.Optional;
  * @param <T> The type of data contained in the response
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({"success", "data", "next_cursor", "duration_ms", "error"})
+@JsonPropertyOrder({"data", "next_cursor", "message", "hint", "context", "suggestions"})
 public class McpResponse<T> {
 
   private final T data; // result data
   private final String nextCursor; // next page cursor
-  private final Long durationMs; // duration in milliseconds
+  private final Long durationMs; // duration in milliseconds (server-side telemetry only)
   private final GhidraMcpError error;
 
   private McpResponse(Builder<T> builder) {
@@ -30,8 +31,12 @@ public class McpResponse<T> {
 
   // =================== Getters ===================
 
-  /** Checks if the response is successful (has no error message). */
-  @JsonProperty("success")
+  /**
+   * Whether the response represents a success. Excluded from JSON — agents already see this via
+   * MCP's {@code CallToolResult.isError} flag, and the absence of an {@code error} field is the
+   * structural signal. Kept as a programmatic accessor for in-process callers.
+   */
+  @JsonIgnore
   public boolean isSuccess() {
     return error == null;
   }
@@ -46,12 +51,22 @@ public class McpResponse<T> {
     return nextCursor;
   }
 
-  @JsonProperty("duration_ms")
+  /**
+   * Server-side execution time. Excluded from JSON because agents never reason about it. Logged
+   * server-side instead.
+   */
+  @JsonIgnore
   public Long getDurationMs() {
     return durationMs;
   }
 
-  @JsonProperty("error")
+  /**
+   * Error payload — flattened into the parent JSON via {@link JsonUnwrapped}. The MCP {@code
+   * CallToolResult.isError} flag is the canonical "this call failed" signal, so the extra {@code
+   * "error":{}} wrapper would just be REST-API muscle memory. On a successful call, this is null
+   * and the unwrapped fields are absent.
+   */
+  @JsonUnwrapped
   public GhidraMcpError getError() {
     return error;
   }

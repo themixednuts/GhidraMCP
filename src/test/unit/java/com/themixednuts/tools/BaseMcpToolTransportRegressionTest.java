@@ -46,13 +46,14 @@ class BaseMcpToolTransportRegressionTest {
       assertTrue(result.structuredContent() instanceof Map<?, ?>);
 
       Map<String, Object> structured = structured(result);
-      assertEquals(Boolean.FALSE, structured.get("success"));
-      assertTrue(structured.get("error") instanceof Map<?, ?>);
-
-      @SuppressWarnings("unchecked")
-      Map<String, Object> error = (Map<String, Object>) structured.get("error");
-      assertEquals("internal", error.get("error_type"));
-      assertTrue(String.valueOf(error.get("message")).contains("NullPointerException: value"));
+      // success/duration_ms/error_type/error_code dropped from envelope. CallToolResult.isError
+      // is the canonical failure signal; error fields flatten into the structured root via
+      // @JsonUnwrapped, so there is no nested "error" wrapper to traverse.
+      assertFalse(structured.containsKey("success"));
+      assertFalse(structured.containsKey("error"));
+      assertFalse(structured.containsKey("error_type"));
+      assertFalse(structured.containsKey("error_code"));
+      assertTrue(String.valueOf(structured.get("message")).contains("NullPointerException: value"));
       assertFalse(result.content().isEmpty());
     }
   }
@@ -66,7 +67,8 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
-      assertEquals(Boolean.TRUE, structured.get("success"));
+      assertFalse(structured.containsKey("success"));
+      assertFalse(structured.containsKey("duration_ms"));
       assertEquals("structured", dataMap(structured).get("mode"));
       assertEquals("00401000 90 NOP", text(result));
     }
@@ -81,7 +83,7 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
-      assertEquals(Boolean.TRUE, structured.get("success"));
+      assertFalse(structured.containsKey("success"));
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", structured.get("data"));
       assertEquals("cursor-2", structured.get("next_cursor"));
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", text(result));
@@ -101,10 +103,9 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(
           "Output exceeded inline size and was stored for chunked retrieval.", data.get("message"));
       assertEquals("read_tool_output", data.get("retrieval_tool"));
-      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, data.get("stored_format"));
       assertEquals(ToolOutputStore.VIEW_TEXT, data.get("preferred_read_view"));
+      assertTrue(data.get("view_total_chars") instanceof Map<?, ?>);
       assertEquals(Boolean.TRUE, data.get("inline_preview_available"));
-      assertEquals(Boolean.TRUE, data.get("text_available"));
       assertNotNull(data.get("output_id"));
 
       String preview = text(result);
@@ -143,7 +144,7 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(
           ToolOutputStore.MAX_READ_CHUNK_CHARS, ((Number) data.get("requestedChars")).intValue());
       assertEquals(ToolOutputStore.VIEW_JSON, data.get("view"));
-      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, data.get("contentFormat"));
+      assertEquals(ToolOutputStore.FORMAT_JSON, data.get("contentFormat"));
       assertTrue(((Number) data.get("returnedChars")).intValue() > 0);
       assertTrue(
           ((Number) data.get("returnedChars")).intValue()
