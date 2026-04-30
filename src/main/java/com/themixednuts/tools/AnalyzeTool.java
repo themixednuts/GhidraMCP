@@ -1725,7 +1725,11 @@ public class AnalyzeTool extends BaseMcpTool {
             nameFilter = Pattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
           }
 
-          // Parse agent-defined custom tag patterns
+          // Parse agent-defined custom tag patterns. Each {template, tag} entry tags any RTTI row
+          // whose mangled name contains the template substring. This matches the agent's mental
+          // model — pattern → tag on the row I see — instead of the older "find wrapper, demangle
+          // inner template arg, tag a different entry" pipeline that silently dropped tags
+          // whenever the lookup key didn't round-trip cleanly through MDMang.
           List<Map<String, Object>> customTagDefs =
               getOptionalListArgument(args, "custom_tags").orElse(null);
           Map<String, String> templateToTag = new LinkedHashMap<>();
@@ -1733,9 +1737,8 @@ public class AnalyzeTool extends BaseMcpTool {
             for (Map<String, Object> def : customTagDefs) {
               String template = def.get("template") != null ? def.get("template").toString() : null;
               String tag = def.get("tag") != null ? def.get("tag").toString() : null;
-              if (template != null && tag != null) {
-                // MSVC template args are encoded as TemplateName@V for class args
-                templateToTag.put(template + "@V", tag);
+              if (template != null && !template.isBlank() && tag != null && !tag.isBlank()) {
+                templateToTag.put(template, tag);
               }
             }
           }
@@ -1752,7 +1755,10 @@ public class AnalyzeTool extends BaseMcpTool {
           Map<String, Map<String, Object>> classMap = new TreeMap<>();
           // Map from class name to list of methods discovered via lambda RTTI
           Map<String, List<Map<String, String>>> methodMap = new LinkedHashMap<>();
-          Map<String, Set<String>> classCustomTags = new LinkedHashMap<>();
+          // Keyed by the FULL mangled name of the RTTI entry — not by extracted class name.
+          // This avoids the demangle round-trip that drops tags when MDMang can't recover the
+          // exact bare-class string the lookup side uses.
+          Map<String, Set<String>> mangledCustomTags = new LinkedHashMap<>();
 
           // Restrict search to .data section where RTTI0 type descriptors live
           MemoryBlock dataBlock = memory.getBlock(".data");
@@ -1814,8 +1820,8 @@ public class AnalyzeTool extends BaseMcpTool {
                 // Process lambda RTTI for method discovery
                 processLambdaRttiEntry(mangledName, methodMap);
 
-                // Apply agent-defined custom tags
-                applyCustomTags(mangledName, templateToTag, classCustomTags);
+                // Apply agent-defined custom tags directly to this entry's mangled key.
+                applyCustomTags(mangledName, templateToTag, mangledCustomTags);
 
                 if (!classMap.containsKey(mangledName)) {
                   // Use Ghidra's demangling from the model, fall back to MDMang
@@ -1870,7 +1876,7 @@ public class AnalyzeTool extends BaseMcpTool {
                     Address rtti0Addr = found.subtract(16);
 
                     processLambdaRttiEntry(mangledName, methodMap);
-                    applyCustomTags(mangledName, templateToTag, classCustomTags);
+                    applyCustomTags(mangledName, templateToTag, mangledCustomTags);
 
                     if (!classMap.containsKey(mangledName)) {
                       String demangled = tryMDMangDemangle(mangledName);
@@ -1917,7 +1923,7 @@ public class AnalyzeTool extends BaseMcpTool {
                 createRttiListEntry(
                     classInfo,
                     methodCount,
-                    getCustomTagsForClass(classCustomTags, className),
+                    getCustomTagsForMangled(mangledCustomTags, mangledKey),
                     isLambda));
           }
 
@@ -1938,11 +1944,13 @@ public class AnalyzeTool extends BaseMcpTool {
               classInfo.put("mangled", null);
               classInfo.put("type_kind", "class");
               classInfo.put("rtti0_address", null);
+              // Lambda-only discoveries have no mangled name to match against — pass null and
+              // accept that template-pattern tags don't apply to them.
               allClasses.add(
                   createRttiListEntry(
                       classInfo,
                       countDistinctMethodNames(methodEntry.getValue()),
-                      getCustomTagsForClass(classCustomTags, className),
+                      getCustomTagsForMangled(mangledCustomTags, null),
                       false));
             }
           }
@@ -2037,13 +2045,13 @@ public class AnalyzeTool extends BaseMcpTool {
     return methods.size();
   }
 
-  private List<String> getCustomTagsForClass(
-      Map<String, Set<String>> classCustomTags, String className) {
-    if (className == null) {
+  private List<String> getCustomTagsForMangled(
+      Map<String, Set<String>> mangledCustomTags, String mangledName) {
+    if (mangledName == null) {
       return List.of();
     }
 
-    Set<String> tags = classCustomTags.get(className);
+    Set<String> tags = mangledCustomTags.get(mangledName);
     if (tags == null || tags.isEmpty()) {
       return List.of();
     }
@@ -2073,45 +2081,26 @@ public class AnalyzeTool extends BaseMcpTool {
    * (constructors, operators, templates, etc.) per spec.
    */
   /**
-   * Applies agent-defined custom tags by matching MSVC template patterns in the mangled name. Each
-   * pattern matches entries containing {@code TemplateName@VClassName} and tags the extracted
-   * class.
+   * Applies agent-defined custom tags to the entry whose mangled name contains the template
+   * substring. The earlier implementation tried to extract the template's inner type-arg and tag a
+   * separate class entry, which silently dropped tags whenever the inner-name MDMang round-trip
+   * didn't match the lookup-side bare class extractor — and even when it did match, the tag landed
+   * on a different row than the one the agent's {@code name_pattern} usually selected. Tagging the
+   * matching row directly aligns with the agent's mental model: "pattern → tag on rows I see".
    */
   private void applyCustomTags(
       String mangledName,
       Map<String, String> templateToTag,
-      Map<String, Set<String>> classCustomTags) {
+      Map<String, Set<String>> mangledCustomTags) {
+    if (mangledName == null || mangledName.isEmpty()) {
+      return;
+    }
     for (var entry : templateToTag.entrySet()) {
-      String templatePattern = entry.getKey(); // e.g., "sp_ms_deleter@V"
+      String templatePattern = entry.getKey();
       String tag = entry.getValue();
-
-      int idx = mangledName.indexOf(templatePattern);
-      if (idx < 0) continue;
-
-      // Extract the template argument class name
-      String after = mangledName.substring(idx + templatePattern.length());
-      int end = after.indexOf("@@");
-      if (end <= 0) end = after.indexOf('@');
-      if (end <= 0) continue;
-
-      String rawClassName = after.substring(0, end);
-      // Use MDMang structured AST to extract clean class name from template arg
-      String className = rawClassName;
-      try {
-        String asRtti = ".?AV" + rawClassName + "@@";
-        MDMangGhidra mdm = new MDMangGhidra();
-        mdm.setMangledSymbol(asRtti);
-        MDParsableItem parsed = mdm.demangle();
-        if (parsed instanceof mdemangler.object.MDObjectCPP cppObj) {
-          String name = cppObj.getName();
-          if (name != null && !name.isEmpty()) {
-            className = name;
-          }
-        }
-      } catch (Exception ignored) {
-        // Use raw name
+      if (mangledName.contains(templatePattern)) {
+        mangledCustomTags.computeIfAbsent(mangledName, k -> new LinkedHashSet<>()).add(tag);
       }
-      classCustomTags.computeIfAbsent(className, k -> new LinkedHashSet<>()).add(tag);
     }
   }
 
