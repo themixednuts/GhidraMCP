@@ -255,32 +255,24 @@ public abstract class BaseMcpTool {
   }
 
   private static Map<String, Object> createDefaultOutputSchema() {
-    Map<String, Object> errorSchema = new LinkedHashMap<>();
-    errorSchema.put("type", "object");
-    errorSchema.put(
-        "properties",
-        Map.of(
-            "message", Map.of("type", "string"),
-            "hint", Map.of("type", "string"),
-            "error_type", Map.of("type", "string"),
-            "error_code", Map.of("type", "string"),
-            "context", Map.of("type", "object"),
-            "related_resources", Map.of("type", "array"),
-            "suggestions", Map.of("type", "array")));
-    errorSchema.put("additionalProperties", true);
+    // Envelope is intentionally lean: success/duration_ms/error_type/error_code are derivable
+    // from CallToolResult.isError + the message prose, so they're omitted from the wire. The
+    // error payload is unwrapped (no "error" sub-object) — failure is signaled by isError, and
+    // message/hint/context/suggestions sit at the top level alongside data/next_cursor.
+    Map<String, Object> properties = new LinkedHashMap<>();
+    properties.put("data", Map.of());
+    properties.put("next_cursor", Map.of("type", "string"));
+    properties.put("message", Map.of("type", "string"));
+    properties.put("hint", Map.of("type", "string"));
+    properties.put("context", Map.of("type", "object"));
+    properties.put("related_resources", Map.of("type", "array"));
+    properties.put("suggestions", Map.of("type", "array"));
 
     Map<String, Object> responseSchema = new LinkedHashMap<>();
     responseSchema.put("type", "object");
-    responseSchema.put("required", List.of("success"));
-    responseSchema.put(
-        "properties",
-        Map.of(
-            "success", Map.of("type", "boolean"),
-            "data", Map.of(),
-            "next_cursor", Map.of("type", "string"),
-            "duration_ms", Map.of("type", "number"),
-            "error", errorSchema));
-    responseSchema.put("additionalProperties", false);
+    responseSchema.put("properties", properties);
+    // Permit forward-compat extras and any tool-specific data shape.
+    responseSchema.put("additionalProperties", true);
     return responseSchema;
   }
 
