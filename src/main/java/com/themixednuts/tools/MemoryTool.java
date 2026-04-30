@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -7,6 +8,7 @@ import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -132,6 +134,7 @@ import reactor.core.publisher.Mono;
 public class MemoryTool extends BaseMcpTool {
 
   public static final String ARG_BYTES_HEX = "bytes_hex";
+  public static final String ARG_FORMAT = "format";
   public static final String ARG_NAME_FILTER = "name_filter";
   public static final String ARG_READABLE = "readable";
   public static final String ARG_WRITABLE = "writable";
@@ -229,6 +232,13 @@ public class MemoryTool extends BaseMcpTool {
       return address;
     }
 
+    /**
+     * The raw matched bytes. Excluded from the MCP JSON payload — for {@code string}/{@code hex}
+     * searches the bytes are an echo of the search input, and even {@code regex} matches are
+     * recoverable via a follow-up {@code memory.read}. Kept on the model for in-process callers
+     * (tests, batched ops).
+     */
+    @JsonIgnore
     public byte[] getBytes() {
       return bytes;
     }
@@ -237,6 +247,7 @@ public class MemoryTool extends BaseMcpTool {
       return length;
     }
 
+    @JsonIgnore
     public String getSearchType() {
       return searchType;
     }
@@ -287,6 +298,16 @@ public class MemoryTool extends BaseMcpTool {
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description("Hexadecimal bytes to write (e.g., '4889e5')")
             .pattern("^[0-9a-fA-F]+$"));
+
+    schemaRoot.property(
+        ARG_FORMAT,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+            .description(
+                "Read response format. 'auto' (default) returns the decoded ASCII string when the"
+                    + " region looks like a C-string, otherwise the printable-byte view; 'ascii'"
+                    + " always returns the printable-byte view; 'hex' returns the raw hex bytes;"
+                    + " 'both' returns hex + printable view (legacy).")
+            .enumValues("auto", "ascii", "hex", "both"));
 
     schemaRoot.property(
         ARG_DATA_TYPE_PATH,
@@ -505,12 +526,29 @@ public class MemoryTool extends BaseMcpTool {
                 case ACTION_SEARCH -> handleSearch(program, args);
                 case ACTION_APPLY_VTABLE -> handleApplyVtable(program, args);
                 default -> {
+                  // Sessions show 'disassemble' attempted on this tool — disassembly lives on
+                  // inspect.listing. Surface the redirect rather than a generic action list.
+                  java.util.Map<String, String> aliases =
+                      java.util.Map.of(
+                          "disassemble", "use `inspect` (action: listing)",
+                          "decompile", "use `inspect` (action: decompile)",
+                          "xref", "use `inspect` (action: references_to)",
+                          "xrefs", "use `inspect` (action: references_to)",
+                          "references", "use `inspect` (action: references_to)",
+                          "references_to", "use `inspect` (action: references_to)",
+                          "references_from", "use `inspect` (action: references_from)");
                   GhidraMcpError error =
-                      GhidraMcpError.invalid(
-                          "action",
+                      GhidraMcpErrorUtils.invalidAction(
                           action,
-                          "use: read, write, define, undefine, list_blocks, search,"
-                              + " apply_vtable");
+                          List.of(
+                              ACTION_READ,
+                              ACTION_WRITE,
+                              ACTION_DEFINE,
+                              ACTION_UNDEFINE,
+                              ACTION_LIST_BLOCKS,
+                              ACTION_SEARCH,
+                              ACTION_APPLY_VTABLE),
+                          aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -521,6 +559,17 @@ public class MemoryTool extends BaseMcpTool {
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
     String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
     int length = getRequiredIntArgument(args, ARG_LENGTH);
+    String format =
+        getOptionalStringArgument(args, ARG_FORMAT).map(String::toLowerCase).orElse("auto");
+    if (!format.equals("auto")
+        && !format.equals("ascii")
+        && !format.equals("hex")
+        && !format.equals("both")) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_FORMAT, format, "must be one of: auto, ascii, hex, both")));
+    }
 
     return Mono.fromCallable(
         () -> {
@@ -563,13 +612,43 @@ public class MemoryTool extends BaseMcpTool {
             bytesRead = Arrays.copyOf(bytesRead, actualBytesRead);
           }
 
-          // Generate hex representation and readable ASCII
-          String hexData = HexFormat.of().formatHex(bytesRead);
-          String readable = generateReadableString(bytesRead);
           String decodedString = detectAsciiString(bytesRead);
+          String hexData = null;
+          String readable = null;
+
+          switch (format) {
+            case "hex":
+              hexData = HexFormat.of().formatHex(bytesRead);
+              break;
+            case "ascii":
+              readable = generateReadableString(bytesRead);
+              break;
+            case "both":
+              hexData = HexFormat.of().formatHex(bytesRead);
+              readable = generateReadableString(bytesRead);
+              break;
+            case "auto":
+            default:
+              // Auto: if the region is a clean ASCII string, surface only decoded_string and skip
+              // the redundant hex_data + readable byte-map. Otherwise emit the printable-byte view
+              // (~50% smaller than hex_data and more useful at a glance).
+              if (decodedString == null) {
+                readable = generateReadableString(bytesRead);
+              }
+              break;
+          }
+
+          // Drop bytes_requested when it equals bytes_read (the common case) — the agent only
+          // needs to see it on a short read.
+          Integer requestedField = (length == actualBytesRead) ? null : Integer.valueOf(length);
 
           return new MemoryReadResult(
-              address.toString(), hexData, readable, length, actualBytesRead, decodedString);
+              address.toString(),
+              hexData,
+              readable,
+              requestedField,
+              Integer.valueOf(actualBytesRead),
+              decodedString);
         });
   }
 
@@ -858,6 +937,12 @@ public class MemoryTool extends BaseMcpTool {
   }
 
   private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args) {
+    // Accept legacy/intuitive arg name "query" as an alias for "search_value" — agents
+    // recovered from "Missing: search_value" errors by retrying with this exact name.
+    if (!args.containsKey(ARG_SEARCH_VALUE) && args.containsKey("query")) {
+      args.put(ARG_SEARCH_VALUE, args.get("query"));
+    }
+
     return withTaskMonitor(
         "memory.search",
         monitor -> {
@@ -1015,17 +1100,7 @@ public class MemoryTool extends BaseMcpTool {
                                 program.getName(),
                                 "endianness",
                                 program.getMemory().isBigEndian() ? "big" : "little")))
-                    .suggestions(
-                        List.of(
-                            new GhidraMcpError.ErrorSuggestion(
-                                GhidraMcpError.ErrorSuggestion.SuggestionType.CHECK_RESOURCES,
-                                "Try different search patterns",
-                                "Consider trying different hex patterns or search types",
-                                List.of(
-                                    "Try with spaces: '38 8c 36 49'",
-                                    "Try uppercase: '388C3649'",
-                                    "Try different search type"),
-                                null)))
+                    .suggestions(buildNoResultsSuggestions(searchType, searchValue, caseSensitive))
                     .build());
           }
 
@@ -1177,6 +1252,99 @@ public class MemoryTool extends BaseMcpTool {
           GhidraMcpError.invalid(ARG_CURSOR, cursor, "cursor must be a valid memory address"));
     }
     return decodedAddress;
+  }
+
+  /**
+   * Builds zero-result recovery suggestions tailored to the search type. Sessions show agents
+   * frequently re-running the same query manually with UTF-16, case-insensitive, or hex-equivalent
+   * variants — surface those up front so the next attempt is informed.
+   */
+  private List<GhidraMcpError.ErrorSuggestion> buildNoResultsSuggestions(
+      SearchType searchType, String searchValue, boolean caseSensitive) {
+    List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
+
+    if (searchType == SearchType.STRING) {
+      List<String> examples = new ArrayList<>();
+      if (caseSensitive) {
+        examples.add(
+            "Retry with case_sensitive=false (the search ran case-sensitive by default off but"
+                + " the value may have alternate casing)");
+      }
+      // UTF-16LE-as-hex fallback: a string searched as UTF-16 in a Windows binary often misses on
+      // a plain string match. Provide the literal hex pattern so the agent can paste it back.
+      String utf16Hex = formatUtf16LeHex(searchValue);
+      if (utf16Hex != null) {
+        examples.add(
+            "Try search_type=hex with UTF-16LE bytes: '"
+                + utf16Hex
+                + "' (interleaves null bytes for wide-char strings)");
+      }
+      examples.add(
+          "Try search_type=regex with a relaxed pattern (e.g. surrounding the term with .*)");
+      examples.add("Constrain with address_start/address_end to skip unrelated regions");
+      suggestions.add(
+          new GhidraMcpError.ErrorSuggestion(
+              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+              "String not found — try wider encoding or pattern",
+              "Common reasons: the program stores it as UTF-16LE, the casing differs, or the"
+                  + " literal is split across constants",
+              examples,
+              null));
+    } else if (searchType == SearchType.HEX) {
+      suggestions.add(
+          new GhidraMcpError.ErrorSuggestion(
+              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+              "Hex pattern not found — verify byte order and grouping",
+              "Hex bytes must be space-separated; multibyte values respect program endianness",
+              List.of(
+                  "Use space-separated bytes: '48 65 6c 6c 6f'",
+                  "Reverse byte order if you wrote a big-endian value on a little-endian program",
+                  "Drop trailing wildcards (Ghidra hex search does not accept '?'); use regex"
+                      + " instead"),
+              null));
+    } else if (searchType == SearchType.REGEX) {
+      suggestions.add(
+          new GhidraMcpError.ErrorSuggestion(
+              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+              "Regex matched nothing — broaden the pattern",
+              "Ghidra's regex search runs over raw memory bytes, not decoded text",
+              List.of(
+                  "Try search_type=string for plain text",
+                  "Anchor less aggressively (avoid leading '^' / trailing '$')",
+                  "Check for embedded null bytes if the target is UTF-16"),
+              null));
+    } else {
+      suggestions.add(
+          new GhidraMcpError.ErrorSuggestion(
+              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
+              "Try a different search type",
+              "Numeric searches honor program endianness and width",
+              List.of(
+                  "Switch search_type to hex for an explicit byte pattern",
+                  "Bound the search with address_start/address_end if the value is"
+                      + " region-specific"),
+              null));
+    }
+    return suggestions;
+  }
+
+  private static String formatUtf16LeHex(String value) {
+    if (value == null || value.isEmpty()) {
+      return null;
+    }
+    StringBuilder builder = new StringBuilder(value.length() * 6);
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      if (c > 0xFF) {
+        // Non-ASCII chars — give up rather than emit a misleading hint.
+        return null;
+      }
+      if (builder.length() > 0) {
+        builder.append(' ');
+      }
+      builder.append(String.format("%02x 00", (int) c));
+    }
+    return builder.toString();
   }
 
   /** Validates hex format and provides helpful suggestions for common format issues. */

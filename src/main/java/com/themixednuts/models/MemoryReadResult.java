@@ -9,8 +9,8 @@ public class MemoryReadResult {
   private final String address;
   private final String hexData;
   private final String readable;
-  private final int bytesRequested;
-  private final int bytesRead;
+  private final Integer bytesRequested;
+  private final Integer bytesRead;
   private final String decodedString;
 
   public MemoryReadResult(
@@ -24,6 +24,22 @@ public class MemoryReadResult {
       String readable,
       int bytesRequested,
       int bytesRead,
+      String decodedString) {
+    this(
+        address,
+        hexData,
+        readable,
+        Integer.valueOf(bytesRequested),
+        Integer.valueOf(bytesRead),
+        decodedString);
+  }
+
+  public MemoryReadResult(
+      String address,
+      String hexData,
+      String readable,
+      Integer bytesRequested,
+      Integer bytesRead,
       String decodedString) {
     this.address = address;
     this.hexData = hexData;
@@ -49,12 +65,12 @@ public class MemoryReadResult {
   }
 
   @JsonProperty("bytes_requested")
-  public int getBytesRequested() {
+  public Integer getBytesRequested() {
     return bytesRequested;
   }
 
   @JsonProperty("bytes_read")
-  public int getBytesRead() {
+  public Integer getBytesRead() {
     return bytesRead;
   }
 

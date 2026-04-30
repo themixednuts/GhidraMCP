@@ -45,7 +45,8 @@ class MutationToolsE2eTest {
                       "file_name", "fixture",
                       "action", "read",
                       "address", "0x402000",
-                      "length", 3),
+                      "length", 3,
+                      "format", "hex"),
                   null)
               .block();
       MemoryReadResult readBefore = assertInstanceOf(MemoryReadResult.class, readBeforeRaw);
@@ -71,7 +72,8 @@ class MutationToolsE2eTest {
                       "file_name", "fixture",
                       "action", "read",
                       "address", "0x402000",
-                      "length", 3),
+                      "length", 3,
+                      "format", "hex"),
                   null)
               .block();
       MemoryReadResult readAfter = assertInstanceOf(MemoryReadResult.class, readAfterRaw);
