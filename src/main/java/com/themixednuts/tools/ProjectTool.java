@@ -209,24 +209,30 @@ public class ProjectTool extends BaseMcpTool {
                 case ACTION_REDO -> handleRedo(program, args);
                 case ACTION_HISTORY -> handleHistory(program);
                 default -> {
+                  // Sessions show 'info'/'list_programs'/'list' attempted on this tool — those
+                  // are program-resource lookups, not project actions. Surface useful redirects.
+                  java.util.Map<String, String> aliases =
+                      java.util.Map.of(
+                          "info", "use the ghidra://program/{name} resource for program metadata",
+                          "list_programs", "use the ghidra://programs resource",
+                          "list", "use the ghidra://programs resource",
+                          "analyze", ACTION_RUN_ANALYSIS,
+                          "analysis", ACTION_LIST_ANALYSIS_OPTIONS,
+                          "options", ACTION_LIST_ANALYSIS_OPTIONS,
+                          "goto", ACTION_GO_TO_ADDRESS,
+                          "navigate", ACTION_GO_TO_ADDRESS);
                   GhidraMcpError error =
-                      GhidraMcpError.invalid(
-                          ARG_ACTION,
+                      com.themixednuts.utils.GhidraMcpErrorUtils.invalidAction(
                           action,
-                          "must be one of: "
-                              + ACTION_LIST_ANALYSIS_OPTIONS
-                              + ", "
-                              + ACTION_GO_TO_ADDRESS
-                              + ", "
-                              + ACTION_RUN_ANALYSIS
-                              + ", "
-                              + ACTION_SAVE
-                              + ", "
-                              + ACTION_UNDO
-                              + ", "
-                              + ACTION_REDO
-                              + ", "
-                              + ACTION_HISTORY);
+                          java.util.List.of(
+                              ACTION_LIST_ANALYSIS_OPTIONS,
+                              ACTION_GO_TO_ADDRESS,
+                              ACTION_RUN_ANALYSIS,
+                              ACTION_SAVE,
+                              ACTION_UNDO,
+                              ACTION_REDO,
+                              ACTION_HISTORY),
+                          aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -561,7 +567,8 @@ public class ProjectTool extends BaseMcpTool {
       String action, String operationName, Program program) {
     Map<String, Object> result = new HashMap<>();
     result.put("action", action);
-    result.put("success", true);
+    // 'success: true' inside the data payload would duplicate the envelope's success signal.
+    // Failure throws GhidraMcpException, so reaching this builder already implies success.
 
     if ("undo".equals(action)) {
       result.put("undone_operation", operationName);

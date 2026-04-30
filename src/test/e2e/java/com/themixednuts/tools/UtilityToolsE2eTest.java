@@ -106,7 +106,7 @@ class UtilityToolsE2eTest {
       @SuppressWarnings("unchecked")
       Map<String, Object> undoResult = assertInstanceOf(Map.class, undoRaw);
       assertEquals("undo", undoResult.get("action"));
-      assertTrue(Boolean.TRUE.equals(undoResult.get("success")));
+      assertNotNull(undoResult.get("undone_operation"));
 
       Address address = fixture.program().getAddressFactory().getAddress("0x401090");
       Symbol[] afterUndo = fixture.program().getSymbolTable().getSymbols(address);
@@ -120,7 +120,7 @@ class UtilityToolsE2eTest {
       @SuppressWarnings("unchecked")
       Map<String, Object> redoResult = assertInstanceOf(Map.class, redoRaw);
       assertEquals("redo", redoResult.get("action"));
-      assertTrue(Boolean.TRUE.equals(redoResult.get("success")));
+      assertNotNull(redoResult.get("redone_operation"));
 
       Symbol[] afterRedo = fixture.program().getSymbolTable().getSymbols(address);
       assertTrue(

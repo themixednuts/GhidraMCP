@@ -518,12 +518,31 @@ public class FunctionsTool extends BaseMcpTool {
                     handleUpdateVariable(
                         program, args, annotation, action.toLowerCase(Locale.ROOT));
                 default -> {
+                  // Sessions show 'disassemble'/'decompile' attempted on this tool — both belong
+                  // to `inspect`. Surface a redirect so the next call hits the right tool.
+                  Map<String, String> aliases =
+                      Map.of(
+                          "disassemble", "use `inspect` (action: listing)",
+                          "decompile", "use `inspect` (action: decompile)",
+                          "delete", "use `delete` tool",
+                          "remove", "use `delete` tool",
+                          "find", ACTION_GET,
+                          "resolve", ACTION_GET,
+                          "search", ACTION_LIST,
+                          "rename", ACTION_UPDATE_VARIABLE,
+                          "update", ACTION_UPDATE_PROTOTYPE);
                   GhidraMcpError error =
-                      GhidraMcpError.invalid(
-                          ARG_ACTION,
+                      GhidraMcpErrorUtils.invalidAction(
                           action,
-                          "must be one of: list, get, create, update_prototype, list_variables,"
-                              + " rename_variable, update_variable");
+                          List.of(
+                              ACTION_LIST,
+                              ACTION_GET,
+                              ACTION_CREATE,
+                              ACTION_UPDATE_PROTOTYPE,
+                              ACTION_LIST_VARIABLES,
+                              ACTION_RENAME_VARIABLE,
+                              ACTION_UPDATE_VARIABLE),
+                          aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };

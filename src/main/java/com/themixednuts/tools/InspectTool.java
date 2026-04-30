@@ -7,6 +7,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.utils.CursorDataResult;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -351,14 +352,31 @@ public class InspectTool extends BaseMcpTool {
               return switch (action.toLowerCase()) {
                 case ACTION_DECOMPILE -> executeDecompile(program, args, annotation);
                 case ACTION_LISTING -> executeListing(program, args, annotation);
-                case ACTION_REFERENCES_TO -> executeReferences(program, args, annotation, true);
-                case ACTION_REFERENCES_FROM -> executeReferences(program, args, annotation, false);
+                // 'references' (no suffix) aliases to references_to — agents reach for it
+                // intuitively before reading the schema. 'xrefs' / 'xrefs_to' / 'xrefs_from' too.
+                case ACTION_REFERENCES_TO, "references", "xrefs", "xrefs_to" ->
+                    executeReferences(program, args, annotation, true);
+                case ACTION_REFERENCES_FROM, "xrefs_from" ->
+                    executeReferences(program, args, annotation, false);
                 default -> {
+                  Map<String, String> aliases =
+                      Map.of(
+                          "disassemble", ACTION_LISTING,
+                          "asm", ACTION_LISTING,
+                          "assembly", ACTION_LISTING,
+                          "callers", ACTION_REFERENCES_TO,
+                          "callees", ACTION_REFERENCES_FROM,
+                          "decomp", ACTION_DECOMPILE,
+                          "pseudocode", ACTION_DECOMPILE);
                   GhidraMcpError error =
-                      GhidraMcpError.invalid(
-                          ARG_ACTION,
+                      GhidraMcpErrorUtils.invalidAction(
                           action,
-                          "Must be one of: decompile, listing, references_to, references_from");
+                          List.of(
+                              ACTION_DECOMPILE,
+                              ACTION_LISTING,
+                              ACTION_REFERENCES_TO,
+                              ACTION_REFERENCES_FROM),
+                          aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };
@@ -1020,7 +1038,7 @@ public class InspectTool extends BaseMcpTool {
 
   private String renderReferencesText(List<ReferenceInfo> references, boolean referencesToMode) {
     if (references.isEmpty()) {
-      return "";
+      return "(no references)";
     }
 
     int addressWidth =
@@ -1172,9 +1190,10 @@ public class InspectTool extends BaseMcpTool {
         () -> {
           ReferenceManager refManager = program.getReferenceManager();
 
-          // Use native hasReferencesTo() for early exit
+          // Use native hasReferencesTo() for early exit. Return a clear empty marker so agents
+          // don't re-query (an empty string was previously confused with a transport hiccup).
           if (!refManager.hasReferencesTo(address)) {
-            return new CursorDataResult<>("", null);
+            return new CursorDataResult<>("(no references)", null);
           }
 
           try {
@@ -1233,9 +1252,9 @@ public class InspectTool extends BaseMcpTool {
         () -> {
           ReferenceManager refManager = program.getReferenceManager();
 
-          // Use native hasReferencesFrom() for early exit
+          // Use native hasReferencesFrom() for early exit. Stable empty marker — see references_to.
           if (!refManager.hasReferencesFrom(address)) {
-            return new CursorDataResult<>("", null);
+            return new CursorDataResult<>("(no references)", null);
           }
 
           Reference[] referencesArray = refManager.getReferencesFrom(address);

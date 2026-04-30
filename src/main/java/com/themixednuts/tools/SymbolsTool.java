@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
@@ -347,7 +348,9 @@ public class SymbolsTool extends BaseMcpTool {
               String action = getRequiredStringArgument(args, ARG_ACTION);
 
               return switch (action.toLowerCase(Locale.ROOT)) {
-                case ACTION_LIST -> handleList(program, args);
+                // 'find' / 'resolve' / 'search' alias to 'list' — agents reach for these names
+                // before consulting the schema. Listing with a name_pattern is the canonical path.
+                case ACTION_LIST, "find", "resolve", "search" -> handleList(program, args);
                 case ACTION_GET -> handleGet(program, args);
                 case ACTION_CREATE -> handleCreate(program, args, annotation);
                 case ACTION_UPDATE -> handleUpdate(program, args, annotation);
@@ -355,12 +358,24 @@ public class SymbolsTool extends BaseMcpTool {
                 case ACTION_CONVERT_TO_NAMESPACE ->
                     handleConvertToNamespace(program, args, annotation);
                 default -> {
+                  Map<String, String> aliases =
+                      Map.of(
+                          "rename", ACTION_UPDATE,
+                          "delete", "use `delete` tool",
+                          "remove", "use `delete` tool",
+                          "label", ACTION_CREATE,
+                          "demangle", "use `analyze` (action: demangle)");
                   GhidraMcpError error =
-                      GhidraMcpError.invalid(
-                          ARG_ACTION,
+                      GhidraMcpErrorUtils.invalidAction(
                           action,
-                          "Must be one of: list, get, create, update, convert_to_class,"
-                              + " convert_to_namespace");
+                          List.of(
+                              ACTION_LIST,
+                              ACTION_GET,
+                              ACTION_CREATE,
+                              ACTION_UPDATE,
+                              ACTION_CONVERT_TO_CLASS,
+                              ACTION_CONVERT_TO_NAMESPACE),
+                          aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
               };

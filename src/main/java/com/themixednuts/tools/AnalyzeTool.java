@@ -399,20 +399,34 @@ public class AnalyzeTool extends BaseMcpTool {
                 return Mono.error(e);
               }
 
-              return switch (action) {
+              return switch (action.toLowerCase(java.util.Locale.ROOT)) {
                 case ACTION_DEMANGLE -> handleDemangle(program, args);
                 case ACTION_RTTI -> handleRtti(program, args);
                 case ACTION_LIST_RTTI -> handleListRtti(program, args);
                 case ACTION_GRAPH -> handleGraph(program, args);
                 case ACTION_CALL_GRAPH -> handleCallGraph(program, args);
-                default ->
-                    Mono.error(
-                        new GhidraMcpException(
-                            GhidraMcpError.invalid(
-                                ARG_ACTION,
-                                action,
-                                "must be one of: demangle, rtti, list_rtti, graph,"
-                                    + " call_graph")));
+                default -> {
+                  java.util.Map<String, String> aliases =
+                      java.util.Map.of(
+                          "list", ACTION_LIST_RTTI,
+                          "search_rtti", ACTION_LIST_RTTI,
+                          "find_rtti", ACTION_LIST_RTTI,
+                          "callgraph", ACTION_CALL_GRAPH,
+                          "calls", ACTION_CALL_GRAPH,
+                          "callers", ACTION_CALL_GRAPH,
+                          "demangled", ACTION_DEMANGLE);
+                  yield Mono.error(
+                      new GhidraMcpException(
+                          com.themixednuts.utils.GhidraMcpErrorUtils.invalidAction(
+                              action,
+                              java.util.List.of(
+                                  ACTION_DEMANGLE,
+                                  ACTION_RTTI,
+                                  ACTION_LIST_RTTI,
+                                  ACTION_GRAPH,
+                                  ACTION_CALL_GRAPH),
+                              aliases)));
+                }
               };
             });
   }
@@ -795,6 +809,33 @@ public class AnalyzeTool extends BaseMcpTool {
     return withTaskMonitor(
         "analyze.rtti",
         monitor -> {
+          // Sessions show agents reaching for `name`/`search` on this action because the RTTI
+          // mental model is "look it up by class name". Resolve to address via the symbol table
+          // and fall back to a name-pattern hint into list_rtti when there are multiple matches.
+          if (!args.containsKey(ARG_ADDRESS)) {
+            String nameLike =
+                getOptionalStringArgument(args, ARG_NAME)
+                    .or(() -> getOptionalStringArgument(args, "search"))
+                    .or(() -> getOptionalStringArgument(args, ARG_NAME_PATTERN))
+                    .orElse(null);
+            if (nameLike != null) {
+              String resolved = resolveRttiAddressByName(program, nameLike);
+              if (resolved == null) {
+                throw new GhidraMcpException(
+                    GhidraMcpError.validation()
+                        .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
+                        .message(
+                            "analyze.rtti needs an address. No symbol matched '"
+                                + nameLike
+                                + "' — try `analyze` (action: list_rtti) with name_pattern='"
+                                + nameLike
+                                + "' to enumerate candidates, then call `analyze` (action: rtti)"
+                                + " with the address from the result.")
+                        .build());
+              }
+              args.put(ARG_ADDRESS, resolved);
+            }
+          }
           String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
           boolean fromVtable = getOptionalBooleanArgument(args, ARG_FROM_VTABLE).orElse(false);
           RTTIAnalysisResult result = analyzeRTTIAtAddress(program, addressStr, args, monitor);
@@ -913,6 +954,46 @@ public class AnalyzeTool extends BaseMcpTool {
       return safeMessage(new RuntimeException(invalid.error()));
     }
     return "no matching RTTI structure found";
+  }
+
+  /**
+   * Best-effort symbol-table lookup for an RTTI-bearing address by name. Returns the first global
+   * symbol whose name contains {@code nameLike} (case-insensitive); the analysis flow then runs its
+   * normal backends on that address. Returns {@code null} when the name doesn't match any symbol —
+   * caller should redirect to {@code list_rtti}.
+   */
+  private String resolveRttiAddressByName(Program program, String nameLike) {
+    if (nameLike == null || nameLike.isBlank()) {
+      return null;
+    }
+    String needle = nameLike.toLowerCase(Locale.ROOT);
+    var iterator = program.getSymbolTable().getAllSymbols(false);
+    while (iterator.hasNext()) {
+      ghidra.program.model.symbol.Symbol symbol = iterator.next();
+      String name = symbol.getName();
+      if (name != null && name.toLowerCase(Locale.ROOT).contains(needle)) {
+        // Prefer symbols that look RTTI-shaped (Type Descriptor, RTTI4 COL, vtable). Fall back
+        // to any address bearing the name — the analysis backends handle invalid targets cleanly.
+        String lowered = name.toLowerCase(Locale.ROOT);
+        if (lowered.contains("rtti")
+            || lowered.contains("vftable")
+            || lowered.contains("vtable")
+            || lowered.contains("type_descriptor")
+            || lowered.contains("typedescriptor")) {
+          return symbol.getAddress().toString();
+        }
+      }
+    }
+    // Second pass — first symbol containing the needle, even if it's not obviously RTTI.
+    iterator = program.getSymbolTable().getAllSymbols(false);
+    while (iterator.hasNext()) {
+      ghidra.program.model.symbol.Symbol symbol = iterator.next();
+      String name = symbol.getName();
+      if (name != null && name.toLowerCase(Locale.ROOT).contains(needle)) {
+        return symbol.getAddress().toString();
+      }
+    }
+    return null;
   }
 
   private String buildBackendFailureSummary(Map<String, String> failures) {
