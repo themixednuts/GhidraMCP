@@ -2045,7 +2045,9 @@ public class AnalyzeTool extends BaseMcpTool {
     return methods.size();
   }
 
-  private List<String> getCustomTagsForMangled(
+  // Package-private (helpers below) so AnalyzeToolCustomTagsTest can exercise the pure-data
+  // logic without spinning up a Ghidra fixture program.
+  List<String> getCustomTagsForMangled(
       Map<String, Set<String>> mangledCustomTags, String mangledName) {
     if (mangledName == null) {
       return List.of();
@@ -2088,7 +2090,7 @@ public class AnalyzeTool extends BaseMcpTool {
    * on a different row than the one the agent's {@code name_pattern} usually selected. Tagging the
    * matching row directly aligns with the agent's mental model: "pattern → tag on rows I see".
    */
-  private void applyCustomTags(
+  void applyCustomTags(
       String mangledName,
       Map<String, String> templateToTag,
       Map<String, Set<String>> mangledCustomTags) {
