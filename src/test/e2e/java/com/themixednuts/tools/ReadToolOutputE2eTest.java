@@ -3,7 +3,6 @@ package com.themixednuts.tools;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -96,12 +95,12 @@ class ReadToolOutputE2eTest {
       ToolOutputStore.OutputChunk chunk =
           assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
 
-      // Assert exact JSON payload match
+      // Assert exact JSON payload match. View / content-format / total-size metadata is on
+      // StoredOutputRef now; the chunk record itself is just content + nextOffset.
       assertEquals(payloadJson, chunk.content(), "Stored and retrieved JSON must be identical");
-      assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
-      assertEquals(ToolOutputStore.FORMAT_JSON, chunk.contentFormat());
-      assertFalse(chunk.hasMore(), "Full content should fit in one chunk");
-      assertEquals(payloadJson.length(), chunk.totalChars());
+      assertNull(chunk.nextOffset(), "Full content should fit in one chunk");
+      assertEquals(ToolOutputStore.VIEW_JSON, ref.preferredView());
+      assertEquals(payloadJson.length(), ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
 
       // Parse retrieved JSON payload and verify structure
       JsonNode retrieved = mapper.readTree(chunk.content());
@@ -133,9 +132,8 @@ class ReadToolOutputE2eTest {
               .block();
       ToolOutputStore.OutputChunk envelopeChunk =
           assertInstanceOf(ToolOutputStore.OutputChunk.class, envelopeChunkRaw);
-      assertEquals(ToolOutputStore.VIEW_ENVELOPE_JSON, envelopeChunk.view());
-      assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, envelopeChunk.contentFormat());
       assertEquals(envelopeJson, envelopeChunk.content());
+      assertTrue(ref.availableViews().contains(ToolOutputStore.VIEW_ENVELOPE_JSON));
     } finally {
       fixture.close();
     }
@@ -208,19 +206,14 @@ class ReadToolOutputE2eTest {
                 .block();
         ToolOutputStore.OutputChunk chunk =
             assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
-
-        assertEquals(offset, chunk.offset());
-        assertEquals(payloadJson.length(), chunk.totalChars());
-        assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
         reassembled.append(chunk.content());
 
-        if (!chunk.hasMore()) {
-          assertNull(chunk.nextOffset());
+        if (chunk.nextOffset() == null) {
           break;
         }
-        assertNotNull(chunk.nextOffset());
         offset = chunk.nextOffset();
       }
+      assertEquals(payloadJson.length(), ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
 
       // Verify reassembled content is byte-identical to original
       assertEquals(payloadJson, reassembled.toString());
@@ -354,8 +347,9 @@ class ReadToolOutputE2eTest {
     ToolOutputStore.OutputChunk chunk =
         assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
 
-    assertEquals(ToolOutputStore.VIEW_TEXT, chunk.view());
-    assertEquals(ToolOutputStore.FORMAT_PLAIN_TEXT, chunk.contentFormat());
+    // Auto-view selects the agent-friendly text rendering when one was stored. The chunk record
+    // itself is content + nextOffset; the resolved view is on StoredOutputRef / list_outputs.
+    assertEquals(ToolOutputStore.VIEW_TEXT, ref.preferredView());
     assertEquals("int main(){}", chunk.content());
 
     Object jsonChunkRaw =
@@ -375,7 +369,6 @@ class ReadToolOutputE2eTest {
             .block();
     ToolOutputStore.OutputChunk jsonChunk =
         assertInstanceOf(ToolOutputStore.OutputChunk.class, jsonChunkRaw);
-    assertEquals(ToolOutputStore.FORMAT_JSON, jsonChunk.contentFormat());
     assertEquals("{\"decompiled_code\":\"int main(){}\"}", jsonChunk.content());
   }
 

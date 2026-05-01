@@ -17,15 +17,13 @@ class ToolOutputStoreTest {
     ToolOutputStore.OutputChunk chunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 5);
 
-    assertEquals(sessionId, chunk.sessionId());
-    assertEquals(ref.outputId(), chunk.outputId());
+    // OutputChunk only carries content + nextOffset on the wire. Per-output metadata
+    // (sessionId, outputId, view, contentFormat, view_total_chars) is exposed via
+    // StoredOutputRef and list_outputs instead.
     assertEquals("abcde", chunk.content());
-    assertEquals(ToolOutputStore.VIEW_JSON, chunk.view());
-    assertEquals(ToolOutputStore.FORMAT_JSON, chunk.contentFormat());
-    assertEquals(26, chunk.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
-    assertEquals(26, chunk.viewTotalChars().get(ToolOutputStore.VIEW_ENVELOPE_JSON));
-    assertTrue(chunk.hasMore());
     assertEquals(5, chunk.nextOffset());
+    assertEquals(26, ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
+    assertEquals(26, ref.viewTotalChars().get(ToolOutputStore.VIEW_ENVELOPE_JSON));
   }
 
   @Test
@@ -38,7 +36,6 @@ class ToolOutputStoreTest {
         ToolOutputStore.readOutput(sessionId, null, ref.fileName(), "auto", 3, 4);
 
     assertEquals("3456", chunk.content());
-    assertTrue(chunk.hasMore());
     assertEquals(7, chunk.nextOffset());
   }
 
@@ -59,22 +56,19 @@ class ToolOutputStoreTest {
     assertEquals(3, ref.availableViews().size());
     assertEquals(18, ref.viewTotalChars().get(ToolOutputStore.VIEW_TEXT));
 
+    // Each view returns only its content (the chunk record is just content + nextOffset).
+    // What 'auto' resolves to and what content-format each view uses is metadata of the
+    // StoredOutputRef, not of every chunk.
     ToolOutputStore.OutputChunk autoChunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 100);
-    assertEquals(ToolOutputStore.VIEW_TEXT, autoChunk.view());
-    assertEquals(ToolOutputStore.FORMAT_PLAIN_TEXT, autoChunk.contentFormat());
     assertEquals("plain text payload", autoChunk.content());
 
     ToolOutputStore.OutputChunk jsonChunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "json", 0, 100);
-    assertEquals(ToolOutputStore.VIEW_JSON, jsonChunk.view());
-    assertEquals(ToolOutputStore.FORMAT_JSON, jsonChunk.contentFormat());
     assertEquals("{\"kind\":\"payload\"}", jsonChunk.content());
 
     ToolOutputStore.OutputChunk envelopeChunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "envelope_json", 0, 100);
-    assertEquals(ToolOutputStore.VIEW_ENVELOPE_JSON, envelopeChunk.view());
-    assertEquals(ToolOutputStore.FORMAT_MCP_RESPONSE_JSON, envelopeChunk.contentFormat());
     assertEquals("{\"success\":true,\"data\":{\"kind\":\"payload\"}}", envelopeChunk.content());
   }
 

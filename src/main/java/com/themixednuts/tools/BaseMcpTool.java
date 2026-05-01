@@ -523,7 +523,7 @@ public abstract class BaseMcpTool {
                 operation,
                 ToolOutputStore.StoredOutputViews.withEnvelope(
                     payloadJson, jsonResult, successText));
-        response = wrapOversizedOutput(response, outputRef, successText != null);
+        response = wrapOversizedOutput(response, outputRef);
         jsonResult = mapper.writeValueAsString(response);
       }
 
@@ -568,34 +568,16 @@ public abstract class BaseMcpTool {
   }
 
   private McpResponse<?> wrapOversizedOutput(
-      McpResponse<?> originalResponse,
-      ToolOutputStore.StoredOutputRef outputRef,
-      boolean inlinePreviewAvailable) {
+      McpResponse<?> originalResponse, ToolOutputStore.StoredOutputRef outputRef) {
     Map<String, Object> inlineNotice = new LinkedHashMap<>();
+    // Lean inline notice: the agent only needs to know how to fetch the rest. Tool name,
+    // operation, file name, available views, char counts, and inline-preview hints are all
+    // either echo of the request or metadata that list_outputs can surface on demand.
     inlineNotice.put(
-        "message", "Output exceeded inline size and was stored for chunked retrieval.");
-    inlineNotice.put("retrieval_tool", TOOL_OUTPUT_READER_NAME);
+        "message",
+        "Output exceeded inline size; fetch remainder via " + TOOL_OUTPUT_READER_NAME + ".");
     inlineNotice.put("session_id", outputRef.sessionId());
     inlineNotice.put("output_id", outputRef.outputId());
-    inlineNotice.put("output_file_name", outputRef.fileName());
-    inlineNotice.put("tool_name", outputRef.toolName());
-    inlineNotice.put("operation", outputRef.operation());
-    inlineNotice.put("preferred_read_view", outputRef.preferredView());
-    inlineNotice.put("available_views", outputRef.availableViews());
-    inlineNotice.put("view_total_chars", outputRef.viewTotalChars());
-    inlineNotice.put("inline_preview_available", inlinePreviewAvailable);
-    inlineNotice.put("inline_limit_chars", INLINE_RESPONSE_CHAR_LIMIT);
-    inlineNotice.put(
-        "suggested_read_args",
-        Map.of(
-            ARG_ACTION,
-            "read",
-            "session_id",
-            outputRef.sessionId(),
-            "output_id",
-            outputRef.outputId(),
-            "view",
-            outputRef.preferredView()));
 
     return new McpResponse.Builder<Object>()
         .data(inlineNotice)

@@ -104,26 +104,13 @@ public final class ToolOutputStore {
       Map<String, Integer> viewTotalChars,
       long createdAtMs) {}
 
-  /** A chunk of stored output content. */
-  public record OutputChunk(
-      String sessionId,
-      String outputId,
-      String fileName,
-      String toolName,
-      String operation,
-      String view,
-      String contentFormat,
-      String preferredView,
-      List<String> availableViews,
-      Map<String, Integer> viewTotalChars,
-      int offset,
-      int requestedChars,
-      int returnedChars,
-      int totalChars,
-      int remainingChars,
-      boolean hasMore,
-      Integer nextOffset,
-      String content) {}
+  /**
+   * A chunk of stored output content. The agent only needs the content itself plus a way to ask for
+   * the next chunk; everything else (sessionId/outputId/view/format/sizes) is either echo of what
+   * the agent just sent or metadata that {@code list_outputs} can return on demand. The envelope's
+   * {@code next_cursor} carries the pagination signal — when null, there's no more content.
+   */
+  public record OutputChunk(String content, Integer nextOffset) {}
 
   private static final class SessionBucket {
     private final String sessionId;
@@ -381,29 +368,9 @@ public final class ToolOutputStore {
 
     int endIndex = Math.min(totalChars, effectiveOffset + effectiveMaxChars);
     String chunk = allContent.substring(effectiveOffset, endIndex);
-    boolean hasMore = endIndex < totalChars;
-    Integer nextOffset = hasMore ? endIndex : null;
-    int remainingChars = Math.max(0, totalChars - endIndex);
+    Integer nextOffset = endIndex < totalChars ? endIndex : null;
 
-    return new OutputChunk(
-        bucket.sessionId,
-        metadata.outputId,
-        metadata.fileName,
-        metadata.toolName,
-        metadata.operation,
-        resolvedView,
-        contentFormat,
-        preferredView(metadata),
-        availableViews(metadata),
-        viewTotalChars(metadata),
-        effectiveOffset,
-        effectiveMaxChars,
-        chunk.length(),
-        totalChars,
-        remainingChars,
-        hasMore,
-        nextOffset,
-        chunk);
+    return new OutputChunk(chunk, nextOffset);
   }
 
   private static SessionBucket getRequiredSession(String sessionId) throws GhidraMcpException {

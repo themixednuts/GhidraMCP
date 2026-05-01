@@ -268,10 +268,11 @@ public class ReadToolOutputTool extends BaseMcpTool {
 
     ToolOutputStore.OutputChunk chunk =
         ToolOutputStore.readOutput(sessionId, outputId, outputFileName, view, offset, maxChars);
-    return trimChunkForInlineBudget(chunk);
+    return trimChunkForInlineBudget(chunk, offset);
   }
 
-  private ToolOutputStore.OutputChunk trimChunkForInlineBudget(ToolOutputStore.OutputChunk chunk) {
+  private ToolOutputStore.OutputChunk trimChunkForInlineBudget(
+      ToolOutputStore.OutputChunk chunk, int chunkStart) {
     if (estimateInlineResponseSize(chunk) <= SAFE_INLINE_RESPONSE_CHAR_LIMIT) {
       return chunk;
     }
@@ -282,7 +283,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
 
     while (low <= high) {
       int mid = (low + high) >>> 1;
-      ToolOutputStore.OutputChunk candidate = resizeChunk(chunk, mid);
+      ToolOutputStore.OutputChunk candidate = resizeChunk(chunk, mid, chunkStart);
 
       if (estimateInlineResponseSize(candidate) <= SAFE_INLINE_RESPONSE_CHAR_LIMIT) {
         best = candidate;
@@ -292,7 +293,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
       }
     }
 
-    return best != null ? best : resizeChunk(chunk, 0);
+    return best != null ? best : resizeChunk(chunk, 0, chunkStart);
   }
 
   private int estimateInlineResponseSize(ToolOutputStore.OutputChunk chunk) {
@@ -306,31 +307,24 @@ public class ReadToolOutputTool extends BaseMcpTool {
   }
 
   private ToolOutputStore.OutputChunk resizeChunk(
-      ToolOutputStore.OutputChunk original, int contentLength) {
+      ToolOutputStore.OutputChunk original, int contentLength, int chunkStart) {
     int safeLength = Math.max(0, Math.min(contentLength, original.content().length()));
     String resizedContent = original.content().substring(0, safeLength);
-    int nextOffsetValue = original.offset() + safeLength;
-    boolean hasMore = nextOffsetValue < original.totalChars();
+    int dropped = original.content().length() - safeLength;
 
-    return new ToolOutputStore.OutputChunk(
-        original.sessionId(),
-        original.outputId(),
-        original.fileName(),
-        original.toolName(),
-        original.operation(),
-        original.view(),
-        original.contentFormat(),
-        original.preferredView(),
-        original.availableViews(),
-        original.viewTotalChars(),
-        original.offset(),
-        original.requestedChars(),
-        resizedContent.length(),
-        original.totalChars(),
-        Math.max(0, original.totalChars() - nextOffsetValue),
-        hasMore,
-        hasMore ? nextOffsetValue : null,
-        resizedContent);
+    Integer nextOffset;
+    if (original.nextOffset() != null) {
+      // Upstream knew more bytes follow this chunk. We dropped {dropped} from the tail, so the
+      // new resume point shifts back by that much.
+      nextOffset = original.nextOffset() - dropped;
+    } else if (dropped > 0) {
+      // Upstream read all the way to EOF, but we just trimmed bytes off the tail. The trimmed
+      // bytes become the new resume window, starting at chunkStart + safeLength.
+      nextOffset = chunkStart + safeLength;
+    } else {
+      nextOffset = null;
+    }
+    return new ToolOutputStore.OutputChunk(resizedContent, nextOffset);
   }
 
   private String renderOutputInfo(ToolOutputStore.OutputInfo info) {
