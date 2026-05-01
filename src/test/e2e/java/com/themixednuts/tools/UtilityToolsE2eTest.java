@@ -38,27 +38,38 @@ class UtilityToolsE2eTest {
       AnalyzeTool tool = new InMemoryAnalyzeTool(fixture.program());
 
       String mangled = "_Z3fooi";
-      Object raw =
-          tool.execute(
-                  null,
-                  Map.of(
-                      "file_name", "fixture",
-                      "action", "demangle",
-                      "mangled_symbol", mangled),
-                  null)
-              .block();
-      DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
-
-      assertEquals(mangled, result.getOriginalSymbol());
-      assertNotNull(result.getSymbolAnalysis());
-      assertTrue(result.getSymbolAnalysis().contains("Itanium"));
-      if (result.isValid()) {
-        assertNotNull(result.getDemangledSymbol());
-        assertTrue(result.getDemangledSymbol().toLowerCase().contains("foo"));
-      } else {
-        assertNotNull(result.getErrorMessage());
-        assertTrue(result.getErrorMessage().contains("No demangler"));
+      Object raw;
+      try {
+        raw =
+            tool.execute(
+                    null,
+                    Map.of(
+                        "file_name", "fixture",
+                        "action", "demangle",
+                        "mangled_symbol", mangled),
+                    null)
+                .block();
+      } catch (Exception thrown) {
+        // The fixture environment doesn't always have the Itanium DemanglerUtil wired up. The
+        // demangle action used to swallow that into an "isValid=false" payload; it now flows
+        // through the envelope as a structured error. Either path is a valid e2e outcome — what
+        // matters is that the agent gets an actionable signal, which the message provides.
+        Throwable cause = thrown;
+        while (cause.getCause() != null && cause != cause.getCause()) {
+          cause = cause.getCause();
+        }
+        assertTrue(
+            cause.getMessage() != null && cause.getMessage().contains("No demangler"),
+            "Expected a 'no demangler' message; got: " + cause.getMessage());
+        return;
       }
+
+      // Happy path: success returns the demangled string + pre-parsed components. Pure-echo
+      // (originalSymbol), implementation detail (demanglerUsed), envelope-redundant (isValid,
+      // errorMessage), and heuristic chatter (symbolAnalysis) are all dropped from the wire.
+      DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
+      assertNotNull(result.getDemangled());
+      assertTrue(result.getDemangled().toLowerCase().contains("foo"));
     } finally {
       fixture.close();
     }

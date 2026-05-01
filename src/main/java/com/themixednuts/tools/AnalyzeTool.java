@@ -457,110 +457,66 @@ public class AnalyzeTool extends BaseMcpTool {
         });
   }
 
+  /**
+   * Demangle response. Pruned aggressively: agents get the human-readable string plus the
+   * pre-parsed components that are tedious to re-extract from it. Pure echo (originalSymbol),
+   * implementation detail (demanglerUsed), envelope-redundant fields (isValid, errorMessage), and
+   * heuristic chatter (symbolAnalysis) are dropped — failure flows through the envelope as a
+   * structured error, success implies a non-null {@code demangled}.
+   */
+  @com.fasterxml.jackson.annotation.JsonInclude(
+      com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
   public static class DemangleResult {
-    private final String originalSymbol;
-    private final String demangledSymbol;
-    private final String demanglerUsed;
-    private final boolean isValid;
+    private final String demangled;
     private final String demangledType;
     private final String namespace;
     private final String className;
     private final String functionName;
     private final List<String> parameters;
-    private final String errorMessage;
-    private final String symbolAnalysis;
 
     public DemangleResult(
-        String originalSymbol,
-        String demangledSymbol,
-        String demanglerUsed,
-        boolean isValid,
+        String demangled,
         String demangledType,
         String namespace,
         String className,
         String functionName,
         List<String> parameters) {
-      this(
-          originalSymbol,
-          demangledSymbol,
-          demanglerUsed,
-          isValid,
-          demangledType,
-          namespace,
-          className,
-          functionName,
-          parameters,
-          null,
-          null);
-    }
-
-    public DemangleResult(
-        String originalSymbol,
-        String demangledSymbol,
-        String demanglerUsed,
-        boolean isValid,
-        String demangledType,
-        String namespace,
-        String className,
-        String functionName,
-        List<String> parameters,
-        String errorMessage,
-        String symbolAnalysis) {
-      this.originalSymbol = originalSymbol;
-      this.demangledSymbol = demangledSymbol;
-      this.demanglerUsed = demanglerUsed;
-      this.isValid = isValid;
+      this.demangled = demangled;
       this.demangledType = demangledType;
       this.namespace = namespace;
       this.className = className;
       this.functionName = functionName;
       this.parameters = parameters;
-      this.errorMessage = errorMessage;
-      this.symbolAnalysis = symbolAnalysis;
     }
 
-    public String getOriginalSymbol() {
-      return originalSymbol;
+    @com.fasterxml.jackson.annotation.JsonProperty("demangled")
+    public String getDemangled() {
+      return demangled;
     }
 
-    public String getDemangledSymbol() {
-      return demangledSymbol;
-    }
-
-    public String getDemanglerUsed() {
-      return demanglerUsed;
-    }
-
-    public boolean isValid() {
-      return isValid;
-    }
-
+    @com.fasterxml.jackson.annotation.JsonProperty("demangled_type")
     public String getDemangledType() {
       return demangledType;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("namespace")
     public String getNamespace() {
       return namespace;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("class_name")
     public String getClassName() {
       return className;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("function_name")
     public String getFunctionName() {
       return functionName;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("parameters")
     public List<String> getParameters() {
       return parameters;
-    }
-
-    public String getErrorMessage() {
-      return errorMessage;
-    }
-
-    public String getSymbolAnalysis() {
-      return symbolAnalysis;
     }
   }
 
@@ -609,17 +565,7 @@ public class AnalyzeTool extends BaseMcpTool {
             }
 
             return new DemangleResult(
-                mangledSymbol,
-                demangledStr,
-                "MDMang",
-                true,
-                demangledType,
-                namespace,
-                className,
-                functionName,
-                null,
-                null,
-                analyzeSymbol(mangledSymbol));
+                demangledStr, demangledType, namespace, className, functionName, null);
           }
         }
       } catch (Exception ignored) {
@@ -630,23 +576,25 @@ public class AnalyzeTool extends BaseMcpTool {
       var demangledList = DemanglerUtil.demangle(program, mangledSymbol, null);
       if (demangledList != null && !demangledList.isEmpty()) {
         Demangled demangled = demangledList.get(0);
-        return buildResultFromDemangled(demangled, mangledSymbol, "Ghidra DemanglerUtil");
+        return buildResultFromDemangled(demangled);
       }
 
-      // Step 3: Nothing worked — return failure with symbol analysis hints
-      String symbolAnalysis = analyzeSymbol(mangledSymbol);
-      return new DemangleResult(
-          mangledSymbol,
-          null,
-          "No demangler available",
-          false,
-          "Failed to demangle",
-          null,
-          null,
-          null,
-          null,
-          "No demangler could process this symbol",
-          symbolAnalysis);
+      // Step 3: Nothing worked — surface as a structured envelope error so the agent gets the
+      // mangling-style hint as part of message/hint instead of in a redundant payload field.
+      throw new GhidraMcpException(
+          GhidraMcpError.execution()
+              .errorCode(GhidraMcpError.ErrorCode.OPERATION_FAILED)
+              .message("No demangler could process: " + mangledSymbol)
+              .context(
+                  new GhidraMcpError.ErrorContext(
+                      getMcpName(),
+                      "demangling execution",
+                      Map.of(ARG_MANGLED_SYMBOL, mangledSymbol),
+                      null,
+                      Map.of("symbol_classification", analyzeSymbol(mangledSymbol))))
+              .build());
+    } catch (GhidraMcpException e) {
+      throw e;
     } catch (Exception e) {
       throw new GhidraMcpException(
           GhidraMcpError.execution()
@@ -663,27 +611,14 @@ public class AnalyzeTool extends BaseMcpTool {
     }
   }
 
-  private DemangleResult buildResultFromDemangled(
-      Demangled demangled, String mangledSymbol, String demanglerName) {
-    String demangledString = demangled.toString();
-    String demangledType = getDemangledType(demangled);
-    String namespace = extractNamespace(demangled);
-    String className = extractClassName(demangled);
-    String functionName = extractFunctionName(demangled);
-    List<String> parameters = extractParameters(demangled);
-
+  private DemangleResult buildResultFromDemangled(Demangled demangled) {
     return new DemangleResult(
-        mangledSymbol,
-        demangledString,
-        demanglerName,
-        true,
-        demangledType,
-        namespace,
-        className,
-        functionName,
-        parameters,
-        null,
-        analyzeSymbol(mangledSymbol));
+        demangled.toString(),
+        getDemangledType(demangled),
+        extractNamespace(demangled),
+        extractClassName(demangled),
+        extractFunctionName(demangled),
+        extractParameters(demangled));
   }
 
   private String tryMDMangDemangle(String mangledSymbol) {
