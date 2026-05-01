@@ -81,19 +81,12 @@ public sealed interface RTTIAnalysisResult
       demangledName = demangled.map(DemangledObject::toString).orElse(null);
     }
 
+    // length is no longer surfaced in the response, but RTTI0DataType.getLength has side effects
+    // (parsing) we want to keep — leave the call in place for that.
+    @SuppressWarnings("unused")
+    int parsedLength = length;
     Rtti0 data =
-        new Rtti0(
-            rtti0.getName(),
-            rtti0.getDescription(),
-            rtti0.getMnemonic(null),
-            rtti0.getDefaultLabelPrefix(),
-            length,
-            rtti0.getClass().getSimpleName(),
-            vfTableAddress,
-            spareDataAddress,
-            vfTableName,
-            vfTableName,
-            demangledName);
+        new Rtti0(vfTableAddress, spareDataAddress, vfTableName, vfTableName, demangledName);
 
     return new Rtti0Result(address.toString(), data);
   }
@@ -103,9 +96,6 @@ public sealed interface RTTIAnalysisResult
     Address rtti3Addr = model.getRtti3Address();
     Rtti1 data =
         new Rtti1(
-            model.getName(),
-            model.getDataType().getName(),
-            model.getDataType().getLength(),
             rtti0Addr != null ? rtti0Addr.toString() : null,
             model.getNumBases(),
             model.getMDisp(),
@@ -130,9 +120,6 @@ public sealed interface RTTIAnalysisResult
     var rtti0Model = model.getRtti0Model();
     Rtti2 data =
         new Rtti2(
-            model.getName(),
-            model.getDataType().getName(),
-            model.getDataType().getLength(),
             baseClassTypes.size(),
             baseClassTypes,
             rtti0Model != null ? rtti0Model.getAddress().toString() : null,
@@ -146,9 +133,6 @@ public sealed interface RTTIAnalysisResult
     var rtti0Model = model.getRtti0Model();
     Rtti3 data =
         new Rtti3(
-            model.getName(),
-            model.getDataType().getName(),
-            model.getDataType().getLength(),
             model.getSignature(),
             model.getAttributes(),
             model.getRtti1Count(),
@@ -166,9 +150,6 @@ public sealed interface RTTIAnalysisResult
     Address rtti3FieldAddr = model.getRtti3FieldAddress();
     Rtti4 data =
         new Rtti4(
-            model.getName(),
-            model.getDataType().getName(),
-            model.getDataType().getLength(),
             model.getSignature(),
             model.getVbTableOffset(),
             model.getConstructorOffset(),
@@ -194,9 +175,6 @@ public sealed interface RTTIAnalysisResult
     var rtti0Model = model.getRtti0Model();
     VfTable data =
         new VfTable(
-            model.getName(),
-            model.getDataType() != null ? model.getDataType().getName() : "vftable",
-            model.getDataType() != null ? model.getDataType().getLength() : 0,
             elementCount,
             rtti0Model != null ? rtti0Model.getAddress().toString() : null,
             virtualFunctionPointers);
@@ -433,16 +411,13 @@ public sealed interface RTTIAnalysisResult
     }
   }
 
-  // RTTI Data Records
+  // RTTI Data Records — RTTI semantics only. The Ghidra DataType wrapper's name/description/
+  // mnemonic/defaultLabelPrefix/dataTypeName/length are pure implementation detail (they
+  // describe the struct Ghidra uses to overlay the bytes, not the RTTI itself) and the agent
+  // never branches on them, so they're dropped from the wire.
 
   // RTTI0 - Type Descriptor (from RTTI0DataType API)
   record Rtti0(
-      String name,
-      String description,
-      String mnemonic,
-      String defaultLabelPrefix,
-      int length,
-      String dataTypeName,
       String vfTableAddress,
       String spareDataAddress,
       String vfTableName,
@@ -451,9 +426,6 @@ public sealed interface RTTIAnalysisResult
 
   // RTTI1 - Base Class Descriptor (from Rtti1Model API)
   record Rtti1(
-      String name,
-      String dataTypeName,
-      int length,
       String rtti0Address,
       Integer numBases,
       Integer mDisp,
@@ -464,9 +436,6 @@ public sealed interface RTTIAnalysisResult
 
   // RTTI2 - Base Class Array (from Rtti2Model API)
   record Rtti2(
-      String name,
-      String dataTypeName,
-      int length,
       int numEntries,
       List<String> baseClassTypes,
       String rtti0Address,
@@ -474,9 +443,6 @@ public sealed interface RTTIAnalysisResult
 
   // RTTI3 - Class Hierarchy Descriptor (from Rtti3Model API)
   record Rtti3(
-      String name,
-      String dataTypeName,
-      int length,
       Integer signature,
       Integer attributes,
       Integer rtti1Count,
@@ -486,9 +452,6 @@ public sealed interface RTTIAnalysisResult
 
   // RTTI4 - Complete Object Locator (from Rtti4Model API)
   record Rtti4(
-      String name,
-      String dataTypeName,
-      int length,
       Integer signature,
       Integer vbTableOffset,
       Integer constructorOffset,
@@ -559,10 +522,5 @@ public sealed interface RTTIAnalysisResult
 
   // VfTable - Virtual Function Table (from VfTableModel API)
   record VfTable(
-      String name,
-      String dataTypeName,
-      int length,
-      int elementCount,
-      String rtti0Address,
-      Map<Integer, String> virtualFunctionPointers) {}
+      int elementCount, String rtti0Address, Map<Integer, String> virtualFunctionPointers) {}
 }
