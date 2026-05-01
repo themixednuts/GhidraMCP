@@ -352,8 +352,7 @@ public class InspectTool extends BaseMcpTool {
               return switch (action.toLowerCase()) {
                 case ACTION_DECOMPILE -> executeDecompile(program, args, annotation);
                 case ACTION_LISTING -> executeListing(program, args, annotation);
-                // 'references' (no suffix) aliases to references_to — agents reach for it
-                // intuitively before reading the schema. 'xrefs' / 'xrefs_to' / 'xrefs_from' too.
+                // Aliases for the common shorthand names — references / xrefs / xrefs_to(from).
                 case ACTION_REFERENCES_TO, "references", "xrefs", "xrefs_to" ->
                     executeReferences(program, args, annotation, true);
                 case ACTION_REFERENCES_FROM, "xrefs_from" ->
@@ -698,7 +697,11 @@ public class InspectTool extends BaseMcpTool {
                                 .build());
                       }
 
-                      return createListingInfo(program, codeUnit);
+                      // Render to objdump-style text — same shape as range/function listings
+                      // so callers get a uniform output regardless of how they targeted it.
+                      ListingInfo info = createListingInfo(program, codeUnit);
+                      String rendered = renderListingText(info).orElse("");
+                      return new CursorDataResult<>(rendered, null);
                     }));
   }
 
@@ -1190,8 +1193,8 @@ public class InspectTool extends BaseMcpTool {
         () -> {
           ReferenceManager refManager = program.getReferenceManager();
 
-          // Use native hasReferencesTo() for early exit. Return a clear empty marker so agents
-          // don't re-query (an empty string was previously confused with a transport hiccup).
+          // Native early-exit when nothing references this address. Empty results return a
+          // literal "(no references)" so callers don't conflate empty with a missing payload.
           if (!refManager.hasReferencesTo(address)) {
             return new CursorDataResult<>("(no references)", null);
           }
@@ -1252,7 +1255,7 @@ public class InspectTool extends BaseMcpTool {
         () -> {
           ReferenceManager refManager = program.getReferenceManager();
 
-          // Use native hasReferencesFrom() for early exit. Stable empty marker — see references_to.
+          // Native early-exit; same "(no references)" sentinel as references_to.
           if (!refManager.hasReferencesFrom(address)) {
             return new CursorDataResult<>("(no references)", null);
           }
