@@ -120,7 +120,14 @@ public abstract class BaseMcpTool {
     T execute(TaskMonitor monitor) throws Exception;
   }
 
-  protected static final int INLINE_RESPONSE_CHAR_LIMIT = 16_000;
+  /**
+   * Soft cap on serialized tool-result size before output gets offloaded to {@link
+   * com.themixednuts.utils.ToolOutputStore} for chunked retrieval. Modern MCP transports handle
+   * payloads well past this budget; the cap exists to bound a single tool call's contribution to
+   * the model's context window, not to satisfy a wire limit.
+   */
+  protected static final int INLINE_RESPONSE_CHAR_LIMIT = 48_000;
+
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
   private static final java.util.Set<String> SUPPORTED_TOP_LEVEL_SCHEMA_KEYS =

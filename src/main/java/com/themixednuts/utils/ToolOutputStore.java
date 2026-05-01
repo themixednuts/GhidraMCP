@@ -34,14 +34,14 @@ public final class ToolOutputStore {
 
   public static final int DEFAULT_LIST_PAGE_SIZE = 25;
   public static final int MAX_LIST_PAGE_SIZE = 200;
-  public static final int DEFAULT_READ_CHUNK_CHARS = 14_000;
+  public static final int DEFAULT_READ_CHUNK_CHARS = 40_000;
 
   /**
    * Maximum raw chunk size callers may request when reading stored output. The read tool may still
    * trim the returned chunk further so the serialized MCP response remains inline-safe after JSON
    * escaping.
    */
-  public static final int MAX_READ_CHUNK_CHARS = 32_000;
+  public static final int MAX_READ_CHUNK_CHARS = 96_000;
 
   private static final long SESSION_TTL_MS = Duration.ofHours(6).toMillis();
   private static final int MAX_SESSIONS = 100;
