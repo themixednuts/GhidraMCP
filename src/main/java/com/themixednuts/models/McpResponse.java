@@ -3,10 +3,18 @@ package com.themixednuts.models;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.themixednuts.utils.JsonMapperHolder;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ser.std.StdSerializer;
 
 /**
  * Standard response envelope for MCP tool responses.
@@ -14,7 +22,7 @@ import java.util.Optional;
  * @param <T> The type of data contained in the response
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({"data", "next_cursor", "message", "hint", "context", "suggestions"})
+@JsonSerialize(using = McpResponse.McpResponseSerializer.class)
 public class McpResponse<T> {
 
   private final T data; // result data
@@ -156,5 +164,76 @@ public class McpResponse<T> {
   @JsonIgnore
   public Optional<String> getErrorMessageOptional() {
     return Optional.ofNullable(error).map(GhidraMcpError::getMessage);
+  }
+
+  /**
+   * Custom serializer that drops the redundant {@code data} wrapper for object payloads. The
+   * earlier shape was {@code {"data": {field1: ..., field2: ...}, "next_cursor": "..."}}; agents
+   * had to traverse one extra level for every read. Flattening object payloads to the root keeps
+   * the envelope semantics (next_cursor + unwrapped error fields) intact while dropping the
+   * indirection.
+   *
+   * <p>Behavior by data shape:
+   *
+   * <ul>
+   *   <li>{@code Map} or POJO &rarr; fields merged into the root object.
+   *   <li>{@code List} / array &rarr; emitted as {@code "data": [...]} (an array can't be merged
+   *       into an object).
+   *   <li>{@code String} / number / boolean / etc. &rarr; emitted as {@code "data": ...} for the
+   *       same reason — primitives need a key.
+   * </ul>
+   *
+   * <p>{@code next_cursor} and the unwrapped error fields ({@code message}, {@code hint}, {@code
+   * context}, {@code suggestions}, {@code related_resources}) are appended to the root.
+   */
+  public static final class McpResponseSerializer extends StdSerializer<McpResponse<?>> {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public McpResponseSerializer() {
+      super((Class<McpResponse<?>>) (Class) McpResponse.class);
+    }
+
+    @Override
+    public void serialize(McpResponse<?> value, JsonGenerator gen, SerializationContext ctx) {
+      gen.writeStartObject();
+
+      Object data = value.getData();
+      if (data != null) {
+        JsonNode dataNode = JsonMapperHolder.getMapper().valueToTree(data);
+        if (dataNode instanceof ObjectNode obj) {
+          // Flatten — merge object fields into the parent, dropping the redundant "data" key.
+          Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();
+          while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            gen.writeName(field.getKey());
+            gen.writePOJO(field.getValue());
+          }
+        } else {
+          // Lists, strings, primitives need a key. Keep "data" — necessary, not boilerplate.
+          gen.writeName("data");
+          gen.writePOJO(dataNode);
+        }
+      }
+
+      String nextCursor = value.getNextCursor();
+      if (nextCursor != null) {
+        gen.writeStringProperty("next_cursor", nextCursor);
+      }
+
+      GhidraMcpError error = value.getError();
+      if (error != null) {
+        // Mirror the @JsonUnwrapped contract on the error field: hoist its properties to the root.
+        JsonNode errorNode = JsonMapperHolder.getMapper().valueToTree(error);
+        if (errorNode instanceof ObjectNode obj) {
+          Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();
+          while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            gen.writeName(field.getKey());
+            gen.writePOJO(field.getValue());
+          }
+        }
+      }
+
+      gen.writeEndObject();
+    }
   }
 }

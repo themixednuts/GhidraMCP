@@ -67,9 +67,12 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
+      // Object-shaped payloads now flatten into the structured root — no "data" wrapper level
+      // for the agent to traverse. success/duration_ms remain dropped.
       assertFalse(structured.containsKey("success"));
       assertFalse(structured.containsKey("duration_ms"));
-      assertEquals("structured", dataMap(structured).get("mode"));
+      assertFalse(structured.containsKey("data"));
+      assertEquals("structured", structured.get("mode"));
       assertEquals("00401000 90 NOP", text(result));
     }
   }
@@ -84,6 +87,7 @@ class BaseMcpToolTransportRegressionTest {
 
       Map<String, Object> structured = structured(result);
       assertFalse(structured.containsKey("success"));
+      // String payloads stay under "data" — they need a key to coexist with next_cursor.
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", structured.get("data"));
       assertEquals("cursor-2", structured.get("next_cursor"));
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", text(result));
@@ -99,14 +103,15 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
-      Map<String, Object> data = dataMap(structured);
-      assertEquals(
-          "Output exceeded inline size and was stored for chunked retrieval.", data.get("message"));
-      assertEquals("read_tool_output", data.get("retrieval_tool"));
-      assertEquals(ToolOutputStore.VIEW_TEXT, data.get("preferred_read_view"));
-      assertTrue(data.get("view_total_chars") instanceof Map<?, ?>);
-      assertEquals(Boolean.TRUE, data.get("inline_preview_available"));
-      assertNotNull(data.get("output_id"));
+      // Inline notice is an object payload — its fields flatten to the structured root.
+      assertTrue(((String) structured.get("message")).startsWith("Output exceeded inline size"));
+      assertNotNull(structured.get("session_id"));
+      assertNotNull(structured.get("output_id"));
+      assertFalse(structured.containsKey("retrieval_tool"));
+      assertFalse(structured.containsKey("preferred_read_view"));
+      assertFalse(structured.containsKey("view_total_chars"));
+      assertFalse(structured.containsKey("inline_preview_available"));
+      assertFalse(structured.containsKey("data"));
 
       String preview = text(result);
       assertTrue(preview.contains("LINE 0000"));
@@ -138,19 +143,22 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
-      Map<String, Object> data = dataMap(structured);
-      assertTrue(data.containsKey("content"), "Expected an inline output chunk");
-      assertEquals(ref.outputId(), data.get("outputId"));
-      assertEquals(
-          ToolOutputStore.MAX_READ_CHUNK_CHARS, ((Number) data.get("requestedChars")).intValue());
-      assertEquals(ToolOutputStore.VIEW_JSON, data.get("view"));
-      assertEquals(ToolOutputStore.FORMAT_JSON, data.get("contentFormat"));
-      assertTrue(((Number) data.get("returnedChars")).intValue() > 0);
-      assertTrue(
-          ((Number) data.get("returnedChars")).intValue()
-              < ((Number) data.get("requestedChars")).intValue());
-      assertEquals(Boolean.TRUE, data.get("hasMore"));
-      assertTrue(((Number) data.get("remainingChars")).intValue() > 0);
+      // OutputChunk is an object payload; content/nextOffset land at the structured root.
+      assertTrue(structured.containsKey("content"), "Expected an inline output chunk");
+      String content = (String) structured.get("content");
+      assertTrue(content.length() > 0);
+      assertTrue(content.length() < ToolOutputStore.MAX_READ_CHUNK_CHARS);
+      assertNotNull(structured.get("nextOffset"));
+      assertTrue(((Number) structured.get("nextOffset")).intValue() > 0);
+      assertFalse(structured.containsKey("outputId"));
+      assertFalse(structured.containsKey("view"));
+      assertFalse(structured.containsKey("contentFormat"));
+      assertFalse(structured.containsKey("requestedChars"));
+      assertFalse(structured.containsKey("returnedChars"));
+      assertFalse(structured.containsKey("totalChars"));
+      assertFalse(structured.containsKey("remainingChars"));
+      assertFalse(structured.containsKey("hasMore"));
+      assertFalse(structured.containsKey("data"));
     }
   }
 
@@ -158,12 +166,6 @@ class BaseMcpToolTransportRegressionTest {
     @SuppressWarnings("unchecked")
     Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
     return structured;
-  }
-
-  private static Map<String, Object> dataMap(Map<String, Object> structured) {
-    @SuppressWarnings("unchecked")
-    Map<String, Object> data = (Map<String, Object>) structured.get("data");
-    return data;
   }
 
   private static String text(McpSchema.CallToolResult result) {
