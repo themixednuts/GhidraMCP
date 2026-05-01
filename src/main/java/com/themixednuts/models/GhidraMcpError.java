@@ -398,11 +398,10 @@ public class GhidraMcpError {
   // =================== Supporting Records ===================
 
   /**
-   * Context attached to an error. {@code toolName} and {@code operation} are kept for in-process
-   * use (logging, exception construction) but excluded from JSON since the agent already knows
-   * which call it just made — sending them back is pure echo. {@code inputArguments} is also
-   * excluded for the same reason: the agent has the full request in its conversation history.
-   * {@code providedValues} and {@code metadata} are agent-actionable and remain serialized.
+   * Context attached to an error. {@code toolName}, {@code operation}, and {@code inputArguments}
+   * are available in-process (logging, exception construction) but excluded from JSON — the caller
+   * already has them. {@code provided_values} and {@code metadata} carry actionable detail and are
+   * serialized.
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record ErrorContext(
@@ -412,12 +411,19 @@ public class GhidraMcpError {
       @JsonProperty("provided_values") Object providedValues,
       @JsonProperty("metadata") Object metadata) {}
 
+  /**
+   * One actionable recovery suggestion. {@code message} is the human-facing rationale; {@code
+   * action} is the concrete fix. {@code type} classifies the suggestion for in-process filtering
+   * and is not serialized — agents read prose, not enums. {@code relatedArgs} and {@code
+   * relatedTools} render when present (typically null) via {@link JsonInclude.Include}.
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
   public record ErrorSuggestion(
-      SuggestionType type,
-      String message,
-      String action,
-      List<String> relatedArgs,
-      List<String> relatedTools) {
+      @JsonIgnore SuggestionType type,
+      @JsonProperty("message") String message,
+      @JsonProperty("action") String action,
+      @JsonProperty("related_args") List<String> relatedArgs,
+      @JsonProperty("related_tools") List<String> relatedTools) {
     public enum SuggestionType {
       FIX_REQUEST,
       ALTERNATIVE_TOOL,
