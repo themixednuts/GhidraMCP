@@ -50,10 +50,9 @@ class UtilityToolsE2eTest {
                     null)
                 .block();
       } catch (Exception thrown) {
-        // The fixture environment doesn't always have the Itanium DemanglerUtil wired up. The
-        // demangle action used to swallow that into an "isValid=false" payload; it now flows
-        // through the envelope as a structured error. Either path is a valid e2e outcome — what
-        // matters is that the agent gets an actionable signal, which the message provides.
+        // The fixture environment may not have the Itanium demangler wired up; if it isn't, the
+        // tool should surface a structured error with a "No demangler" message instead of
+        // returning a degraded payload.
         Throwable cause = thrown;
         while (cause.getCause() != null && cause != cause.getCause()) {
           cause = cause.getCause();
@@ -64,9 +63,7 @@ class UtilityToolsE2eTest {
         return;
       }
 
-      // Happy path: success returns the demangled string + pre-parsed components. Pure-echo
-      // (originalSymbol), implementation detail (demanglerUsed), envelope-redundant (isValid,
-      // errorMessage), and heuristic chatter (symbolAnalysis) are all dropped from the wire.
+      // Happy path: success returns the demangled string plus pre-parsed components.
       DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
       assertNotNull(result.getDemangled());
       assertTrue(result.getDemangled().toLowerCase().contains("foo"));

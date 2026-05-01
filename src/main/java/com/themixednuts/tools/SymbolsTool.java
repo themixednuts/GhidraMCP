@@ -348,8 +348,7 @@ public class SymbolsTool extends BaseMcpTool {
               String action = getRequiredStringArgument(args, ARG_ACTION);
 
               return switch (action.toLowerCase(Locale.ROOT)) {
-                // 'find' / 'resolve' / 'search' alias to 'list' — agents reach for these names
-                // before consulting the schema. Listing with a name_pattern is the canonical path.
+                // Aliases for name-based lookup; canonical form is `list` with a name_pattern.
                 case ACTION_LIST, "find", "resolve", "search" -> handleList(program, args);
                 case ACTION_GET -> handleGet(program, args);
                 case ACTION_CREATE -> handleCreate(program, args, annotation);

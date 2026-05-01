@@ -81,8 +81,8 @@ public sealed interface RTTIAnalysisResult
       demangledName = demangled.map(DemangledObject::toString).orElse(null);
     }
 
-    // length is no longer surfaced in the response, but RTTI0DataType.getLength has side effects
-    // (parsing) we want to keep — leave the call in place for that.
+    // RTTI0DataType.getLength parses the underlying bytes as a side effect; the call is kept
+    // for that even though `length` isn't part of the response shape.
     @SuppressWarnings("unused")
     int parsedLength = length;
     Rtti0 data =

@@ -518,8 +518,8 @@ public class FunctionsTool extends BaseMcpTool {
                     handleUpdateVariable(
                         program, args, annotation, action.toLowerCase(Locale.ROOT));
                 default -> {
-                  // Sessions show 'disassemble'/'decompile' attempted on this tool — both belong
-                  // to `inspect`. Surface a redirect so the next call hits the right tool.
+                  // Common cross-tool guesses (disassemble/decompile/delete/etc.) — return a
+                  // redirect rather than the bare valid-actions list so the next call lands.
                   Map<String, String> aliases =
                       Map.of(
                           "disassemble", "use `inspect` (action: listing)",

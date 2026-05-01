@@ -233,10 +233,8 @@ public class MemoryTool extends BaseMcpTool {
     }
 
     /**
-     * The raw matched bytes. Excluded from the MCP JSON payload — for {@code string}/{@code hex}
-     * searches the bytes are an echo of the search input, and even {@code regex} matches are
-     * recoverable via a follow-up {@code memory.read}. Kept on the model for in-process callers
-     * (tests, batched ops).
+     * The raw matched bytes. Excluded from the JSON payload — string/hex matches echo the input and
+     * regex matches can be reread via {@code memory.read}. Available in-process.
      */
     @JsonIgnore
     public byte[] getBytes() {
@@ -526,8 +524,8 @@ public class MemoryTool extends BaseMcpTool {
                 case ACTION_SEARCH -> handleSearch(program, args);
                 case ACTION_APPLY_VTABLE -> handleApplyVtable(program, args);
                 default -> {
-                  // Sessions show 'disassemble' attempted on this tool — disassembly lives on
-                  // inspect.listing. Surface the redirect rather than a generic action list.
+                  // Disassembly / decompilation / cross-references live on `inspect`. Redirect
+                  // common cross-tool guesses so the recovery is one call away.
                   java.util.Map<String, String> aliases =
                       java.util.Map.of(
                           "disassemble", "use `inspect` (action: listing)",
@@ -937,8 +935,7 @@ public class MemoryTool extends BaseMcpTool {
   }
 
   private Mono<? extends Object> handleSearch(Program program, Map<String, Object> args) {
-    // Accept legacy/intuitive arg name "query" as an alias for "search_value" — agents
-    // recovered from "Missing: search_value" errors by retrying with this exact name.
+    // Accept "query" as an alias for "search_value".
     if (!args.containsKey(ARG_SEARCH_VALUE) && args.containsKey("query")) {
       args.put(ARG_SEARCH_VALUE, args.get("query"));
     }
@@ -1255,9 +1252,9 @@ public class MemoryTool extends BaseMcpTool {
   }
 
   /**
-   * Builds zero-result recovery suggestions tailored to the search type. Sessions show agents
-   * frequently re-running the same query manually with UTF-16, case-insensitive, or hex-equivalent
-   * variants — surface those up front so the next attempt is informed.
+   * Builds zero-result recovery suggestions tailored to the search type — UTF-16-as-hex,
+   * case-insensitivity, regex/string crossovers, address-range bounding — so the caller can rerun
+   * with a likelier-to-hit configuration on the next attempt.
    */
   private List<GhidraMcpError.ErrorSuggestion> buildNoResultsSuggestions(
       SearchType searchType, String searchValue, boolean caseSensitive) {

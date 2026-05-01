@@ -40,9 +40,9 @@ public class McpResponse<T> {
   // =================== Getters ===================
 
   /**
-   * Whether the response represents a success. Excluded from JSON — agents already see this via
-   * MCP's {@code CallToolResult.isError} flag, and the absence of an {@code error} field is the
-   * structural signal. Kept as a programmatic accessor for in-process callers.
+   * Whether the response represents a success. Excluded from the wire: failure is signaled by
+   * {@code CallToolResult.isError} and by the presence of error fields. Available in-process for
+   * log lines and tests.
    */
   @JsonIgnore
   public boolean isSuccess() {
@@ -69,10 +69,10 @@ public class McpResponse<T> {
   }
 
   /**
-   * Error payload — flattened into the parent JSON via {@link JsonUnwrapped}. The MCP {@code
-   * CallToolResult.isError} flag is the canonical "this call failed" signal, so the extra {@code
-   * "error":{}} wrapper would just be REST-API muscle memory. On a successful call, this is null
-   * and the unwrapped fields are absent.
+   * Error payload — flattened into the parent JSON via {@link JsonUnwrapped}. Failure is already
+   * signaled by {@code CallToolResult.isError}, so the {@code message}/{@code hint}/ {@code
+   * suggestions} fields sit at the structured root rather than under a separate {@code error}
+   * object. Null on success.
    */
   @JsonUnwrapped
   public GhidraMcpError getError() {
@@ -167,24 +167,16 @@ public class McpResponse<T> {
   }
 
   /**
-   * Custom serializer that drops the redundant {@code data} wrapper for object payloads. The
-   * earlier shape was {@code {"data": {field1: ..., field2: ...}, "next_cursor": "..."}}; agents
-   * had to traverse one extra level for every read. Flattening object payloads to the root keeps
-   * the envelope semantics (next_cursor + unwrapped error fields) intact while dropping the
-   * indirection.
-   *
-   * <p>Behavior by data shape:
+   * Serializer that flattens object-shaped {@code data} into the parent JSON, leaving the
+   * envelope-level fields ({@code next_cursor} and the unwrapped error fields) at the same level.
+   * Behavior by data shape:
    *
    * <ul>
    *   <li>{@code Map} or POJO &rarr; fields merged into the root object.
-   *   <li>{@code List} / array &rarr; emitted as {@code "data": [...]} (an array can't be merged
-   *       into an object).
-   *   <li>{@code String} / number / boolean / etc. &rarr; emitted as {@code "data": ...} for the
-   *       same reason — primitives need a key.
+   *   <li>{@code List} / array &rarr; emitted as {@code "data": [...]}; arrays cannot merge.
+   *   <li>{@code String} / number / boolean / etc. &rarr; emitted as {@code "data": ...};
+   *       primitives need a key to coexist with {@code next_cursor}.
    * </ul>
-   *
-   * <p>{@code next_cursor} and the unwrapped error fields ({@code message}, {@code hint}, {@code
-   * context}, {@code suggestions}, {@code related_resources}) are appended to the root.
    */
   public static final class McpResponseSerializer extends StdSerializer<McpResponse<?>> {
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -200,7 +192,6 @@ public class McpResponse<T> {
       if (data != null) {
         JsonNode dataNode = JsonMapperHolder.getMapper().valueToTree(data);
         if (dataNode instanceof ObjectNode obj) {
-          // Flatten — merge object fields into the parent, dropping the redundant "data" key.
           Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();
           while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
@@ -208,7 +199,7 @@ public class McpResponse<T> {
             gen.writePOJO(field.getValue());
           }
         } else {
-          // Lists, strings, primitives need a key. Keep "data" — necessary, not boilerplate.
+          // Arrays / strings / primitives can't merge into an object — keep them under `data`.
           gen.writeName("data");
           gen.writePOJO(dataNode);
         }
@@ -221,7 +212,7 @@ public class McpResponse<T> {
 
       GhidraMcpError error = value.getError();
       if (error != null) {
-        // Mirror the @JsonUnwrapped contract on the error field: hoist its properties to the root.
+        // Hoist error properties to the root, matching the @JsonUnwrapped declaration.
         JsonNode errorNode = JsonMapperHolder.getMapper().valueToTree(error);
         if (errorNode instanceof ObjectNode obj) {
           Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();

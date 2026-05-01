@@ -14,12 +14,10 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pure-data coverage of {@link AnalyzeTool#applyCustomTags} and {@link
- * AnalyzeTool#getCustomTagsForMangled}. The earlier implementation looked tags up by a re-derived
- * inner-class name and silently dropped them when the lookup-side and storage-side names didn't
- * round-trip identically through MDMang. These tests pin the fixed behavior — substring match on
- * the mangled name itself, tag attached to the matching row's mangled key — so the regression can't
- * sneak back unnoticed.
+ * Coverage for {@link AnalyzeTool#applyCustomTags} and {@link AnalyzeTool#getCustomTagsForMangled}:
+ * substring match on the mangled name, tag stored under that mangled key, dedup across repeated
+ * calls, no-op on null/empty inputs, round-trip via the lookup helper. Pure-data unit test — no
+ * Ghidra fixture program needed.
  */
 class AnalyzeToolCustomTagsTest {
 
@@ -87,10 +85,9 @@ class AnalyzeToolCustomTagsTest {
     @Test
     @DisplayName("namespaced inner classes still tag the wrapper row exactly once")
     void namespacedInnerClassesDoNotConfuseLookup() {
-      // Pre-fix bug: applyCustomTags ran MDMang on the inner type-arg and stored under the bare
-      // class name; the row builder looked up by the wrapper's class name, so the tag never
-      // surfaced. The fix keys on the full mangled name so the namespace inside the template arg
-      // is irrelevant.
+      // Keying on the full mangled name (rather than a re-extracted inner class) means the
+      // namespace inside the template arg can't fragment storage or shift the tag onto a
+      // different row — the wrapper entry gets its tag, exactly once.
       Map<String, String> templateToTag = Map.of("InstallRegistrationHook", "registered_type");
       String mangled = ".?AV?$InstallRegistrationHook@VGridManagerActor@Aoi@@@@";
 

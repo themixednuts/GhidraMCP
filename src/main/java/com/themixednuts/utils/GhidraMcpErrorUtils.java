@@ -33,15 +33,15 @@ public class GhidraMcpErrorUtils {
   }
 
   /**
-   * Builds an "invalid action" error with a one-shot recovery suggestion. Sessions show agents
-   * looping on the same wrong action because the error message lists valid actions but doesn't
-   * point at the closest one — a model can ignore "Must be one of: a, b, c" and try "d" again.
-   * Putting "did you mean X?" directly in the message anchors recovery on the next turn.
+   * Builds an "invalid action" error that names the closest valid action up front ({@code did you
+   * mean 'X'?}) so callers can recover in one turn. Falls back to listing the full enum when no
+   * candidate is close enough.
    *
-   * @param invalidValue the action the agent passed (e.g. "find")
+   * @param invalidValue the action that was supplied
    * @param validValues the canonical actions the tool supports
-   * @param aliases optional explicit synonym map (lower-cased input → canonical action). Use this
-   *     for non-fuzzy mappings like "disassemble" → "listing" where Levenshtein wouldn't match.
+   * @param aliases optional explicit synonym map (lower-cased input → canonical action) for
+   *     non-fuzzy redirects (e.g. {@code disassemble} → {@code listing}) that Levenshtein wouldn't
+   *     pick up.
    */
   public static GhidraMcpError invalidAction(
       String invalidValue, List<String> validValues, Map<String, String> aliases) {

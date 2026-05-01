@@ -209,8 +209,8 @@ public class ProjectTool extends BaseMcpTool {
                 case ACTION_REDO -> handleRedo(program, args);
                 case ACTION_HISTORY -> handleHistory(program);
                 default -> {
-                  // Sessions show 'info'/'list_programs'/'list' attempted on this tool — those
-                  // are program-resource lookups, not project actions. Surface useful redirects.
+                  // Program metadata and program lists live on the ghidra:// resources, not on
+                  // this tool. Redirect common metadata-style guesses to the right surface.
                   java.util.Map<String, String> aliases =
                       java.util.Map.of(
                           "info", "use the ghidra://program/{name} resource for program metadata",

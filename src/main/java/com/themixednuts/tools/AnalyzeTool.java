@@ -458,11 +458,9 @@ public class AnalyzeTool extends BaseMcpTool {
   }
 
   /**
-   * Demangle response. Pruned aggressively: agents get the human-readable string plus the
-   * pre-parsed components that are tedious to re-extract from it. Pure echo (originalSymbol),
-   * implementation detail (demanglerUsed), envelope-redundant fields (isValid, errorMessage), and
-   * heuristic chatter (symbolAnalysis) are dropped — failure flows through the envelope as a
-   * structured error, success implies a non-null {@code demangled}.
+   * Demangle response. Carries the human-readable string plus pre-parsed components that are
+   * tedious to extract by hand (namespace, class, function, parameters). Failure is signaled by a
+   * structured envelope error — a non-null {@link DemangleResult} implies success.
    */
   @com.fasterxml.jackson.annotation.JsonInclude(
       com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
@@ -744,9 +742,9 @@ public class AnalyzeTool extends BaseMcpTool {
     return withTaskMonitor(
         "analyze.rtti",
         monitor -> {
-          // Sessions show agents reaching for `name`/`search` on this action because the RTTI
-          // mental model is "look it up by class name". Resolve to address via the symbol table
-          // and fall back to a name-pattern hint into list_rtti when there are multiple matches.
+          // Accept name/search/name_pattern as aliases for address — resolve via symbol table
+          // when the caller has a class name but not yet an address. Fall through to a
+          // list_rtti redirect when nothing matches.
           if (!args.containsKey(ARG_ADDRESS)) {
             String nameLike =
                 getOptionalStringArgument(args, ARG_NAME)
@@ -1660,11 +1658,8 @@ public class AnalyzeTool extends BaseMcpTool {
             nameFilter = Pattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
           }
 
-          // Parse agent-defined custom tag patterns. Each {template, tag} entry tags any RTTI row
-          // whose mangled name contains the template substring. This matches the agent's mental
-          // model — pattern → tag on the row I see — instead of the older "find wrapper, demangle
-          // inner template arg, tag a different entry" pipeline that silently dropped tags
-          // whenever the lookup key didn't round-trip cleanly through MDMang.
+          // Parse caller-defined custom tag patterns. Each {template, tag} entry tags any RTTI
+          // row whose mangled name contains the template substring.
           List<Map<String, Object>> customTagDefs =
               getOptionalListArgument(args, "custom_tags").orElse(null);
           Map<String, String> templateToTag = new LinkedHashMap<>();
@@ -2018,12 +2013,9 @@ public class AnalyzeTool extends BaseMcpTool {
    * (constructors, operators, templates, etc.) per spec.
    */
   /**
-   * Applies agent-defined custom tags to the entry whose mangled name contains the template
-   * substring. The earlier implementation tried to extract the template's inner type-arg and tag a
-   * separate class entry, which silently dropped tags whenever the inner-name MDMang round-trip
-   * didn't match the lookup-side bare class extractor — and even when it did match, the tag landed
-   * on a different row than the one the agent's {@code name_pattern} usually selected. Tagging the
-   * matching row directly aligns with the agent's mental model: "pattern → tag on rows I see".
+   * Applies caller-defined custom tags to any RTTI row whose mangled name contains the template
+   * substring. Tags are stored keyed by the full mangled name so the storage and lookup paths stay
+   * symmetric; no demangling is performed.
    */
   void applyCustomTags(
       String mangledName,
