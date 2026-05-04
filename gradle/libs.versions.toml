@@ -1,9 +1,9 @@
 [versions]
 spotless-plugin = "8.3.0"
-mcp-bom = "1.1.1"
+mcp-bom = "1.1.2"
 jackson = "3.0.3"
 jakarta-servlet = "6.1.0"
-jetty = "12.1.7"
+jetty = "12.1.8"
 junit-jupiter = "6.0.3"
 junit-platform = "6.0.3"
 reflections = "0.10.2"
