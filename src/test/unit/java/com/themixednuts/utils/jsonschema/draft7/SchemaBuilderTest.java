@@ -161,6 +161,7 @@ class SchemaBuilderTest {
     assertTrue(node.has("if"));
     assertTrue(node.has("then"));
     assertFalse(node.has("else"));
+    assertEquals("type", node.get("if").get("required").get(0).asText());
   }
 
   @Test
@@ -177,6 +178,25 @@ class SchemaBuilderTest {
     assertTrue(node.has("if"));
     assertTrue(node.has("then"));
     assertTrue(node.has("else"));
+    assertEquals("type", node.get("if").get("required").get(0).asText());
+  }
+
+  @Test
+  void ifThen_preservesExistingRequiredWhenGuardingConstProperties() {
+    var schema =
+        SchemaBuilder.object()
+            .ifThen(
+                SchemaBuilder.object()
+                    .requiredProperty("type")
+                    .property("type", SchemaBuilder.string().constValue("admin"))
+                    .property("scope", SchemaBuilder.string().constValue("global")),
+                SchemaBuilder.object().requiredProperty("password"))
+            .build();
+
+    JsonNode required = schema.getNode().get("if").get("required");
+    assertEquals(2, required.size());
+    assertEquals("type", required.get(0).asText());
+    assertEquals("scope", required.get(1).asText());
   }
 
   // ========== String Constraints ==========

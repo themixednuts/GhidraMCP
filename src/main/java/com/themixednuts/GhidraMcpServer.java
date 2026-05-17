@@ -336,6 +336,13 @@ public final class GhidraMcpServer {
     Map<String, AsyncToolSpecification> newByName = indexBy(newTools, spec -> spec.tool().name());
 
     removeMissing(currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removeTool(name));
+    replaceExisting(
+        newByName,
+        currentByName.keySet(),
+        (name, spec) -> {
+          mcpRuntime.removeTool(name);
+          mcpRuntime.addTool(spec);
+        });
     addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addTool(spec));
   }
 
@@ -348,6 +355,13 @@ public final class GhidraMcpServer {
         indexBy(newResources, spec -> spec.resource().uri());
 
     removeMissing(currentByUri.keySet(), newByUri.keySet(), uri -> mcpRuntime.removeResource(uri));
+    replaceExisting(
+        newByUri,
+        currentByUri.keySet(),
+        (uri, spec) -> {
+          mcpRuntime.removeResource(uri);
+          mcpRuntime.addResource(spec);
+        });
     addMissing(newByUri, currentByUri.keySet(), spec -> mcpRuntime.addResource(spec));
   }
 
@@ -363,6 +377,13 @@ public final class GhidraMcpServer {
         currentByUriTemplate.keySet(),
         newByUriTemplate.keySet(),
         uriTemplate -> mcpRuntime.removeResourceTemplate(uriTemplate));
+    replaceExisting(
+        newByUriTemplate,
+        currentByUriTemplate.keySet(),
+        (uriTemplate, spec) -> {
+          mcpRuntime.removeResourceTemplate(uriTemplate);
+          mcpRuntime.addResourceTemplate(spec);
+        });
     addMissing(
         newByUriTemplate,
         currentByUriTemplate.keySet(),
@@ -378,6 +399,13 @@ public final class GhidraMcpServer {
 
     removeMissing(
         currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removePrompt(name));
+    replaceExisting(
+        newByName,
+        currentByName.keySet(),
+        (name, spec) -> {
+          mcpRuntime.removePrompt(name);
+          mcpRuntime.addPrompt(spec);
+        });
     addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addPrompt(spec));
   }
 
@@ -400,6 +428,15 @@ public final class GhidraMcpServer {
         .filter(entry -> !currentKeys.contains(entry.getKey()))
         .map(Map.Entry::getValue)
         .forEach(adder);
+  }
+
+  private static <T> void replaceExisting(
+      Map<String, T> newSpecifications,
+      Set<String> currentKeys,
+      java.util.function.BiConsumer<String, T> replacer) {
+    newSpecifications.entrySet().stream()
+        .filter(entry -> currentKeys.contains(entry.getKey()))
+        .forEach(entry -> replacer.accept(entry.getKey(), entry.getValue()));
   }
 
   /** Container for all loaded MCP specifications. */

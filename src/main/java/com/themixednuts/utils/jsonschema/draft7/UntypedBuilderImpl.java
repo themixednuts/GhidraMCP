@@ -131,7 +131,8 @@ public final class UntypedBuilderImpl
   public UntypedBuilderImpl ifThen(IBuildableSchemaType ifSchema, IBuildableSchemaType thenSchema) {
     Objects.requireNonNull(ifSchema, "if schema cannot be null");
     Objects.requireNonNull(thenSchema, "then schema cannot be null");
-    schema.set(IF, ifSchema.build().getNode());
+    schema.set(
+        IF, ConditionalSchemaGuards.guardConstPropertyConditions(ifSchema.build().getNode()));
     schema.set(THEN, thenSchema.build().getNode());
     return this;
   }
@@ -144,7 +145,8 @@ public final class UntypedBuilderImpl
     Objects.requireNonNull(ifSchema, "if schema cannot be null");
     Objects.requireNonNull(thenSchema, "then schema cannot be null");
     Objects.requireNonNull(elseSchema, "else schema cannot be null");
-    schema.set(IF, ifSchema.build().getNode());
+    schema.set(
+        IF, ConditionalSchemaGuards.guardConstPropertyConditions(ifSchema.build().getNode()));
     schema.set(THEN, thenSchema.build().getNode());
     schema.set(ELSE, elseSchema.build().getNode());
     return this;

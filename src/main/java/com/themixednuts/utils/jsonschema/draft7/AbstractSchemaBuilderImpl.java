@@ -128,7 +128,8 @@ abstract class AbstractSchemaBuilderImpl<SELF> {
     Objects.requireNonNull(ifSchema, "if schema cannot be null");
     Objects.requireNonNull(thenSchema, "then schema cannot be null");
 
-    schema.set(IF, ifSchema.build().getNode());
+    schema.set(
+        IF, ConditionalSchemaGuards.guardConstPropertyConditions(ifSchema.build().getNode()));
     schema.set(THEN, thenSchema.build().getNode());
 
     return self();
@@ -142,7 +143,8 @@ abstract class AbstractSchemaBuilderImpl<SELF> {
     Objects.requireNonNull(thenSchema, "then schema cannot be null");
     Objects.requireNonNull(elseSchema, "else schema cannot be null");
 
-    schema.set(IF, ifSchema.build().getNode());
+    schema.set(
+        IF, ConditionalSchemaGuards.guardConstPropertyConditions(ifSchema.build().getNode()));
     schema.set(THEN, thenSchema.build().getNode());
     schema.set(ELSE, elseSchema.build().getNode());
 

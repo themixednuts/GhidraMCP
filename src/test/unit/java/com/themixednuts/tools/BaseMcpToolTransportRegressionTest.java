@@ -14,6 +14,7 @@ import com.themixednuts.utils.McpTransportContexts;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
+import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
@@ -151,6 +152,25 @@ class BaseMcpToolTransportRegressionTest {
       Map<?, ?> row = (Map<?, ?>) rows.get(0);
       assertEquals("Global", row.get("name"));
       assertFalse(row.containsKey("address"));
+    }
+  }
+
+  @Test
+  void constConditionalsDoNotTreatMissingDiscriminantsAsMatchingStructuredOutput()
+      throws Exception {
+    try (TransportFixture fixture =
+        openTransport(new ConditionalSymbolLikeListTool().specification(null))) {
+      McpSchema.CallToolResult result =
+          fixture.callTool("conditional_symbol_like_list_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertTrue(structured.get("data") instanceof List<?>);
+      List<?> rows = (List<?>) structured.get("data");
+      assertEquals(1, rows.size());
+      assertFalse(((Map<?, ?>) rows.get(0)).containsKey("address"));
     }
   }
 
@@ -518,6 +538,35 @@ class BaseMcpToolTransportRegressionTest {
       root.put("type", "object");
       root.set("properties", mapper.createObjectNode());
       return new JsonSchema(root);
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(
+          new PaginatedResult<>(
+              List.of(Map.of("name", "Global", "type", "NAMESPACE")), "cursor-2"));
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Conditional Symbol Like List Tool",
+      description = "Test helper tool with a guarded symbol_type conditional",
+      mcpName = "conditional_symbol_like_list_tool",
+      mcpDescription = "Test helper tool with a guarded symbol_type conditional")
+  private static final class ConditionalSymbolLikeListTool extends BaseMcpTool {
+    @Override
+    public JsonSchema schema() {
+      return SchemaBuilder.objectDraft7(mapper)
+          .property("symbol_type", SchemaBuilder.string(mapper))
+          .allOf(
+              SchemaBuilder.objectDraft7(mapper)
+                  .ifThen(
+                      SchemaBuilder.objectDraft7(mapper)
+                          .property(
+                              "symbol_type", SchemaBuilder.string(mapper).constValue("label")),
+                      SchemaBuilder.objectDraft7(mapper).requiredProperty("address")))
+          .build();
     }
 
     @Override
