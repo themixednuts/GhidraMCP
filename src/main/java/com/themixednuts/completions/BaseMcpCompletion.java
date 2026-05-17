@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpCompletion;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraStateUtils;
+import com.themixednuts.utils.McpTransportContexts;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.common.McpTransportContext;
@@ -83,7 +84,11 @@ public abstract class BaseMcpCompletion {
   public AsyncCompletionSpecification toCompletionSpecification(PluginTool tool) {
     return new AsyncCompletionSpecification(
         getReference(),
-        (exchange, request) -> handleComplete(exchange.transportContext(), request, tool));
+        (exchange, request) ->
+            Mono.deferContextual(
+                contextView ->
+                    handleComplete(
+                        McpTransportContexts.resolve(exchange, contextView), request, tool)));
   }
 
   /** Handles a completion request. */

@@ -9,6 +9,7 @@ import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
+import com.themixednuts.utils.McpTransportContexts;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
@@ -41,7 +42,6 @@ import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -130,9 +130,6 @@ public abstract class BaseMcpTool {
 
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
-  private static final java.util.Set<String> SUPPORTED_TOP_LEVEL_SCHEMA_KEYS =
-      java.util.Set.of(
-          "type", "properties", "required", "additionalProperties", "$defs", "definitions");
   private static final Map<String, Object> DEFAULT_OUTPUT_SCHEMA = createDefaultOutputSchema();
 
   // =================== Argument Name Constants (snake_case) ===================
@@ -246,13 +243,15 @@ public abstract class BaseMcpTool {
                         .annotations(createToolAnnotations(annotation))
                         .build(),
                     (exchange, request) ->
-                        executeWithEnvelope(
-                            exchange,
-                            exchange.transportContext(),
-                            request.arguments(),
-                            request.progressToken(),
-                            tool,
-                            annotation)))
+                        Mono.deferContextual(
+                            contextView ->
+                                executeWithEnvelope(
+                                    exchange,
+                                    McpTransportContexts.resolve(exchange, contextView),
+                                    request.arguments(),
+                                    request.progressToken(),
+                                    tool,
+                                    annotation))))
         .orElse(null);
   }
 
@@ -1620,7 +1619,7 @@ public abstract class BaseMcpTool {
 
   // =================== Schema Conversion ===================
 
-  private Optional<McpSchema.JsonSchema> convertToMcpSchema(
+  private Optional<Map<String, Object>> convertToMcpSchema(
       JsonSchema schema, GhidraMcpTool annotation) {
     return Optional.ofNullable(schema)
         .flatMap(s -> s.toJsonString(mapper))
@@ -1636,53 +1635,13 @@ public abstract class BaseMcpTool {
             });
   }
 
-  private Optional<McpSchema.JsonSchema> convertSchemaString(
+  private Optional<Map<String, Object>> convertSchemaString(
       String schemaString, GhidraMcpTool annotation) {
     try {
       Map<String, Object> schemaMap =
           mapper.readValue(schemaString, new TypeReference<Map<String, Object>>() {});
 
-      String type = (String) schemaMap.get("type");
-      @SuppressWarnings("unchecked")
-      Map<String, Object> properties = (Map<String, Object>) schemaMap.get("properties");
-      @SuppressWarnings("unchecked")
-      List<String> required = (List<String>) schemaMap.get("required");
-      Boolean additionalProperties = (Boolean) schemaMap.get("additionalProperties");
-      @SuppressWarnings("unchecked")
-      Map<String, Object> defs = (Map<String, Object>) schemaMap.get("$defs");
-      @SuppressWarnings("unchecked")
-      Map<String, Object> definitions = (Map<String, Object>) schemaMap.get("definitions");
-
-      Map<String, Object> unsupportedTopLevelKeys = new java.util.LinkedHashMap<>();
-      for (Map.Entry<String, Object> entry : schemaMap.entrySet()) {
-        if (!SUPPORTED_TOP_LEVEL_SCHEMA_KEYS.contains(entry.getKey())) {
-          unsupportedTopLevelKeys.put(entry.getKey(), entry.getValue());
-        }
-      }
-
-      if (!unsupportedTopLevelKeys.isEmpty()) {
-        Msg.warn(
-            this,
-            "Schema for tool '"
-                + annotation.mcpName()
-                + "' uses unsupported top-level JSON schema keywords for MCP conversion: "
-                + unsupportedTopLevelKeys.keySet()
-                + ". Supported keys are "
-                + SUPPORTED_TOP_LEVEL_SCHEMA_KEYS
-                + ". Tool registration will continue, but these keywords are not enforced by MCP"
-                + " input schema validation.");
-
-        Map<String, Object> definitionCopy =
-            definitions == null
-                ? new java.util.LinkedHashMap<>()
-                : new java.util.LinkedHashMap<>(definitions);
-        definitionCopy.put("x_mcp_unsupported_keywords", unsupportedTopLevelKeys);
-        definitions = definitionCopy;
-      }
-
-      return Optional.of(
-          new McpSchema.JsonSchema(
-              type, properties, required, additionalProperties, defs, definitions));
+      return Optional.of(enrichSchemaProperties(schemaMap));
     } catch (JacksonException e) {
       Msg.error(
           this,
@@ -1690,6 +1649,63 @@ public abstract class BaseMcpTool {
           e);
       return Optional.empty();
     }
+  }
+
+  private Map<String, Object> enrichSchemaProperties(Map<String, Object> schemaMap) {
+    Map<String, Object> enriched = new LinkedHashMap<>(schemaMap);
+    Map<String, Object> rootProperties = copyRootProperties(enriched);
+
+    for (String compositionKey : List.of("allOf", "anyOf", "oneOf")) {
+      Object branches = enriched.get(compositionKey);
+      if (branches instanceof List<?> branchList) {
+        for (Object branch : branchList) {
+          mergeBranchProperties(rootProperties, branch);
+        }
+      }
+    }
+
+    enriched.put("properties", rootProperties);
+    return enriched;
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> copyRootProperties(Map<String, Object> schemaMap) {
+    Object properties = schemaMap.get("properties");
+    if (properties instanceof Map<?, ?> propertyMap) {
+      return new LinkedHashMap<>((Map<String, Object>) propertyMap);
+    }
+    return new LinkedHashMap<>();
+  }
+
+  @SuppressWarnings("unchecked")
+  private void mergeBranchProperties(Map<String, Object> rootProperties, Object branch) {
+    if (!(branch instanceof Map<?, ?> rawBranch)) {
+      return;
+    }
+
+    Map<String, Object> branchMap = (Map<String, Object>) rawBranch;
+    mergeDirectProperties(rootProperties, branchMap);
+
+    Object thenSchema = branchMap.get("then");
+    if (thenSchema instanceof Map<?, ?> thenMap) {
+      mergeDirectProperties(rootProperties, (Map<String, Object>) thenMap);
+    }
+
+    Object elseSchema = branchMap.get("else");
+    if (elseSchema instanceof Map<?, ?> elseMap) {
+      mergeDirectProperties(rootProperties, (Map<String, Object>) elseMap);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private void mergeDirectProperties(
+      Map<String, Object> rootProperties, Map<String, Object> schemaMap) {
+    Object properties = schemaMap.get("properties");
+    if (!(properties instanceof Map<?, ?> propertyMap)) {
+      return;
+    }
+
+    ((Map<String, Object>) propertyMap).forEach(rootProperties::putIfAbsent);
   }
 
   // =================== Utility Methods ===================

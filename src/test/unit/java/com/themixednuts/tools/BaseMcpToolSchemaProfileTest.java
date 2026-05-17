@@ -1,6 +1,7 @@
 package com.themixednuts.tools;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.utils.JsonMapperHolder;
@@ -24,8 +25,28 @@ class BaseMcpToolSchemaProfileTest {
   @Test
   void specificationBuiltWhenSchemaUsesUnsupportedTopLevelKeywords() {
     BaseMcpTool tool = new UnsupportedTopLevelSchemaTool();
+    var specification = tool.specification(null);
 
-    assertNotNull(tool.specification(null));
+    assertNotNull(specification);
+    assertTrue(specification.tool().inputSchema().containsKey("allOf"));
+  }
+
+  @Test
+  void specificationInputSchemaExposesConditionalPropertiesAtRoot() {
+    var specification = new FunctionsTool().specification(null);
+
+    assertNotNull(specification);
+    Map<String, Object> schema = specification.tool().inputSchema();
+    assertTrue(schema.containsKey("allOf"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+    assertTrue(properties.containsKey("file_name"));
+    assertTrue(properties.containsKey("action"));
+    assertTrue(properties.containsKey("address"));
+    assertTrue(properties.containsKey("name"));
+    assertTrue(properties.containsKey("page_size"));
+    assertTrue(properties.containsKey("variable_symbol_id"));
   }
 
   @GhidraMcpTool(

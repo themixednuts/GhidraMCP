@@ -17,9 +17,8 @@ class ToolOutputStoreTest {
     ToolOutputStore.OutputChunk chunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 5);
 
-    // OutputChunk only carries content + nextOffset on the wire. Per-output metadata
-    // (sessionId, outputId, view, contentFormat, view_total_chars) is exposed via
-    // StoredOutputRef and list_outputs instead.
+    // The storage chunk carries only content + the internal resume offset. The public
+    // read_tool_output response converts that offset to top-level next_cursor.
     assertEquals("abcde", chunk.content());
     assertEquals(5, chunk.nextOffset());
     assertEquals(26, ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
@@ -56,9 +55,8 @@ class ToolOutputStoreTest {
     assertEquals(3, ref.availableViews().size());
     assertEquals(18, ref.viewTotalChars().get(ToolOutputStore.VIEW_TEXT));
 
-    // Each view returns only its content (the chunk record is just content + nextOffset).
-    // What 'auto' resolves to and what content-format each view uses is metadata of the
-    // StoredOutputRef, not of every chunk.
+    // Each view returns only its content at this layer. What 'auto' resolves to and what
+    // content-format each view uses is metadata of the StoredOutputRef, not of every chunk.
     ToolOutputStore.OutputChunk autoChunk =
         ToolOutputStore.readOutput(sessionId, ref.outputId(), null, "auto", 0, 100);
     assertEquals("plain text payload", autoChunk.content());

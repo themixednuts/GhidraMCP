@@ -7,28 +7,18 @@ import com.themixednuts.services.IGhidraMcpToolProvider;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpAsyncServer;
-import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncCompletionSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceTemplateSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
-import io.modelcontextprotocol.spec.McpSchema.ResourcesUpdatedNotification;
+import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
+import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.transport.ServerTransportSecurityValidator;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
-import jakarta.servlet.DispatcherType;
-import jakarta.servlet.Filter;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.ServletRequest;
-import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,14 +27,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.eclipse.jetty.ee10.servlet.FilterHolder;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 
 /**
- * Manages the lifecycle of the embedded Jetty server with a streamable HTTP MCP server.
+ * Manages the lifecycle of the embedded Jetty server with a stateless HTTP MCP server.
  *
  * <p>This server is designed to be used with ApplicationLevelOnlyPlugin which ensures only a single
  * plugin instance exists. Therefore, we don't need reference counting.
@@ -53,10 +42,21 @@ public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
   private static final String SERVER_VERSION = "0.7.0-pre8";
-  private static final String MCP_PATH_SPEC = "/*";
-  private static final String MCP_SESSION_ID_HEADER = "MCP-Session-Id";
+  private static final String LOOPBACK_BIND_HOST = "127.0.0.1";
+  private static final String MCP_ENDPOINT = "/mcp";
+  private static final String MCP_PATH_SPEC = MCP_ENDPOINT;
   private static final int DEFAULT_TIMEOUT_SECONDS = 600;
   private static Duration requestTimeout = Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS);
+  private static final List<String> LOCAL_ALLOWED_ORIGINS =
+      List.of(
+          "http://127.0.0.1:*",
+          "https://127.0.0.1:*",
+          "http://localhost:*",
+          "https://localhost:*",
+          "http://[::1]:*",
+          "https://[::1]:*");
+  private static final List<String> LOCAL_ALLOWED_HOSTS =
+      List.of("127.0.0.1:*", "localhost:*", "[::1]:*");
   private static final String SERVER_INSTRUCTIONS =
       "Use the 14 available tools for reverse engineering analysis:\n\n"
           + "Workflow: triage -> inspect -> analyze -> annotate\n"
@@ -79,8 +79,7 @@ public final class GhidraMcpServer {
   private static final Object lock = new Object();
   private static final String PROGRAMS_RESOURCE_URI = "ghidra://programs";
   private static Server jettyServer;
-  private static McpAsyncServer mcpServer;
-  private static HttpServletStreamableServerTransportProvider transportProvider;
+  private static McpStatelessRuntime mcpRuntime;
   private static McpSpecifications currentSpecifications;
   private static final Map<String, Set<String>> observedProgramResourceUris =
       new ConcurrentHashMap<>();
@@ -109,7 +108,7 @@ public final class GhidraMcpServer {
         Msg.info(GhidraMcpServer.class, "Starting MCP server on port " + port);
 
         McpSpecifications specs = loadSpecifications(tool);
-        mcpServer = createMcpServer(specs);
+        mcpRuntime = createMcpRuntime(specs);
         jettyServer = createJettyServer(port);
         jettyServer.start();
         currentSpecifications = specs;
@@ -163,12 +162,15 @@ public final class GhidraMcpServer {
 
   /** Returns whether the server is currently running. */
   public static boolean isRunning() {
-    return jettyServer != null && jettyServer.isRunning() && mcpServer != null;
+    return jettyServer != null && jettyServer.isRunning() && mcpRuntime != null;
   }
 
   /** Records a successfully-read concrete resource URI for future update notifications. */
   public static void recordResourceRead(String uri) {
     if (uri == null || uri.isBlank()) {
+      return;
+    }
+    if (mcpRuntime == null || !mcpRuntime.supportsResourceUpdateNotifications()) {
       return;
     }
 
@@ -233,7 +235,7 @@ public final class GhidraMcpServer {
   /** Refreshes the live tool/resource/prompt set without restarting the server. */
   public static boolean refreshFeatures(PluginTool tool) {
     synchronized (lock) {
-      if (!isRunning() || mcpServer == null || currentSpecifications == null) {
+      if (!isRunning() || mcpRuntime == null || currentSpecifications == null) {
         return false;
       }
 
@@ -266,14 +268,14 @@ public final class GhidraMcpServer {
   private static boolean cleanup() {
     boolean success = true;
 
-    if (mcpServer != null) {
+    if (mcpRuntime != null) {
       try {
-        mcpServer.close();
+        mcpRuntime.close();
       } catch (Exception e) {
         Msg.error(GhidraMcpServer.class, "Error closing MCP server", e);
         success = false;
       }
-      mcpServer = null;
+      mcpRuntime = null;
     }
 
     if (jettyServer != null) {
@@ -287,24 +289,22 @@ public final class GhidraMcpServer {
       jettyServer = null;
     }
 
-    transportProvider = null;
     currentSpecifications = null;
     observedProgramResourceUris.clear();
-    PreSessionStreamableHttpFilter.invalidateSessionsMapCache();
     return success;
   }
 
   private static void notifyResourceUpdated(String uri) {
     synchronized (lock) {
-      if (!isRunning() || mcpServer == null || uri == null || uri.isBlank()) {
+      if (!isRunning()
+          || mcpRuntime == null
+          || !mcpRuntime.supportsResourceUpdateNotifications()
+          || uri == null
+          || uri.isBlank()) {
         return;
       }
 
-      try {
-        mcpServer.notifyResourcesUpdated(new ResourcesUpdatedNotification(uri)).block();
-      } catch (Exception e) {
-        Msg.warn(GhidraMcpServer.class, "Failed to notify MCP resource update for " + uri, e);
-      }
+      mcpRuntime.notifyResourceUpdated(uri);
     }
   }
 
@@ -335,9 +335,8 @@ public final class GhidraMcpServer {
         indexBy(currentTools, spec -> spec.tool().name());
     Map<String, AsyncToolSpecification> newByName = indexBy(newTools, spec -> spec.tool().name());
 
-    removeMissing(
-        currentByName.keySet(), newByName.keySet(), name -> mcpServer.removeTool(name).block());
-    addMissing(newByName, currentByName.keySet(), spec -> mcpServer.addTool(spec).block());
+    removeMissing(currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removeTool(name));
+    addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addTool(spec));
   }
 
   private static void syncResources(
@@ -348,9 +347,8 @@ public final class GhidraMcpServer {
     Map<String, AsyncResourceSpecification> newByUri =
         indexBy(newResources, spec -> spec.resource().uri());
 
-    removeMissing(
-        currentByUri.keySet(), newByUri.keySet(), uri -> mcpServer.removeResource(uri).block());
-    addMissing(newByUri, currentByUri.keySet(), spec -> mcpServer.addResource(spec).block());
+    removeMissing(currentByUri.keySet(), newByUri.keySet(), uri -> mcpRuntime.removeResource(uri));
+    addMissing(newByUri, currentByUri.keySet(), spec -> mcpRuntime.addResource(spec));
   }
 
   private static void syncResourceTemplates(
@@ -364,11 +362,11 @@ public final class GhidraMcpServer {
     removeMissing(
         currentByUriTemplate.keySet(),
         newByUriTemplate.keySet(),
-        uriTemplate -> mcpServer.removeResourceTemplate(uriTemplate).block());
+        uriTemplate -> mcpRuntime.removeResourceTemplate(uriTemplate));
     addMissing(
         newByUriTemplate,
         currentByUriTemplate.keySet(),
-        spec -> mcpServer.addResourceTemplate(spec).block());
+        spec -> mcpRuntime.addResourceTemplate(spec));
   }
 
   private static void syncPrompts(
@@ -379,8 +377,8 @@ public final class GhidraMcpServer {
         indexBy(newPrompts, spec -> spec.prompt().name());
 
     removeMissing(
-        currentByName.keySet(), newByName.keySet(), name -> mcpServer.removePrompt(name).block());
-    addMissing(newByName, currentByName.keySet(), spec -> mcpServer.addPrompt(spec).block());
+        currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removePrompt(name));
+    addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addPrompt(spec));
   }
 
   private static <T> Map<String, T> indexBy(
@@ -489,85 +487,83 @@ public final class GhidraMcpServer {
     return new McpSpecifications(tools, resources, resourceTemplates, prompts, completions);
   }
 
-  private static McpAsyncServer createMcpServer(McpSpecifications specs) {
-    transportProvider =
-        HttpServletStreamableServerTransportProvider.builder()
-            .contextExtractor(
-                request -> {
-                  Map<String, Object> contextValues = new LinkedHashMap<>();
-                  contextValues.put("http_method", request.getMethod());
-                  contextValues.put("request_uri", request.getRequestURI());
-
-                  String requestId = request.getHeader("X-Request-Id");
-                  if (requestId != null && !requestId.isBlank()) {
-                    contextValues.put("request_id", requestId);
-                  }
-
-                  String mcpSessionId = request.getHeader("MCP-Session-Id");
-                  if (mcpSessionId != null && !mcpSessionId.isBlank()) {
-                    contextValues.put("mcp_session_id", mcpSessionId);
-                  }
-
-                  String userAgent = request.getHeader("User-Agent");
-                  if (userAgent != null && !userAgent.isBlank()) {
-                    contextValues.put("user_agent", userAgent);
-                  }
-
-                  String remoteAddress = request.getRemoteAddr();
-                  if (remoteAddress != null && !remoteAddress.isBlank()) {
-                    contextValues.put("remote_address", remoteAddress);
-                  }
-
-                  contextValues.put(
-                      "has_authorization_header",
-                      request.getHeader("Authorization") != null
-                          && !request.getHeader("Authorization").isBlank());
-
-                  return McpTransportContext.create(contextValues);
-                })
+  private static McpStatelessRuntime createMcpRuntime(McpSpecifications specs) {
+    HttpServletStatelessServerTransport transport =
+        HttpServletStatelessServerTransport.builder()
+            .messageEndpoint(MCP_ENDPOINT)
+            .securityValidator(createLocalTransportSecurityValidator())
+            .contextExtractor(GhidraMcpServer::extractTransportContext)
             .build();
 
-    installStickySessionsMap(transportProvider);
+    return McpStatelessRuntime.create(
+        transport,
+        SERVER_NAME,
+        SERVER_VERSION,
+        SERVER_INSTRUCTIONS,
+        requestTimeout,
+        buildServerCapabilities(specs),
+        specs.tools,
+        specs.resources,
+        specs.resourceTemplates,
+        specs.prompts,
+        specs.completions);
+  }
 
+  private static ServerCapabilities buildServerCapabilities(McpSpecifications specs) {
     ServerCapabilities.Builder capabilities = ServerCapabilities.builder();
-    capabilities.logging();
 
     if (!specs.tools.isEmpty()) {
-      capabilities.tools(true);
+      capabilities.tools(false);
     }
-
     if (specs.hasResources()) {
-      capabilities.resources(true, true);
+      capabilities.resources(false, false);
     }
     if (specs.hasPrompts()) {
-      capabilities.prompts(true);
+      capabilities.prompts(false);
     }
     if (specs.hasCompletions()) {
       capabilities.completions();
     }
 
-    var builder =
-        McpServer.async(transportProvider)
-            .serverInfo(SERVER_NAME, SERVER_VERSION)
-            .instructions(SERVER_INSTRUCTIONS)
-            .requestTimeout(requestTimeout)
-            .capabilities(capabilities.build())
-            .tools(specs.tools);
+    return capabilities.build();
+  }
 
-    if (!specs.resources.isEmpty()) {
-      builder.resources(specs.resources);
-    }
-    if (!specs.resourceTemplates.isEmpty()) {
-      builder.resourceTemplates(specs.resourceTemplates);
-    }
-    if (!specs.prompts.isEmpty()) {
-      builder.prompts(specs.prompts);
-    }
-    if (!specs.completions.isEmpty()) {
-      builder.completions(specs.completions);
+  private static McpTransportContext extractTransportContext(HttpServletRequest request) {
+    Map<String, Object> contextValues = new LinkedHashMap<>();
+    contextValues.put("http_method", request.getMethod());
+    contextValues.put("request_uri", request.getRequestURI());
+
+    String host = request.getHeader("Host");
+    if (host != null && !host.isBlank()) {
+      contextValues.put("host", host);
     }
 
-    return builder.build();
+    String origin = request.getHeader("Origin");
+    if (origin != null && !origin.isBlank()) {
+      contextValues.put("origin", origin);
+    }
+
+    String requestId = request.getHeader("X-Request-Id");
+    if (requestId != null && !requestId.isBlank()) {
+      contextValues.put("request_id", requestId);
+    }
+
+    String userAgent = request.getHeader("User-Agent");
+    if (userAgent != null && !userAgent.isBlank()) {
+      contextValues.put("user_agent", userAgent);
+    }
+
+    String remoteAddress = request.getRemoteAddr();
+    if (remoteAddress != null && !remoteAddress.isBlank()) {
+      contextValues.put("remote_address", remoteAddress);
+    }
+
+    contextValues.put(
+        "has_authorization_header",
+        request.getHeader("Authorization") != null
+            && !request.getHeader("Authorization").isBlank());
+
+    return McpTransportContext.create(contextValues);
   }
 
   private static Server createJettyServer(int port) {
@@ -576,229 +572,23 @@ public final class GhidraMcpServer {
     server.setStopTimeout(10_000L);
 
     ServerConnector connector = new ServerConnector(server);
+    connector.setHost(LOOPBACK_BIND_HOST);
     connector.setPort(port);
     connector.setIdleTimeout(requestTimeout.toMillis());
     server.addConnector(connector);
 
-    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
     context.setContextPath("/");
     server.setHandler(context);
-    context.addFilter(
-        new FilterHolder(new PreSessionStreamableHttpFilter()),
-        MCP_PATH_SPEC,
-        EnumSet.of(DispatcherType.REQUEST));
-    context.addServlet(new ServletHolder(transportProvider), MCP_PATH_SPEC);
+    context.addServlet(new ServletHolder(mcpRuntime.servlet()), MCP_PATH_SPEC);
 
     return server;
   }
 
-  /**
-   * Reflectively replaces the SDK's private {@code sessions} map with one that ignores the eager
-   * removal performed on SSE write failure (see upstream java-sdk issues #902 and #920).
-   *
-   * <p>The SDK's {@code HttpServletStreamableMcpSessionTransport.sendMessage} catch block removes
-   * the session from the map on the first transient SSE write failure, so the next client POST
-   * fails with "Session not found" even though the client's session would otherwise still be usable
-   * and the SDK's {@code doGet} handler supports SSE reconnect for an existing session.
-   *
-   * <p>The wrapper delegates all operations to a real {@link ConcurrentHashMap} but suppresses
-   * {@code remove} calls that originate from the inner transport class, while still honoring
-   * removals from the outer provider's {@code doDelete} handler (legitimate client-initiated
-   * session termination). If reflection fails (e.g. the SDK renames the field in a future release),
-   * we log a warning and leave the default behavior in place; the {@code
-   * PreSessionStreamableHttpFilter} still provides a clean 404 fallback for stale session ids.
-   */
-  private static void installStickySessionsMap(
-      HttpServletStreamableServerTransportProvider provider) {
-    if (provider == null) {
-      return;
-    }
-    try {
-      Field field = HttpServletStreamableServerTransportProvider.class.getDeclaredField("sessions");
-      field.setAccessible(true);
-      Object original = field.get(provider);
-      StickySessionsMap<Object> wrapper = new StickySessionsMap<>();
-      if (original instanceof Map<?, ?> existing) {
-        for (Map.Entry<?, ?> entry : existing.entrySet()) {
-          wrapper.put(String.valueOf(entry.getKey()), entry.getValue());
-        }
-      }
-      field.set(provider, wrapper);
-      Msg.info(
-          GhidraMcpServer.class,
-          "Installed sticky sessions map to survive transient SSE write failures");
-    } catch (ReflectiveOperationException | RuntimeException e) {
-      Msg.warn(
-          GhidraMcpServer.class,
-          "Failed to install sticky sessions map; transient SSE write failures may drop sessions: "
-              + e.getMessage());
-    }
-  }
-
-  /**
-   * {@link ConcurrentHashMap} whose {@code remove} operations become no-ops when invoked from the
-   * SDK's inner transport class. See {@link #installStickySessionsMap} for rationale.
-   */
-  private static final class StickySessionsMap<V> extends ConcurrentHashMap<String, V> {
-
-    private static final String INNER_TRANSPORT_CLASS_SUFFIX =
-        "$HttpServletStreamableMcpSessionTransport";
-
-    @Override
-    public V remove(Object key) {
-      if (isEagerSseRemoval()) {
-        return get(key);
-      }
-      return super.remove(key);
-    }
-
-    @Override
-    public boolean remove(Object key, Object value) {
-      if (isEagerSseRemoval()) {
-        return false;
-      }
-      return super.remove(key, value);
-    }
-
-    private static boolean isEagerSseRemoval() {
-      return StackWalker.getInstance()
-          .walk(
-              frames ->
-                  frames
-                      .limit(25)
-                      .anyMatch(
-                          frame -> frame.getClassName().endsWith(INNER_TRANSPORT_CLASS_SUFFIX)));
-    }
-  }
-
-  /**
-   * Enforces spec-friendly behavior for pre-session and stale-session streamable HTTP requests.
-   *
-   * <p>For streamable HTTP, a client may probe the endpoint with GET before any session is
-   * established. The underlying Java MCP transport returns 400 when the session header is missing,
-   * which breaks some clients; returning 405 here lets them fall back to POST-only mode until a
-   * session-backed SSE stream is available.
-   *
-   * <p>Separately, the SDK serializes a stack-trace-laden {@code McpError} as the body when it
-   * rejects an unknown session id (see upstream issues #902 and #920). We pre-check the session via
-   * reflection on the transport provider and emit a clean, minimal 404 instead, so clients get a
-   * terse signal to drop the session and reinitialize.
-   */
-  private static final class PreSessionStreamableHttpFilter implements Filter {
-
-    private static final String SDK_SESSIONS_FIELD_NAME = "sessions";
-    private static volatile HttpServletStreamableServerTransportProvider cachedProviderRef;
-    private static volatile Map<String, ?> cachedSessionsMap;
-    private static volatile boolean sessionsReflectionUnavailable;
-
-    static void invalidateSessionsMapCache() {
-      cachedProviderRef = null;
-      cachedSessionsMap = null;
-      sessionsReflectionUnavailable = false;
-    }
-
-    @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-        throws java.io.IOException, ServletException {
-      if (!(request instanceof HttpServletRequest httpRequest)
-          || !(response instanceof HttpServletResponse httpResponse)) {
-        chain.doFilter(request, response);
-        return;
-      }
-
-      String sessionHeader = httpRequest.getHeader(MCP_SESSION_ID_HEADER);
-      boolean hasSessionId = sessionHeader != null && !sessionHeader.isBlank();
-      boolean isGet = "GET".equalsIgnoreCase(httpRequest.getMethod());
-
-      if (isGet && !hasSessionId) {
-        httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-        httpResponse.setHeader("Allow", "POST, DELETE");
-        return;
-      }
-
-      if (hasSessionId && !isKnownSession(sessionHeader)) {
-        writeSessionNotFound(httpResponse, sessionHeader);
-        return;
-      }
-
-      chain.doFilter(request, response);
-    }
-
-    private static boolean isKnownSession(String sessionId) {
-      Map<String, ?> sessions = resolveSessionsMap();
-      if (sessions == null) {
-        return true;
-      }
-      return sessions.containsKey(sessionId);
-    }
-
-    private static Map<String, ?> resolveSessionsMap() {
-      if (sessionsReflectionUnavailable) {
-        return null;
-      }
-      HttpServletStreamableServerTransportProvider current = transportProvider;
-      if (current == null) {
-        return null;
-      }
-      Map<String, ?> cached = cachedSessionsMap;
-      if (cached != null && cachedProviderRef == current) {
-        return cached;
-      }
-      try {
-        Field field =
-            HttpServletStreamableServerTransportProvider.class.getDeclaredField(
-                SDK_SESSIONS_FIELD_NAME);
-        field.setAccessible(true);
-        Object value = field.get(current);
-        if (value instanceof Map<?, ?> map) {
-          @SuppressWarnings("unchecked")
-          Map<String, ?> typed = (Map<String, ?>) map;
-          cachedProviderRef = current;
-          cachedSessionsMap = typed;
-          return typed;
-        }
-      } catch (ReflectiveOperationException e) {
-        Msg.warn(
-            GhidraMcpServer.class,
-            "MCP SDK sessions field unavailable; stale-session pre-check disabled: "
-                + e.getMessage());
-        sessionsReflectionUnavailable = true;
-      }
-      return null;
-    }
-
-    private static void writeSessionNotFound(HttpServletResponse response, String sessionId)
-        throws java.io.IOException {
-      response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-      response.setContentType("application/json");
-      response.setCharacterEncoding("UTF-8");
-      String body =
-          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Session not found: "
-              + escapeJsonString(sessionId)
-              + "\"},\"id\":null}";
-      response.getWriter().write(body);
-    }
-
-    private static String escapeJsonString(String value) {
-      StringBuilder sb = new StringBuilder(value.length() + 2);
-      for (int i = 0; i < value.length(); i++) {
-        char c = value.charAt(i);
-        switch (c) {
-          case '"' -> sb.append("\\\"");
-          case '\\' -> sb.append("\\\\");
-          case '\n' -> sb.append("\\n");
-          case '\r' -> sb.append("\\r");
-          case '\t' -> sb.append("\\t");
-          default -> {
-            if (c < 0x20) {
-              sb.append(String.format("\\u%04x", (int) c));
-            } else {
-              sb.append(c);
-            }
-          }
-        }
-      }
-      return sb.toString();
-    }
+  static ServerTransportSecurityValidator createLocalTransportSecurityValidator() {
+    return DefaultServerTransportSecurityValidator.builder()
+        .allowedOrigins(LOCAL_ALLOWED_ORIGINS)
+        .allowedHosts(LOCAL_ALLOWED_HOSTS)
+        .build();
   }
 }

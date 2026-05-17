@@ -578,45 +578,43 @@ public class FunctionsTool extends BaseMcpTool {
 
     AddressSet addressBounds =
         buildAddressBounds(program, addressStartOpt.orElse(null), addressEndOpt.orElse(null));
+    if (cursor != null && addressBounds != null && !addressBounds.contains(cursor.address)) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR,
+              cursor.toCursorString(),
+              "cursor is outside the requested address range"));
+    }
 
-    List<FunctionInfo> allMatches = new ArrayList<>();
-    FunctionIterator funcIter =
-        addressBounds != null
-            ? functionManager.getFunctions(addressBounds, true)
-            : functionManager.getFunctions(true);
-    while (funcIter.hasNext()) {
+    FunctionIterator funcIter = selectFunctionIterator(functionManager, addressBounds, cursor);
+
+    List<FunctionInfo> paginatedResults = new ArrayList<>(pageSize + 1);
+    boolean cursorMatched = cursor == null;
+    boolean collectResults = cursor == null;
+    while (funcIter.hasNext() && paginatedResults.size() <= pageSize) {
       Function function = funcIter.next();
       if (namePattern != null && !namePattern.matcher(function.getName()).matches()) {
         continue;
       }
-      allMatches.add(new FunctionInfo(function));
-    }
 
-    int startIndex = 0;
-    if (cursor != null) {
-      boolean matched = false;
-      for (int i = 0; i < allMatches.size(); i++) {
-        FunctionInfo functionInfo = allMatches.get(i);
-        if (functionInfo.getEntryPoint().equalsIgnoreCase(cursor.address)
-            && functionInfo.getName().equals(cursor.name)) {
-          startIndex = i + 1;
-          matched = true;
-          break;
+      if (!collectResults) {
+        if (matchesFunctionCursor(function, cursor)) {
+          cursorMatched = true;
+          collectResults = true;
         }
+        continue;
       }
 
-      if (!matched) {
-        throw new GhidraMcpException(
-            GhidraMcpError.invalid(
-                ARG_CURSOR,
-                cursor.toCursorString(),
-                "cursor is invalid or no longer present in this function listing"));
-      }
+      paginatedResults.add(new FunctionInfo(function));
     }
 
-    int endExclusive = Math.min(allMatches.size(), startIndex + pageSize + 1);
-    List<FunctionInfo> paginatedResults =
-        new ArrayList<>(allMatches.subList(startIndex, endExclusive));
+    if (!cursorMatched) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR,
+              cursor.toCursorString(),
+              "cursor is invalid or no longer present in this function listing"));
+    }
 
     boolean hasMore = paginatedResults.size() > pageSize;
     List<FunctionInfo> results =
@@ -629,6 +627,25 @@ public class FunctionsTool extends BaseMcpTool {
     }
 
     return new PaginatedResult<>(results, nextCursor);
+  }
+
+  private FunctionIterator selectFunctionIterator(
+      FunctionManager functionManager, AddressSet addressBounds, FunctionCursor cursor) {
+    if (addressBounds != null) {
+      return functionManager.getFunctions(addressBounds, true);
+    }
+    if (cursor != null) {
+      return functionManager.getFunctions(cursor.address, true);
+    }
+    return functionManager.getFunctions(true);
+  }
+
+  private boolean matchesFunctionCursor(Function function, FunctionCursor cursor) {
+    return function != null
+        && cursor != null
+        && function.getEntryPoint() != null
+        && function.getEntryPoint().equals(cursor.address)
+        && function.getName().equals(cursor.name);
   }
 
   private Mono<FunctionInfo> handleGet(Program program, Map<String, Object> args) {
@@ -1409,7 +1426,7 @@ public class FunctionsTool extends BaseMcpTool {
           GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an empty function name"));
     }
 
-    return new FunctionCursor(cursorAddress.toString(), decodedName, cursorValue);
+    return new FunctionCursor(cursorAddress, decodedName, cursorValue);
   }
 
   private String encodeFunctionCursor(String address, String functionName) {
@@ -1417,11 +1434,11 @@ public class FunctionsTool extends BaseMcpTool {
   }
 
   private static final class FunctionCursor {
-    private final String address;
+    private final Address address;
     private final String name;
     private final String rawCursor;
 
-    private FunctionCursor(String address, String name, String rawCursor) {
+    private FunctionCursor(Address address, String name, String rawCursor) {
       this.address = address;
       this.name = name;
       this.rawCursor = rawCursor;

@@ -7,6 +7,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
+import com.themixednuts.utils.McpTransportContexts;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
@@ -107,7 +108,12 @@ public abstract class BaseMcpResource {
             .build();
 
     return new AsyncResourceSpecification(
-        resource, (exchange, request) -> handleRead(exchange.transportContext(), request, tool));
+        resource,
+        (exchange, request) ->
+            Mono.deferContextual(
+                contextView ->
+                    handleRead(
+                        McpTransportContexts.resolve(exchange, contextView), request, tool)));
   }
 
   /** Creates an AsyncResourceTemplateSpecification for template resources. */
@@ -125,7 +131,12 @@ public abstract class BaseMcpResource {
             .build();
 
     return new AsyncResourceTemplateSpecification(
-        template, (exchange, request) -> handleRead(exchange.transportContext(), request, tool));
+        template,
+        (exchange, request) ->
+            Mono.deferContextual(
+                contextView ->
+                    handleRead(
+                        McpTransportContexts.resolve(exchange, contextView), request, tool)));
   }
 
   /** Handles a read resource request. */

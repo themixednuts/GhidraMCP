@@ -5,6 +5,7 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraStateUtils;
 import com.themixednuts.utils.JsonMapperHolder;
+import com.themixednuts.utils.McpTransportContexts;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
@@ -81,7 +82,12 @@ public abstract class BaseMcpPrompt {
     Prompt prompt = new Prompt(getName(), getTitle(), getDescription(), getArguments());
 
     return new AsyncPromptSpecification(
-        prompt, (exchange, request) -> handleGetPrompt(exchange.transportContext(), request, tool));
+        prompt,
+        (exchange, request) ->
+            Mono.deferContextual(
+                contextView ->
+                    handleGetPrompt(
+                        McpTransportContexts.resolve(exchange, contextView), request, tool)));
   }
 
   /** Handles a get prompt request. */

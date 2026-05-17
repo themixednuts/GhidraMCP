@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.themixednuts.annotation.GhidraMcpResource;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.McpResponse;
+import com.themixednuts.resources.BaseMcpResource;
 import com.themixednuts.utils.CursorDataResult;
+import com.themixednuts.utils.McpTransportContexts;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.plugintool.PluginTool;
@@ -15,13 +18,17 @@ import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.common.McpTransportContext;
-import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServer;
+import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
+import io.modelcontextprotocol.server.McpStatelessAsyncServer;
+import io.modelcontextprotocol.server.McpStatelessServerFeatures;
+import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.spec.McpSchema.TextResourceContents;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,7 +43,7 @@ import tools.jackson.databind.node.ObjectNode;
 class BaseMcpToolTransportRegressionTest {
 
   @Test
-  void streamableToolsCallWithoutProgressTokenReturnsStructuredError() throws Exception {
+  void statelessToolsCallWithoutProgressTokenReturnsStructuredError() throws Exception {
     try (TransportFixture fixture = openTransport(new FailingTool().specification(null))) {
       McpSchema.CallToolResult result = fixture.callTool("failing_tool", Map.of());
 
@@ -55,6 +62,38 @@ class BaseMcpToolTransportRegressionTest {
       assertFalse(structured.containsKey("error_code"));
       assertTrue(String.valueOf(structured.get("message")).contains("NullPointerException: value"));
       assertFalse(result.content().isEmpty());
+    }
+  }
+
+  @Test
+  void statelessToolsReceiveTransportContextFromRequest() throws Exception {
+    try (TransportFixture fixture = openTransport(new ContextEchoTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("context_echo_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+      assertEquals("stateless-test", structured(result).get("transport"));
+    }
+  }
+
+  @Test
+  void statelessTransportListsAndReadsResources() throws Exception {
+    try (TransportFixture fixture =
+        openTransport(List.of(), List.of(new StaticTextResource().toResourceSpecification(null)))) {
+      McpSchema.ListResourcesResult resources = fixture.listResources();
+      assertNotNull(resources);
+      assertEquals(1, resources.resources().size());
+      assertEquals("test://fixture", resources.resources().get(0).uri());
+
+      McpSchema.ReadResourceResult result = fixture.readResource("test://fixture");
+      assertNotNull(result);
+      assertEquals(1, result.contents().size());
+      assertTrue(result.contents().get(0) instanceof TextResourceContents);
+
+      TextResourceContents content = (TextResourceContents) result.contents().get(0);
+      assertEquals("test://fixture", content.uri());
+      assertEquals("text/plain", content.mimeType());
+      assertEquals("stateless-test:test://fixture", content.text());
     }
   }
 
@@ -143,13 +182,13 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals(Boolean.FALSE, result.isError());
 
       Map<String, Object> structured = structured(result);
-      // OutputChunk is an object payload; content/nextOffset land at the structured root.
+      // Read chunks expose content plus the normal top-level next_cursor continuation.
       assertTrue(structured.containsKey("content"), "Expected an inline output chunk");
       String content = (String) structured.get("content");
       assertTrue(content.length() > 0);
       assertTrue(content.length() < ToolOutputStore.MAX_READ_CHUNK_CHARS);
-      assertNotNull(structured.get("nextOffset"));
-      assertTrue(((Number) structured.get("nextOffset")).intValue() > 0);
+      assertNotNull(structured.get("next_cursor"));
+      assertFalse(structured.containsKey("nextOffset"));
       assertFalse(structured.containsKey("outputId"));
       assertFalse(structured.containsKey("view"));
       assertFalse(structured.containsKey("contentFormat"));
@@ -190,19 +229,45 @@ class BaseMcpToolTransportRegressionTest {
 
   private static TransportFixture openTransport(AsyncToolSpecification... specifications)
       throws Exception {
-    HttpServletStreamableServerTransportProvider transportProvider =
-        HttpServletStreamableServerTransportProvider.builder().build();
-    McpAsyncServer server =
-        McpServer.async(transportProvider)
-            .serverInfo("test-server", "1.0.0")
-            .capabilities(McpSchema.ServerCapabilities.builder().tools(true).build())
-            .tools(specifications)
+    return openTransport(List.of(specifications), List.of());
+  }
+
+  private static TransportFixture openTransport(
+      List<AsyncToolSpecification> toolSpecifications,
+      List<AsyncResourceSpecification> resourceSpecifications)
+      throws Exception {
+    HttpServletStatelessServerTransport transport =
+        HttpServletStatelessServerTransport.builder()
+            .messageEndpoint("/mcp")
+            .contextExtractor(
+                request -> McpTransportContext.create(Map.of("transport", "stateless-test")))
             .build();
 
+    McpSchema.ServerCapabilities.Builder capabilities = McpSchema.ServerCapabilities.builder();
+    if (!toolSpecifications.isEmpty()) {
+      capabilities.tools(false);
+    }
+    if (!resourceSpecifications.isEmpty()) {
+      capabilities.resources(false, false);
+    }
+
+    var serverBuilder =
+        McpServer.async(transport)
+            .serverInfo("test-server", "1.0.0")
+            .capabilities(capabilities.build());
+    if (!toolSpecifications.isEmpty()) {
+      serverBuilder.tools(toStatelessTools(toolSpecifications));
+    }
+    if (!resourceSpecifications.isEmpty()) {
+      serverBuilder.resources(toStatelessResources(resourceSpecifications));
+    }
+
+    McpStatelessAsyncServer server = serverBuilder.build();
+
     Server jetty = new Server(0);
-    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
     context.setContextPath("/");
-    context.addServlet(new ServletHolder(transportProvider), "/mcp");
+    context.addServlet(new ServletHolder(transport), "/mcp");
     jetty.setHandler(context);
     jetty.start();
 
@@ -222,10 +287,47 @@ class BaseMcpToolTransportRegressionTest {
     return new TransportFixture(client, server, jetty);
   }
 
-  private record TransportFixture(McpAsyncClient client, McpAsyncServer server, Server jetty)
+  private static List<McpStatelessServerFeatures.AsyncToolSpecification> toStatelessTools(
+      List<AsyncToolSpecification> specifications) {
+    return specifications.stream()
+        .map(
+            spec ->
+                new McpStatelessServerFeatures.AsyncToolSpecification(
+                    spec.tool(),
+                    (context, request) ->
+                        spec.callHandler()
+                            .apply(null, request)
+                            .contextWrite(ctx -> McpTransportContexts.put(ctx, context))))
+        .toList();
+  }
+
+  private static List<McpStatelessServerFeatures.AsyncResourceSpecification> toStatelessResources(
+      List<AsyncResourceSpecification> specifications) {
+    return specifications.stream()
+        .map(
+            spec ->
+                new McpStatelessServerFeatures.AsyncResourceSpecification(
+                    spec.resource(),
+                    (context, request) ->
+                        spec.readHandler()
+                            .apply(null, request)
+                            .contextWrite(ctx -> McpTransportContexts.put(ctx, context))))
+        .toList();
+  }
+
+  private record TransportFixture(
+      McpAsyncClient client, McpStatelessAsyncServer server, Server jetty)
       implements AutoCloseable {
     private McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
       return client.callTool(new McpSchema.CallToolRequest(name, args)).block();
+    }
+
+    private McpSchema.ListResourcesResult listResources() {
+      return client.listResources().block();
+    }
+
+    private McpSchema.ReadResourceResult readResource(String uri) {
+      return client.readResource(new McpSchema.ReadResourceRequest(uri)).block();
     }
 
     @Override
@@ -234,6 +336,39 @@ class BaseMcpToolTransportRegressionTest {
       server.closeGracefully().block(Duration.ofSeconds(5));
       jetty.stop();
       jetty.join();
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Context Echo Tool",
+      description = "Test helper tool that echoes transport context",
+      mcpName = "context_echo_tool",
+      mcpDescription = "Test helper tool that echoes transport context")
+  private static final class ContextEchoTool extends BaseMcpTool {
+    @Override
+    public JsonSchema schema() {
+      ObjectNode root = mapper.createObjectNode();
+      root.put("type", "object");
+      root.set("properties", mapper.createObjectNode());
+      return new JsonSchema(root);
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(Map.of("transport", String.valueOf(context.get("transport"))));
+    }
+  }
+
+  @GhidraMcpResource(
+      uri = "test://fixture",
+      name = "Fixture Resource",
+      description = "Test helper resource exposed over stateless transport",
+      mimeType = "text/plain")
+  private static final class StaticTextResource extends BaseMcpResource {
+    @Override
+    public Mono<String> read(McpTransportContext context, String uri, PluginTool tool) {
+      return Mono.just(String.valueOf(context.get("transport")) + ":" + uri);
     }
   }
 

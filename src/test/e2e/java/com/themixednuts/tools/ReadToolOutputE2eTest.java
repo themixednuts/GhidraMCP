@@ -12,6 +12,7 @@ import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.utils.JsonMapperHolder;
+import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import ghidra.program.model.listing.Program;
@@ -92,13 +93,13 @@ class ReadToolOutputE2eTest {
                   Map.of("action", "read", "session_id", sessionId, "output_id", ref.outputId()),
                   null)
               .block();
-      ToolOutputStore.OutputChunk chunk =
-          assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
+      ReadToolOutputTool.ReadChunk chunk =
+          assertInstanceOf(ReadToolOutputTool.ReadChunk.class, chunkRaw);
 
       // Assert exact JSON payload match. View / content-format / total-size metadata is on
-      // StoredOutputRef now; the chunk record itself is just content + nextOffset.
+      // StoredOutputRef now; the read result itself is just content + next_cursor.
       assertEquals(payloadJson, chunk.content(), "Stored and retrieved JSON must be identical");
-      assertNull(chunk.nextOffset(), "Full content should fit in one chunk");
+      assertNull(chunk.nextCursor(), "Full content should fit in one chunk");
       assertEquals(ToolOutputStore.VIEW_JSON, ref.preferredView());
       assertEquals(payloadJson.length(), ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
 
@@ -130,8 +131,8 @@ class ReadToolOutputE2eTest {
                       ToolOutputStore.VIEW_ENVELOPE_JSON),
                   null)
               .block();
-      ToolOutputStore.OutputChunk envelopeChunk =
-          assertInstanceOf(ToolOutputStore.OutputChunk.class, envelopeChunkRaw);
+      ReadToolOutputTool.ReadChunk envelopeChunk =
+          assertInstanceOf(ReadToolOutputTool.ReadChunk.class, envelopeChunkRaw);
       assertEquals(envelopeJson, envelopeChunk.content());
       assertTrue(ref.availableViews().contains(ToolOutputStore.VIEW_ENVELOPE_JSON));
     } finally {
@@ -204,14 +205,15 @@ class ReadToolOutputE2eTest {
                         "max_chars", chunkSize),
                     null)
                 .block();
-        ToolOutputStore.OutputChunk chunk =
-            assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
+        ReadToolOutputTool.ReadChunk chunk =
+            assertInstanceOf(ReadToolOutputTool.ReadChunk.class, chunkRaw);
         reassembled.append(chunk.content());
 
-        if (chunk.nextOffset() == null) {
+        Integer nextOffset = decodeReadOffset(chunk.nextCursor());
+        if (nextOffset == null) {
           break;
         }
-        offset = chunk.nextOffset();
+        offset = nextOffset;
       }
       assertEquals(payloadJson.length(), ref.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
 
@@ -316,8 +318,8 @@ class ReadToolOutputE2eTest {
                       ref.fileName()),
                   null)
               .block();
-      ToolOutputStore.OutputChunk byName =
-          assertInstanceOf(ToolOutputStore.OutputChunk.class, byNameRaw);
+      ReadToolOutputTool.ReadChunk byName =
+          assertInstanceOf(ReadToolOutputTool.ReadChunk.class, byNameRaw);
       assertEquals(payloadJson, byName.content());
     } finally {
       fixture.close();
@@ -344,11 +346,11 @@ class ReadToolOutputE2eTest {
                 Map.of("action", "read", "session_id", sessionId, "output_id", ref.outputId()),
                 null)
             .block();
-    ToolOutputStore.OutputChunk chunk =
-        assertInstanceOf(ToolOutputStore.OutputChunk.class, chunkRaw);
+    ReadToolOutputTool.ReadChunk chunk =
+        assertInstanceOf(ReadToolOutputTool.ReadChunk.class, chunkRaw);
 
     // Auto-view selects the agent-friendly text rendering when one was stored. The chunk record
-    // itself is content + nextOffset; the resolved view is on StoredOutputRef / list_outputs.
+    // itself is content + next_cursor; the resolved view is on StoredOutputRef / list_outputs.
     assertEquals(ToolOutputStore.VIEW_TEXT, ref.preferredView());
     assertEquals("int main(){}", chunk.content());
 
@@ -367,9 +369,17 @@ class ReadToolOutputE2eTest {
                     ToolOutputStore.VIEW_JSON),
                 null)
             .block();
-    ToolOutputStore.OutputChunk jsonChunk =
-        assertInstanceOf(ToolOutputStore.OutputChunk.class, jsonChunkRaw);
+    ReadToolOutputTool.ReadChunk jsonChunk =
+        assertInstanceOf(ReadToolOutputTool.ReadChunk.class, jsonChunkRaw);
     assertEquals("{\"decompiled_code\":\"int main(){}\"}", jsonChunk.content());
+  }
+
+  private Integer decodeReadOffset(String cursor) {
+    if (cursor == null) {
+      return null;
+    }
+    return Integer.parseInt(
+        OpaqueCursorCodec.decodeV1(cursor, 1, "cursor", "v1:<base64url_offset>").get(0));
   }
 
   // ---------------------------------------------------------------------------

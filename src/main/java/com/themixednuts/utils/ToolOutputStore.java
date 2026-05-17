@@ -105,10 +105,8 @@ public final class ToolOutputStore {
       long createdAtMs) {}
 
   /**
-   * A chunk of stored output content. The agent only needs the content itself plus a way to ask for
-   * the next chunk; everything else (sessionId/outputId/view/format/sizes) is either echo of what
-   * the agent just sent or metadata that {@code list_outputs} can return on demand. The envelope's
-   * {@code next_cursor} carries the pagination signal — when null, there's no more content.
+   * A chunk of stored output content plus the internal offset needed to resume reading. The
+   * read_tool_output tool converts this offset to the public {@code next_cursor} field.
    */
   public record OutputChunk(String content, Integer nextOffset) {}
 

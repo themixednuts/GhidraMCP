@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -35,6 +36,7 @@ import reactor.core.publisher.Mono;
         - Use action=list_sessions to discover available sessions.
         - Use action=list_outputs with session_id to browse stored outputs.
         - Use action=read with session_id plus output_id or output_file_name to fetch chunks.
+        - For multi-chunk reads, pass the previous read response's next_cursor as cursor.
         - read defaults to the output's preferred agent-facing view, usually plain text when available,
           otherwise the original tool data serialized as JSON.
         - Set view=json when you want the stored tool payload as JSON.
@@ -62,7 +64,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
       McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
     Object data = response.getData();
 
-    if (ACTION_READ.equals(operation) && data instanceof ToolOutputStore.OutputChunk chunk) {
+    if (ACTION_READ.equals(operation) && data instanceof ReadChunk chunk) {
       return java.util.Optional.ofNullable(chunk.content()).filter(content -> !content.isBlank());
     }
 
@@ -136,8 +138,9 @@ public class ReadToolOutputTool extends BaseMcpTool {
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
             .description(
-                "Pagination cursor for list_sessions/list_outputs (format:"
-                    + " v1:<base64url_store_cursor_key>)"));
+                "Pagination cursor. For list_sessions/list_outputs use the previous list"
+                    + " next_cursor (format: v1:<base64url_store_cursor_key>). For read, use"
+                    + " the previous read next_cursor (format: v1:<base64url_offset>)."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -250,14 +253,13 @@ public class ReadToolOutputTool extends BaseMcpTool {
     return new PaginatedResult<>(result.results, nextCursor);
   }
 
-  private ToolOutputStore.OutputChunk readOutput(Map<String, Object> args)
-      throws GhidraMcpException {
+  private ReadChunk readOutput(Map<String, Object> args) throws GhidraMcpException {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
     String outputId = getOptionalStringArgument(args, ARG_OUTPUT_ID).orElse(null);
     String outputFileName = getOptionalStringArgument(args, ARG_OUTPUT_FILE_NAME).orElse(null);
     String view = getOptionalStringArgument(args, ARG_VIEW).orElse(VIEW_AUTO);
 
-    int offset = getBoundedIntArgumentOrDefault(args, ARG_OFFSET, 0, 0, Integer.MAX_VALUE);
+    int offset = getReadOffset(args);
     int maxChars =
         getBoundedIntArgumentOrDefault(
             args,
@@ -268,7 +270,28 @@ public class ReadToolOutputTool extends BaseMcpTool {
 
     ToolOutputStore.OutputChunk chunk =
         ToolOutputStore.readOutput(sessionId, outputId, outputFileName, view, offset, maxChars);
-    return trimChunkForInlineBudget(chunk, offset);
+    return toReadChunk(trimChunkForInlineBudget(chunk, offset));
+  }
+
+  private int getReadOffset(Map<String, Object> args) {
+    java.util.Optional<String> cursor = getOptionalStringArgument(args, ARG_CURSOR);
+    if (cursor.isEmpty()) {
+      return getBoundedIntArgumentOrDefault(args, ARG_OFFSET, 0, 0, Integer.MAX_VALUE);
+    }
+
+    String decodedOffset =
+        decodeOpaqueCursorSingleV1(cursor.get(), ARG_CURSOR, "v1:<base64url_offset>");
+    try {
+      int offset = Integer.parseInt(decodedOffset);
+      if (offset < 0) {
+        throw new NumberFormatException("negative offset");
+      }
+      return offset;
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_CURSOR, cursor.get(), "read cursor contains an invalid offset"));
+    }
   }
 
   private ToolOutputStore.OutputChunk trimChunkForInlineBudget(
@@ -299,7 +322,8 @@ public class ReadToolOutputTool extends BaseMcpTool {
   private int estimateInlineResponseSize(ToolOutputStore.OutputChunk chunk) {
     try {
       return mapper
-          .writeValueAsString(McpResponse.success(getMcpName(), ACTION_READ, chunk, 0L))
+          .writeValueAsString(
+              McpResponse.success(getMcpName(), ACTION_READ, toReadChunk(chunk), 0L))
           .length();
     } catch (Exception e) {
       return Integer.MAX_VALUE;
@@ -327,6 +351,14 @@ public class ReadToolOutputTool extends BaseMcpTool {
     return new ToolOutputStore.OutputChunk(resizedContent, nextOffset);
   }
 
+  private ReadChunk toReadChunk(ToolOutputStore.OutputChunk chunk) {
+    return new ReadChunk(chunk.content(), encodeReadCursor(chunk.nextOffset()));
+  }
+
+  private String encodeReadCursor(Integer nextOffset) {
+    return nextOffset != null ? OpaqueCursorCodec.encodeV1(Integer.toString(nextOffset)) : null;
+  }
+
   private String renderOutputInfo(ToolOutputStore.OutputInfo info) {
     StringBuilder builder =
         new StringBuilder(
@@ -346,4 +378,6 @@ public class ReadToolOutputTool extends BaseMcpTool {
     builder.append(" by_view=").append(info.viewTotalChars());
     return builder.toString();
   }
+
+  record ReadChunk(String content, @JsonProperty("next_cursor") String nextCursor) {}
 }
