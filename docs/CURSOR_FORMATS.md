@@ -14,10 +14,10 @@ General form:
 
 ## Tool Cursor Contracts
 
-- `read_symbols`
-  - `v1:<base64url_symbol_name>:<base64url_address>`
-- `read_functions`
-  - `v1:<base64url_address>:<base64url_function_name>`
+- `symbols` (`action=list`)
+  - `v1:<base64url_symbol_id>`
+- `functions` (`action=list`)
+  - `v1:<base64url_symbol_id>`
 - `read_data_types`
   - `v1:<base64url_data_type_name>:<base64url_data_type_path>`
 - `manage_functions` (`action=list_variables`)

@@ -9,8 +9,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.models.SymbolListEntry;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
@@ -34,7 +36,7 @@ class QueryToolsE2eTest {
           tool.execute(null, Map.of("file_name", "fixture", "action", "list", "page_size", 1), null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> firstPage =
+      PaginatedResult<FunctionListEntry> firstPage =
           assertInstanceOf(PaginatedResult.class, firstPageRaw);
 
       assertEquals(1, firstPage.results.size());
@@ -55,11 +57,12 @@ class QueryToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> secondPage =
+      PaginatedResult<FunctionListEntry> secondPage =
           assertInstanceOf(PaginatedResult.class, secondPageRaw);
       assertFalse(secondPage.results.isEmpty());
 
-      FunctionInfo firstFunction = firstPage.results.get(0);
+      FunctionListEntry firstFunction = firstPage.results.get(0);
+      assertNotNull(firstFunction.getSymbolId());
       Object singleRaw =
           tool.execute(
                   null,
@@ -107,14 +110,37 @@ class QueryToolsE2eTest {
                       "name_pattern",
                       "entry_.*",
                       "page_size",
-                      10),
+                      1),
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<SymbolInfo> listed = assertInstanceOf(PaginatedResult.class, listRaw);
+      PaginatedResult<SymbolListEntry> listed = assertInstanceOf(PaginatedResult.class, listRaw);
 
-      assertFalse(listed.results.isEmpty());
+      assertEquals(1, listed.results.size());
+      assertNotNull(listed.nextCursor);
       assertTrue(listed.results.stream().anyMatch(symbol -> symbol.getName().startsWith("entry_")));
+      assertTrue(listed.results.stream().allMatch(symbol -> symbol.getSymbolId() != 0));
+
+      Object secondListRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "name_pattern",
+                      "entry_.*",
+                      "page_size",
+                      1,
+                      "cursor",
+                      listed.nextCursor),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<SymbolListEntry> secondListed =
+          assertInstanceOf(PaginatedResult.class, secondListRaw);
+      assertFalse(secondListed.results.isEmpty());
     } finally {
       fixture.close();
     }

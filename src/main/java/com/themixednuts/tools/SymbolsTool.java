@@ -4,6 +4,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.models.SymbolListEntry;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
@@ -46,7 +47,10 @@ import reactor.core.publisher.Mono;
 
          <important_notes>
          - Supports multiple symbol identification methods (name, address, symbol_id)
-         - List mode supports regex filtering by name_pattern and cursor-based pagination
+         - List mode returns compact rows in address order by default. Prefix regex filters such
+           as "^entry_.*" use Ghidra's name-ordered symbol scan for faster search.
+         - List rows include symbol_id for stable follow-up get/update/delete calls. Use get for
+           detailed source/primary/global/external metadata.
          - Get mode returns detailed SymbolInfo by symbol_id, address, or name (with wildcard support)
          - Handles namespace organization and symbol scoping
          - Validates symbol names according to Ghidra rules
@@ -197,8 +201,8 @@ public class SymbolsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor from previous request (format:"
-                                    + " v1:<base64url_symbol_name>:<base64url_address>)"))
+                                "Opaque pagination cursor from previous symbols.list response"
+                                    + " (format: v1:<base64url_symbol_id>)"))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -385,11 +389,12 @@ public class SymbolsTool extends BaseMcpTool {
   // action = list
   // ---------------------------------------------------------------------------
 
-  private Mono<PaginatedResult<SymbolInfo>> handleList(Program program, Map<String, Object> args) {
+  private Mono<PaginatedResult<SymbolListEntry>> handleList(
+      Program program, Map<String, Object> args) {
     return Mono.fromCallable(() -> listSymbols(program, args));
   }
 
-  private PaginatedResult<SymbolInfo> listSymbols(Program program, Map<String, Object> args)
+  private PaginatedResult<SymbolListEntry> listSymbols(Program program, Map<String, Object> args)
       throws GhidraMcpException {
     SymbolTable symbolTable = program.getSymbolTable();
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
@@ -418,20 +423,23 @@ public class SymbolsTool extends BaseMcpTool {
     String normalizedSourceType = sourceTypeOpt.map(String::toLowerCase).orElse(null);
     String normalizedNamespace = namespaceOpt.map(String::toLowerCase).orElse(null);
 
-    // Stream-select the next pageSize+1 candidates instead of materializing every match.
-    // We keep at most pageSize+1 Symbols in a max-heap ordered by (name, address); when the
-    // heap overflows we evict the largest. This avoids O(n log n) sorting on multi-million-
-    // symbol tables when only a single page is needed.
-    int heapCapacity = pageSize + 1;
-    Comparator<Symbol> symbolOrder =
-        Comparator.<Symbol, String>comparing(Symbol::getName, String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(s -> s.getAddress().toString(), String.CASE_INSENSITIVE_ORDER);
-    PriorityQueue<Symbol> heap = new PriorityQueue<>(heapCapacity, symbolOrder.reversed());
+    String literalNamePrefix = namePatternOpt.flatMap(SymbolsTool::literalRegexPrefix).orElse(null);
+    SymbolListOrder listOrder =
+        literalNamePrefix != null ? SymbolListOrder.NAME : SymbolListOrder.ADDRESS;
+    SymbolIterator symbolIterator =
+        selectSymbolIterator(symbolTable, listOrder, literalNamePrefix, cursor);
 
+    List<SymbolListEntry> pagePlusOne = new ArrayList<>(pageSize + 1);
     boolean cursorMatched = cursor == null;
-    SymbolIterator symbolIterator = symbolTable.getAllSymbols(true);
-    while (symbolIterator.hasNext()) {
+    boolean collectResults = cursor == null;
+    while (symbolIterator.hasNext() && pagePlusOne.size() <= pageSize) {
       Symbol symbol = symbolIterator.next();
+
+      if (listOrder == SymbolListOrder.NAME
+          && literalNamePrefix != null
+          && !symbol.getName().startsWith(literalNamePrefix)) {
+        break;
+      }
 
       if (symbolTypeFilter != null && symbol.getSymbolType() != symbolTypeFilter) {
         continue;
@@ -455,24 +463,15 @@ public class SymbolsTool extends BaseMcpTool {
         continue;
       }
 
-      if (cursor != null) {
-        int cmp = compareCursor(symbol, cursor);
-        if (cmp == 0) {
+      if (!collectResults) {
+        if (symbol.getID() == cursor.symbolId) {
           cursorMatched = true;
-          continue;
+          collectResults = true;
         }
-        if (cmp < 0) {
-          continue;
-        }
+        continue;
       }
 
-      // Heap admission: keep only the smallest pageSize+1 elements seen so far.
-      if (heap.size() < heapCapacity) {
-        heap.offer(symbol);
-      } else if (symbolOrder.compare(symbol, heap.peek()) < 0) {
-        heap.poll();
-        heap.offer(symbol);
-      }
+      pagePlusOne.add(new SymbolListEntry(symbol));
     }
 
     if (!cursorMatched) {
@@ -483,31 +482,43 @@ public class SymbolsTool extends BaseMcpTool {
               "cursor is invalid or no longer present in this symbol listing"));
     }
 
-    List<Symbol> ordered = new ArrayList<>(heap);
-    ordered.sort(symbolOrder);
-
-    boolean hasMore = ordered.size() > pageSize;
-    List<Symbol> pageSymbols = hasMore ? ordered.subList(0, pageSize) : ordered;
-    List<SymbolInfo> results = new ArrayList<>(pageSymbols.size());
-    for (Symbol s : pageSymbols) {
-      results.add(new SymbolInfo(s));
-    }
+    boolean hasMore = pagePlusOne.size() > pageSize;
+    List<SymbolListEntry> results =
+        hasMore ? new ArrayList<>(pagePlusOne.subList(0, pageSize)) : pagePlusOne;
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
-      SymbolInfo lastItem = results.get(results.size() - 1);
-      nextCursor = encodeSymbolCursor(lastItem.getName(), lastItem.getAddress());
+      nextCursor = encodeSymbolCursor(results.get(results.size() - 1).getSymbolId());
     }
 
     return new PaginatedResult<>(results, nextCursor);
   }
 
-  private static int compareCursor(Symbol symbol, SymbolCursorPosition cursor) {
-    int byName = String.CASE_INSENSITIVE_ORDER.compare(symbol.getName(), cursor.name);
-    if (byName != 0) {
-      return byName;
+  private SymbolIterator selectSymbolIterator(
+      SymbolTable symbolTable,
+      SymbolListOrder listOrder,
+      String literalNamePrefix,
+      SymbolCursorPosition cursor) {
+    if (listOrder == SymbolListOrder.NAME) {
+      String startName = cursor != null ? cursor.name : literalNamePrefix;
+      return symbolTable.scanSymbolsByName(startName);
     }
-    return String.CASE_INSENSITIVE_ORDER.compare(symbol.getAddress().toString(), cursor.address);
+    if (cursor != null) {
+      if (cursor.address == null || !cursor.address.isMemoryAddress()) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_CURSOR,
+                cursor.toCursorString(),
+                "cursor symbol no longer has a memory address"));
+      }
+      return symbolTable.getSymbolIterator(cursor.address, true);
+    }
+    return symbolTable.getSymbolIterator(true);
+  }
+
+  private enum SymbolListOrder {
+    ADDRESS,
+    NAME
   }
 
   private SymbolType parseSymbolType(String typeStr) {
@@ -537,29 +548,36 @@ public class SymbolsTool extends BaseMcpTool {
 
   private SymbolCursorPosition parseSymbolCursor(Program program, String cursorValue) {
     List<String> parts =
-        decodeOpaqueCursorV1(
-            cursorValue, 2, ARG_CURSOR, "v1:<base64url_symbol_name>:<base64url_address>");
-    String decodedName = parts.get(0);
-    String decodedAddress = parts.get(1);
-
-    if (program.getAddressFactory().getAddress(decodedAddress) == null) {
+        decodeOpaqueCursorV1(cursorValue, 1, ARG_CURSOR, "v1:<base64url_symbol_id>");
+    long symbolId;
+    try {
+      symbolId = Long.parseLong(parts.get(0));
+    } catch (NumberFormatException e) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid symbol_id"));
     }
 
-    return new SymbolCursorPosition(decodedName, decodedAddress, cursorValue);
+    Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+    if (symbol == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "symbol_id no longer exists"));
+    }
+
+    return new SymbolCursorPosition(symbolId, symbol.getName(), symbol.getAddress(), cursorValue);
   }
 
-  private String encodeSymbolCursor(String symbolName, String address) {
-    return OpaqueCursorCodec.encodeV1(symbolName, address);
+  private String encodeSymbolCursor(long symbolId) {
+    return OpaqueCursorCodec.encodeV1(Long.toString(symbolId));
   }
 
   private static final class SymbolCursorPosition {
+    private final long symbolId;
     private final String name;
-    private final String address;
+    private final Address address;
     private final String rawCursor;
 
-    private SymbolCursorPosition(String name, String address, String rawCursor) {
+    private SymbolCursorPosition(long symbolId, String name, Address address, String rawCursor) {
+      this.symbolId = symbolId;
       this.name = name;
       this.address = address;
       this.rawCursor = rawCursor;
@@ -568,6 +586,34 @@ public class SymbolsTool extends BaseMcpTool {
     private String toCursorString() {
       return rawCursor;
     }
+  }
+
+  private static Optional<String> literalRegexPrefix(String regex) {
+    if (regex == null || regex.isBlank()) {
+      return Optional.empty();
+    }
+
+    int index = regex.startsWith("^") ? 1 : 0;
+    StringBuilder prefix = new StringBuilder();
+    boolean escaping = false;
+    while (index < regex.length()) {
+      char ch = regex.charAt(index++);
+      if (escaping) {
+        prefix.append(ch);
+        escaping = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaping = true;
+        continue;
+      }
+      if (".^$*+?()[]{}|".indexOf(ch) >= 0) {
+        break;
+      }
+      prefix.append(ch);
+    }
+
+    return prefix.length() > 0 ? Optional.of(prefix.toString()) : Optional.empty();
   }
 
   // ---------------------------------------------------------------------------

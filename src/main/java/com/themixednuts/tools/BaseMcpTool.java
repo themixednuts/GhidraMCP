@@ -130,8 +130,6 @@ public abstract class BaseMcpTool {
 
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
-  private static final Map<String, Object> DEFAULT_OUTPUT_SCHEMA = createDefaultOutputSchema();
-
   // =================== Argument Name Constants (snake_case) ===================
 
   public static final String ARG_FILE_NAME = "file_name";
@@ -232,54 +230,46 @@ public abstract class BaseMcpTool {
       GhidraMcpTool annotation, PluginTool tool) {
     return convertToMcpSchema(schema(), annotation)
         .map(
-            mcpSchema ->
-                new AsyncToolSpecification(
-                    Tool.builder()
-                        .name(annotation.mcpName())
-                        .description(annotation.mcpDescription())
-                        .inputSchema(mcpSchema)
-                        .outputSchema(outputSchema())
-                        .title(annotation.title().isEmpty() ? null : annotation.title())
-                        .annotations(createToolAnnotations(annotation))
-                        .build(),
-                    (exchange, request) ->
-                        Mono.deferContextual(
-                            contextView ->
-                                executeWithEnvelope(
-                                    exchange,
-                                    McpTransportContexts.resolve(exchange, contextView),
-                                    request.arguments(),
-                                    request.progressToken(),
-                                    tool,
-                                    annotation))))
+            mcpSchema -> {
+              Tool.Builder toolBuilder =
+                  Tool.builder()
+                      .name(annotation.mcpName())
+                      .description(annotation.mcpDescription())
+                      .inputSchema(mcpSchema)
+                      .title(annotation.title().isEmpty() ? null : annotation.title())
+                      .annotations(createToolAnnotations(annotation));
+              Map<String, Object> toolOutputSchema = outputSchema();
+              if (toolOutputSchema != null) {
+                toolBuilder.outputSchema(toolOutputSchema);
+              }
+              return new AsyncToolSpecification(
+                  toolBuilder.build(),
+                  (exchange, request) ->
+                      Mono.deferContextual(
+                          contextView ->
+                              executeWithEnvelope(
+                                  exchange,
+                                  McpTransportContexts.resolve(exchange, contextView),
+                                  request.arguments(),
+                                  request.progressToken(),
+                                  tool,
+                                  annotation)));
+            })
         .orElse(null);
   }
 
-  /** Returns the MCP output schema advertised for this tool. */
+  /**
+   * Returns the MCP output schema advertised for this tool.
+   *
+   * <p>Most tools intentionally omit an advertised output schema while still returning {@code
+   * structuredContent}. The shared response envelope supports several valid shapes
+   * (object-flattened success payloads, paginated arrays under {@code data}, primitive data plus
+   * {@code next_cursor}, and flattened error fields). A generic schema is either too strict and
+   * breaks real results under SDK validation, or too broad to help clients. Tools should override
+   * this only when they can describe every success and error shape exactly.
+   */
   protected Map<String, Object> outputSchema() {
-    return DEFAULT_OUTPUT_SCHEMA;
-  }
-
-  private static Map<String, Object> createDefaultOutputSchema() {
-    // Envelope is intentionally lean: success/duration_ms/error_type/error_code are derivable
-    // from CallToolResult.isError + the message prose, so they're omitted from the wire. The
-    // error payload is unwrapped (no "error" sub-object) — failure is signaled by isError, and
-    // message/hint/context/suggestions sit at the top level alongside data/next_cursor.
-    Map<String, Object> properties = new LinkedHashMap<>();
-    properties.put("data", Map.of());
-    properties.put("next_cursor", Map.of("type", "string"));
-    properties.put("message", Map.of("type", "string"));
-    properties.put("hint", Map.of("type", "string"));
-    properties.put("context", Map.of("type", "object"));
-    properties.put("related_resources", Map.of("type", "array"));
-    properties.put("suggestions", Map.of("type", "array"));
-
-    Map<String, Object> responseSchema = new LinkedHashMap<>();
-    responseSchema.put("type", "object");
-    responseSchema.put("properties", properties);
-    // Permit forward-compat extras and any tool-specific data shape.
-    responseSchema.put("additionalProperties", true);
-    return responseSchema;
+    return null;
   }
 
   /**

@@ -14,42 +14,42 @@ This skill enables reverse engineering workflows using Ghidra through the Model 
 
 ## Quick Start
 
-1. **List available programs**: `list_programs` to see what's loaded
-2. **Read functions**: `read_functions` with filtering to find targets
-3. **Decompile**: `decompile_code` to see source-like output
-4. **Analyze references**: `find_references` to trace data/code flow
+1. **List available programs**: read the `ghidra://programs` resource
+2. **Read functions**: use `functions` with `action: "list"` and filters to find targets
+3. **Decompile**: use `inspect` with `action: "decompile"` for C-like output
+4. **Analyze references**: use `inspect` with `action: "references_to"` or `"references_from"`
 
 ## Core Workflows
 
 ### Analyzing a New Binary
 
-1. Use `list_programs` to confirm the binary is loaded
-2. Use `read_functions` to get an overview of functions
-3. Use `decompile_code` on interesting functions (like `main` or entry points)
-4. Use `find_references` to understand how functions/data are used
-5. Use `manage_symbols` to rename functions and variables as you understand them
+1. Read `ghidra://programs` to confirm the binary is loaded
+2. Use `functions` with `action: "list"` to get compact function rows
+3. Use `inspect` with `action: "decompile"` on interesting functions
+4. Use `inspect` reference actions to understand how functions/data are used
+5. Use `symbols` / `functions` update actions to rename symbols and variables
 
 ### Understanding a Function
 
-1. `read_functions` with `name` or `address` to get function metadata
-2. `decompile_code` with `operation: decompile` to see decompiled C code
-3. `manage_functions` with `operation: get_variables` to see local variables
-4. `manage_functions` with `operation: get_graph` to see control flow
-5. `find_references` with `direction: to` to find callers
+1. `functions` with `action: "get"` and `name`, `address`, or `symbol_id`
+2. `inspect` with `action: "decompile"` to see decompiled C code
+3. `functions` with `action: "list_variables"` to see stable variable targets
+4. `analyze` with `action: "graph"` to see control flow
+5. `inspect` with `action: "references_to"` to find callers
 
 ### Defining Data Structures
 
-1. `read_data_types` to check existing types
-2. `manage_data_types` with `operation: create` and `type_kind: struct` to create structures
+1. `data_types` with `action: "list"` to check existing types
+2. `data_types` with `action: "create"` and `data_type_kind: "struct"` to create structures
 3. Add fields with proper offsets and types
-4. Use `manage_data_types` with `operation: update` to modify existing types
+4. Use `data_types` with `action: "update"` to modify existing types
 
 ### Searching for Patterns
 
-1. `search_memory` with `search_type: string` for string literals
-2. `search_memory` with `search_type: bytes` for byte patterns
-3. `search_memory` with `search_type: regex` for complex patterns
-4. Follow up with `find_references` on interesting addresses
+1. `memory` with `action: "search"` and `search_type: "string"` for string literals
+2. `memory` with `action: "search"` and `search_type: "hex"` for byte patterns
+3. `memory` with `action: "search"` and `search_type: "regex"` for complex patterns
+4. Follow up with `inspect` reference actions on interesting addresses
 
 ### Bulk Operations
 
@@ -63,55 +63,49 @@ Use `batch_operations` to execute multiple changes atomically:
 ### Read Operations (No Modifications)
 | Tool | Purpose |
 |------|---------|
-| `list_programs` | List all programs in the project |
-| `read_functions` | Read function details or list functions |
-| `read_symbols` | Read symbol details or list symbols |
-| `read_data_types` | Read data type details or list types |
-| `read_memory_blocks` | List memory segments |
-| `read_listing` | View disassembly at addresses |
-| `decompile_code` | Decompile functions to C-like code |
-| `find_references` | Find cross-references to/from addresses |
-| `search_memory` | Search for strings, bytes, patterns |
-| `list_analysis_options` | View analysis configuration |
+| `ghidra://programs` | List all programs in the project |
+| `functions` | List/get/create/update functions and variables |
+| `symbols` | List/get/create/update symbols, labels, namespaces, classes |
+| `data_types` | List/get/create/update data types |
+| `memory` | List blocks, search memory, read/write bytes |
+| `inspect` | Listing, decompile, and references |
+| `analyze` | Demangle, RTTI, graph, and call graph |
+| `project` | Analysis options, analysis run, save, navigation, undo/redo |
 
 ### Write Operations (Modify Program)
 | Tool | Purpose |
 |------|---------|
-| `manage_functions` | Create functions, update prototypes |
-| `manage_symbols` | Create/rename labels and symbols |
-| `manage_data_types` | Create/update structs, enums, unions |
-| `manage_memory` | Read/write bytes, undefine code |
-| `manage_project` | Bookmarks, navigation, metadata |
+| `functions` | Create functions, update prototypes, rename/retype variables |
+| `symbols` | Create/rename labels and symbols |
+| `data_types` | Create/update structs, enums, unions |
+| `memory` | Write bytes, undefine code, apply vtables |
+| `annotate` | Comments and bookmarks |
 
 ### Delete Operations
 | Tool | Purpose |
 |------|---------|
-| `delete_function` | Remove function definitions |
-| `delete_symbol` | Remove symbols/labels |
-| `delete_data_type` | Remove data types |
-| `delete_bookmark` | Remove bookmarks |
+| `delete` | Remove functions, symbols, data types, or bookmarks |
 
 ### Utility Operations
 | Tool | Purpose |
 |------|---------|
 | `batch_operations` | Execute multiple operations atomically |
-| `undo_redo` | Undo/redo changes |
-| `demangle_symbol` | Demangle C++ symbols |
-| `analyze_rtti` | Analyze MSVC RTTI structures |
+| `project` | Undo/redo changes |
+| `analyze` | Demangle symbols and analyze RTTI |
 
 ## Common Patterns
 
 ### Pagination
-Most list operations return paginated results. Use the `cursor` field from the response to get the next page:
+Most list operations return paginated results. Pass the response `next_cursor` back as `cursor` to get the next page:
 ```json
-{"operation": "list", "cursor": "returned_cursor_value"}
+{"action": "list", "cursor": "returned_next_cursor_value"}
 ```
 
 ### Identifying Targets
 Tools accept multiple ways to identify targets:
 - **By address**: `"address": "0x401000"`
 - **By name**: `"name": "main"`
-- **By ID**: `"symbol_id": 12345` or `"function_id": "0x401000"`
+- **By ID**: `"symbol_id": 12345` or `"variable_symbol_id": "12345"`
 
 ### Address Formats
 Addresses can be specified as:
@@ -122,10 +116,10 @@ Addresses can be specified as:
 ## Tips
 
 1. **Start broad, then narrow**: Use list operations first, then read specific items
-2. **Use filtering**: Most list operations support `name_filter` with wildcards
+2. **Use filtering**: Most list operations support `name_pattern` regex filters
 3. **Check before modifying**: Read the current state before making changes
 4. **Use batch for related changes**: Group related modifications in `batch_operations`
-5. **Undo mistakes**: Use `undo_redo` if something goes wrong
+5. **Undo mistakes**: Use `project` with `action: "undo"` if something goes wrong
 
 ## Reference
 

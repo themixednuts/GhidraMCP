@@ -4,10 +4,12 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.Symbol;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FunctionInfo {
   private final String name;
+  private final Long symbolId;
   private final String entryPoint;
   private final String signature;
   private final String callingConvention;
@@ -17,6 +19,8 @@ public class FunctionInfo {
 
   public FunctionInfo(Function function) {
     this.name = function.getName();
+    Symbol symbol = function.getSymbol();
+    this.symbolId = symbol != null ? symbol.getID() : null;
 
     if (function.getEntryPoint() != null) {
       this.entryPoint = function.getEntryPoint().toString();
@@ -48,6 +52,11 @@ public class FunctionInfo {
   @JsonProperty("name")
   public String getName() {
     return name;
+  }
+
+  @JsonProperty("symbol_id")
+  public Long getSymbolId() {
+    return symbolId;
   }
 
   @JsonProperty("entry_point")

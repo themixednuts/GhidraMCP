@@ -1,6 +1,7 @@
 package com.themixednuts.tools;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
@@ -47,6 +48,14 @@ class BaseMcpToolSchemaProfileTest {
     assertTrue(properties.containsKey("name"));
     assertTrue(properties.containsKey("page_size"));
     assertTrue(properties.containsKey("variable_symbol_id"));
+  }
+
+  @Test
+  void specificationOmitsGenericOutputSchemaByDefault() {
+    var specification = new SupportedTopLevelSchemaTool().specification(null);
+
+    assertNotNull(specification);
+    assertNull(specification.tool().outputSchema());
   }
 
   @GhidraMcpTool(

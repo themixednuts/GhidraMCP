@@ -13,6 +13,7 @@ import ghidra.program.model.symbol.SymbolType;
 public class SymbolInfo {
 
   private final String name;
+  private final long symbolId;
   private final String address;
   private final String type;
   private final String source;
@@ -23,6 +24,7 @@ public class SymbolInfo {
 
   public SymbolInfo(Symbol symbol) {
     this.name = symbol.getName();
+    this.symbolId = symbol.getID();
 
     Address symAddr = symbol.getAddress();
     this.address = (symAddr != null) ? symAddr.toString() : null;
@@ -44,6 +46,11 @@ public class SymbolInfo {
   @JsonProperty("name")
   public String getName() {
     return name;
+  }
+
+  @JsonProperty("symbol_id")
+  public long getSymbolId() {
+    return symbolId;
   }
 
   @JsonProperty("address")

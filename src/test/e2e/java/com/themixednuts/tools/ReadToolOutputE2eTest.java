@@ -8,9 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
-import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.McpResponse;
-import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.models.SymbolListEntry;
 import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
@@ -65,7 +65,8 @@ class ReadToolOutputE2eTest {
                   null, Map.of("file_name", "fixture", "action", "list", "page_size", 10), null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<FunctionListEntry> funcResult =
+          assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(funcResult.results.isEmpty(), "Fixture should have functions");
 
       // Build payload + envelope exactly as executeWithEnvelope would
@@ -110,8 +111,9 @@ class ReadToolOutputE2eTest {
 
       // Verify each function entry has expected fields
       for (int i = 0; i < funcResult.results.size(); i++) {
-        FunctionInfo expected = funcResult.results.get(i);
+        FunctionListEntry expected = funcResult.results.get(i);
         JsonNode actual = retrieved.get(i);
+        assertEquals(expected.getSymbolId(), actual.get("symbol_id").asLong());
         assertEquals(expected.getName(), actual.get("name").asText());
         assertEquals(expected.getEntryPoint(), actual.get("entry_point").asText());
       }
@@ -168,7 +170,8 @@ class ReadToolOutputE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<SymbolInfo> symbolResult = assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<SymbolListEntry> symbolResult =
+          assertInstanceOf(PaginatedResult.class, rawResult);
       assertFalse(symbolResult.results.isEmpty());
 
       // Build payload + envelope
@@ -226,10 +229,13 @@ class ReadToolOutputE2eTest {
       assertEquals(symbolResult.results.size(), retrieved.size());
 
       for (int i = 0; i < symbolResult.results.size(); i++) {
-        SymbolInfo expected = symbolResult.results.get(i);
+        SymbolListEntry expected = symbolResult.results.get(i);
         JsonNode actual = retrieved.get(i);
+        assertEquals(expected.getSymbolId(), actual.get("symbol_id").asLong());
         assertEquals(expected.getName(), actual.get("name").asText());
-        assertEquals(expected.getAddress(), actual.get("address").asText());
+        if (expected.getAddress() != null) {
+          assertEquals(expected.getAddress(), actual.get("address").asText());
+        }
       }
     } finally {
       fixture.close();
@@ -253,7 +259,8 @@ class ReadToolOutputE2eTest {
                   null, Map.of("file_name", "fixture", "action", "list", "page_size", 10), null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<FunctionInfo> funcResult = assertInstanceOf(PaginatedResult.class, rawResult);
+      PaginatedResult<FunctionListEntry> funcResult =
+          assertInstanceOf(PaginatedResult.class, rawResult);
 
       String payloadJson = mapper.writeValueAsString(funcResult.results);
       McpResponse<?> envelope =

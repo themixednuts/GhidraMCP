@@ -13,13 +13,13 @@ Most tools accept these common parameters:
 
 ## Read Tools
 
-### read_functions
+### functions
 
-Read a single function or list functions with filtering.
+List/get/create/update functions and variables. Use `action: "list"` for compact rows and `action: "get"` for details.
 
 **Modes:**
-- **Single read**: Provide `symbol_id`, `address`, or `name`
-- **List mode**: Omit identifiers to list all functions
+- **Single read**: `action: "get"` plus `symbol_id`, `address`, or `name`
+- **List mode**: `action: "list"` to list compact rows with `symbol_id`
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -32,20 +32,20 @@ Read a single function or list functions with filtering.
 **Examples:**
 ```json
 // Read by address
-{"file_name": "prog.exe", "address": "0x401000"}
+{"file_name": "prog.exe", "action": "get", "address": "0x401000"}
 
 // Read by name
-{"file_name": "prog.exe", "name": "main"}
+{"file_name": "prog.exe", "action": "get", "name": "main"}
 
 // List with filter
-{"file_name": "prog.exe", "name_pattern": ".*crypt.*"}
+{"file_name": "prog.exe", "action": "list", "name_pattern": ".*crypt.*"}
 ```
 
 ---
 
-### read_symbols
+### symbols
 
-Read a single symbol or list symbols with filtering.
+List/get/create/update symbols, labels, namespaces, and classes. List rows are compact and include `symbol_id` for follow-up calls.
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -59,17 +59,17 @@ Read a single symbol or list symbols with filtering.
 **Examples:**
 ```json
 // Read specific symbol
-{"file_name": "prog.exe", "name": "g_GlobalVar"}
+{"file_name": "prog.exe", "action": "get", "name": "g_GlobalVar"}
 
 // List labels only
-{"file_name": "prog.exe", "symbol_type": "label"}
+{"file_name": "prog.exe", "action": "list", "symbol_type": "LABEL"}
 ```
 
 ---
 
-### read_data_types
+### data_types
 
-Read a single data type or list data types.
+List/get/create/update data types.
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -83,17 +83,17 @@ Read a single data type or list data types.
 **Examples:**
 ```json
 // Read specific struct
-{"file_name": "prog.exe", "data_type_path": "/MyCategory/MyStruct"}
+{"file_name": "prog.exe", "action": "get", "data_type_path": "/MyCategory/MyStruct"}
 
 // List all enums
-{"file_name": "prog.exe", "type_kind": "enum"}
+{"file_name": "prog.exe", "action": "list", "type_kind": "enum"}
 ```
 
 ---
 
-### read_memory_blocks
+### memory
 
-List memory blocks/segments in a program.
+List blocks, search memory, read/write bytes, undefine code, and apply vtables.
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -103,37 +103,37 @@ List memory blocks/segments in a program.
 
 **Example:**
 ```json
-{"file_name": "prog.exe", "permissions": "r-x"}
+{"file_name": "prog.exe", "action": "list_blocks", "executable": true}
 ```
 
 ---
 
-### read_listing
+### inspect
 
-View disassembly at addresses.
+View listing/disassembly, decompile functions, and find references.
 
 **Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `address` | string | Start address |
 | `end_address` | string | End address (for range) |
-| `function_name` | string | Show listing for entire function |
-| `max_instructions` | integer | Limit number of instructions |
+| `name` | string | Show listing/decompile for a function |
+| `max_lines` | integer | Limit number of listing lines |
 
 **Examples:**
 ```json
 // View at address
-{"file_name": "prog.exe", "address": "0x401000", "max_instructions": 50}
+{"file_name": "prog.exe", "action": "listing", "address": "0x401000", "max_lines": 50}
 
 // View entire function
-{"file_name": "prog.exe", "function_name": "main"}
+{"file_name": "prog.exe", "action": "listing", "name": "main"}
 ```
 
 ---
 
-### list_programs
+### ghidra://programs
 
-List all programs in the Ghidra project.
+Resource URI that lists all programs in the Ghidra project.
 
 **Parameters:** None required.
 
@@ -144,9 +144,9 @@ List all programs in the Ghidra project.
 
 ---
 
-### list_analysis_options
+### project
 
-List program analysis options.
+Project-level operations including analysis options, analysis runs, save, navigation, and undo/redo.
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -157,15 +157,16 @@ List program analysis options.
 
 ## Analysis Tools
 
-### decompile_code
+### inspect decompile
 
 Decompile functions to C-like pseudocode.
 
 **Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `target_type` | string | `function`, `address`, `address_range`, `all_functions` |
-| `target_value` | string | Function name, address, or range |
+| `action` | string | `decompile` |
+| `name` | string | Function name |
+| `address` | string | Function entry address |
 | `include_pcode` | boolean | Include P-code IR (default: false) |
 | `include_ast` | boolean | Include AST info (default: false) |
 | `timeout` | integer | Timeout in seconds (5-300, default: 30) |
@@ -176,22 +177,22 @@ Decompile functions to C-like pseudocode.
 // Decompile by name
 {
   "file_name": "prog.exe",
-  "target_type": "function",
-  "target_value": "main"
+  "action": "decompile",
+  "name": "main"
 }
 
 // Decompile with P-code
 {
   "file_name": "prog.exe",
-  "target_type": "function",
-  "target_value": "decrypt",
+  "action": "decompile",
+  "name": "decrypt",
   "include_pcode": true
 }
 ```
 
 ---
 
-### find_references
+### inspect references
 
 Find cross-references to/from addresses.
 
@@ -199,21 +200,20 @@ Find cross-references to/from addresses.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `address` | string | Target address |
-| `direction` | string | `to`, `from`, or `both` |
-| `ref_type` | string | Filter by reference type |
+| `action` | string | `references_to` or `references_from` |
 
 **Example:**
 ```json
 {
   "file_name": "prog.exe",
-  "address": "0x401000",
-  "direction": "to"
+  "action": "references_to",
+  "address": "0x401000"
 }
 ```
 
 ---
 
-### search_memory
+### memory search
 
 Search program memory for patterns.
 
@@ -230,6 +230,7 @@ Search program memory for patterns.
 // String search
 {
   "file_name": "prog.exe",
+  "action": "search",
   "search_type": "string",
   "search_value": "password"
 }
@@ -237,6 +238,7 @@ Search program memory for patterns.
 // Hex pattern
 {
   "file_name": "prog.exe",
+  "action": "search",
   "search_type": "hex",
   "search_value": "90 90 90 E8"
 }
@@ -244,6 +246,7 @@ Search program memory for patterns.
 // Regex search
 {
   "file_name": "prog.exe",
+  "action": "search",
   "search_type": "regex",
   "search_value": "https?://[^\\s]+"
 }
@@ -251,7 +254,7 @@ Search program memory for patterns.
 
 ---
 
-### analyze_rtti
+### analyze rtti
 
 Analyze Microsoft RTTI structures.
 
@@ -262,30 +265,30 @@ Analyze Microsoft RTTI structures.
 
 **Example:**
 ```json
-{"file_name": "prog.exe", "address": "0x140005000"}
+{"file_name": "prog.exe", "action": "rtti", "address": "0x140005000"}
 ```
 
 ---
 
-### demangle_symbol
+### analyze demangle
 
 Demangle C++ mangled names.
 
 **Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `mangled_name` | string | The mangled symbol name |
+| `mangled_symbol` | string | The mangled symbol name |
 
 **Example:**
 ```json
-{"mangled_name": "_ZN4test3fooEv"}
+{"file_name": "prog.exe", "action": "demangle", "mangled_symbol": "_ZN4test3fooEv"}
 ```
 
 ---
 
 ## Write Tools
 
-### manage_functions
+### functions
 
 Create functions and update prototypes.
 
@@ -293,7 +296,6 @@ Create functions and update prototypes.
 - `create` - Create function at address
 - `update_prototype` - Update function signature
 - `list_variables` - List function variables
-- `get_graph` - Get control flow graph
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -329,17 +331,11 @@ Create functions and update prototypes.
   "name": "main"
 }
 
-// Get control flow graph
-{
-  "file_name": "prog.exe",
-  "action": "get_graph",
-  "name": "main"
-}
 ```
 
 ---
 
-### manage_symbols
+### symbols
 
 Create and update symbols/labels.
 
@@ -378,7 +374,7 @@ Create and update symbols/labels.
 
 ---
 
-### manage_data_types
+### data_types
 
 Create and update data types.
 
@@ -464,7 +460,7 @@ Create and update data types.
 
 ---
 
-### manage_memory
+### memory
 
 Memory read/write operations.
 
@@ -502,7 +498,7 @@ Memory read/write operations.
 
 ---
 
-### manage_project
+### project / annotate
 
 Project-level operations.
 
@@ -534,47 +530,9 @@ Project-level operations.
 
 ## Delete Tools
 
-### delete_function
+### delete
 
-Delete a function definition.
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `address` | string | Function entry point |
-| `name` | string | Function name |
-| `symbol_id` | integer | Function symbol ID |
-
----
-
-### delete_symbol
-
-Delete a symbol or label.
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `address` | string | Symbol address |
-| `name` | string | Symbol name |
-| `symbol_id` | integer | Symbol ID |
-
----
-
-### delete_data_type
-
-Delete a data type.
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `data_type_id` | integer | Data type ID |
-| `data_type_path` | string | Full path to data type |
-
----
-
-### delete_bookmark
-
-Delete bookmarks at an address.
+Delete functions, symbols, data types, or bookmarks. Pass `action` as `function`, `symbol`, `data_type`, or `bookmark`.
 
 **Parameters:**
 | Parameter | Type | Description |
@@ -606,7 +564,7 @@ Each operation is an object with:
   "file_name": "prog.exe",
   "operations": [
     {
-      "tool": "manage_symbols",
+      "tool": "symbols",
       "args": {
         "action": "update",
         "symbol_id": 123,
@@ -614,7 +572,7 @@ Each operation is an object with:
       }
     },
     {
-      "tool": "manage_symbols",
+      "tool": "symbols",
       "args": {
         "action": "update",
         "symbol_id": 456,
@@ -627,14 +585,14 @@ Each operation is an object with:
 
 ---
 
-### undo_redo
+### project undo/redo
 
 Undo or redo changes.
 
 **Actions:**
 - `undo` - Undo last change
 - `redo` - Redo last undone change
-- `info` - Get undo/redo stack info
+- `history` - Get undo/redo stack info
 
 **Example:**
 ```json
@@ -645,13 +603,13 @@ Undo or redo changes.
 
 ## Response Format
 
-All tools return responses in this format:
+Tool responses keep useful data in `structuredContent`; object payloads flatten into the response root, and list/string payloads use `data`.
 
 **Success:**
 ```json
 {
-  "data": { ... },
-  "ms": 45
+  "name": "main",
+  "entry_point": "00401000"
 }
 ```
 
@@ -659,16 +617,14 @@ All tools return responses in this format:
 ```json
 {
   "data": [ ... ],
-  "cursor": "next_page_cursor",
-  "ms": 123
+  "next_cursor": "v1:..."
 }
 ```
 
 **Error:**
 ```json
 {
-  "msg": "Error description",
-  "hint": "Suggestion to fix",
-  "ms": 12
+  "message": "Error description",
+  "hint": "Suggestion to fix"
 }
 ```

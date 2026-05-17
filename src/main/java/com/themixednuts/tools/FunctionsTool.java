@@ -3,6 +3,7 @@ package com.themixednuts.tools;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
+import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
@@ -67,6 +68,8 @@ import reactor.core.publisher.Mono;
 
          <important_notes>
          - Supports multiple function identification methods (name, address, symbol ID)
+         - List mode returns compact rows with symbol_id, name, entry_point, signature, and optional
+           namespace. Use get for body bounds and calling-convention details.
          - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, and cursor-based pagination
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
@@ -269,8 +272,8 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor from previous request (format:"
-                                    + " v1:<base64url_address>:<base64url_function_name>)"))
+                                "Opaque pagination cursor from previous functions.list response"
+                                    + " (format: v1:<base64url_symbol_id>)"))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -549,12 +552,13 @@ public class FunctionsTool extends BaseMcpTool {
             });
   }
 
-  private Mono<PaginatedResult<FunctionInfo>> handleList(
+  private Mono<PaginatedResult<FunctionListEntry>> handleList(
       Program program, Map<String, Object> args) {
     return Mono.fromCallable(() -> listFunctions(program, args));
   }
 
-  private PaginatedResult<FunctionInfo> listFunctions(Program program, Map<String, Object> args) {
+  private PaginatedResult<FunctionListEntry> listFunctions(
+      Program program, Map<String, Object> args) {
     FunctionManager functionManager = program.getFunctionManager();
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
@@ -588,7 +592,7 @@ public class FunctionsTool extends BaseMcpTool {
 
     FunctionIterator funcIter = selectFunctionIterator(functionManager, addressBounds, cursor);
 
-    List<FunctionInfo> paginatedResults = new ArrayList<>(pageSize + 1);
+    List<FunctionListEntry> paginatedResults = new ArrayList<>(pageSize + 1);
     boolean cursorMatched = cursor == null;
     boolean collectResults = cursor == null;
     while (funcIter.hasNext() && paginatedResults.size() <= pageSize) {
@@ -605,7 +609,7 @@ public class FunctionsTool extends BaseMcpTool {
         continue;
       }
 
-      paginatedResults.add(new FunctionInfo(function));
+      paginatedResults.add(new FunctionListEntry(function));
     }
 
     if (!cursorMatched) {
@@ -617,13 +621,13 @@ public class FunctionsTool extends BaseMcpTool {
     }
 
     boolean hasMore = paginatedResults.size() > pageSize;
-    List<FunctionInfo> results =
+    List<FunctionListEntry> results =
         hasMore ? new ArrayList<>(paginatedResults.subList(0, pageSize)) : paginatedResults;
 
     String nextCursor = null;
     if (hasMore && !results.isEmpty()) {
-      FunctionInfo lastFunc = results.get(results.size() - 1);
-      nextCursor = encodeFunctionCursor(lastFunc.getEntryPoint(), lastFunc.getName());
+      FunctionListEntry lastFunc = results.get(results.size() - 1);
+      nextCursor = encodeFunctionCursor(lastFunc.getSymbolId());
     }
 
     return new PaginatedResult<>(results, nextCursor);
@@ -643,9 +647,8 @@ public class FunctionsTool extends BaseMcpTool {
   private boolean matchesFunctionCursor(Function function, FunctionCursor cursor) {
     return function != null
         && cursor != null
-        && function.getEntryPoint() != null
-        && function.getEntryPoint().equals(cursor.address)
-        && function.getName().equals(cursor.name);
+        && function.getSymbol() != null
+        && function.getSymbol().getID() == cursor.symbolId;
   }
 
   private Mono<FunctionInfo> handleGet(Program program, Map<String, Object> args) {
@@ -1410,35 +1413,47 @@ public class FunctionsTool extends BaseMcpTool {
 
   private FunctionCursor parseFunctionCursor(Program program, String cursorValue) {
     List<String> parts =
-        decodeOpaqueCursorV1(
-            cursorValue, 2, ARG_CURSOR, "v1:<base64url_address>:<base64url_function_name>");
-
-    Address cursorAddress = program.getAddressFactory().getAddress(parts.get(0));
-    if (cursorAddress == null) {
+        decodeOpaqueCursorV1(cursorValue, 1, ARG_CURSOR, "v1:<base64url_symbol_id>");
+    long symbolId;
+    try {
+      symbolId = Long.parseLong(parts.get(0));
+    } catch (NumberFormatException e) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid address component"));
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an invalid symbol_id"));
     }
 
-    String decodedName = parts.get(1);
-
-    if (decodedName.isBlank()) {
+    Symbol symbol = program.getSymbolTable().getSymbol(symbolId);
+    if (symbol == null || symbol.getSymbolType() != SymbolType.FUNCTION) {
       throw new GhidraMcpException(
-          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "contains an empty function name"));
+          GhidraMcpError.invalid(
+              ARG_CURSOR, cursorValue, "symbol_id no longer identifies a function"));
     }
 
-    return new FunctionCursor(cursorAddress, decodedName, cursorValue);
+    Function function = program.getFunctionManager().getFunctionAt(symbol.getAddress());
+    if (function == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorValue, "function no longer exists"));
+    }
+
+    return new FunctionCursor(symbolId, function.getEntryPoint(), function.getName(), cursorValue);
   }
 
-  private String encodeFunctionCursor(String address, String functionName) {
-    return OpaqueCursorCodec.encodeV1(address, functionName);
+  private String encodeFunctionCursor(Long symbolId) {
+    if (symbolId == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, null, "function row is missing symbol_id"));
+    }
+    return OpaqueCursorCodec.encodeV1(Long.toString(symbolId));
   }
 
   private static final class FunctionCursor {
+    private final long symbolId;
     private final Address address;
     private final String name;
     private final String rawCursor;
 
-    private FunctionCursor(Address address, String name, String rawCursor) {
+    private FunctionCursor(long symbolId, Address address, String name, String rawCursor) {
+      this.symbolId = symbolId;
       this.address = address;
       this.name = name;
       this.rawCursor = rawCursor;

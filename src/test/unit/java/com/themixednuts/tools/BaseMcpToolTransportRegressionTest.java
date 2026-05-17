@@ -11,6 +11,7 @@ import com.themixednuts.models.McpResponse;
 import com.themixednuts.resources.BaseMcpResource;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.McpTransportContexts;
+import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.plugintool.PluginTool;
@@ -130,6 +131,26 @@ class BaseMcpToolTransportRegressionTest {
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", structured.get("data"));
       assertEquals("cursor-2", structured.get("next_cursor"));
       assertEquals("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", text(result));
+    }
+  }
+
+  @Test
+  void successfulToolsCanReturnPaginatedRowsWithMissingOptionalFields() throws Exception {
+    try (TransportFixture fixture = openTransport(new SymbolLikeListTool().specification(null))) {
+      McpSchema.CallToolResult result = fixture.callTool("symbol_like_list_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertEquals("cursor-2", structured.get("next_cursor"));
+      assertTrue(structured.get("data") instanceof List<?>);
+      List<?> rows = (List<?>) structured.get("data");
+      assertEquals(1, rows.size());
+      assertTrue(rows.get(0) instanceof Map<?, ?>);
+      Map<?, ?> row = (Map<?, ?>) rows.get(0);
+      assertEquals("Global", row.get("name"));
+      assertFalse(row.containsKey("address"));
     }
   }
 
@@ -482,6 +503,29 @@ class BaseMcpToolTransportRegressionTest {
         McpTransportContext context, Map<String, Object> args, PluginTool tool) {
       return Mono.just(
           new CursorDataResult<>("00401000 55 PUSH EBP\n00401001 8b ec MOV EBP,ESP", "cursor-2"));
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Symbol Like List Tool",
+      description = "Test helper tool that returns paginated rows with optional fields absent",
+      mcpName = "symbol_like_list_tool",
+      mcpDescription = "Test helper tool that returns paginated rows with optional fields absent")
+  private static final class SymbolLikeListTool extends BaseMcpTool {
+    @Override
+    public JsonSchema schema() {
+      ObjectNode root = mapper.createObjectNode();
+      root.put("type", "object");
+      root.set("properties", mapper.createObjectNode());
+      return new JsonSchema(root);
+    }
+
+    @Override
+    public Mono<? extends Object> execute(
+        McpTransportContext context, Map<String, Object> args, PluginTool tool) {
+      return Mono.just(
+          new PaginatedResult<>(
+              List.of(Map.of("name", "Global", "type", "NAMESPACE")), "cursor-2"));
     }
   }
 }
