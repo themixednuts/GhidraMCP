@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,12 +10,21 @@ import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.reflections.Reflections;
+import org.reflections.scanners.Scanners;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.node.ObjectNode;
 
 class BaseMcpToolSchemaProfileTest {
+
+  private static final List<String> CLAUDE_UNSUPPORTED_ROOT_COMPOSITION_KEYS =
+      List.of("allOf", "anyOf", "oneOf");
 
   @Test
   void specificationBuiltWhenSchemaUsesSupportedTopLevelKeywordsOnly() {
@@ -29,7 +39,9 @@ class BaseMcpToolSchemaProfileTest {
     var specification = tool.specification(null);
 
     assertNotNull(specification);
-    assertTrue(specification.tool().inputSchema().containsKey("allOf"));
+    assertFalse(specification.tool().inputSchema().containsKey("allOf"));
+    assertFalse(specification.tool().inputSchema().containsKey("anyOf"));
+    assertFalse(specification.tool().inputSchema().containsKey("oneOf"));
   }
 
   @Test
@@ -38,7 +50,9 @@ class BaseMcpToolSchemaProfileTest {
 
     assertNotNull(specification);
     Map<String, Object> schema = specification.tool().inputSchema();
-    assertTrue(schema.containsKey("allOf"));
+    assertFalse(schema.containsKey("allOf"));
+    assertFalse(schema.containsKey("anyOf"));
+    assertFalse(schema.containsKey("oneOf"));
 
     @SuppressWarnings("unchecked")
     Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
@@ -48,6 +62,41 @@ class BaseMcpToolSchemaProfileTest {
     assertTrue(properties.containsKey("name"));
     assertTrue(properties.containsKey("page_size"));
     assertTrue(properties.containsKey("variable_symbol_id"));
+  }
+
+  @Test
+  void allToolInputSchemasAvoidClaudeUnsupportedRootCompositionKeywords() throws Exception {
+    Reflections reflections = new Reflections("com.themixednuts.tools", Scanners.SubTypes);
+    Set<Class<? extends BaseMcpTool>> toolClasses = reflections.getSubTypesOf(BaseMcpTool.class);
+
+    List<String> failures = new ArrayList<>();
+    for (Class<? extends BaseMcpTool> toolClass : toolClasses) {
+      if (Modifier.isAbstract(toolClass.getModifiers()) || toolClass.getEnclosingClass() != null) {
+        continue;
+      }
+
+      GhidraMcpTool annotation = toolClass.getAnnotation(GhidraMcpTool.class);
+      if (annotation == null) {
+        continue;
+      }
+
+      BaseMcpTool tool = toolClass.getDeclaredConstructor().newInstance();
+      var specification = tool.specification(null);
+      if (specification == null) {
+        failures.add(toolClass.getSimpleName() + " did not build a tool specification");
+        continue;
+      }
+
+      Map<String, Object> inputSchema = specification.tool().inputSchema();
+      for (String key : CLAUDE_UNSUPPORTED_ROOT_COMPOSITION_KEYS) {
+        if (inputSchema.containsKey(key)) {
+          failures.add(annotation.mcpName() + " exposes top-level " + key);
+        }
+      }
+    }
+
+    assertFalse(toolClasses.isEmpty(), "No tool classes discovered for input schema coverage");
+    assertTrue(failures.isEmpty(), String.join("\n", failures));
   }
 
   @Test

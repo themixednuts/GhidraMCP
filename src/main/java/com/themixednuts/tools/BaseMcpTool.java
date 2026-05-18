@@ -130,6 +130,8 @@ public abstract class BaseMcpTool {
 
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
+  private static final List<String> UNSUPPORTED_TOP_LEVEL_COMPOSITION_KEYS =
+      List.of("allOf", "anyOf", "oneOf");
   // =================== Argument Name Constants (snake_case) ===================
 
   public static final String ARG_FILE_NAME = "file_name";
@@ -1631,7 +1633,7 @@ public abstract class BaseMcpTool {
       Map<String, Object> schemaMap =
           mapper.readValue(schemaString, new TypeReference<Map<String, Object>>() {});
 
-      return Optional.of(enrichSchemaProperties(schemaMap));
+      return Optional.of(toClientCompatibleInputSchema(schemaMap));
     } catch (JacksonException e) {
       Msg.error(
           this,
@@ -1641,20 +1643,14 @@ public abstract class BaseMcpTool {
     }
   }
 
-  private Map<String, Object> enrichSchemaProperties(Map<String, Object> schemaMap) {
+  private Map<String, Object> toClientCompatibleInputSchema(Map<String, Object> schemaMap) {
     Map<String, Object> enriched = new LinkedHashMap<>(schemaMap);
     Map<String, Object> rootProperties = copyRootProperties(enriched);
 
-    for (String compositionKey : List.of("allOf", "anyOf", "oneOf")) {
-      Object branches = enriched.get(compositionKey);
-      if (branches instanceof List<?> branchList) {
-        for (Object branch : branchList) {
-          mergeBranchProperties(rootProperties, branch);
-        }
-      }
-    }
+    mergeReachableInputProperties(rootProperties, enriched);
 
     enriched.put("properties", rootProperties);
+    UNSUPPORTED_TOP_LEVEL_COMPOSITION_KEYS.forEach(enriched::remove);
     return enriched;
   }
 
@@ -1668,22 +1664,32 @@ public abstract class BaseMcpTool {
   }
 
   @SuppressWarnings("unchecked")
-  private void mergeBranchProperties(Map<String, Object> rootProperties, Object branch) {
-    if (!(branch instanceof Map<?, ?> rawBranch)) {
+  private void mergeReachableInputProperties(
+      Map<String, Object> rootProperties, Object schemaNode) {
+    if (!(schemaNode instanceof Map<?, ?> rawSchema)) {
       return;
     }
 
-    Map<String, Object> branchMap = (Map<String, Object>) rawBranch;
-    mergeDirectProperties(rootProperties, branchMap);
+    Map<String, Object> schemaMap = (Map<String, Object>) rawSchema;
+    mergeDirectProperties(rootProperties, schemaMap);
 
-    Object thenSchema = branchMap.get("then");
-    if (thenSchema instanceof Map<?, ?> thenMap) {
-      mergeDirectProperties(rootProperties, (Map<String, Object>) thenMap);
+    for (String compositionKey : UNSUPPORTED_TOP_LEVEL_COMPOSITION_KEYS) {
+      Object branches = schemaMap.get(compositionKey);
+      if (branches instanceof List<?> branchList) {
+        for (Object branch : branchList) {
+          mergeReachableInputProperties(rootProperties, branch);
+        }
+      }
     }
 
-    Object elseSchema = branchMap.get("else");
+    Object thenSchema = schemaMap.get("then");
+    if (thenSchema instanceof Map<?, ?> thenMap) {
+      mergeReachableInputProperties(rootProperties, thenMap);
+    }
+
+    Object elseSchema = schemaMap.get("else");
     if (elseSchema instanceof Map<?, ?> elseMap) {
-      mergeDirectProperties(rootProperties, (Map<String, Object>) elseMap);
+      mergeReachableInputProperties(rootProperties, elseMap);
     }
   }
 

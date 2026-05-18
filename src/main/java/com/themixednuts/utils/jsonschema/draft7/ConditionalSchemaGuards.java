@@ -1,5 +1,7 @@
 package com.themixednuts.utils.jsonschema.draft7;
 
+import java.util.ArrayList;
+import java.util.List;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -18,18 +20,26 @@ final class ConditionalSchemaGuards {
       return guarded;
     }
 
-    ArrayNode[] required = new ArrayNode[1];
-    properties.forEachEntry(
-        (fieldName, propertySchema) -> {
-          if (propertySchema != null && propertySchema.get(CONST) != null) {
-            if (required[0] == null) {
-              required[0] = requiredArray(guarded);
-            }
-            appendRequiredIfMissing(required[0], fieldName);
-          }
-        });
+    List<String> constProperties = constPropertyNames(properties);
+    if (constProperties.isEmpty()) {
+      return guarded;
+    }
+
+    ArrayNode required = requiredArray(guarded);
+    constProperties.forEach(fieldName -> appendRequiredIfMissing(required, fieldName));
 
     return guarded;
+  }
+
+  private static List<String> constPropertyNames(ObjectNode properties) {
+    List<String> names = new ArrayList<>();
+    for (var property : properties.properties()) {
+      JsonNode propertySchema = property.getValue();
+      if (propertySchema != null && propertySchema.get(CONST) != null) {
+        names.add(property.getKey());
+      }
+    }
+    return names;
   }
 
   private static ArrayNode requiredArray(ObjectNode node) {
