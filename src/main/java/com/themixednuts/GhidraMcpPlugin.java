@@ -123,6 +123,8 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         new HelpLocation("GhidraMCP", "ToolOutputStorageOption"),
         TOOL_OUTPUT_DIR_DESCRIPTION);
 
+    McpOutputOptions.registerOptions(options, "GhidraMCP");
+
     // Register tool enable/disable options
     GhidraMcpTools.registerOptions(options, "GhidraMCP");
     GhidraMcpResources.registerOptions(options, "GhidraMCP");

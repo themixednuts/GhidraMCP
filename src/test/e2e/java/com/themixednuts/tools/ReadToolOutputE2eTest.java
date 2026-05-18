@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.themixednuts.GhidraMcpPlugin;
+import com.themixednuts.McpOutputOptions;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.McpResponse;
@@ -15,12 +17,16 @@ import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
+import ghidra.framework.options.ToolOptions;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -381,12 +387,55 @@ class ReadToolOutputE2eTest {
     assertEquals("{\"decompiled_code\":\"int main(){}\"}", jsonChunk.content());
   }
 
+  @Test
+  void readOutputHonorsConfiguredMaximumChunkCharacters() throws Exception {
+    String sessionId = "ses_e2e_configured_chunk_" + UUID.randomUUID().toString().replace("-", "");
+    String payload = "x".repeat(ToolOutputStore.MAX_READ_CHUNK_CHARS + 8_000);
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(sessionId, "fixture_tool", "execute", payload);
+    PluginTool pluginTool = pluginToolWithOutputLimits(160_000, 120_000, 120_000);
+
+    Object chunkRaw =
+        readOutputTool
+            .execute(
+                null,
+                Map.of(
+                    "action",
+                    "read",
+                    "session_id",
+                    sessionId,
+                    "output_id",
+                    ref.outputId(),
+                    "max_chars",
+                    payload.length()),
+                pluginTool)
+            .block();
+    ReadToolOutputTool.ReadChunk chunk =
+        assertInstanceOf(ReadToolOutputTool.ReadChunk.class, chunkRaw);
+
+    assertEquals(payload, chunk.content());
+    assertNull(chunk.nextCursor());
+  }
+
   private Integer decodeReadOffset(String cursor) {
     if (cursor == null) {
       return null;
     }
     return Integer.parseInt(
         OpaqueCursorCodec.decodeV1(cursor, 1, "cursor", "v1:<base64url_offset>").get(0));
+  }
+
+  private static PluginTool pluginToolWithOutputLimits(
+      int inlineResponseCharLimit, int defaultReadChunkChars, int maxReadChunkChars) {
+    ToolOptions options = new ToolOptions(GhidraMcpPlugin.OPTIONS_CATEGORY);
+    McpOutputOptions.registerOptions(options, "GhidraMCP");
+    options.setInt(McpOutputOptions.INLINE_RESPONSE_CHAR_LIMIT_OPTION, inlineResponseCharLimit);
+    options.setInt(McpOutputOptions.DEFAULT_READ_CHUNK_CHARS_OPTION, defaultReadChunkChars);
+    options.setInt(McpOutputOptions.MAX_READ_CHUNK_CHARS_OPTION, maxReadChunkChars);
+
+    PluginTool pluginTool = Mockito.mock(PluginTool.class);
+    Mockito.when(pluginTool.getOptions(GhidraMcpPlugin.OPTIONS_CATEGORY)).thenReturn(options);
+    return pluginTool;
   }
 
   // ---------------------------------------------------------------------------

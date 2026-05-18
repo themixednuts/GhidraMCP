@@ -2,6 +2,7 @@ package com.themixednuts.models;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -51,4 +52,17 @@ class McpResponseTest {
 
     assertDoesNotThrow(() -> VANILLA_MAPPER.writeValueAsString(response));
   }
+
+  @Test
+  @DisplayName("Flattened response data should omit null fields")
+  void flattenedResponseDataShouldOmitNullFields() throws Exception {
+    McpResponse<Object> response = McpResponse.success("tool", "op", new Chunk("payload", null));
+
+    String json = VANILLA_MAPPER.writeValueAsString(response);
+
+    assertTrue(json.contains("\"content\":\"payload\""));
+    assertFalse(json.contains("next_cursor"));
+  }
+
+  private record Chunk(String content, @JsonProperty("next_cursor") String nextCursor) {}
 }

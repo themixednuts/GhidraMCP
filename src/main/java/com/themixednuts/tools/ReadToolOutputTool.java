@@ -1,6 +1,7 @@
 package com.themixednuts.tools;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.themixednuts.McpOutputOptions;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -46,7 +47,7 @@ import reactor.core.publisher.Mono;
         </important_notes>
         """)
 public class ReadToolOutputTool extends BaseMcpTool {
-  private static final int SAFE_INLINE_RESPONSE_CHAR_LIMIT = INLINE_RESPONSE_CHAR_LIMIT - 1_024;
+  private static final int READ_CHUNK_SERIALIZATION_OVERHEAD = 1_024;
 
   private static final String ACTION_LIST_SESSIONS = "list_sessions";
   private static final String ACTION_LIST_OUTPUTS = "list_outputs";
@@ -101,6 +102,12 @@ public class ReadToolOutputTool extends BaseMcpTool {
 
   @Override
   public JsonSchema schema() {
+    return schema(null);
+  }
+
+  @Override
+  public JsonSchema schema(PluginTool tool) {
+    McpOutputOptions.Limits outputLimits = McpOutputOptions.from(tool);
     IObjectSchemaBuilder schemaRoot = createBaseSchemaNode();
 
     schemaRoot.property(
@@ -166,15 +173,15 @@ public class ReadToolOutputTool extends BaseMcpTool {
         SchemaBuilder.integer(mapper)
             .description(
                 "Maximum raw characters to return in read action (default: "
-                    + ToolOutputStore.DEFAULT_READ_CHUNK_CHARS
+                    + outputLimits.defaultReadChunkChars()
                     + ", max: "
-                    + ToolOutputStore.MAX_READ_CHUNK_CHARS
+                    + outputLimits.maxReadChunkChars()
                     + "). The tool may return fewer characters if needed to keep the inline MCP"
                     + " response under the transport size budget."
                     + ")")
             .minimum(1)
-            .maximum(ToolOutputStore.MAX_READ_CHUNK_CHARS)
-            .defaultValue(ToolOutputStore.DEFAULT_READ_CHUNK_CHARS));
+            .maximum(outputLimits.maxReadChunkChars())
+            .defaultValue(outputLimits.defaultReadChunkChars()));
 
     schemaRoot.requiredProperty(ARG_ACTION);
     return schemaRoot.build();
@@ -189,7 +196,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
           return switch (action.toLowerCase(Locale.ROOT)) {
             case ACTION_LIST_SESSIONS -> listSessions(args);
             case ACTION_LIST_OUTPUTS -> listOutputs(args);
-            case ACTION_READ -> readOutput(args);
+            case ACTION_READ -> readOutput(args, tool);
             default ->
                 throw new GhidraMcpException(
                     GhidraMcpError.invalid(
@@ -253,24 +260,35 @@ public class ReadToolOutputTool extends BaseMcpTool {
     return new PaginatedResult<>(result.results, nextCursor);
   }
 
-  private ReadChunk readOutput(Map<String, Object> args) throws GhidraMcpException {
+  private ReadChunk readOutput(Map<String, Object> args, PluginTool tool)
+      throws GhidraMcpException {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
     String outputId = getOptionalStringArgument(args, ARG_OUTPUT_ID).orElse(null);
     String outputFileName = getOptionalStringArgument(args, ARG_OUTPUT_FILE_NAME).orElse(null);
     String view = getOptionalStringArgument(args, ARG_VIEW).orElse(VIEW_AUTO);
+    McpOutputOptions.Limits outputLimits = McpOutputOptions.from(tool);
 
     int offset = getReadOffset(args);
     int maxChars =
         getBoundedIntArgumentOrDefault(
             args,
             ARG_MAX_CHARS,
-            ToolOutputStore.DEFAULT_READ_CHUNK_CHARS,
+            outputLimits.defaultReadChunkChars(),
             1,
-            ToolOutputStore.MAX_READ_CHUNK_CHARS);
+            outputLimits.maxReadChunkChars());
 
     ToolOutputStore.OutputChunk chunk =
-        ToolOutputStore.readOutput(sessionId, outputId, outputFileName, view, offset, maxChars);
-    return toReadChunk(trimChunkForInlineBudget(chunk, offset));
+        ToolOutputStore.readOutput(
+            sessionId,
+            outputId,
+            outputFileName,
+            view,
+            offset,
+            maxChars,
+            outputLimits.defaultReadChunkChars(),
+            outputLimits.maxReadChunkChars());
+    return toReadChunk(
+        trimChunkForInlineBudget(chunk, offset, outputLimits.inlineResponseCharLimit()));
   }
 
   private int getReadOffset(Map<String, Object> args) {
@@ -295,8 +313,10 @@ public class ReadToolOutputTool extends BaseMcpTool {
   }
 
   private ToolOutputStore.OutputChunk trimChunkForInlineBudget(
-      ToolOutputStore.OutputChunk chunk, int chunkStart) {
-    if (estimateInlineResponseSize(chunk) <= SAFE_INLINE_RESPONSE_CHAR_LIMIT) {
+      ToolOutputStore.OutputChunk chunk, int chunkStart, int inlineResponseCharLimit) {
+    int safeInlineResponseCharLimit =
+        Math.max(0, inlineResponseCharLimit - READ_CHUNK_SERIALIZATION_OVERHEAD);
+    if (estimateInlineResponseSize(chunk) <= safeInlineResponseCharLimit) {
       return chunk;
     }
 
@@ -308,7 +328,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
       int mid = (low + high) >>> 1;
       ToolOutputStore.OutputChunk candidate = resizeChunk(chunk, mid, chunkStart);
 
-      if (estimateInlineResponseSize(candidate) <= SAFE_INLINE_RESPONSE_CHAR_LIMIT) {
+      if (estimateInlineResponseSize(candidate) <= safeInlineResponseCharLimit) {
         best = candidate;
         low = mid + 1;
       } else {

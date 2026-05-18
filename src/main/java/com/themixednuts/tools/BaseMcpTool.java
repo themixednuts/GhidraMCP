@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.themixednuts.McpOutputOptions;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -126,7 +127,8 @@ public abstract class BaseMcpTool {
    * payloads well past this budget; the cap exists to bound a single tool call's contribution to
    * the model's context window, not to satisfy a wire limit.
    */
-  protected static final int INLINE_RESPONSE_CHAR_LIMIT = 48_000;
+  protected static final int INLINE_RESPONSE_CHAR_LIMIT =
+      McpOutputOptions.DEFAULT_INLINE_RESPONSE_CHAR_LIMIT;
 
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
   private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
@@ -186,6 +188,14 @@ public abstract class BaseMcpTool {
   public abstract JsonSchema schema();
 
   /**
+   * Defines the JSON input schema using the active Ghidra tool context. Most tools return a static
+   * schema, but context-aware tools can reflect configured defaults and limits.
+   */
+  public JsonSchema schema(PluginTool tool) {
+    return schema();
+  }
+
+  /**
    * Optionally provides plain-text content for successful tool responses while preserving the
    * structured response envelope.
    */
@@ -230,7 +240,7 @@ public abstract class BaseMcpTool {
 
   private AsyncToolSpecification createToolSpecification(
       GhidraMcpTool annotation, PluginTool tool) {
-    return convertToMcpSchema(schema(), annotation)
+    return convertToMcpSchema(schema(tool), annotation)
         .map(
             mcpSchema -> {
               Tool.Builder toolBuilder =
@@ -342,7 +352,7 @@ public abstract class BaseMcpTool {
                 response = McpResponse.success(toolName, operation, result, duration);
               }
 
-              return createSuccessResultInternal(response, args, toolName, operation);
+              return createSuccessResultInternal(response, args, tool, toolName, operation);
             })
         .onErrorResume(
             t -> {
@@ -496,8 +506,13 @@ public abstract class BaseMcpTool {
   // =================== Result Creation ===================
 
   private CallToolResult createSuccessResultInternal(
-      McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
+      McpResponse<?> response,
+      Map<String, Object> args,
+      PluginTool pluginTool,
+      String toolName,
+      String operation) {
     try {
+      McpOutputOptions.Limits outputLimits = McpOutputOptions.from(pluginTool);
       String successText =
           createSuccessTextContent(response, args, toolName, operation)
               .filter(text -> text != null && !text.isBlank())
@@ -511,7 +526,7 @@ public abstract class BaseMcpTool {
       String payloadJson = mapper.writeValueAsString(response.getData());
       String jsonResult = mapper.writeValueAsString(response);
 
-      if (jsonResult.length() > INLINE_RESPONSE_CHAR_LIMIT) {
+      if (jsonResult.length() > outputLimits.inlineResponseCharLimit()) {
         String requestedSessionId =
             getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
         ToolOutputStore.StoredOutputRef outputRef =
@@ -525,7 +540,9 @@ public abstract class BaseMcpTool {
         jsonResult = mapper.writeValueAsString(response);
       }
 
-      String inlineText = fitTextContentWithinBudget(successText, jsonResult.length());
+      String inlineText =
+          fitTextContentWithinBudget(
+              successText, jsonResult.length(), outputLimits.inlineResponseCharLimit());
       return buildStructuredToolResult(response, false, inlineText);
     } catch (JacksonException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
@@ -603,13 +620,14 @@ public abstract class BaseMcpTool {
     return Mono.just(buildStructuredToolResult(response, true, null));
   }
 
-  private String fitTextContentWithinBudget(String textContent, int structuredResponseChars) {
+  private String fitTextContentWithinBudget(
+      String textContent, int structuredResponseChars, int inlineResponseCharLimit) {
     if (textContent == null || textContent.isBlank()) {
       return null;
     }
 
     int maxSerializedChars =
-        INLINE_RESPONSE_CHAR_LIMIT - structuredResponseChars - TEXT_CONTENT_SERIALIZATION_OVERHEAD;
+        inlineResponseCharLimit - structuredResponseChars - TEXT_CONTENT_SERIALIZATION_OVERHEAD;
     if (maxSerializedChars <= 0) {
       return null;
     }

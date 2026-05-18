@@ -333,6 +333,28 @@ public final class ToolOutputStore {
   public static OutputChunk readOutput(
       String sessionId, String outputId, String fileName, String view, int offset, int maxChars)
       throws GhidraMcpException {
+    return readOutput(
+        sessionId,
+        outputId,
+        fileName,
+        view,
+        offset,
+        maxChars,
+        DEFAULT_READ_CHUNK_CHARS,
+        MAX_READ_CHUNK_CHARS);
+  }
+
+  /** Reads a chunk using caller-provided default and maximum chunk limits. */
+  public static OutputChunk readOutput(
+      String sessionId,
+      String outputId,
+      String fileName,
+      String view,
+      int offset,
+      int maxChars,
+      int defaultMaxChars,
+      int maxAllowedChars)
+      throws GhidraMcpException {
     SessionBucket bucket;
     OutputMetadata metadata;
 
@@ -345,7 +367,7 @@ public final class ToolOutputStore {
 
     int effectiveOffset = Math.max(0, offset);
     int effectiveMaxChars =
-        normalizePageSize(maxChars, DEFAULT_READ_CHUNK_CHARS, MAX_READ_CHUNK_CHARS);
+        normalizePageSize(maxChars, Math.max(1, defaultMaxChars), Math.max(1, maxAllowedChars));
 
     String resolvedView = resolveView(view, metadata);
     Path contentPath = getContentPath(metadata, resolvedView);

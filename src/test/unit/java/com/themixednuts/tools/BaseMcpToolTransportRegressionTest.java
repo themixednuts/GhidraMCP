@@ -4,7 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.themixednuts.GhidraMcpPlugin;
+import com.themixednuts.McpOutputOptions;
 import com.themixednuts.annotation.GhidraMcpResource;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.McpResponse;
@@ -15,6 +19,7 @@ import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
+import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
@@ -200,6 +205,29 @@ class BaseMcpToolTransportRegressionTest {
   }
 
   @Test
+  void configuredInlineResponseLimitCanKeepLargerResponsesInline() throws Exception {
+    PluginTool pluginTool =
+        pluginToolWithOutputLimits(
+            160_000,
+            ToolOutputStore.DEFAULT_READ_CHUNK_CHARS,
+            ToolOutputStore.MAX_READ_CHUNK_CHARS);
+
+    try (TransportFixture fixture = openTransport(new LargeTextTool().specification(pluginTool))) {
+      McpSchema.CallToolResult result = fixture.callTool("large_text_tool", Map.of());
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertFalse(structured.containsKey("message"));
+      assertFalse(structured.containsKey("session_id"));
+      assertFalse(structured.containsKey("output_id"));
+      assertEquals("decompile", structured.get("kind"));
+      assertTrue(String.valueOf(structured.get("decompiled_code")).contains("LINE 0000"));
+    }
+  }
+
+  @Test
   void readToolOutputTrimsEscapedChunksBeforeTheyBecomeOversizedAgain() throws Exception {
     String sessionId = "ses_transport_" + UUID.randomUUID().toString().replace("-", "");
     ToolOutputStore.StoredOutputRef ref =
@@ -242,6 +270,38 @@ class BaseMcpToolTransportRegressionTest {
     }
   }
 
+  @Test
+  void readToolOutputHonorsConfiguredReadChunkLimit() throws Exception {
+    String sessionId = "ses_transport_" + UUID.randomUUID().toString().replace("-", "");
+    String payload = "x".repeat(ToolOutputStore.MAX_READ_CHUNK_CHARS + 8_000);
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(sessionId, "fixture_tool", "execute", payload);
+    PluginTool pluginTool = pluginToolWithOutputLimits(160_000, 120_000, 120_000);
+
+    try (TransportFixture fixture =
+        openTransport(new ReadToolOutputTool().specification(pluginTool))) {
+      McpSchema.CallToolResult result =
+          fixture.callTool(
+              "read_tool_output",
+              Map.of(
+                  "action",
+                  "read",
+                  "session_id",
+                  sessionId,
+                  "output_id",
+                  ref.outputId(),
+                  "max_chars",
+                  payload.length()));
+
+      assertNotNull(result);
+      assertEquals(Boolean.FALSE, result.isError());
+
+      Map<String, Object> structured = structured(result);
+      assertEquals(payload.length(), ((String) structured.get("content")).length());
+      assertFalse(structured.containsKey("next_cursor"));
+    }
+  }
+
   private static Map<String, Object> structured(McpSchema.CallToolResult result) {
     @SuppressWarnings("unchecked")
     Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
@@ -266,6 +326,19 @@ class BaseMcpToolTransportRegressionTest {
           .append(",\"text\":\"quoted \\\"value\\\" \\\\ path\"}\n");
     }
     return builder.toString();
+  }
+
+  private static PluginTool pluginToolWithOutputLimits(
+      int inlineResponseCharLimit, int defaultReadChunkChars, int maxReadChunkChars) {
+    ToolOptions options = new ToolOptions(GhidraMcpPlugin.OPTIONS_CATEGORY);
+    McpOutputOptions.registerOptions(options, "GhidraMCP");
+    options.setInt(McpOutputOptions.INLINE_RESPONSE_CHAR_LIMIT_OPTION, inlineResponseCharLimit);
+    options.setInt(McpOutputOptions.DEFAULT_READ_CHUNK_CHARS_OPTION, defaultReadChunkChars);
+    options.setInt(McpOutputOptions.MAX_READ_CHUNK_CHARS_OPTION, maxReadChunkChars);
+
+    PluginTool pluginTool = mock(PluginTool.class);
+    when(pluginTool.getOptions(GhidraMcpPlugin.OPTIONS_CATEGORY)).thenReturn(options);
+    return pluginTool;
   }
 
   private static TransportFixture openTransport(AsyncToolSpecification... specifications)

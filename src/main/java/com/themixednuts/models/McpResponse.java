@@ -195,6 +195,9 @@ public class McpResponse<T> {
           Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();
           while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
+            if (field.getValue().isNull()) {
+              continue;
+            }
             gen.writeName(field.getKey());
             gen.writePOJO(field.getValue());
           }
@@ -218,6 +221,9 @@ public class McpResponse<T> {
           Iterator<Map.Entry<String, JsonNode>> fields = obj.properties().iterator();
           while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
+            if (field.getValue().isNull()) {
+              continue;
+            }
             gen.writeName(field.getKey());
             gen.writePOJO(field.getValue());
           }

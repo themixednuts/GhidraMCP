@@ -39,6 +39,28 @@ class ToolOutputStoreTest {
   }
 
   @Test
+  void shouldReadChunksAboveDefaultMaximumWhenCallerProvidesHigherLimit() throws Exception {
+    String sessionId = "ses_test_" + UUID.randomUUID().toString().replace("-", "");
+    String payload = "x".repeat(ToolOutputStore.MAX_READ_CHUNK_CHARS + 10_000);
+    ToolOutputStore.StoredOutputRef ref =
+        ToolOutputStore.store(sessionId, "unit_test_tool", "execute", payload);
+
+    ToolOutputStore.OutputChunk chunk =
+        ToolOutputStore.readOutput(
+            sessionId,
+            ref.outputId(),
+            null,
+            "auto",
+            0,
+            payload.length(),
+            ToolOutputStore.DEFAULT_READ_CHUNK_CHARS,
+            payload.length());
+
+    assertEquals(payload.length(), chunk.content().length());
+    assertNull(chunk.nextOffset());
+  }
+
+  @Test
   void shouldPreferTextViewWhenAvailable() throws Exception {
     String sessionId = "ses_test_" + UUID.randomUUID().toString().replace("-", "");
     ToolOutputStore.StoredOutputRef ref =

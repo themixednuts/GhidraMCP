@@ -331,88 +331,68 @@ public final class GhidraMcpServer {
 
   private static void syncTools(
       List<AsyncToolSpecification> currentTools, List<AsyncToolSpecification> newTools) {
-    Map<String, AsyncToolSpecification> currentByName =
-        indexBy(currentTools, spec -> spec.tool().name());
-    Map<String, AsyncToolSpecification> newByName = indexBy(newTools, spec -> spec.tool().name());
-
-    removeMissing(currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removeTool(name));
-    replaceExisting(
-        newByName,
-        currentByName.keySet(),
-        (name, spec) -> {
-          mcpRuntime.removeTool(name);
-          mcpRuntime.addTool(spec);
-        });
-    addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addTool(spec));
+    syncRegistrations(
+        currentTools,
+        newTools,
+        spec -> spec.tool().name(),
+        name -> mcpRuntime.removeTool(name),
+        spec -> mcpRuntime.addTool(spec));
   }
 
   private static void syncResources(
       List<AsyncResourceSpecification> currentResources,
       List<AsyncResourceSpecification> newResources) {
-    Map<String, AsyncResourceSpecification> currentByUri =
-        indexBy(currentResources, spec -> spec.resource().uri());
-    Map<String, AsyncResourceSpecification> newByUri =
-        indexBy(newResources, spec -> spec.resource().uri());
-
-    removeMissing(currentByUri.keySet(), newByUri.keySet(), uri -> mcpRuntime.removeResource(uri));
-    replaceExisting(
-        newByUri,
-        currentByUri.keySet(),
-        (uri, spec) -> {
-          mcpRuntime.removeResource(uri);
-          mcpRuntime.addResource(spec);
-        });
-    addMissing(newByUri, currentByUri.keySet(), spec -> mcpRuntime.addResource(spec));
+    syncRegistrations(
+        currentResources,
+        newResources,
+        spec -> spec.resource().uri(),
+        uri -> mcpRuntime.removeResource(uri),
+        spec -> mcpRuntime.addResource(spec));
   }
 
   private static void syncResourceTemplates(
       List<AsyncResourceTemplateSpecification> currentTemplates,
       List<AsyncResourceTemplateSpecification> newTemplates) {
-    Map<String, AsyncResourceTemplateSpecification> currentByUriTemplate =
-        indexBy(currentTemplates, spec -> spec.resourceTemplate().uriTemplate());
-    Map<String, AsyncResourceTemplateSpecification> newByUriTemplate =
-        indexBy(newTemplates, spec -> spec.resourceTemplate().uriTemplate());
-
-    removeMissing(
-        currentByUriTemplate.keySet(),
-        newByUriTemplate.keySet(),
-        uriTemplate -> mcpRuntime.removeResourceTemplate(uriTemplate));
-    replaceExisting(
-        newByUriTemplate,
-        currentByUriTemplate.keySet(),
-        (uriTemplate, spec) -> {
-          mcpRuntime.removeResourceTemplate(uriTemplate);
-          mcpRuntime.addResourceTemplate(spec);
-        });
-    addMissing(
-        newByUriTemplate,
-        currentByUriTemplate.keySet(),
+    syncRegistrations(
+        currentTemplates,
+        newTemplates,
+        spec -> spec.resourceTemplate().uriTemplate(),
+        uriTemplate -> mcpRuntime.removeResourceTemplate(uriTemplate),
         spec -> mcpRuntime.addResourceTemplate(spec));
   }
 
   private static void syncPrompts(
       List<AsyncPromptSpecification> currentPrompts, List<AsyncPromptSpecification> newPrompts) {
-    Map<String, AsyncPromptSpecification> currentByName =
-        indexBy(currentPrompts, spec -> spec.prompt().name());
-    Map<String, AsyncPromptSpecification> newByName =
-        indexBy(newPrompts, spec -> spec.prompt().name());
-
-    removeMissing(
-        currentByName.keySet(), newByName.keySet(), name -> mcpRuntime.removePrompt(name));
-    replaceExisting(
-        newByName,
-        currentByName.keySet(),
-        (name, spec) -> {
-          mcpRuntime.removePrompt(name);
-          mcpRuntime.addPrompt(spec);
-        });
-    addMissing(newByName, currentByName.keySet(), spec -> mcpRuntime.addPrompt(spec));
+    syncRegistrations(
+        currentPrompts,
+        newPrompts,
+        spec -> spec.prompt().name(),
+        name -> mcpRuntime.removePrompt(name),
+        spec -> mcpRuntime.addPrompt(spec));
   }
 
   private static <T> Map<String, T> indexBy(
       List<T> specifications, Function<T, String> keyFunction) {
     return specifications.stream()
-        .collect(Collectors.toMap(keyFunction, Function.identity(), (left, right) -> right));
+        .collect(
+            Collectors.toMap(
+                keyFunction, Function.identity(), (left, right) -> right, LinkedHashMap::new));
+  }
+
+  private static <T> void syncRegistrations(
+      List<T> currentSpecifications,
+      List<T> newSpecifications,
+      Function<T, String> keyFunction,
+      java.util.function.Consumer<String> remover,
+      java.util.function.Consumer<T> adder) {
+    Map<String, T> currentByKey = indexBy(currentSpecifications, keyFunction);
+    Map<String, T> newByKey = indexBy(newSpecifications, keyFunction);
+
+    removeMissing(currentByKey.keySet(), newByKey.keySet(), remover);
+    // Existing registrations are replaced because handlers and structured-output validators are
+    // captured at registration time; same key does not imply same behavior.
+    replaceExisting(newByKey, currentByKey.keySet(), remover, adder);
+    addMissing(newByKey, currentByKey.keySet(), adder);
   }
 
   private static void removeMissing(
@@ -433,10 +413,15 @@ public final class GhidraMcpServer {
   private static <T> void replaceExisting(
       Map<String, T> newSpecifications,
       Set<String> currentKeys,
-      java.util.function.BiConsumer<String, T> replacer) {
+      java.util.function.Consumer<String> remover,
+      java.util.function.Consumer<T> adder) {
     newSpecifications.entrySet().stream()
         .filter(entry -> currentKeys.contains(entry.getKey()))
-        .forEach(entry -> replacer.accept(entry.getKey(), entry.getValue()));
+        .forEach(
+            entry -> {
+              remover.accept(entry.getKey());
+              adder.accept(entry.getValue());
+            });
   }
 
   /** Container for all loaded MCP specifications. */
