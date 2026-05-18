@@ -17,17 +17,17 @@ jobs:
   wrapper-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: gradle/actions/wrapper-validation@v6
+      - uses: actions/checkout@v6.0.2
+      - uses: gradle/actions/wrapper-validation@v6.1.0
 
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
 
       - name: Install actionlint
         run: |
-          curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.10/actionlint_1.7.10_linux_amd64.tar.gz \
+          curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
             | tar -xz
           echo "$PWD" >> "$GITHUB_PATH"
 

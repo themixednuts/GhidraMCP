@@ -188,6 +188,7 @@ dependencies {
 
   compileOnly ghidraJarFiles
   compileOnly libs.jdom.legacy
+  compileOnly libs.jdom2
   testImplementation ghidraJarFiles
 
   testImplementation libs.reflections
@@ -205,6 +206,7 @@ dependencies {
   testImplementation libs.relaxng.datatype
   testImplementation libs.xsdlib
   testImplementation libs.jdom.legacy
+  testImplementation libs.jdom2
   testImplementation libs.antlr.runtime
   testImplementation libs.guava
   testImplementation libs.commons.lang3
@@ -215,8 +217,6 @@ dependencies {
   testImplementation libs.commons.compress
   testImplementation libs.gson
   testImplementation libs.javahelp
-  testImplementation libs.everit.json.schema
-  testImplementation libs.json
 }
 
 sourceSets {
@@ -335,6 +335,10 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('processResources') {
   dependsOn tasks.named('bootstrapGhidra')
+  inputs.property('extensionProjectName', extensionProjectMetadata.name)
+  inputs.property('extensionProjectDescription', extensionProjectMetadata.description)
+  inputs.property('extensionProjectVersion', extensionProjectMetadata.version)
+  inputs.property('extensionGhidraVersion', extensionGhidraMetadata.version)
   duplicatesStrategy = DuplicatesStrategy.INCLUDE
   filteringCharset = 'UTF-8'
 

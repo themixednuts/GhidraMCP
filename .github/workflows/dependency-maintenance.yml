@@ -1,0 +1,114 @@
+name: Dependency Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      ghidra_release:
+        description: "Ghidra release selector to validate: latest, 12.0.4, or Ghidra_12.0.4_build"
+        required: true
+        default: "latest"
+      refresh_verification_metadata:
+        description: "Refresh Gradle dependency verification metadata and upload it as an artifact"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: dependency-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5.2.0
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - uses: gradle/actions/setup-gradle@v6.1.0
+
+      - name: Resolve pinned versions
+        run: |
+          GHIDRA_RELEASE=$(./gradlew -q printGhidraVersion)
+          MCP_BOM_VERSION=$(./gradlew -q printMcpBomVersion)
+          echo "GHIDRA_RELEASE=${GHIDRA_RELEASE}" >> "$GITHUB_ENV"
+          echo "MCP_BOM_VERSION=${MCP_BOM_VERSION}" >> "$GITHUB_ENV"
+          echo "Pinned Ghidra version from Gradle: ${GHIDRA_RELEASE}"
+          echo "Pinned MCP Java SDK BOM version: ${MCP_BOM_VERSION}"
+
+      - name: Check MCP SDK release drift
+        run: |
+          set -euo pipefail
+          LATEST_MCP_BOM="$(curl -fsSL https://repo1.maven.org/maven2/io/modelcontextprotocol/sdk/mcp-bom/maven-metadata.xml | grep -oPm1 '(?<=<latest>)[^<]+' || true)"
+          if [ -z "$LATEST_MCP_BOM" ]; then
+            echo "::warning::Could not resolve latest MCP Java SDK BOM version from Maven Central."
+          elif [ "$MCP_BOM_VERSION" != "$LATEST_MCP_BOM" ]; then
+            echo "::warning::MCP BOM in gradle/libs.versions.toml (${MCP_BOM_VERSION}) is behind latest (${LATEST_MCP_BOM})."
+          else
+            echo "MCP Java SDK BOM is current: ${MCP_BOM_VERSION}"
+          fi
+
+      - name: Validate pinned dependency graph
+        env:
+          REFRESH_VERIFICATION_METADATA: ${{ inputs.refresh_verification_metadata }}
+        run: |
+          if [ "$REFRESH_VERIFICATION_METADATA" = "true" ]; then
+            ./gradlew --write-verification-metadata sha256 spotlessCheck ci
+          else
+            ./gradlew spotlessCheck ci
+          fi
+
+      - name: Upload refreshed verification metadata
+        if: ${{ always() && inputs.refresh_verification_metadata == true }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gradle-verification-metadata
+          path: gradle/verification-metadata.xml
+          if-no-files-found: error
+
+      - name: Validate selected Ghidra bootstrap
+        env:
+          GHIDRA_RELEASE_SELECTOR: ${{ inputs.ghidra_release }}
+        run: |
+          set -euo pipefail
+          selector="${GHIDRA_RELEASE_SELECTOR:-latest}"
+          normalized="$(printf '%s' "$selector" | grep -Eo '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)"
+
+          if [ "${selector,,}" = "latest" ]; then
+            ./gradlew bootstrapGhidra -PghidraRelease=latest
+          else
+            if [ -z "$normalized" ]; then
+              echo "::error::Invalid Ghidra release selector '${selector}'. Use latest, 12.0.4, or Ghidra_12.0.4_build."
+              exit 1
+            fi
+            ./gradlew bootstrapGhidra -PghidraRelease="$selector" -PghidraVersion="$normalized"
+          fi
+
+          resolved="$(grep '^ghidra.bootstrap.version=' lib/.ghidra-bootstrap.properties | cut -d'=' -f2)"
+          echo "Selected Ghidra version resolved to ${resolved}"
+          ./gradlew compileJava -PghidraRelease="$selector" -PghidraVersion="$resolved" -x test --no-daemon
+
+      - name: Restore pinned bootstrap state
+        if: always()
+        run: ./gradlew bootstrap
+
+      - name: Upload dependency-maintenance reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dependency-maintenance-test-reports
+          path: |
+            target/test-results/test/**
+            target/test-results/e2eTest/**
+            target/reports/tests/test/**
+            target/reports/tests/e2eTest/**
+            target/reports/problems/problems-report.html
+          if-no-files-found: ignore

@@ -58,6 +58,8 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 
 ## 🚀 Installation
 
+Requires Ghidra `12.1`.
+
 1. Download the latest release `zip` file from the
    [Releases](https://github.com/themixednuts/GhidraMCP/releases) page.
 2. In Ghidra, go to `File` -> `Install Extensions...`.
@@ -134,10 +136,11 @@ The steps below are only for building from source.
 
    - `just test` runs the unit suite
    - `just test-e2e` runs the end-to-end suite
-   - `just update-verification-metadata` refreshes Gradle dependency verification checksums after dependency changes
+   - `just update-verification-metadata` refreshes Gradle dependency verification checksums after manual dependency changes
+   - The manual "Dependency Maintenance" GitHub workflow validates dependency and Ghidra update candidates without opening bot PRs
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.7.0-pre9.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.7.0.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 

@@ -7,6 +7,15 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-18
+
+### Changed
+- **Stable release** - Promoted the 0.7.0 line from prerelease builds to the final release artifact
+- **Release packaging** - Resource expansion now tracks project and Ghidra version inputs so generated extension metadata updates correctly when release versions change
+- **Dependency maintenance** - Removed automatic dependency PR creation and replaced the bot-only validation path with a manual maintenance workflow for dependency and Ghidra update checks
+- **Dependency refresh** - Updated the pinned Ghidra, Gradle, library, and GitHub Actions versions
+- **Release notes** - GitHub releases now use generated release notes with repository-specific changelog categories and dependency noise filtered out
+
 ## [0.7.0-pre9] - 2026-04-19
 
 ### Fixed
