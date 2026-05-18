@@ -14,6 +14,7 @@ import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
 import ghidra.framework.plugintool.PluginTool;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import reactor.core.publisher.Mono;
@@ -57,6 +58,7 @@ public class ReadToolOutputTool extends BaseMcpTool {
   private static final String ARG_OUTPUT_ID = "output_id";
   private static final String ARG_OUTPUT_FILE_NAME = "output_file_name";
   private static final String ARG_MAX_CHARS = "max_chars";
+  private static final String ARG_VERBOSE = "verbose";
   private static final String ARG_VIEW = "view";
   private static final String VIEW_AUTO = "auto";
 
@@ -72,8 +74,8 @@ public class ReadToolOutputTool extends BaseMcpTool {
     if (ACTION_LIST_OUTPUTS.equals(operation) && data instanceof java.util.List<?> rows) {
       String rendered =
           rows.stream()
-              .filter(ToolOutputStore.OutputInfo.class::isInstance)
-              .map(ToolOutputStore.OutputInfo.class::cast)
+              .filter(OutputRow.class::isInstance)
+              .map(OutputRow.class::cast)
               .map(this::renderOutputInfo)
               .reduce((left, right) -> left + "\n" + right)
               .orElse("");
@@ -162,6 +164,14 @@ public class ReadToolOutputTool extends BaseMcpTool {
             .maximum(ToolOutputStore.MAX_LIST_PAGE_SIZE));
 
     schemaRoot.property(
+        ARG_VERBOSE,
+        SchemaBuilder.bool(mapper)
+            .description(
+                "For list_outputs, include diagnostic storage metadata such as file name,"
+                    + " alternate views, and timestamps. Default false returns compact read"
+                    + " handles."));
+
+    schemaRoot.property(
         ARG_OFFSET,
         SchemaBuilder.integer(mapper)
             .description("Character offset for read action")
@@ -235,9 +245,9 @@ public class ReadToolOutputTool extends BaseMcpTool {
     return new PaginatedResult<>(result.results, nextCursor);
   }
 
-  private PaginatedResult<ToolOutputStore.OutputInfo> listOutputs(Map<String, Object> args)
-      throws GhidraMcpException {
+  private PaginatedResult<?> listOutputs(Map<String, Object> args) throws GhidraMcpException {
     String sessionId = getRequiredStringArgument(args, ARG_SESSION_ID);
+    boolean verbose = getOptionalBooleanArgument(args, ARG_VERBOSE).orElse(false);
     String cursor =
         getOptionalStringArgument(args, ARG_CURSOR)
             .map(
@@ -257,7 +267,13 @@ public class ReadToolOutputTool extends BaseMcpTool {
         ToolOutputStore.listOutputs(sessionId, cursor, pageSize);
     String nextCursor =
         result.nextCursor != null ? OpaqueCursorCodec.encodeV1(result.nextCursor) : null;
-    return new PaginatedResult<>(result.results, nextCursor);
+    if (verbose) {
+      List<OutputDetails> rows = result.results.stream().map(OutputDetails::from).toList();
+      return new PaginatedResult<>(rows, nextCursor);
+    }
+
+    List<OutputSummary> rows = result.results.stream().map(OutputSummary::from).toList();
+    return new PaginatedResult<>(rows, nextCursor);
   }
 
   private ReadChunk readOutput(Map<String, Object> args, PluginTool tool)
@@ -379,24 +395,74 @@ public class ReadToolOutputTool extends BaseMcpTool {
     return nextOffset != null ? OpaqueCursorCodec.encodeV1(Integer.toString(nextOffset)) : null;
   }
 
-  private String renderOutputInfo(ToolOutputStore.OutputInfo info) {
+  private String renderOutputInfo(OutputRow info) {
     StringBuilder builder =
         new StringBuilder(
             info.outputId()
                 + " "
-                + info.toolName()
+                + info.tool()
                 + "."
                 + info.operation()
-                + " preferred="
-                + info.preferredView()
-                + " views="
-                + String.join("/", info.availableViews())
+                + " view="
+                + info.view()
                 + " chars=");
 
-    Integer preferredChars = info.viewTotalChars().get(info.preferredView());
-    builder.append(preferredChars != null ? preferredChars : 0);
-    builder.append(" by_view=").append(info.viewTotalChars());
+    builder.append(info.chars());
     return builder.toString();
+  }
+
+  interface OutputRow {
+    String outputId();
+
+    String tool();
+
+    String operation();
+
+    String view();
+
+    int chars();
+  }
+
+  record OutputSummary(
+      @JsonProperty("output_id") String outputId,
+      String tool,
+      String operation,
+      String view,
+      int chars)
+      implements OutputRow {
+    static OutputSummary from(ToolOutputStore.OutputInfo info) {
+      String view = info.preferredView();
+      Integer chars = info.viewTotalChars().get(view);
+      return new OutputSummary(
+          info.outputId(), info.toolName(), info.operation(), view, chars != null ? chars : 0);
+    }
+  }
+
+  record OutputDetails(
+      @JsonProperty("output_id") String outputId,
+      @JsonProperty("file_name") String fileName,
+      String tool,
+      String operation,
+      String view,
+      int chars,
+      @JsonProperty("available_views") List<String> availableViews,
+      @JsonProperty("chars_by_view") Map<String, Integer> charsByView,
+      @JsonProperty("created_at_ms") long createdAtMs)
+      implements OutputRow {
+    static OutputDetails from(ToolOutputStore.OutputInfo info) {
+      String view = info.preferredView();
+      Integer chars = info.viewTotalChars().get(view);
+      return new OutputDetails(
+          info.outputId(),
+          info.fileName(),
+          info.toolName(),
+          info.operation(),
+          view,
+          chars != null ? chars : 0,
+          info.availableViews(),
+          info.viewTotalChars(),
+          info.createdAtMs());
+    }
   }
 
   record ReadChunk(String content, @JsonProperty("next_cursor") String nextCursor) {}

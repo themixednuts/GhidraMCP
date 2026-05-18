@@ -56,7 +56,7 @@ public class ProgramInfo {
                     block.isRead(),
                     block.isWrite(),
                     block.isExecute(),
-                    block.getComment() != null ? block.getComment() : "",
+                    block.getComment(),
                     block.getType().toString()))
         .collect(Collectors.toList());
   }

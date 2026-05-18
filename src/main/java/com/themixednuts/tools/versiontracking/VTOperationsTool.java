@@ -221,11 +221,15 @@ public class VTOperationsTool extends BaseVTTool {
 
     schemaRoot.property(
         ARG_SOURCE_ADDRESS,
-        SchemaBuilder.string(mapper).description("Source address of the match"));
+        SchemaBuilder.string(mapper)
+            .description("Source address of the match")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_DESTINATION_ADDRESS,
-        SchemaBuilder.string(mapper).description("Destination address of the match"));
+        SchemaBuilder.string(mapper)
+            .description("Destination address of the match")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_MIN_SIMILARITY,
@@ -296,21 +300,27 @@ public class VTOperationsTool extends BaseVTTool {
 
     schemaRoot.property(
         ARG_SOURCE_MIN_ADDRESS,
-        SchemaBuilder.string(mapper).description("Minimum address in source program to correlate"));
+        SchemaBuilder.string(mapper)
+            .description("Minimum address in source program to correlate")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_SOURCE_MAX_ADDRESS,
-        SchemaBuilder.string(mapper).description("Maximum address in source program to correlate"));
+        SchemaBuilder.string(mapper)
+            .description("Maximum address in source program to correlate")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_DEST_MIN_ADDRESS,
         SchemaBuilder.string(mapper)
-            .description("Minimum address in destination program to correlate"));
+            .description("Minimum address in destination program to correlate")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_DEST_MAX_ADDRESS,
         SchemaBuilder.string(mapper)
-            .description("Maximum address in destination program to correlate"));
+            .description("Maximum address in destination program to correlate")
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_EXCLUDE_ACCEPTED,

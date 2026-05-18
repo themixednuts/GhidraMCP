@@ -57,7 +57,7 @@ public class Validator {
     Set<ValidationMessage> errors = new HashSet<>();
 
     // Get schema type first
-    String type = schema.has("type") ? schema.get("type").asText() : null;
+    String type = schema.has("type") ? schema.get("type").asString() : null;
 
     // Check nullable (except for null type where null is expected)
     if (data == null || data.isNull()) {
@@ -129,18 +129,18 @@ public class Validator {
 
   private static void validateString(
       ObjectNode schema, JsonNode data, String path, Set<ValidationMessage> errors) {
-    if (!data.isTextual()) {
+    if (!data.isString()) {
       errors.add(
           ValidationMessage.error(path, "type", "Expected string but got " + data.getNodeType()));
       return;
     }
 
-    String value = data.asText();
+    String value = data.asString();
 
     // minLength (string containing int64)
     if (schema.has("minLength")) {
       try {
-        long minLength = Long.parseLong(schema.get("minLength").asText());
+        long minLength = Long.parseLong(schema.get("minLength").asString());
         if (value.length() < minLength) {
           errors.add(
               ValidationMessage.error(
@@ -154,14 +154,14 @@ public class Validator {
             ValidationMessage.error(
                 path,
                 "minLength",
-                "Invalid minLength format: " + schema.get("minLength").asText()));
+                "Invalid minLength format: " + schema.get("minLength").asString()));
       }
     }
 
     // maxLength (string containing int64)
     if (schema.has("maxLength")) {
       try {
-        long maxLength = Long.parseLong(schema.get("maxLength").asText());
+        long maxLength = Long.parseLong(schema.get("maxLength").asString());
         if (value.length() > maxLength) {
           errors.add(
               ValidationMessage.error(
@@ -175,13 +175,13 @@ public class Validator {
             ValidationMessage.error(
                 path,
                 "maxLength",
-                "Invalid maxLength format: " + schema.get("maxLength").asText()));
+                "Invalid maxLength format: " + schema.get("maxLength").asString()));
       }
     }
 
     // pattern
     if (schema.has("pattern")) {
-      String patternStr = schema.get("pattern").asText();
+      String patternStr = schema.get("pattern").asString();
       try {
         Pattern pattern = Pattern.compile(patternStr);
         if (!pattern.matcher(value).find()) {
@@ -202,7 +202,7 @@ public class Validator {
       ArrayNode enumValues = (ArrayNode) schema.get("enum");
       boolean found = false;
       for (JsonNode enumValue : enumValues) {
-        if (enumValue.isTextual() && enumValue.asText().equals(value)) {
+        if (enumValue.isString() && enumValue.asString().equals(value)) {
           found = true;
           break;
         }
@@ -315,7 +315,7 @@ public class Validator {
     // minItems (string containing int64)
     if (schema.has("minItems")) {
       try {
-        long minItems = Long.parseLong(schema.get("minItems").asText());
+        long minItems = Long.parseLong(schema.get("minItems").asString());
         if (size < minItems) {
           errors.add(
               ValidationMessage.error(
@@ -326,14 +326,14 @@ public class Validator {
       } catch (NumberFormatException e) {
         errors.add(
             ValidationMessage.error(
-                path, "minItems", "Invalid minItems format: " + schema.get("minItems").asText()));
+                path, "minItems", "Invalid minItems format: " + schema.get("minItems").asString()));
       }
     }
 
     // maxItems (string containing int64)
     if (schema.has("maxItems")) {
       try {
-        long maxItems = Long.parseLong(schema.get("maxItems").asText());
+        long maxItems = Long.parseLong(schema.get("maxItems").asString());
         if (size > maxItems) {
           errors.add(
               ValidationMessage.error(
@@ -344,7 +344,7 @@ public class Validator {
       } catch (NumberFormatException e) {
         errors.add(
             ValidationMessage.error(
-                path, "maxItems", "Invalid maxItems format: " + schema.get("maxItems").asText()));
+                path, "maxItems", "Invalid maxItems format: " + schema.get("maxItems").asString()));
       }
     }
 
@@ -377,7 +377,7 @@ public class Validator {
     // minProperties (string containing int64)
     if (schema.has("minProperties")) {
       try {
-        long minProperties = Long.parseLong(schema.get("minProperties").asText());
+        long minProperties = Long.parseLong(schema.get("minProperties").asString());
         if (propertyCount < minProperties) {
           errors.add(
               ValidationMessage.error(
@@ -392,14 +392,14 @@ public class Validator {
             ValidationMessage.error(
                 path,
                 "minProperties",
-                "Invalid minProperties format: " + schema.get("minProperties").asText()));
+                "Invalid minProperties format: " + schema.get("minProperties").asString()));
       }
     }
 
     // maxProperties (string containing int64)
     if (schema.has("maxProperties")) {
       try {
-        long maxProperties = Long.parseLong(schema.get("maxProperties").asText());
+        long maxProperties = Long.parseLong(schema.get("maxProperties").asString());
         if (propertyCount > maxProperties) {
           errors.add(
               ValidationMessage.error(
@@ -414,7 +414,7 @@ public class Validator {
             ValidationMessage.error(
                 path,
                 "maxProperties",
-                "Invalid maxProperties format: " + schema.get("maxProperties").asText()));
+                "Invalid maxProperties format: " + schema.get("maxProperties").asString()));
       }
     }
 
@@ -422,7 +422,7 @@ public class Validator {
     if (schema.has("required")) {
       ArrayNode required = (ArrayNode) schema.get("required");
       for (JsonNode requiredProp : required) {
-        String propName = requiredProp.asText();
+        String propName = requiredProp.asString();
         if (!object.has(propName)) {
           errors.add(
               ValidationMessage.error(

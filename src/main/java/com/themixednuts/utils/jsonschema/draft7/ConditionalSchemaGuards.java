@@ -52,7 +52,7 @@ final class ConditionalSchemaGuards {
 
   private static void appendRequiredIfMissing(ArrayNode required, String fieldName) {
     for (JsonNode requiredName : required) {
-      if (fieldName.equals(requiredName.asText())) {
+      if (fieldName.equals(requiredName.asString())) {
         return;
       }
     }

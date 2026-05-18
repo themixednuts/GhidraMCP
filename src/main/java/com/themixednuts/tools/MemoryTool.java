@@ -15,7 +15,7 @@ import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
 import ghidra.features.base.memsearch.format.SearchFormat;
 import ghidra.features.base.memsearch.gui.SearchSettings;
-import ghidra.features.base.memsearch.matcher.ByteMatcher;
+import ghidra.features.base.memsearch.matcher.UserInputByteMatcher;
 import ghidra.features.base.memsearch.searcher.MemoryMatch;
 import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.plugintool.PluginTool;
@@ -282,7 +282,7 @@ public class MemoryTool extends BaseMcpTool {
         ARG_ADDRESS,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description("Memory address for read/write operations")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_LENGTH,
@@ -380,14 +380,14 @@ public class MemoryTool extends BaseMcpTool {
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description(
                 "Optional inclusive lower bound restricting search to this address or higher")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_ADDRESS_END,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description(
                 "Optional inclusive upper bound restricting search to this address or lower")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_MAX_SLOTS,
@@ -579,17 +579,7 @@ public class MemoryTool extends BaseMcpTool {
             throw new GhidraMcpException(error);
           }
 
-          // Parse address
-          Address address;
-          try {
-            address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address format");
-            }
-          } catch (Exception e) {
-            GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
-            throw new GhidraMcpException(error);
-          }
+          Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
 
           // Read memory
           Memory memory = program.getMemory();
@@ -696,17 +686,7 @@ public class MemoryTool extends BaseMcpTool {
             throw new GhidraMcpException(error);
           }
 
-          // Parse address
-          Address address;
-          try {
-            address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address format");
-            }
-          } catch (Exception e) {
-            GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
-            throw new GhidraMcpException(error);
-          }
+          Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
 
           // Parse hex bytes
           byte[] bytes;
@@ -720,7 +700,7 @@ public class MemoryTool extends BaseMcpTool {
           // Write to memory
           try {
             program.getMemory().setBytes(address, bytes);
-            return new MemoryWriteResult(address.toString(), bytes.length, bytesHex);
+            return new MemoryWriteResult(address.toString(), bytes.length);
           } catch (MemoryAccessException e) {
             GhidraMcpError error =
                 GhidraMcpError.failed("memory write", "address " + addressStr + " is not writable");
@@ -809,16 +789,7 @@ public class MemoryTool extends BaseMcpTool {
         "MCP - Undefine at " + addressStr,
         () -> {
           // Parse address
-          Address address;
-          try {
-            address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address format");
-            }
-          } catch (Exception e) {
-            GhidraMcpError error = GhidraMcpError.parse("address", addressStr);
-            throw new GhidraMcpException(error);
-          }
+          Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
 
           // Clear code units at the address
           try {
@@ -1007,7 +978,7 @@ public class MemoryTool extends BaseMcpTool {
           settings.withBigEndian(program.getMemory().isBigEndian());
           settings.withCaseSensitive(caseSensitive);
 
-          ByteMatcher matcher = searchFormat.parse(searchValue, settings);
+          UserInputByteMatcher matcher = searchFormat.parse(searchValue, settings);
 
           if (!matcher.isValidSearch()) {
             throw new GhidraMcpException(
@@ -1139,15 +1110,7 @@ public class MemoryTool extends BaseMcpTool {
         program,
         "MCP - Apply vtable at " + addressStr,
         () -> {
-          Address start;
-          try {
-            start = program.getAddressFactory().getAddress(addressStr);
-          } catch (Exception e) {
-            throw new GhidraMcpException(GhidraMcpError.parse(ARG_ADDRESS, addressStr));
-          }
-          if (start == null) {
-            throw new GhidraMcpException(GhidraMcpError.parse(ARG_ADDRESS, addressStr));
-          }
+          Address start = parseAddressValue(program, addressStr, ARG_ADDRESS);
 
           int ptrSize = program.getDefaultPointerSize();
           if (ptrSize != 4 && ptrSize != 8) {

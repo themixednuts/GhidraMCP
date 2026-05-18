@@ -201,7 +201,7 @@ public class AnalyzeTool extends BaseMcpTool {
         ARG_ADDRESS,
         SchemaBuilder.string(mapper)
             .description("Target address for analysis.")
-            .pattern("^([A-Za-z_][A-Za-z0-9_]*:)?(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     // Demangle properties
     schemaRoot.property(
@@ -789,14 +789,7 @@ public class AnalyzeTool extends BaseMcpTool {
       Program program, String addressStr, Map<String, Object> args, TaskMonitor monitor)
       throws GhidraMcpException {
     try {
-      Address address = program.getAddressFactory().getAddress(addressStr);
-      if (address == null) {
-        throw new GhidraMcpException(
-            GhidraMcpError.validation()
-                .errorCode(GhidraMcpError.ErrorCode.INVALID_ARGUMENT_VALUE)
-                .message("Invalid address: " + addressStr)
-                .build());
-      }
+      Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
 
       boolean fromVtable = getOptionalBooleanArgument(args, ARG_FROM_VTABLE).orElse(false);
       String vtableAddress = null;
@@ -2601,7 +2594,9 @@ public class AnalyzeTool extends BaseMcpTool {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("nodes", new ArrayList<>(nodeMap.values()));
     result.put("edges", edges);
-    result.put("truncated", truncated);
+    if (truncated) {
+      result.put("truncated", true);
+    }
     return result;
   }
 
@@ -2637,7 +2632,7 @@ public class AnalyzeTool extends BaseMcpTool {
 
     if (addressOpt.isPresent()) {
       String addressStr = addressOpt.get();
-      Address address = program.getAddressFactory().getAddress(addressStr);
+      Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
       if (address != null) {
         Function function = getOrCreateFunction(program, address);
         if (function != null) return function;

@@ -52,11 +52,6 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
 
   public static final String OPTIONS_CATEGORY = "GhidraMCP HTTP Server";
 
-  /**
-   * @deprecated Use OPTIONS_CATEGORY instead
-   */
-  @Deprecated public static final String MCP_TOOL_OPTIONS_CATEGORY = OPTIONS_CATEGORY;
-
   private static final String PORT_OPTION = "Server Port";
   private static final String PORT_DESCRIPTION = "Port number for the embedded HTTP MCP server.";
   private static final String TIMEOUT_OPTION = "Request Timeout (seconds)";

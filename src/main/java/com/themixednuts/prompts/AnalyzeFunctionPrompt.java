@@ -1,6 +1,7 @@
 package com.themixednuts.prompts;
 
 import com.themixednuts.annotation.GhidraMcpPrompt;
+import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
@@ -57,11 +58,7 @@ public class AnalyzeFunctionPrompt extends BaseMcpPrompt {
           Program program = getProgramByName(programName);
           DecompInterface decompiler = null;
           try {
-            // Parse address and find function
-            Address address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address: " + addressStr);
-            }
+            Address address = GhidraAddressParser.parse(program, addressStr, "function_address");
 
             Function function = program.getFunctionManager().getFunctionAt(address);
             if (function == null) {

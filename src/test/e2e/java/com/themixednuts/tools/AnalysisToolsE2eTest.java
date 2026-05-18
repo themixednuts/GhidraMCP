@@ -235,6 +235,8 @@ class AnalysisToolsE2eTest {
           assertInstanceOf(PaginatedResult.class, firstPageRaw);
 
       assertFalse(firstPage.results.isEmpty());
+      String defaultOptionJson = BaseMcpTool.mapper.writeValueAsString(firstPage.results.get(0));
+      assertFalse(defaultOptionJson.contains("\"description\""), defaultOptionJson);
       for (int i = 1; i < firstPage.results.size(); i++) {
         String previous = firstPage.results.get(i - 1).getName();
         String current = firstPage.results.get(i).getName();
@@ -284,6 +286,29 @@ class AnalysisToolsE2eTest {
       PaginatedResult<AnalysisOptionInfo> defaultsOnly =
           assertInstanceOf(PaginatedResult.class, defaultsOnlyRaw);
       assertTrue(defaultsOnly.results.stream().allMatch(AnalysisOptionInfo::isUsingDefaultValue));
+
+      Object verboseRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list_analysis_options",
+                      "page_size",
+                      20,
+                      "verbose",
+                      true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<AnalysisOptionInfo> verbose =
+          assertInstanceOf(PaginatedResult.class, verboseRaw);
+      assertFalse(verbose.results.isEmpty());
+      AnalysisOptionInfo described =
+          new AnalysisOptionInfo("Option", "Long description", "BOOLEAN", "true", true, true);
+      String describedJson = BaseMcpTool.mapper.writeValueAsString(described);
+      assertTrue(describedJson.contains("\"description\""), describedJson);
 
       if (firstPage.nextCursor != null) {
         Object secondPageRaw =

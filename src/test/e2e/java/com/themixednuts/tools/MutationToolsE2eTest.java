@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.models.CreateDataTypeResult;
 import com.themixednuts.models.DataTypeListEntry;
 import com.themixednuts.models.DataTypeReadResult;
 import com.themixednuts.models.FunctionInfo;
@@ -64,6 +65,8 @@ class MutationToolsE2eTest {
               .block();
       MemoryWriteResult writeResult = assertInstanceOf(MemoryWriteResult.class, writeRaw);
       assertEquals(3, writeResult.getBytesWritten());
+      String writeJson = BaseMcpTool.mapper.writeValueAsString(writeResult);
+      assertFalse(writeJson.contains("\"hex_data\""), writeJson);
 
       Object readAfterRaw =
           tool.execute(
@@ -188,9 +191,9 @@ class MutationToolsE2eTest {
                           Map.of("name", "RED", "value", 1), Map.of("name", "GREEN", "value", 2))),
                   null)
               .block();
-      OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
-      assertEquals("create_data_type", created.getOperation());
-      assertEquals("enum", created.getTarget());
+      CreateDataTypeResult created = assertInstanceOf(CreateDataTypeResult.class, createdRaw);
+      assertEquals("enum", created.getKind());
+      assertEquals("ColorMode", created.getName());
 
       Object updatedRaw =
           tool.execute(
@@ -228,6 +231,8 @@ class MutationToolsE2eTest {
       DataTypeReadResult readBack = assertInstanceOf(DataTypeReadResult.class, readBackRaw);
       assertEquals("ColorMode", readBack.getName());
       assertEquals(3, readBack.getValueCount());
+      String readBackJson = BaseMcpTool.mapper.writeValueAsString(readBack);
+      assertFalse(readBackJson.contains("\"value_count\""), readBackJson);
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
@@ -349,7 +354,8 @@ class MutationToolsE2eTest {
                           Map.of("name", "field_c", "data_type_path", "int"))),
                   null)
               .block();
-      OperationResult created = assertInstanceOf(OperationResult.class, createdRaw);
+      CreateDataTypeResult created = assertInstanceOf(CreateDataTypeResult.class, createdRaw);
+      assertEquals("struct", created.getKind());
 
       // Patch: rename field_b at offset 4 and add a comment
       Object patchedRaw =

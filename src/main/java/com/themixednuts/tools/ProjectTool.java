@@ -76,6 +76,7 @@ public class ProjectTool extends BaseMcpTool {
   // list_analysis_options specific args
   private static final String ARG_OPTION_TYPE = "option_type";
   private static final String ARG_DEFAULTS_ONLY = "defaults_only";
+  private static final String ARG_VERBOSE = "verbose";
 
   @Override
   public JsonSchema schema() {
@@ -101,7 +102,7 @@ public class ProjectTool extends BaseMcpTool {
         ARG_ADDRESS,
         SchemaBuilder.string(mapper)
             .description("Target address for navigation")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     // list_analysis_options specific properties
     schemaRoot.property(
@@ -117,6 +118,11 @@ public class ProjectTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_DEFAULTS_ONLY,
         SchemaBuilder.bool(mapper).description("Show only options using default values"));
+
+    schemaRoot.property(
+        ARG_VERBOSE,
+        SchemaBuilder.bool(mapper)
+            .description("Include long analysis option descriptions. Default false."));
 
     // Common pagination properties
     schemaRoot.property(
@@ -246,10 +252,12 @@ public class ProjectTool extends BaseMcpTool {
     String filter = getOptionalStringArgument(args, ARG_FILTER).orElse("");
     String optionType = getOptionalStringArgument(args, ARG_OPTION_TYPE).orElse("");
     boolean defaultsOnly = getOptionalBooleanArgument(args, ARG_DEFAULTS_ONLY).orElse(false);
+    boolean verbose = getOptionalBooleanArgument(args, ARG_VERBOSE).orElse(false);
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     int pageSize = getPageSizeArgument(args, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
 
-    return listAnalysisOptions(program, filter, optionType, defaultsOnly, cursorOpt, pageSize);
+    return listAnalysisOptions(
+        program, filter, optionType, defaultsOnly, verbose, cursorOpt, pageSize);
   }
 
   private Mono<PaginatedResult<AnalysisOptionInfo>> listAnalysisOptions(
@@ -257,6 +265,7 @@ public class ProjectTool extends BaseMcpTool {
       String filter,
       String optionType,
       boolean defaultsOnly,
+      boolean verbose,
       Optional<String> cursorOpt,
       int pageSize) {
     return Mono.fromCallable(
@@ -307,7 +316,7 @@ public class ProjectTool extends BaseMcpTool {
               passedCursor = true;
             }
 
-            AnalysisOptionInfo option = createAnalysisOptionInfo(analysisOptions, optName);
+            AnalysisOptionInfo option = createAnalysisOptionInfo(analysisOptions, optName, verbose);
 
             if (!filter.isEmpty()
                 && !option.getName().toLowerCase().contains(filter.toLowerCase())) {
@@ -347,21 +356,23 @@ public class ProjectTool extends BaseMcpTool {
         });
   }
 
-  private AnalysisOptionInfo createAnalysisOptionInfo(Options analysisOptions, String optionName) {
+  private AnalysisOptionInfo createAnalysisOptionInfo(
+      Options analysisOptions, String optionName, boolean verbose) {
     OptionType optType = analysisOptions.getType(optionName);
     String value =
         Optional.ofNullable(analysisOptions.getObject(optionName, null))
             .map(Object::toString)
-            .orElse("null");
+            .orElse(null);
     boolean usingDefault = analysisOptions.isDefaultValue(optionName);
     String description = analysisOptions.getDescription(optionName);
 
     return new AnalysisOptionInfo(
         optionName,
         description,
-        Optional.ofNullable(optType).map(Object::toString).orElse("unknown"),
+        Optional.ofNullable(optType).map(Object::toString).orElse(null),
         value,
-        usingDefault);
+        usingDefault,
+        verbose);
   }
 
   // =================== go_to_address ===================
@@ -554,8 +565,6 @@ public class ProjectTool extends BaseMcpTool {
 
           result.put("undo_list", undoList);
           result.put("redo_list", redoList);
-          result.put("undo_count", undoList.size());
-          result.put("redo_count", redoList.size());
 
           return result;
         });

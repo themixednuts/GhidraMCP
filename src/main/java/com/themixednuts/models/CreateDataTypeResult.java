@@ -10,16 +10,14 @@ public class CreateDataTypeResult {
   private final String kind;
   private final String name;
   private final String pathName;
-  private final String message;
   private final Map<String, Object> details;
 
   public CreateDataTypeResult(
-      String kind, String name, String pathName, String message, Map<String, Object> details) {
+      String kind, String name, String pathName, Map<String, Object> details) {
     this.kind = kind;
     this.name = name;
     this.pathName = pathName;
-    this.message = message;
-    this.details = details;
+    this.details = details != null && !details.isEmpty() ? details : null;
   }
 
   @JsonProperty("kind")
@@ -35,11 +33,6 @@ public class CreateDataTypeResult {
   @JsonProperty("path_name")
   public String getPathName() {
     return pathName;
-  }
-
-  @JsonProperty("message")
-  public String getMessage() {
-    return message;
   }
 
   @JsonProperty("details")

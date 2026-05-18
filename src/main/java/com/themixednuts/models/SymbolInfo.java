@@ -36,7 +36,7 @@ public class SymbolInfo {
     this.source = (srcType != null) ? srcType.toString() : null;
 
     Namespace parentNs = symbol.getParentNamespace();
-    this.namespace = (parentNs != null) ? parentNs.getName(true) : null;
+    this.namespace = parentNs != null && !parentNs.isGlobal() ? parentNs.getName(true) : null;
 
     this.primary = symbol.isPrimary();
     this.global = symbol.isGlobal();

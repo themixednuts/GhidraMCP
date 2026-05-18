@@ -7,7 +7,7 @@ import ghidra.program.model.data.ByteDataType;
 import ghidra.program.model.data.EnumDataType;
 import ghidra.program.model.data.IntegerDataType;
 import ghidra.program.model.data.StructureDataType;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
 import java.lang.reflect.Field;
@@ -133,31 +133,31 @@ final class VTFixtureSupport {
           .getListing()
           .setComment(
               sourceProgram.getAddressFactory().getAddress("0x401000"),
-              CodeUnit.EOL_COMMENT,
+              CommentType.EOL,
               "Entry point - returns 42");
       sourceProgram
           .getListing()
           .setComment(
               sourceProgram.getAddressFactory().getAddress("0x401020"),
-              CodeUnit.PLATE_COMMENT,
+              CommentType.PLATE,
               "Helper function");
       sourceProgram
           .getListing()
           .setComment(
               sourceProgram.getAddressFactory().getAddress("0x401080"),
-              CodeUnit.PRE_COMMENT,
+              CommentType.PRE,
               "Branch-heavy control flow");
       sourceProgram
           .getListing()
           .setComment(
               sourceProgram.getAddressFactory().getAddress("0x401140"),
-              CodeUnit.EOL_COMMENT,
+              CommentType.EOL,
               "Loop with backward jump");
       sourceProgram
           .getListing()
           .setComment(
               sourceProgram.getAddressFactory().getAddress("0x401100"),
-              CodeUnit.REPEATABLE_COMMENT,
+              CommentType.REPEATABLE,
               "Shared API name for symbol correlator");
 
       StructureDataType point2d = new StructureDataType("Point2D", 0);

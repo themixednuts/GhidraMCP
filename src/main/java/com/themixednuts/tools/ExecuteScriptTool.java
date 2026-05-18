@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
@@ -92,6 +93,7 @@ public class ExecuteScriptTool extends BaseMcpTool {
     return schemaRoot.build();
   }
 
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public static class ScriptGuidance {
     private final String scriptName;
     private final String guidanceType;

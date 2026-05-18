@@ -26,43 +26,43 @@ class SchemaBuilderTest {
   @Test
   void string_buildsCorrectly() {
     var schema = SchemaBuilder.string().build();
-    assertEquals("string", schema.getNode().get("type").asText());
+    assertEquals("string", schema.getNode().get("type").asString());
   }
 
   @Test
   void integer_buildsCorrectly() {
     var schema = SchemaBuilder.integer().build();
-    assertEquals("integer", schema.getNode().get("type").asText());
+    assertEquals("integer", schema.getNode().get("type").asString());
   }
 
   @Test
   void number_buildsCorrectly() {
     var schema = SchemaBuilder.number().build();
-    assertEquals("number", schema.getNode().get("type").asText());
+    assertEquals("number", schema.getNode().get("type").asString());
   }
 
   @Test
   void boolean_buildsCorrectly() {
     var schema = SchemaBuilder.bool().build();
-    assertEquals("boolean", schema.getNode().get("type").asText());
+    assertEquals("boolean", schema.getNode().get("type").asString());
   }
 
   @Test
   void array_buildsCorrectly() {
     var schema = SchemaBuilder.array().build();
-    assertEquals("array", schema.getNode().get("type").asText());
+    assertEquals("array", schema.getNode().get("type").asString());
   }
 
   @Test
   void object_buildsCorrectly() {
     var schema = SchemaBuilder.object().build();
-    assertEquals("object", schema.getNode().get("type").asText());
+    assertEquals("object", schema.getNode().get("type").asString());
   }
 
   @Test
   void null_buildsCorrectly() {
     var schema = SchemaBuilder.nul().build();
-    assertEquals("null", schema.getNode().get("type").asText());
+    assertEquals("null", schema.getNode().get("type").asString());
   }
 
   // ========== Composition Tests ==========
@@ -75,7 +75,7 @@ class SchemaBuilderTest {
             .build();
 
     JsonNode node = schema.getNode();
-    assertEquals("string", node.get("type").asText());
+    assertEquals("string", node.get("type").asString());
     assertTrue(node.has("allOf"));
     assertEquals(2, node.get("allOf").size());
   }
@@ -88,7 +88,7 @@ class SchemaBuilderTest {
             .build();
 
     JsonNode node = schema.getNode();
-    assertEquals("string", node.get("type").asText());
+    assertEquals("string", node.get("type").asString());
     assertTrue(node.has("oneOf"));
   }
 
@@ -131,7 +131,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.integer().not(SchemaBuilder.integer().multipleOf(13)).build();
 
     JsonNode node = schema.getNode();
-    assertEquals("integer", node.get("type").asText());
+    assertEquals("integer", node.get("type").asString());
     assertTrue(node.has("not"));
     assertEquals(13, node.get("not").get("multipleOf").asInt());
   }
@@ -161,7 +161,7 @@ class SchemaBuilderTest {
     assertTrue(node.has("if"));
     assertTrue(node.has("then"));
     assertFalse(node.has("else"));
-    assertEquals("type", node.get("if").get("required").get(0).asText());
+    assertEquals("type", node.get("if").get("required").get(0).asString());
   }
 
   @Test
@@ -178,7 +178,7 @@ class SchemaBuilderTest {
     assertTrue(node.has("if"));
     assertTrue(node.has("then"));
     assertTrue(node.has("else"));
-    assertEquals("type", node.get("if").get("required").get(0).asText());
+    assertEquals("type", node.get("if").get("required").get(0).asString());
   }
 
   @Test
@@ -195,8 +195,8 @@ class SchemaBuilderTest {
 
     JsonNode required = schema.getNode().get("if").get("required");
     assertEquals(2, required.size());
-    assertEquals("type", required.get(0).asText());
-    assertEquals("scope", required.get(1).asText());
+    assertEquals("type", required.get(0).asString());
+    assertEquals("scope", required.get(1).asString());
   }
 
   // ========== String Constraints ==========
@@ -208,7 +208,7 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
     assertEquals(5, node.get("minLength").asInt());
     assertEquals(100, node.get("maxLength").asInt());
-    assertEquals("^[A-Z]", node.get("pattern").asText());
+    assertEquals("^[A-Z]", node.get("pattern").asString());
   }
 
   @Test
@@ -218,7 +218,7 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
     assertTrue(node.has("enum"));
     assertEquals(3, node.get("enum").size());
-    assertEquals("active", node.get("enum").get(0).asText());
+    assertEquals("active", node.get("enum").get(0).asString());
   }
 
   @Test
@@ -226,7 +226,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.string().constValue("admin").build();
 
     JsonNode node = schema.getNode();
-    assertEquals("admin", node.get("const").asText());
+    assertEquals("admin", node.get("const").asString());
   }
 
   // ========== Numeric Constraints ==========
@@ -294,7 +294,7 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
     assertTrue(node.has("contains"));
-    assertEquals("admin", node.get("contains").get("const").asText());
+    assertEquals("admin", node.get("contains").get("const").asString());
   }
 
   // ========== Object Constraints ==========
@@ -312,7 +312,7 @@ class SchemaBuilderTest {
     assertTrue(node.has("properties"));
     assertEquals(2, node.get("properties").size());
     assertTrue(node.has("required"));
-    assertEquals("id", node.get("required").get(0).asText());
+    assertEquals("id", node.get("required").get(0).asString());
   }
 
   @Test
@@ -346,7 +346,7 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
     assertTrue(node.get("additionalProperties").isObject());
-    assertEquals("string", node.get("additionalProperties").get("type").asText());
+    assertEquals("string", node.get("additionalProperties").get("type").asString());
   }
 
   // ========== Metadata ==========
@@ -361,9 +361,9 @@ class SchemaBuilderTest {
             .build();
 
     JsonNode node = schema.getNode();
-    assertEquals("Username", node.get("title").asText());
-    assertEquals("The user's username", node.get("description").asText());
-    assertEquals("guest", node.get("default").asText());
+    assertEquals("Username", node.get("title").asString());
+    assertEquals("The user's username", node.get("description").asString());
+    assertEquals("guest", node.get("default").asString());
   }
 
   // ========== Error Cases ==========

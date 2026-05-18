@@ -6,6 +6,7 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.utils.CursorDataResult;
+import com.themixednuts.utils.GhidraAddressParser;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.GhidraMcpTaskMonitor;
 import com.themixednuts.utils.GhidraStateUtils;
@@ -176,6 +177,8 @@ public abstract class BaseMcpTool {
   public static final String ARG_TARGET_TYPE = "target_type";
   public static final String ARG_TARGET_VALUE = "target_value";
   public static final String ARG_TOOL_OUTPUT_SESSION_ID = "tool_output_session_id";
+
+  protected static final String ADDRESS_PATTERN = GhidraAddressParser.ADDRESS_PATTERN;
 
   // =================== Abstract Methods ===================
 
@@ -879,17 +882,7 @@ public abstract class BaseMcpTool {
 
   private Address parseAddressBound(Program program, String value, String argumentName)
       throws GhidraMcpException {
-    try {
-      Address address = program.getAddressFactory().getAddress(value);
-      if (address == null) {
-        throw new GhidraMcpException(GhidraMcpError.parse(argumentName, value));
-      }
-      return address;
-    } catch (GhidraMcpException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new GhidraMcpException(GhidraMcpError.parse(argumentName, value));
-    }
+    return parseAddressValue(program, value, argumentName);
   }
 
   private Optional<Long> parseStrictIntegralValue(Object valueNode) {
@@ -1584,14 +1577,21 @@ public abstract class BaseMcpTool {
   protected Mono<AddressResult> parseAddress(Program program, String addressStr, String operation) {
     return Mono.fromCallable(
         () -> {
-          Address address = program.getAddressFactory().getAddress(addressStr);
-          if (address == null) {
+          try {
+            Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
+            return new AddressResult(address, addressStr);
+          } catch (GhidraMcpException e) {
             throw new GhidraMcpException(
                 GhidraMcpErrorUtils.addressParseError(
-                    addressStr, getMcpName() + "." + operation, null));
+                    addressStr, getMcpName() + "." + operation, e),
+                e);
           }
-          return new AddressResult(address, addressStr);
         });
+  }
+
+  protected Address parseAddressValue(Program program, String addressString, String argumentName)
+      throws GhidraMcpException {
+    return GhidraAddressParser.parse(program, addressString, argumentName);
   }
 
   // =================== Tool Information ===================

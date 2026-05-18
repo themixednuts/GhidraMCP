@@ -1032,32 +1032,21 @@ public class DataTypesTool extends BaseMcpTool {
           String transactionName = "Create " + dataTypeKind + ": " + name;
 
           return executeInTransaction(
-                  program,
-                  transactionName,
-                  () -> {
-                    CreateDataTypeResult createResult =
-                        switch (dataTypeKind) {
-                          case "struct" -> createStruct(args, program, name);
-                          case "enum" -> createEnum(args, program, name);
-                          case "union" -> createUnion(args, program, name);
-                          case "typedef" -> createTypedef(args, program, name);
-                          case "pointer" -> createPointer(args, program, name);
-                          case "function_definition" ->
-                              createFunctionDefinition(args, program, name);
-                          case "category" -> createCategory(args, program, name);
-                          case "rtti0" -> createRTTI0(args, program, name);
-                          default ->
-                              throw new IllegalArgumentException(
-                                  "Unsupported data type kind for creation: " + dataTypeKind);
-                        };
-                    return createResult;
-                  })
-              .map(
-                  result -> {
-                    CreateDataTypeResult createResult = (CreateDataTypeResult) result;
-                    return OperationResult.success(
-                            "create_data_type", dataTypeKind, createResult.getMessage())
-                        .setResult(createResult);
+              program,
+              transactionName,
+              () ->
+                  switch (dataTypeKind) {
+                    case "struct" -> createStruct(args, program, name);
+                    case "enum" -> createEnum(args, program, name);
+                    case "union" -> createUnion(args, program, name);
+                    case "typedef" -> createTypedef(args, program, name);
+                    case "pointer" -> createPointer(args, program, name);
+                    case "function_definition" -> createFunctionDefinition(args, program, name);
+                    case "category" -> createCategory(args, program, name);
+                    case "rtti0" -> createRTTI0(args, program, name);
+                    default ->
+                        throw new IllegalArgumentException(
+                            "Unsupported data type kind for creation: " + dataTypeKind);
                   });
         });
   }
@@ -1122,7 +1111,6 @@ public class DataTypesTool extends BaseMcpTool {
         "struct",
         addedStruct.getName(),
         addedStruct.getPathName(),
-        "Successfully created struct",
         Map.of(
             "member_count", members != null ? members.size() : 0, "size", addedStruct.getLength()));
   }
@@ -1172,7 +1160,6 @@ public class DataTypesTool extends BaseMcpTool {
         "enum",
         addedEnum.getName(),
         addedEnum.getPathName(),
-        "Successfully created enum",
         Map.of("entry_count", entries != null ? entries.size() : 0, "size", addedEnum.getLength()));
   }
 
@@ -1206,7 +1193,6 @@ public class DataTypesTool extends BaseMcpTool {
         "union",
         addedUnion.getName(),
         addedUnion.getPathName(),
-        "Successfully created union",
         Map.of(
             "member_count", members != null ? members.size() : 0, "size", addedUnion.getLength()));
   }
@@ -1240,7 +1226,6 @@ public class DataTypesTool extends BaseMcpTool {
         "typedef",
         addedTypedef.getName(),
         addedTypedef.getPathName(),
-        "Successfully created typedef",
         Map.of("base_type", baseType));
   }
 
@@ -1276,7 +1261,6 @@ public class DataTypesTool extends BaseMcpTool {
         "pointer",
         addedPointer.getName(),
         addedPointer.getPathName(),
-        "Successfully created pointer",
         Map.of("base_type", baseType + "*"));
   }
 
@@ -1348,7 +1332,6 @@ public class DataTypesTool extends BaseMcpTool {
         "function_definition",
         addedFuncDef.getName(),
         addedFuncDef.getPathName(),
-        "Successfully created function definition",
         Map.of(
             "parameter_count",
             parameters != null ? parameters.size() : 0,
@@ -1377,8 +1360,7 @@ public class DataTypesTool extends BaseMcpTool {
           GhidraMcpError.failed("create category", newCategoryPath.getPath()));
     }
 
-    return new CreateDataTypeResult(
-        "category", name, newCategoryPath.getPath(), "Successfully created category", Map.of());
+    return new CreateDataTypeResult("category", name, newCategoryPath.getPath(), Map.of());
   }
 
   private CreateDataTypeResult createRTTI0(Map<String, Object> args, Program program, String name)
@@ -1409,7 +1391,6 @@ public class DataTypesTool extends BaseMcpTool {
         "rtti0",
         addedRTTI.getName(),
         addedRTTI.getPathName(),
-        "Successfully created RTTI0 data type",
         Map.of(
             "component_count",
             3, // RTTI0DataType has 3 components: vfTablePointer, dataPointer, name
@@ -1605,14 +1586,9 @@ public class DataTypesTool extends BaseMcpTool {
               GhidraMcpError.failed("replace member at offset " + offset, e.getMessage()));
         }
       } else {
-        try {
-          Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
-          if (nameOpt.isPresent()) {
-            component.setFieldName(nameOpt.get());
-          }
-        } catch (DuplicateNameException e) {
-          throw new GhidraMcpException(
-              GhidraMcpError.failed("rename member at offset " + offset, e.getMessage()));
+        Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
+        if (nameOpt.isPresent()) {
+          component.setFieldName(nameOpt.get());
         }
 
         getOptionalStringArgument(member, ARG_COMMENT).ifPresent(component::setComment);
@@ -1802,14 +1778,9 @@ public class DataTypesTool extends BaseMcpTool {
         }
       } else {
         // Name/comment-only update
-        try {
-          Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
-          if (nameOpt.isPresent()) {
-            component.setFieldName(nameOpt.get());
-          }
-        } catch (DuplicateNameException e) {
-          throw new GhidraMcpException(
-              GhidraMcpError.failed("rename member at ordinal " + ordinal, e.getMessage()));
+        Optional<String> nameOpt = getOptionalStringArgument(member, ARG_NAME);
+        if (nameOpt.isPresent()) {
+          component.setFieldName(nameOpt.get());
         }
 
         getOptionalStringArgument(member, ARG_COMMENT).ifPresent(component::setComment);

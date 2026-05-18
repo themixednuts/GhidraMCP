@@ -1,6 +1,7 @@
 package com.themixednuts.resources;
 
 import com.themixednuts.annotation.GhidraMcpResource;
+import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
@@ -44,11 +45,7 @@ public class FunctionDecompilationResource extends BaseMcpResource {
           Program program = getProgramByName(programName);
           DecompInterface decompiler = null;
           try {
-            // Parse address
-            Address address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address: " + addressStr);
-            }
+            Address address = GhidraAddressParser.parse(program, addressStr, "address");
 
             // Find function at address
             Function function = program.getFunctionManager().getFunctionAt(address);

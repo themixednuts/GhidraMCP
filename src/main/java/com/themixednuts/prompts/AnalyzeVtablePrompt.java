@@ -1,6 +1,7 @@
 package com.themixednuts.prompts;
 
 import com.themixednuts.annotation.GhidraMcpPrompt;
+import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
@@ -46,10 +47,8 @@ public class AnalyzeVtablePrompt extends BaseMcpPrompt {
           String vtableAddrStr = getRequiredArgument(arguments, "vtable_address");
           Program program = getProgramByName(programName);
           try {
-            Address vtableAddr = program.getAddressFactory().getAddress(vtableAddrStr);
-            if (vtableAddr == null) {
-              throw new IllegalArgumentException("Invalid address: " + vtableAddrStr);
-            }
+            Address vtableAddr =
+                GhidraAddressParser.parse(program, vtableAddrStr, "vtable_address");
 
             int pointerSize = program.getDefaultPointerSize();
             Memory memory = program.getMemory();

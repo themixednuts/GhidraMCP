@@ -120,8 +120,8 @@ class ReadToolOutputE2eTest {
         FunctionListEntry expected = funcResult.results.get(i);
         JsonNode actual = retrieved.get(i);
         assertEquals(expected.getSymbolId(), actual.get("symbol_id").asLong());
-        assertEquals(expected.getName(), actual.get("name").asText());
-        assertEquals(expected.getEntryPoint(), actual.get("entry_point").asText());
+        assertEquals(expected.getName(), actual.get("name").asString());
+        assertEquals(expected.getEntryPoint(), actual.get("entry_point").asString());
       }
 
       Object envelopeChunkRaw =
@@ -238,9 +238,9 @@ class ReadToolOutputE2eTest {
         SymbolListEntry expected = symbolResult.results.get(i);
         JsonNode actual = retrieved.get(i);
         assertEquals(expected.getSymbolId(), actual.get("symbol_id").asLong());
-        assertEquals(expected.getName(), actual.get("name").asText());
+        assertEquals(expected.getName(), actual.get("name").asString());
         if (expected.getAddress() != null) {
-          assertEquals(expected.getAddress(), actual.get("address").asText());
+          assertEquals(expected.getAddress(), actual.get("address").asString());
         }
       }
     } finally {
@@ -294,28 +294,48 @@ class ReadToolOutputE2eTest {
               .orElseThrow(() -> new AssertionError("Session not found: " + sessionId));
       assertTrue(ourSession.outputCount() >= 1);
 
-      // list_outputs — verify tool name and operation are preserved
+      // list_outputs — default rows are compact read handles.
       Object outputsRaw =
           readOutputTool
               .execute(null, Map.of("action", "list_outputs", "session_id", sessionId), null)
               .block();
       @SuppressWarnings("unchecked")
-      PaginatedResult<ToolOutputStore.OutputInfo> outputs =
+      PaginatedResult<ReadToolOutputTool.OutputSummary> outputs =
           assertInstanceOf(PaginatedResult.class, outputsRaw);
-      ToolOutputStore.OutputInfo ourOutput =
+      ReadToolOutputTool.OutputSummary ourOutput =
           outputs.results.stream()
               .filter(o -> o.outputId().equals(ref.outputId()))
               .findFirst()
               .orElseThrow(() -> new AssertionError("Output not found: " + ref.outputId()));
 
-      assertEquals("functions", ourOutput.toolName());
+      assertEquals("functions", ourOutput.tool());
       assertEquals("execute", ourOutput.operation());
-      assertEquals(ToolOutputStore.VIEW_JSON, ourOutput.preferredView());
-      assertEquals(payloadJson.length(), ourOutput.viewTotalChars().get(ToolOutputStore.VIEW_JSON));
+      assertEquals(ToolOutputStore.VIEW_JSON, ourOutput.view());
+      assertEquals(payloadJson.length(), ourOutput.chars());
+      String compactOutputJson = mapper.writeValueAsString(ourOutput);
+      assertFalse(compactOutputJson.contains("file_name"), compactOutputJson);
+      assertFalse(compactOutputJson.contains("chars_by_view"), compactOutputJson);
+
+      // verbose=true keeps diagnostic storage metadata available when needed.
+      Object verboseOutputsRaw =
+          readOutputTool
+              .execute(
+                  null,
+                  Map.of("action", "list_outputs", "session_id", sessionId, "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<ReadToolOutputTool.OutputDetails> verboseOutputs =
+          assertInstanceOf(PaginatedResult.class, verboseOutputsRaw);
+      ReadToolOutputTool.OutputDetails verboseOutput =
+          verboseOutputs.results.stream()
+              .filter(o -> o.outputId().equals(ref.outputId()))
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("Output not found: " + ref.outputId()));
       assertEquals(
           envelopeJson.length(),
-          ourOutput.viewTotalChars().get(ToolOutputStore.VIEW_ENVELOPE_JSON));
-      assertEquals(ref.fileName(), ourOutput.fileName());
+          verboseOutput.charsByView().get(ToolOutputStore.VIEW_ENVELOPE_JSON));
+      assertEquals(ref.fileName(), verboseOutput.fileName());
 
       // read by file name — alternative lookup path
       Object byNameRaw =

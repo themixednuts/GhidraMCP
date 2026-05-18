@@ -12,7 +12,7 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import io.modelcontextprotocol.common.McpTransportContext;
@@ -93,7 +93,7 @@ public class AnnotateTool extends BaseMcpTool {
         ARG_ADDRESS,
         SchemaBuilder.string(mapper)
             .description("Target address for the annotation.")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_COMMENT_TYPE,
@@ -213,7 +213,7 @@ public class AnnotateTool extends BaseMcpTool {
       return Mono.error(e);
     }
 
-    int commentType = parseCommentType(commentTypeStr);
+    CommentType commentType = parseCommentType(commentTypeStr);
 
     return parseAddress(program, addressStr, ACTION_SET_COMMENT)
         .flatMap(
@@ -258,17 +258,17 @@ public class AnnotateTool extends BaseMcpTool {
                       comments.put("address", address.toString());
 
                       addCommentIfPresent(
-                          comments, "eol", listing.getComment(CodeUnit.EOL_COMMENT, address));
+                          comments, "eol", listing.getComment(CommentType.EOL, address));
                       addCommentIfPresent(
-                          comments, "pre", listing.getComment(CodeUnit.PRE_COMMENT, address));
+                          comments, "pre", listing.getComment(CommentType.PRE, address));
                       addCommentIfPresent(
-                          comments, "post", listing.getComment(CodeUnit.POST_COMMENT, address));
+                          comments, "post", listing.getComment(CommentType.POST, address));
                       addCommentIfPresent(
-                          comments, "plate", listing.getComment(CodeUnit.PLATE_COMMENT, address));
+                          comments, "plate", listing.getComment(CommentType.PLATE, address));
                       addCommentIfPresent(
                           comments,
                           "repeatable",
-                          listing.getComment(CodeUnit.REPEATABLE_COMMENT, address));
+                          listing.getComment(CommentType.REPEATABLE, address));
 
                       return comments;
                     }));
@@ -338,11 +338,7 @@ public class AnnotateTool extends BaseMcpTool {
 
           Iterator<Bookmark> iter;
           if (addressFilter != null) {
-            Address address = program.getAddressFactory().getAddress(addressFilter);
-            if (address == null) {
-              throw new GhidraMcpException(
-                  GhidraMcpError.invalid(ARG_ADDRESS, addressFilter, "Invalid address"));
-            }
+            Address address = parseAddressValue(program, addressFilter, ARG_ADDRESS);
             Bookmark[] bookmarks = bm.getBookmarks(address);
             iter = List.of(bookmarks).iterator();
           } else {
@@ -390,13 +386,13 @@ public class AnnotateTool extends BaseMcpTool {
         });
   }
 
-  private int parseCommentType(String commentTypeStr) {
+  private CommentType parseCommentType(String commentTypeStr) {
     return switch (commentTypeStr.toUpperCase()) {
-      case "EOL" -> CodeUnit.EOL_COMMENT;
-      case "PRE" -> CodeUnit.PRE_COMMENT;
-      case "POST" -> CodeUnit.POST_COMMENT;
-      case "PLATE" -> CodeUnit.PLATE_COMMENT;
-      case "REPEATABLE" -> CodeUnit.REPEATABLE_COMMENT;
+      case "EOL" -> CommentType.EOL;
+      case "PRE" -> CommentType.PRE;
+      case "POST" -> CommentType.POST;
+      case "PLATE" -> CommentType.PLATE;
+      case "REPEATABLE" -> CommentType.REPEATABLE;
       default ->
           throw new GhidraMcpException(
               GhidraMcpError.invalid(

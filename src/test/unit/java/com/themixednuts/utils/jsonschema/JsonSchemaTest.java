@@ -25,7 +25,7 @@ class JsonSchemaTest {
   void testBuildIntegerSchemaWithMinimum() {
     JsonSchema testSchema = SchemaBuilder.integer().minimum(0).build();
     ObjectNode result = testSchema.getNode();
-    assertEquals("integer", result.get("type").asText());
+    assertEquals("integer", result.get("type").asString());
     assertEquals(0, result.get("minimum").asInt());
   }
 
@@ -40,7 +40,7 @@ class JsonSchemaTest {
   @Test
   void testBuilderProducesObjectSchema() {
     JsonSchema obj = SchemaBuilder.object().build();
-    assertEquals("object", obj.getNode().get("type").asText());
+    assertEquals("object", obj.getNode().get("type").asString());
   }
 
   @Test

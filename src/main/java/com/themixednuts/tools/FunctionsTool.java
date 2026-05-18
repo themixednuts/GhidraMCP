@@ -68,8 +68,8 @@ import reactor.core.publisher.Mono;
 
          <important_notes>
          - Supports multiple function identification methods (name, address, symbol ID)
-         - List mode returns compact rows with symbol_id, name, entry_point, signature, and optional
-           namespace. Use get for body bounds and calling-convention details.
+         - List mode returns compact rows with symbol_id, name, and entry_point. Pass verbose=true
+           to include signature and namespace; use get for full metadata.
          - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, and cursor-based pagination
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
@@ -260,14 +260,14 @@ public class FunctionsTool extends BaseMcpTool {
                             .description(
                                 "Optional inclusive lower bound on the function entry point"
                                     + " address")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_ADDRESS_END,
                         SchemaBuilder.string(mapper)
                             .description(
                                 "Optional inclusive upper bound on the function entry point"
                                     + " address")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
@@ -284,7 +284,13 @@ public class FunctionsTool extends BaseMcpTool {
                                     + MAX_PAGE_LIMIT
                                     + ")")
                             .minimum(1)
-                            .maximum(MAX_PAGE_LIMIT))),
+                            .maximum(MAX_PAGE_LIMIT))
+                    .property(
+                        ARG_VERBOSE,
+                        SchemaBuilder.bool(mapper)
+                            .description(
+                                "Include signature and namespace metadata. Default false returns"
+                                    + " only symbol_id, name, and entry_point."))),
         // action=get: requires at least one identifier (symbol_id, address, name)
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -299,7 +305,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Function address for identification")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -319,7 +325,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Address where function should be created")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_FUNCTION_NAME,
                         SchemaBuilder.string(mapper)
@@ -344,7 +350,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Function address for identification")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -392,7 +398,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Function address for identification")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -442,7 +448,7 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Function address for identification")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -566,6 +572,7 @@ public class FunctionsTool extends BaseMcpTool {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
     Optional<String> addressStartOpt = getOptionalStringArgument(args, ARG_ADDRESS_START);
     Optional<String> addressEndOpt = getOptionalStringArgument(args, ARG_ADDRESS_END);
+    boolean verbose = getOptionalBooleanArgument(args, ARG_VERBOSE).orElse(false);
 
     FunctionCursor cursor =
         cursorOpt.map(value -> parseFunctionCursor(program, value)).orElse(null);
@@ -609,7 +616,7 @@ public class FunctionsTool extends BaseMcpTool {
         continue;
       }
 
-      paginatedResults.add(new FunctionListEntry(function));
+      paginatedResults.add(new FunctionListEntry(function, verbose));
     }
 
     if (!cursorMatched) {
@@ -696,7 +703,7 @@ public class FunctionsTool extends BaseMcpTool {
     }
 
     try {
-      Address functionAddress = program.getAddressFactory().getAddress(addressStr);
+      Address functionAddress = parseAddressValue(program, addressStr, ARG_ADDRESS);
       if (functionAddress != null) {
         Function function = getOrCreateFunction(program, functionAddress);
         if (function == null) {
@@ -908,10 +915,7 @@ public class FunctionsTool extends BaseMcpTool {
     if (function == null && identifiers.address().isPresent()) {
       String addressString = identifiers.address().get();
       try {
-        Address entryPoint = program.getAddressFactory().getAddress(addressString);
-        if (entryPoint == null) {
-          throw new IllegalArgumentException("Unresolvable address");
-        }
+        Address entryPoint = parseAddressValue(program, addressString, ARG_ADDRESS);
         function = getOrCreateFunction(program, entryPoint);
       } catch (GhidraMcpException e) {
         throw e;
@@ -1047,13 +1051,7 @@ public class FunctionsTool extends BaseMcpTool {
       Program program, String addressString, String toolOperation, Map<String, Object> args) {
     return Mono.fromCallable(
             () -> {
-              Address address = program.getAddressFactory().getAddress(addressString);
-              if (address == null) {
-                throw new GhidraMcpException(
-                    GhidraMcpError.invalid(
-                        ARG_ADDRESS, addressString, "could not be resolved to a valid address"));
-              }
-              return address;
+              return parseAddressValue(program, addressString, ARG_ADDRESS);
             })
         .onErrorMap(
             e -> {

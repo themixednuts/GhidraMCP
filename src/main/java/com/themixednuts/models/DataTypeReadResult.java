@@ -1,5 +1,6 @@
 package com.themixednuts.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
@@ -73,12 +74,12 @@ public class DataTypeReadResult {
     return enumValues;
   }
 
-  @JsonProperty("component_count")
+  @JsonIgnore
   public int getComponentCount() {
     return componentCount;
   }
 
-  @JsonProperty("value_count")
+  @JsonIgnore
   public int getValueCount() {
     return valueCount;
   }

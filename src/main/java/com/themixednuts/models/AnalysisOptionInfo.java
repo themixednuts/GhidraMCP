@@ -15,8 +15,19 @@ public class AnalysisOptionInfo {
 
   public AnalysisOptionInfo(
       String name, String description, String type, String value, boolean usingDefaultValue) {
+    this(name, description, type, value, usingDefaultValue, true);
+  }
+
+  public AnalysisOptionInfo(
+      String name,
+      String description,
+      String type,
+      String value,
+      boolean usingDefaultValue,
+      boolean includeDescription) {
     this.name = name;
-    this.description = description;
+    this.description =
+        includeDescription && description != null && !description.isBlank() ? description : null;
     this.type = type;
     this.value = value;
     this.usingDefaultValue = usingDefaultValue;

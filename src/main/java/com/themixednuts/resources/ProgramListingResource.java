@@ -1,6 +1,7 @@
 package com.themixednuts.resources;
 
 import com.themixednuts.annotation.GhidraMcpResource;
+import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
@@ -44,10 +45,7 @@ public class ProgramListingResource extends BaseMcpResource {
 
           Program program = getProgramByName(programName);
           try {
-            Address address = program.getAddressFactory().getAddress(addressStr);
-            if (address == null) {
-              throw new IllegalArgumentException("Invalid address: " + addressStr);
-            }
+            Address address = GhidraAddressParser.parse(program, addressStr, "address");
 
             Listing listing = program.getListing();
             List<Map<String, Object>> instructions = new ArrayList<>();

@@ -30,43 +30,43 @@ class SchemaBuilderTest {
   @Test
   void string_buildsCorrectly() {
     var schema = SchemaBuilder.string().build();
-    assertEquals("string", schema.getNode().get("type").asText());
+    assertEquals("string", schema.getNode().get("type").asString());
   }
 
   @Test
   void integer_buildsCorrectly() {
     var schema = SchemaBuilder.integer().build();
-    assertEquals("integer", schema.getNode().get("type").asText());
+    assertEquals("integer", schema.getNode().get("type").asString());
   }
 
   @Test
   void number_buildsCorrectly() {
     var schema = SchemaBuilder.number().build();
-    assertEquals("number", schema.getNode().get("type").asText());
+    assertEquals("number", schema.getNode().get("type").asString());
   }
 
   @Test
   void boolean_buildsCorrectly() {
     var schema = SchemaBuilder.bool().build();
-    assertEquals("boolean", schema.getNode().get("type").asText());
+    assertEquals("boolean", schema.getNode().get("type").asString());
   }
 
   @Test
   void array_buildsCorrectly() {
     var schema = SchemaBuilder.array().build();
-    assertEquals("array", schema.getNode().get("type").asText());
+    assertEquals("array", schema.getNode().get("type").asString());
   }
 
   @Test
   void object_buildsCorrectly() {
     var schema = SchemaBuilder.object().build();
-    assertEquals("object", schema.getNode().get("type").asText());
+    assertEquals("object", schema.getNode().get("type").asString());
   }
 
   @Test
   void null_buildsCorrectly() {
     var schema = SchemaBuilder.nul().build();
-    assertEquals("null", schema.getNode().get("type").asText());
+    assertEquals("null", schema.getNode().get("type").asString());
   }
 
   // ========== String Constraints (STRINGS per Google spec) ==========
@@ -77,12 +77,13 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("string", node.get("type").asText());
+    assertEquals("string", node.get("type").asString());
     // Per Google spec: minLength/maxLength are STRINGS (int64 format)
-    assertEquals("5", node.get("minLength").asText(), "minLength should be string per Google spec");
     assertEquals(
-        "100", node.get("maxLength").asText(), "maxLength should be string per Google spec");
-    assertEquals("^[A-Z]", node.get("pattern").asText());
+        "5", node.get("minLength").asString(), "minLength should be string per Google spec");
+    assertEquals(
+        "100", node.get("maxLength").asString(), "maxLength should be string per Google spec");
+    assertEquals("^[A-Z]", node.get("pattern").asString());
   }
 
   @Test
@@ -91,12 +92,12 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("string", node.get("type").asText());
+    assertEquals("string", node.get("type").asString());
     // Per Google spec: enum format must be set automatically
-    assertEquals("enum", node.get("format").asText(), "format should be 'enum' for string enums");
+    assertEquals("enum", node.get("format").asString(), "format should be 'enum' for string enums");
     assertTrue(node.has("enum"));
     assertEquals(4, node.get("enum").size());
-    assertEquals("EAST", node.get("enum").get(0).asText());
+    assertEquals("EAST", node.get("enum").get(0).asString());
   }
 
   @Test
@@ -104,7 +105,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.string().format(StringFormatType.EMAIL).build();
 
     JsonNode node = schema.getNode();
-    assertEquals("email", node.get("format").asText());
+    assertEquals("email", node.get("format").asString());
   }
 
   // ========== Number/Integer Constraints (NUMBERS per Google spec) ==========
@@ -115,7 +116,7 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("number", node.get("type").asText());
+    assertEquals("number", node.get("type").asString());
     // Per Google spec: minimum/maximum are NUMBERS (not strings!)
     assertEquals(0.0, node.get("minimum").asDouble(), "minimum should be number per Google spec");
     assertEquals(100.0, node.get("maximum").asDouble(), "maximum should be number per Google spec");
@@ -127,7 +128,7 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("integer", node.get("type").asText());
+    assertEquals("integer", node.get("type").asString());
     // Per Google spec: minimum/maximum are NUMBERS
     assertEquals(0, node.get("minimum").asInt());
     assertEquals(100, node.get("maximum").asInt());
@@ -138,7 +139,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.integer().format(IntegerFormatType.INT64).build();
 
     JsonNode node = schema.getNode();
-    assertEquals("int64", node.get("format").asText());
+    assertEquals("int64", node.get("format").asString());
   }
 
   @Test
@@ -146,7 +147,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.number().format(NumberFormatType.DOUBLE).build();
 
     JsonNode node = schema.getNode();
-    assertEquals("double", node.get("format").asText());
+    assertEquals("double", node.get("format").asString());
   }
 
   // ========== Array Constraints (STRINGS per Google spec) ==========
@@ -158,10 +159,11 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("array", node.get("type").asText());
+    assertEquals("array", node.get("type").asString());
     // Per Google spec: minItems/maxItems are STRINGS (int64 format)
-    assertEquals("1", node.get("minItems").asText(), "minItems should be string per Google spec");
-    assertEquals("10", node.get("maxItems").asText(), "maxItems should be string per Google spec");
+    assertEquals("1", node.get("minItems").asString(), "minItems should be string per Google spec");
+    assertEquals(
+        "10", node.get("maxItems").asString(), "maxItems should be string per Google spec");
     assertTrue(node.has("items"));
   }
 
@@ -180,15 +182,19 @@ class SchemaBuilderTest {
 
     JsonNode node = schema.getNode();
 
-    assertEquals("object", node.get("type").asText());
+    assertEquals("object", node.get("type").asString());
     // Per Google spec: minProperties/maxProperties are STRINGS (int64 format)
     assertEquals(
-        "1", node.get("minProperties").asText(), "minProperties should be string per Google spec");
+        "1",
+        node.get("minProperties").asString(),
+        "minProperties should be string per Google spec");
     assertEquals(
-        "10", node.get("maxProperties").asText(), "maxProperties should be string per Google spec");
+        "10",
+        node.get("maxProperties").asString(),
+        "maxProperties should be string per Google spec");
     assertTrue(node.has("properties"));
     assertTrue(node.has("required"));
-    assertEquals("id", node.get("required").get(0).asText());
+    assertEquals("id", node.get("required").get(0).asString());
   }
 
   @Test
@@ -205,9 +211,9 @@ class SchemaBuilderTest {
 
     assertTrue(node.has("propertyOrdering"), "propertyOrdering should be present");
     assertEquals(3, node.get("propertyOrdering").size());
-    assertEquals("id", node.get("propertyOrdering").get(0).asText());
-    assertEquals("name", node.get("propertyOrdering").get(1).asText());
-    assertEquals("email", node.get("propertyOrdering").get(2).asText());
+    assertEquals("id", node.get("propertyOrdering").get(0).asString());
+    assertEquals("name", node.get("propertyOrdering").get(1).asString());
+    assertEquals("email", node.get("propertyOrdering").get(2).asString());
   }
 
   // ========== Google-Specific Fields ==========
@@ -225,7 +231,7 @@ class SchemaBuilderTest {
     var schema = SchemaBuilder.string().example("test@example.com").build();
 
     JsonNode node = schema.getNode();
-    assertEquals("test@example.com", node.get("example").asText());
+    assertEquals("test@example.com", node.get("example").asString());
   }
 
   @Test
@@ -238,9 +244,9 @@ class SchemaBuilderTest {
             .build();
 
     JsonNode node = schema.getNode();
-    assertEquals("Email", node.get("title").asText());
-    assertEquals("User email address", node.get("description").asText());
-    assertEquals("user@example.com", node.get("default").asText());
+    assertEquals("Email", node.get("title").asString());
+    assertEquals("User email address", node.get("description").asString());
+    assertEquals("user@example.com", node.get("default").asString());
   }
 
   // ========== anyOf Tests ==========
@@ -256,7 +262,7 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
 
     assertEquals(
-        "string", node.get("type").asText(), "Should have base type when using typed builder");
+        "string", node.get("type").asString(), "Should have base type when using typed builder");
     assertTrue(node.has("anyOf"));
     assertEquals(2, node.get("anyOf").size());
   }
@@ -273,9 +279,9 @@ class SchemaBuilderTest {
     assertFalse(node.has("type"), "Should NOT have base type for anyOf union");
     assertTrue(node.has("anyOf"));
     assertEquals(2, node.get("anyOf").size());
-    assertEquals("string", node.get("anyOf").get(0).get("type").asText());
-    assertEquals("1", node.get("anyOf").get(0).get("minLength").asText());
-    assertEquals("integer", node.get("anyOf").get(1).get("type").asText());
+    assertEquals("string", node.get("anyOf").get(0).get("type").asString());
+    assertEquals("1", node.get("anyOf").get(0).get("minLength").asString());
+    assertEquals("integer", node.get("anyOf").get(1).get("type").asString());
     assertEquals(0, node.get("anyOf").get(1).get("minimum").asInt());
   }
 
@@ -304,16 +310,16 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
 
     // Verify Google-specific features
-    assertEquals("object", node.get("type").asText());
-    assertEquals("User", node.get("title").asText());
+    assertEquals("object", node.get("type").asString());
+    assertEquals("User", node.get("title").asString());
     assertTrue(node.get("nullable").asBoolean());
     assertTrue(node.has("example"));
     assertTrue(node.has("propertyOrdering"));
 
     // Verify string constraints are strings
     JsonNode nameSchema = node.get("properties").get("name");
-    assertEquals("1", nameSchema.get("minLength").asText());
-    assertEquals("100", nameSchema.get("maxLength").asText());
+    assertEquals("1", nameSchema.get("minLength").asString());
+    assertEquals("100", nameSchema.get("maxLength").asString());
 
     // Verify numeric bounds are numbers
     JsonNode idSchema = node.get("properties").get("id");
@@ -321,11 +327,11 @@ class SchemaBuilderTest {
 
     // Verify auto format:enum
     JsonNode statusSchema = node.get("properties").get("status");
-    assertEquals("enum", statusSchema.get("format").asText());
+    assertEquals("enum", statusSchema.get("format").asString());
 
     // Verify object constraints are strings
-    assertEquals("2", node.get("minProperties").asText());
-    assertEquals("10", node.get("maxProperties").asText());
+    assertEquals("2", node.get("minProperties").asString());
+    assertEquals("10", node.get("maxProperties").asString());
   }
 
   @Test
@@ -346,7 +352,7 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
     assertTrue(node.has("properties"));
     assertTrue(node.get("properties").has("users"));
-    assertEquals("array", node.get("properties").get("users").get("type").asText());
+    assertEquals("array", node.get("properties").get("users").get("type").asString());
   }
 
   // ========== Error Cases ==========
@@ -450,7 +456,7 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
     assertTrue(node.has("required"));
     assertEquals(1, node.get("required").size());
-    assertEquals("id", node.get("required").get(0).asText());
+    assertEquals("id", node.get("required").get(0).asString());
   }
 
   @Test
@@ -465,7 +471,7 @@ class SchemaBuilderTest {
     JsonNode nameSchema = schema.getNode().get("properties").get("name");
     assertEquals(
         "integer",
-        nameSchema.get("type").asText(),
+        nameSchema.get("type").asString(),
         "Second property definition should overwrite first");
   }
 
@@ -503,14 +509,14 @@ class SchemaBuilderTest {
     JsonNode node = schema.getNode();
     assertTrue(node.has("example"));
     assertEquals(123, node.get("example").get("id").asInt());
-    assertEquals("Test User", node.get("example").get("name").asText());
+    assertEquals("Test User", node.get("example").get("name").asString());
   }
 
   @Test
   void format_customString_allowed() {
     // Google spec says "Any value is allowed" for format
     var schema = SchemaBuilder.string().format("my-custom-format").build();
-    assertEquals("my-custom-format", schema.getNode().get("format").asText());
+    assertEquals("my-custom-format", schema.getNode().get("format").asString());
   }
 
   @Test
@@ -518,6 +524,6 @@ class SchemaBuilderTest {
     // No length limit on title per spec
     String longTitle = "A".repeat(1000);
     var schema = SchemaBuilder.string().title(longTitle).build();
-    assertEquals(longTitle, schema.getNode().get("title").asText());
+    assertEquals(longTitle, schema.getNode().get("title").asString());
   }
 }

@@ -16,15 +16,19 @@ public final class FunctionListEntry {
   private final String namespace;
 
   public FunctionListEntry(Function function) {
+    this(function, false);
+  }
+
+  public FunctionListEntry(Function function, boolean includeMetadata) {
     Symbol symbol = function.getSymbol();
     this.symbolId = symbol != null ? symbol.getID() : null;
     this.name = function.getName();
     this.entryPoint = function.getEntryPoint() != null ? function.getEntryPoint().toString() : null;
-    this.signature = function.getSignature(true).getPrototypeString();
+    this.signature = includeMetadata ? function.getSignature(true).getPrototypeString() : null;
 
     Namespace parentNamespace = function.getParentNamespace();
     this.namespace =
-        parentNamespace != null && !parentNamespace.isGlobal()
+        includeMetadata && parentNamespace != null && !parentNamespace.isGlobal()
             ? parentNamespace.getName(true)
             : null;
   }

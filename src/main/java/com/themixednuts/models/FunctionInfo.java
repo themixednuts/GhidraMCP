@@ -32,7 +32,7 @@ public class FunctionInfo {
     this.callingConvention = function.getCallingConventionName();
 
     Namespace parentNs = function.getParentNamespace();
-    this.namespace = (parentNs != null) ? parentNs.getName(true) : null;
+    this.namespace = parentNs != null && !parentNs.isGlobal() ? parentNs.getName(true) : null;
 
     if (function.getBody() != null) {
       this.startAddress =

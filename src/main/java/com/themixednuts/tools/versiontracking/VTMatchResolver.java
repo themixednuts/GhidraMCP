@@ -2,6 +2,7 @@ package com.themixednuts.tools.versiontracking;
 
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.feature.vt.api.main.VTAssociationStatus;
 import ghidra.feature.vt.api.main.VTMatch;
 import ghidra.feature.vt.api.main.VTMatchSet;
@@ -45,17 +46,7 @@ public final class VTMatchResolver {
 
   static Address parseAddress(Program program, String addressString, String argumentName)
       throws GhidraMcpException {
-    String normalizedInput = addressString == null ? null : addressString.trim();
-    Address address = program.getAddressFactory().getAddress(normalizedInput);
-    if (address != null) {
-      return address;
-    }
-
-    throw new GhidraMcpException(
-        GhidraMcpError.validation()
-            .errorCode(GhidraMcpError.ErrorCode.ADDRESS_PARSE_FAILED)
-            .message("Invalid " + argumentName + ": " + addressString)
-            .build());
+    return GhidraAddressParser.parse(program, addressString, argumentName);
   }
 
   static int countMatchesWithStatus(VTSession session, VTAssociationStatus status) {

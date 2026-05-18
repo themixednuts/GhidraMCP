@@ -228,7 +228,7 @@ public class SymbolsTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Memory address to identify a specific symbol")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -266,7 +266,7 @@ public class SymbolsTool extends BaseMcpTool {
                             .description(
                                 "Memory address (required for labels, optional for"
                                     + " class/namespace)")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))),
+                            .pattern(ADDRESS_PATTERN))),
         // symbol_type=label requires address (when creating labels)
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -302,7 +302,7 @@ public class SymbolsTool extends BaseMcpTool {
                             .description(
                                 "Address for symbol identification (use one of: symbol_id,"
                                     + " current_name, or address)")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))),
+                            .pattern(ADDRESS_PATTERN))),
         // action=convert_to_class: requires name; allows namespace
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -647,7 +647,7 @@ public class SymbolsTool extends BaseMcpTool {
             String address = getOptionalStringArgument(args, ARG_ADDRESS).orElse(null);
             if (address != null && !address.trim().isEmpty()) {
               try {
-                Address addr = program.getAddressFactory().getAddress(address);
+                Address addr = parseAddressValue(program, address, ARG_ADDRESS);
                 if (addr != null) {
                   Symbol[] symbols = symbolTable.getSymbols(addr);
                   if (symbols.length > 0) {
@@ -705,10 +705,7 @@ public class SymbolsTool extends BaseMcpTool {
           Address address = null;
           if (addressStr != null) {
             try {
-              address = program.getAddressFactory().getAddress(addressStr);
-              if (address == null) {
-                throw new IllegalArgumentException("Invalid address format");
-              }
+              address = parseAddressValue(program, addressStr, ARG_ADDRESS);
             } catch (Exception e) {
               throw new GhidraMcpException(GhidraMcpError.parse("address", addressStr));
             }
@@ -947,10 +944,7 @@ public class SymbolsTool extends BaseMcpTool {
 
     if (addressOpt.isPresent()) {
       try {
-        Address address = program.getAddressFactory().getAddress(addressOpt.get());
-        if (address == null) {
-          throw new IllegalArgumentException("Invalid address format: " + addressOpt.get());
-        }
+        Address address = parseAddressValue(program, addressOpt.get(), ARG_ADDRESS);
 
         Symbol primarySymbol = symbolTable.getPrimarySymbol(address);
         if (primarySymbol == null) {

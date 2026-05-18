@@ -11,10 +11,12 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.MemoryBlockInfo;
+import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.models.SymbolListEntry;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -63,6 +65,20 @@ class QueryToolsE2eTest {
 
       FunctionListEntry firstFunction = firstPage.results.get(0);
       assertNotNull(firstFunction.getSymbolId());
+      assertEquals(null, firstFunction.getSignature());
+
+      Object verbosePageRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "list", "page_size", 1, "verbose", true),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<FunctionListEntry> verbosePage =
+          assertInstanceOf(PaginatedResult.class, verbosePageRaw);
+      assertFalse(verbosePage.results.isEmpty());
+      assertNotNull(verbosePage.results.get(0).getSignature());
+
       Object singleRaw =
           tool.execute(
                   null,
@@ -246,9 +262,89 @@ class QueryToolsE2eTest {
       MemoryBlockInfo first = result.results.get(0);
       assertTrue(first.getName().contains(".text"));
       assertTrue(first.isExecute());
+      String blockJson = BaseMcpTool.mapper.writeValueAsString(first);
+      assertTrue(blockJson.contains("\"permissions\""), blockJson);
+      assertFalse(blockJson.contains("\"execute\""), blockJson);
     } finally {
       fixture.close();
     }
+  }
+
+  @Test
+  void queryToolsAcceptImageBaseRelativeAddressOffsets() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      Program program = fixture.program();
+      FunctionsTool functions = new InMemoryFunctionsTool(program);
+      InspectTool inspect = new InMemoryInspectTool(program);
+      MemoryTool memory = new InMemoryMemoryTool(program);
+
+      String entryOffset = imageBaseOffset(program, "0x401000");
+      Address entryAddress = program.getAddressFactory().getAddress("0x401000");
+
+      Object functionRaw =
+          functions
+              .execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "get", "address", entryOffset),
+                  null)
+              .block();
+      FunctionInfo functionResult = assertInstanceOf(FunctionInfo.class, functionRaw);
+      assertEquals(entryAddress.toString(), functionResult.getEntryPoint());
+
+      Object listingRaw =
+          inspect
+              .execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "listing",
+                      "address",
+                      entryOffset,
+                      "end_address",
+                      imageBaseOffset(program, "0x401030"),
+                      "max_lines",
+                      10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      CursorDataResult<String> listingResult = assertInstanceOf(CursorDataResult.class, listingRaw);
+      assertTrue(listingResult.data.lines().anyMatch(line -> line.contains("PUSH")));
+
+      Address dataAddress = program.getAddressFactory().getAddress("0x402000");
+      Object memoryRaw =
+          memory
+              .execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "read",
+                      "address",
+                      imageBaseOffset(program, "0x402000"),
+                      "length",
+                      4),
+                  null)
+              .block();
+      MemoryReadResult memoryResult = assertInstanceOf(MemoryReadResult.class, memoryRaw);
+      assertEquals(dataAddress.toString(), memoryResult.getAddress());
+      assertEquals(4, memoryResult.getBytesRead());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  private static String imageBaseOffset(Program program, String absoluteAddress) {
+    Address address = program.getAddressFactory().getAddress(absoluteAddress);
+    long offset = address.subtract(program.getImageBase());
+    return "+0x" + Long.toHexString(offset);
   }
 
   private static final class InMemoryFunctionsTool extends FunctionsTool {

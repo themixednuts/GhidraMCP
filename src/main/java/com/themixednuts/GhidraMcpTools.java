@@ -39,7 +39,7 @@ public class GhidraMcpTools implements IGhidraMcpToolProvider {
    */
   public GhidraMcpTools(PluginTool tool) {
     this.tool = tool;
-    this.options = tool.getOptions(GhidraMcpPlugin.MCP_TOOL_OPTIONS_CATEGORY);
+    this.options = tool.getOptions(GhidraMcpPlugin.OPTIONS_CATEGORY);
   }
 
   /**

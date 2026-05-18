@@ -7,6 +7,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.ReferenceInfo;
 import com.themixednuts.utils.CursorDataResult;
+import com.themixednuts.utils.GhidraAddressParser;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.SymbolLookupHelper;
@@ -17,6 +18,7 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
@@ -189,7 +191,7 @@ public class InspectTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Address of function or code to decompile")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -232,12 +234,12 @@ public class InspectTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Start address to view listing for")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_END_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Optional end address for address range viewing")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_NAME,
                         SchemaBuilder.string(mapper)
@@ -276,7 +278,7 @@ public class InspectTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Target address to find references to")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_REFERENCE_TYPE,
                         SchemaBuilder.string(mapper)
@@ -310,7 +312,7 @@ public class InspectTool extends BaseMcpTool {
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
                             .description("Source address to find references from")
-                            .pattern("^(0x)?[0-9a-fA-F]+$"))
+                            .pattern(ADDRESS_PATTERN))
                     .property(
                         ARG_REFERENCE_TYPE,
                         SchemaBuilder.string(mapper)
@@ -442,10 +444,7 @@ public class InspectTool extends BaseMcpTool {
     }
 
     if (addressArg != null) {
-      Address functionAddress = program.getAddressFactory().getAddress(addressArg);
-      if (functionAddress == null) {
-        throw new GhidraMcpException(GhidraMcpError.parse("address", addressArg));
-      }
+      Address functionAddress = parseAddressValue(program, addressArg, ARG_ADDRESS);
       Function function = getOrCreateFunction(program, functionAddress);
       if (function == null) {
         function = followFunctionPointer(program, functionAddress);
@@ -737,8 +736,10 @@ public class InspectTool extends BaseMcpTool {
           }
 
           if (function == null) {
-            Address asAddress = program.getAddressFactory().getAddress(functionSelector);
-            if (asAddress != null) {
+            Optional<Address> selectorAddress =
+                GhidraAddressParser.tryParse(program, functionSelector);
+            if (selectorAddress.isPresent()) {
+              Address asAddress = selectorAddress.get();
               function = functionManager.getFunctionContaining(asAddress);
             }
           }
@@ -913,7 +914,7 @@ public class InspectTool extends BaseMcpTool {
     String functionName = null;
     String comment = null;
     try {
-      comment = codeUnit.getComment(CodeUnit.EOL_COMMENT);
+      comment = codeUnit.getComment(CommentType.EOL);
     } catch (Exception e) {
       // Comment API may have changed, ignore
     }

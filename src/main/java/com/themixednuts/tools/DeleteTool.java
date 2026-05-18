@@ -111,7 +111,7 @@ public class DeleteTool extends BaseMcpTool {
         ARG_ADDRESS,
         SchemaBuilder.string(mapper)
             .description("Memory address for identification.")
-            .pattern("^(0x)?[0-9a-fA-F]+$"));
+            .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
         ARG_NAME,
@@ -398,7 +398,7 @@ public class DeleteTool extends BaseMcpTool {
             symbolToDelete = symbolTable.getSymbol(symbolIdOpt.get());
           } else if (addressOpt.isPresent()) {
             try {
-              Address address = program.getAddressFactory().getAddress(addressOpt.get());
+              Address address = parseAddressValue(program, addressOpt.get(), ARG_ADDRESS);
               if (address != null) {
                 symbolToDelete = symbolTable.getPrimarySymbol(address);
               }
@@ -512,7 +512,7 @@ public class DeleteTool extends BaseMcpTool {
 
               String actualName = dataType.getName();
 
-              boolean removed = dtm.remove(dataType, null);
+              boolean removed = dtm.remove(dataType);
               if (!removed) {
                 GhidraMcpError dtError =
                     GhidraMcpError.execution()
@@ -522,10 +522,7 @@ public class DeleteTool extends BaseMcpTool {
                 throw new GhidraMcpException(dtError);
               }
 
-              return new DataTypeDeleteResult(
-                  "Successfully deleted " + dataTypeKind + " '" + actualName + "'",
-                  actualName,
-                  categoryPath.toString());
+              return new DataTypeDeleteResult(actualName, categoryPath.toString());
             })
         .onErrorMap(
             throwable -> {
@@ -626,10 +623,7 @@ public class DeleteTool extends BaseMcpTool {
       throw new GhidraMcpException(catError);
     }
 
-    return new DataTypeDeleteResult(
-        "Successfully deleted category '" + targetPath.getPath() + "'",
-        targetPath.getName(),
-        parentPath.getPath());
+    return new DataTypeDeleteResult(targetPath.getName(), parentPath.getPath());
   }
 
   private static CategoryPath buildCategoryPath(CategoryPath parentPath, String name) {

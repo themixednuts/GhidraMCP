@@ -72,17 +72,15 @@ import reactor.util.context.ContextView;
 
         <return_value_summary>
         Returns a BatchOperationResult containing:
-        - 'success': Whether all operations succeeded
-        - 'total_operations': Total number of operations requested
         - 'successful_operations': Number of operations that succeeded before any failure
         - 'failed_operations': Number of operations that failed (0 or 1)
+        - Total operation count is implicit in operations.length
         - 'operations': Array of individual operation results, each containing:
           - 'operation_index': Index of the operation (0-based)
           - 'tool_name': Name of the tool executed
           - 'success': Whether this specific operation succeeded
           - 'result': The tool's result object (if successful)
           - 'error': Structured error details (if failed)
-        - 'message': Summary message
         </return_value_summary>
 
         <agent_response_guidance>
@@ -207,7 +205,7 @@ public class BatchOperationsTool extends BaseMcpTool {
 
     List<Map<String, Object>> operations = getRequiredArrayArgument(args, ARG_OPERATIONS);
     Map<String, BaseMcpTool> availableTools = loadAvailableTools();
-    ToolOptions options = tool.getOptions(GhidraMcpPlugin.MCP_TOOL_OPTIONS_CATEGORY);
+    ToolOptions options = tool.getOptions(GhidraMcpPlugin.OPTIONS_CATEGORY);
 
     if (operations.isEmpty()) {
       GhidraMcpError error =
