@@ -13,7 +13,7 @@ import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecificati
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceTemplateSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
-import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.server.transport.ServerTransportSecurityValidator;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,7 +33,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 
 /**
- * Manages the lifecycle of the embedded Jetty server with a stateless HTTP MCP server.
+ * Manages the lifecycle of the embedded Jetty server with a streamable HTTP MCP server.
  *
  * <p>This server is designed to be used with ApplicationLevelOnlyPlugin which ensures only a single
  * plugin instance exists. Therefore, we don't need reference counting.
@@ -41,7 +41,7 @@ import org.eclipse.jetty.server.ServerConnector;
 public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
-  private static final String SERVER_VERSION = "0.7.0-pre8";
+  private static final String SERVER_VERSION = "0.7.1";
   private static final String LOOPBACK_BIND_HOST = "127.0.0.1";
   private static final String MCP_ENDPOINT = "/mcp";
   private static final String MCP_PATH_SPEC = MCP_ENDPOINT;
@@ -79,7 +79,7 @@ public final class GhidraMcpServer {
   private static final Object lock = new Object();
   private static final String PROGRAMS_RESOURCE_URI = "ghidra://programs";
   private static Server jettyServer;
-  private static McpStatelessRuntime mcpRuntime;
+  private static McpRuntime mcpRuntime;
   private static McpSpecifications currentSpecifications;
   private static final Map<String, Set<String>> observedProgramResourceUris =
       new ConcurrentHashMap<>();
@@ -509,15 +509,15 @@ public final class GhidraMcpServer {
     return new McpSpecifications(tools, resources, resourceTemplates, prompts, completions);
   }
 
-  private static McpStatelessRuntime createMcpRuntime(McpSpecifications specs) {
-    HttpServletStatelessServerTransport transport =
-        HttpServletStatelessServerTransport.builder()
-            .messageEndpoint(MCP_ENDPOINT)
+  private static McpRuntime createMcpRuntime(McpSpecifications specs) {
+    HttpServletStreamableServerTransportProvider transport =
+        HttpServletStreamableServerTransportProvider.builder()
+            .mcpEndpoint(MCP_ENDPOINT)
             .securityValidator(createLocalTransportSecurityValidator())
             .contextExtractor(GhidraMcpServer::extractTransportContext)
             .build();
 
-    return McpStatelessRuntime.create(
+    return McpRuntime.create(
         transport,
         SERVER_NAME,
         SERVER_VERSION,
@@ -535,13 +535,13 @@ public final class GhidraMcpServer {
     ServerCapabilities.Builder capabilities = ServerCapabilities.builder();
 
     if (!specs.tools.isEmpty()) {
-      capabilities.tools(false);
+      capabilities.tools(true);
     }
     if (specs.hasResources()) {
-      capabilities.resources(false, false);
+      capabilities.resources(true, true);
     }
     if (specs.hasPrompts()) {
-      capabilities.prompts(false);
+      capabilities.prompts(true);
     }
     if (specs.hasCompletions()) {
       capabilities.completions();

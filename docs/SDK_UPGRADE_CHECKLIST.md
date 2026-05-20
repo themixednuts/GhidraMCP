@@ -1,6 +1,6 @@
 # MCP Java SDK Upgrade Checklist
 
-Use this checklist before and after changing `mcp.bom.version` in `pom.xml`.
+Use this checklist before and after changing `mcp-bom` in `gradle/libs.versions.toml`.
 
 ## Pre-upgrade
 
@@ -8,7 +8,7 @@ Use this checklist before and after changing `mcp.bom.version` in `pom.xml`.
    - `mcp-bom`
    - `mcp`
    - `mcp-core`
-2. Confirm transport and protocol changes affecting stateless servers.
+2. Confirm transport and protocol changes affecting the streamable HTTP transport.
 3. Check schema/model changes impacting:
    - `CallToolResult`
    - `Tool`/`JsonSchema`
@@ -18,8 +18,8 @@ Use this checklist before and after changing `mcp.bom.version` in `pom.xml`.
 
 Run all of the following:
 
-1. `mvn -DskipTests clean compile`
-2. `mvn test`
+1. `./gradlew compileJava`
+2. `./gradlew test`
 3. Start plugin in Ghidra and verify:
    - tool calls return `structuredContent`
    - resources/prompts/completions are discoverable

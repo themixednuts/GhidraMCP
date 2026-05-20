@@ -140,7 +140,7 @@ The steps below are only for building from source.
    - The manual "Dependency Maintenance" GitHub workflow validates dependency and Ghidra update candidates without opening bot PRs
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.7.0.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.7.1.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 

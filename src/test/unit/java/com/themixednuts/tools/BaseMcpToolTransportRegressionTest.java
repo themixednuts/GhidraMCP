@@ -14,7 +14,6 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.McpResponse;
 import com.themixednuts.resources.BaseMcpResource;
 import com.themixednuts.utils.CursorDataResult;
-import com.themixednuts.utils.McpTransportContexts;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -25,12 +24,11 @@ import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.common.McpTransportContext;
+import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.server.McpStatelessAsyncServer;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures;
-import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.TextResourceContents;
@@ -50,7 +48,7 @@ import tools.jackson.databind.node.ObjectNode;
 class BaseMcpToolTransportRegressionTest {
 
   @Test
-  void statelessToolsCallWithoutProgressTokenReturnsStructuredError() throws Exception {
+  void streamableToolsCallWithoutProgressTokenReturnsStructuredError() throws Exception {
     try (TransportFixture fixture = openTransport(new FailingTool().specification(null))) {
       McpSchema.CallToolResult result = fixture.callTool("failing_tool", Map.of());
 
@@ -73,20 +71,23 @@ class BaseMcpToolTransportRegressionTest {
   }
 
   @Test
-  void statelessToolsReceiveTransportContextFromRequest() throws Exception {
+  void streamableToolsReceiveTransportContextFromRequest() throws Exception {
     try (TransportFixture fixture = openTransport(new ContextEchoTool().specification(null))) {
       McpSchema.CallToolResult result = fixture.callTool("context_echo_tool", Map.of());
 
       assertNotNull(result);
       assertEquals(Boolean.FALSE, result.isError());
-      assertEquals("stateless-test", structured(result).get("transport"));
+      assertEquals("streamable-test", structured(result).get("transport"));
     }
   }
 
   @Test
-  void statelessTransportListsAndReadsResources() throws Exception {
+  void streamableTransportListsReadsAndSubscribesResources() throws Exception {
     try (TransportFixture fixture =
         openTransport(List.of(), List.of(new StaticTextResource().toResourceSpecification(null)))) {
+      assertEquals(Boolean.TRUE, fixture.client.getServerCapabilities().resources().subscribe());
+      assertEquals(Boolean.TRUE, fixture.client.getServerCapabilities().resources().listChanged());
+
       McpSchema.ListResourcesResult resources = fixture.listResources();
       assertNotNull(resources);
       assertEquals(1, resources.resources().size());
@@ -100,7 +101,10 @@ class BaseMcpToolTransportRegressionTest {
       TextResourceContents content = (TextResourceContents) result.contents().get(0);
       assertEquals("test://fixture", content.uri());
       assertEquals("text/plain", content.mimeType());
-      assertEquals("stateless-test:test://fixture", content.text());
+      assertEquals("streamable-test:test://fixture", content.text());
+
+      fixture.subscribeResource("test://fixture");
+      fixture.unsubscribeResource("test://fixture");
     }
   }
 
@@ -350,19 +354,19 @@ class BaseMcpToolTransportRegressionTest {
       List<AsyncToolSpecification> toolSpecifications,
       List<AsyncResourceSpecification> resourceSpecifications)
       throws Exception {
-    HttpServletStatelessServerTransport transport =
-        HttpServletStatelessServerTransport.builder()
-            .messageEndpoint("/mcp")
+    HttpServletStreamableServerTransportProvider transport =
+        HttpServletStreamableServerTransportProvider.builder()
+            .mcpEndpoint("/mcp")
             .contextExtractor(
-                request -> McpTransportContext.create(Map.of("transport", "stateless-test")))
+                request -> McpTransportContext.create(Map.of("transport", "streamable-test")))
             .build();
 
     McpSchema.ServerCapabilities.Builder capabilities = McpSchema.ServerCapabilities.builder();
     if (!toolSpecifications.isEmpty()) {
-      capabilities.tools(false);
+      capabilities.tools(true);
     }
     if (!resourceSpecifications.isEmpty()) {
-      capabilities.resources(false, false);
+      capabilities.resources(true, true);
     }
 
     var serverBuilder =
@@ -370,13 +374,13 @@ class BaseMcpToolTransportRegressionTest {
             .serverInfo("test-server", "1.0.0")
             .capabilities(capabilities.build());
     if (!toolSpecifications.isEmpty()) {
-      serverBuilder.tools(toStatelessTools(toolSpecifications));
+      serverBuilder.tools(toolSpecifications);
     }
     if (!resourceSpecifications.isEmpty()) {
-      serverBuilder.resources(toStatelessResources(resourceSpecifications));
+      serverBuilder.resources(resourceSpecifications);
     }
 
-    McpStatelessAsyncServer server = serverBuilder.build();
+    McpAsyncServer server = serverBuilder.build();
 
     Server jetty = new Server(0);
     ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
@@ -401,36 +405,7 @@ class BaseMcpToolTransportRegressionTest {
     return new TransportFixture(client, server, jetty);
   }
 
-  private static List<McpStatelessServerFeatures.AsyncToolSpecification> toStatelessTools(
-      List<AsyncToolSpecification> specifications) {
-    return specifications.stream()
-        .map(
-            spec ->
-                new McpStatelessServerFeatures.AsyncToolSpecification(
-                    spec.tool(),
-                    (context, request) ->
-                        spec.callHandler()
-                            .apply(null, request)
-                            .contextWrite(ctx -> McpTransportContexts.put(ctx, context))))
-        .toList();
-  }
-
-  private static List<McpStatelessServerFeatures.AsyncResourceSpecification> toStatelessResources(
-      List<AsyncResourceSpecification> specifications) {
-    return specifications.stream()
-        .map(
-            spec ->
-                new McpStatelessServerFeatures.AsyncResourceSpecification(
-                    spec.resource(),
-                    (context, request) ->
-                        spec.readHandler()
-                            .apply(null, request)
-                            .contextWrite(ctx -> McpTransportContexts.put(ctx, context))))
-        .toList();
-  }
-
-  private record TransportFixture(
-      McpAsyncClient client, McpStatelessAsyncServer server, Server jetty)
+  private record TransportFixture(McpAsyncClient client, McpAsyncServer server, Server jetty)
       implements AutoCloseable {
     private McpSchema.CallToolResult callTool(String name, Map<String, Object> args) {
       return client.callTool(new McpSchema.CallToolRequest(name, args)).block();
@@ -442,6 +417,14 @@ class BaseMcpToolTransportRegressionTest {
 
     private McpSchema.ReadResourceResult readResource(String uri) {
       return client.readResource(new McpSchema.ReadResourceRequest(uri)).block();
+    }
+
+    private void subscribeResource(String uri) {
+      client.subscribeResource(new McpSchema.SubscribeRequest(uri)).block();
+    }
+
+    private void unsubscribeResource(String uri) {
+      client.unsubscribeResource(new McpSchema.UnsubscribeRequest(uri)).block();
     }
 
     @Override
@@ -477,7 +460,7 @@ class BaseMcpToolTransportRegressionTest {
   @GhidraMcpResource(
       uri = "test://fixture",
       name = "Fixture Resource",
-      description = "Test helper resource exposed over stateless transport",
+      description = "Test helper resource exposed over streamable transport",
       mimeType = "text/plain")
   private static final class StaticTextResource extends BaseMcpResource {
     @Override

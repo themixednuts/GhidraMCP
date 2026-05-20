@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-20
+
+### Fixed
+- **Cursor resource subscriptions** - Replaced the remaining stateless MCP transport adapter with the SDK streamable HTTP server runtime so `resources/subscribe` and `resources/unsubscribe` are handled natively.
+- **Server version metadata** - Updated the MCP server-reported version to match the packaged extension version.
+
 ## [0.7.0] - 2026-05-18
 
 ### Changed
