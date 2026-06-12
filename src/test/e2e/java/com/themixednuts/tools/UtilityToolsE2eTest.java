@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.BatchOperationResult;
+import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.tools.AnalyzeTool.DemangleResult;
 import com.themixednuts.tools.ExecuteScriptTool.ScriptGuidance;
@@ -19,6 +20,8 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +70,76 @@ class UtilityToolsE2eTest {
       DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
       assertNotNull(result.getDemangled());
       assertTrue(result.getDemangled().toLowerCase().contains("foo"));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void demangleSymbolHandlesMsvcMethodNames() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      AnalyzeTool tool = new InMemoryAnalyzeTool(fixture.program());
+
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "demangle",
+                      "mangled_symbol", "?GetName@CanvasAsset@@UEBAPEBDXZ"),
+                  null)
+              .block();
+      DemangleResult result = assertInstanceOf(DemangleResult.class, raw);
+
+      assertTrue(result.getDemangled().contains("CanvasAsset::GetName"));
+      assertEquals("CanvasAsset", result.getClassName());
+      assertEquals("GetName", result.getFunctionName());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void analyzeGraphAndCallGraphResolveFunctionAddresses() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      AnalyzeTool tool = new InMemoryAnalyzeTool(fixture.program());
+
+      Object graphRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "graph", "address", "0x401000"),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      Map<String, Object> graph = assertInstanceOf(Map.class, graphRaw);
+      assertEquals("entry_main", graph.get("function_name"));
+      assertTrue(((List<?>) graph.get("nodes")).size() > 0);
+
+      Object callGraphRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "call_graph",
+                      "address", "0x401000",
+                      "depth", 2,
+                      "direction", "both",
+                      "max_results", 10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      Map<String, Object> callGraph = assertInstanceOf(Map.class, callGraphRaw);
+      assertTrue(((List<?>) callGraph.get("nodes")).size() > 0);
     } finally {
       fixture.close();
     }
@@ -135,6 +208,71 @@ class UtilityToolsE2eTest {
           Arrays.stream(afterRedo).anyMatch(symbol -> "undo_redo_label".equals(symbol.getName())));
     } finally {
       fixture.close();
+    }
+  }
+
+  @Test
+  void projectRebaseSetsExplicitImageBase() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      ProjectTool tool = new InMemoryProjectTool(fixture.program());
+      Address originalBase = fixture.program().getImageBase();
+      Address targetBase = originalBase.addNoWrap(0x100000L);
+
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "rebase",
+                      "image_base",
+                      "0x" + Long.toHexString(targetBase.getOffset())),
+                  null)
+              .block();
+
+      OperationResult result = assertInstanceOf(OperationResult.class, raw);
+      assertEquals("rebase", result.getOperation());
+      assertEquals(targetBase, fixture.program().getImageBase());
+      assertEquals(Boolean.TRUE, result.getMetadata().get("changed"));
+      assertEquals("explicit", result.getMetadata().get("source"));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void projectRebaseCanUsePeOptionalHeaderImageBase() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    Path pePath = createMinimalPeWithImageBase(0x180000000L);
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      setExecutablePath(fixture.program(), pePath);
+
+      ProjectTool tool = new InMemoryProjectTool(fixture.program());
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "rebase", "use_stated_image_base", true),
+                  null)
+              .block();
+
+      OperationResult result = assertInstanceOf(OperationResult.class, raw);
+      Address expected = fixture.program().getAddressFactory().getAddress("0x180000000");
+      assertEquals(expected, fixture.program().getImageBase());
+      assertEquals("pe_optional_header", result.getMetadata().get("source"));
+      assertEquals("0x180000000", result.getMetadata().get("stated_image_base"));
+    } finally {
+      fixture.close();
+      Files.deleteIfExists(pePath);
     }
   }
 
@@ -299,6 +437,70 @@ class UtilityToolsE2eTest {
       assertTrue(guidance.getTroubleshooting().contains("Common Issues"));
     } finally {
       fixture.close();
+    }
+  }
+
+  private static void setExecutablePath(Program program, Path executablePath) {
+    int txId = program.startTransaction("Set executable path");
+    boolean commit = false;
+    try {
+      program.setExecutablePath(executablePath.toString());
+      commit = true;
+    } finally {
+      program.endTransaction(txId, commit);
+    }
+  }
+
+  private static Path createMinimalPeWithImageBase(long imageBase) throws Exception {
+    byte[] bytes = new byte[0x200];
+    bytes[0] = 'M';
+    bytes[1] = 'Z';
+    putIntLE(bytes, 0x3c, 0x80);
+
+    bytes[0x80] = 'P';
+    bytes[0x81] = 'E';
+    bytes[0x82] = 0;
+    bytes[0x83] = 0;
+
+    putShortLE(bytes, 0x84, 0x8664);
+    putShortLE(bytes, 0x86, 0);
+    putShortLE(bytes, 0x94, 0xf0);
+    putShortLE(bytes, 0x96, 0x2022);
+
+    int optionalHeader = 0x98;
+    putShortLE(bytes, optionalHeader, 0x20b);
+    putLongLE(bytes, optionalHeader + 24, imageBase);
+    putIntLE(bytes, optionalHeader + 32, 0x1000);
+    putIntLE(bytes, optionalHeader + 36, 0x200);
+    putIntLE(bytes, optionalHeader + 56, 0x1000);
+    putIntLE(bytes, optionalHeader + 60, 0x200);
+    putShortLE(bytes, optionalHeader + 68, 3);
+    putLongLE(bytes, optionalHeader + 72, 0x100000L);
+    putLongLE(bytes, optionalHeader + 80, 0x1000L);
+    putLongLE(bytes, optionalHeader + 88, 0x100000L);
+    putLongLE(bytes, optionalHeader + 96, 0x1000L);
+    putIntLE(bytes, optionalHeader + 108, 16);
+
+    Path path = Files.createTempFile("ghidra-mcp-imagebase", ".exe");
+    Files.write(path, bytes);
+    return path;
+  }
+
+  private static void putShortLE(byte[] bytes, int offset, int value) {
+    bytes[offset] = (byte) (value & 0xff);
+    bytes[offset + 1] = (byte) ((value >>> 8) & 0xff);
+  }
+
+  private static void putIntLE(byte[] bytes, int offset, int value) {
+    bytes[offset] = (byte) (value & 0xff);
+    bytes[offset + 1] = (byte) ((value >>> 8) & 0xff);
+    bytes[offset + 2] = (byte) ((value >>> 16) & 0xff);
+    bytes[offset + 3] = (byte) ((value >>> 24) & 0xff);
+  }
+
+  private static void putLongLE(byte[] bytes, int offset, long value) {
+    for (int i = 0; i < Long.BYTES; i++) {
+      bytes[offset + i] = (byte) ((value >>> (8 * i)) & 0xff);
     }
   }
 

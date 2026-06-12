@@ -5,19 +5,28 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.ui.GhidraUiCoordinator;
+import com.themixednuts.ui.NavigateToAddressEffect;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
-import ghidra.app.services.GoToService;
+import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.FileByteProvider;
+import ghidra.app.util.bin.format.pe.NTHeader;
+import ghidra.app.util.bin.format.pe.OptionalHeader;
+import ghidra.app.util.bin.format.pe.PortableExecutable;
 import ghidra.framework.options.OptionType;
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.io.File;
+import java.nio.file.AccessMode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,13 +38,13 @@ import reactor.core.publisher.Mono;
     name = "Project",
     description =
         "Project-level operations: list analysis options, run analysis, save, navigation,"
-            + " undo/redo, and transaction history.",
+            + " image rebasing, undo/redo, and transaction history.",
     mcpName = "project",
     mcpDescription =
         """
         <use_case>
         Perform project-level actions such as inspecting analysis options, running analysis,
-        navigating to addresses, and managing undo/redo operations.
+        navigating to addresses, rebasing program image bases, and managing undo/redo operations.
         </use_case>
 
         <important_notes>
@@ -45,7 +54,11 @@ import reactor.core.publisher.Mono;
         - For imports/exports use ghidra://program/{name}/imports and ghidra://program/{name}/exports resources.
         - For defined strings use ghidra://program/{name}/strings resource.
         - Navigation relies on GoToService being available in the active tool.
+        - rebase permanently changes the program image base and marks the program changed.
+        - rebase can use an explicit image_base or use_stated_image_base=true for PE optional-header ImageBase.
         - Analysis option listing reflects current values and flags options still using defaults.
+        - list_analysis_options is bounded by page_size. Pass returned next_cursor as cursor to
+          continue with the same filters.
         - Undo/redo operations are performed on the Swing EDT thread.
         </important_notes>
 
@@ -54,6 +67,7 @@ import reactor.core.publisher.Mono;
         - run_analysis: returns OperationResult describing the triggered analysis.
         - save: saves the program to the project, preserving all changes.
         - go_to_address: returns OperationResult describing navigation outcome.
+        - rebase: returns OperationResult with previous/new image-base metadata.
         - undo/redo: returns a map with action, success, and current undo/redo state.
         - history: returns a map with available undo/redo operation lists.
         </return_value_summary>
@@ -65,10 +79,14 @@ import reactor.core.publisher.Mono;
         """)
 public class ProjectTool extends BaseMcpTool {
 
+  private static final String ABSOLUTE_ADDRESS_PATTERN =
+      "^([A-Za-z_][A-Za-z0-9_]*:)?(0[xX])?[0-9a-fA-F]+$";
+
   private static final String ACTION_LIST_ANALYSIS_OPTIONS = "list_analysis_options";
   private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
   private static final String ACTION_RUN_ANALYSIS = "run_analysis";
   private static final String ACTION_SAVE = "save";
+  private static final String ACTION_REBASE = "rebase";
   private static final String ACTION_UNDO = "undo";
   private static final String ACTION_REDO = "redo";
   private static final String ACTION_HISTORY = "history";
@@ -77,6 +95,8 @@ public class ProjectTool extends BaseMcpTool {
   private static final String ARG_OPTION_TYPE = "option_type";
   private static final String ARG_DEFAULTS_ONLY = "defaults_only";
   private static final String ARG_VERBOSE = "verbose";
+  private static final String ARG_IMAGE_BASE = "image_base";
+  private static final String ARG_USE_STATED_IMAGE_BASE = "use_stated_image_base";
 
   @Override
   public JsonSchema schema() {
@@ -93,6 +113,7 @@ public class ProjectTool extends BaseMcpTool {
                 ACTION_GO_TO_ADDRESS,
                 ACTION_RUN_ANALYSIS,
                 ACTION_SAVE,
+                ACTION_REBASE,
                 ACTION_UNDO,
                 ACTION_REDO,
                 ACTION_HISTORY)
@@ -103,6 +124,21 @@ public class ProjectTool extends BaseMcpTool {
         SchemaBuilder.string(mapper)
             .description("Target address for navigation")
             .pattern(ADDRESS_PATTERN));
+
+    schemaRoot.property(
+        ARG_IMAGE_BASE,
+        SchemaBuilder.string(mapper)
+            .description(
+                "Absolute image base address to set for action=rebase, e.g. 0x140000000."
+                    + " Must be in the program default address space.")
+            .pattern(ABSOLUTE_ADDRESS_PATTERN));
+
+    schemaRoot.property(
+        ARG_USE_STATED_IMAGE_BASE,
+        SchemaBuilder.bool(mapper)
+            .description(
+                "For action=rebase, read the preferred ImageBase stated in the original PE"
+                    + " optional header instead of using image_base."));
 
     // list_analysis_options specific properties
     schemaRoot.property(
@@ -127,7 +163,10 @@ public class ProjectTool extends BaseMcpTool {
     // Common pagination properties
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Cursor from previous response for pagination"));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Opaque cursor copied from the previous list_analysis_options next_cursor. Keep"
+                    + " filter, option_type, defaults_only, and verbose unchanged."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -168,6 +207,13 @@ public class ProjectTool extends BaseMcpTool {
                 SchemaBuilder.objectDraft7(mapper)
                     .property(
                         ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_RUN_ANALYSIS)),
+                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FILE_NAME)),
+        // action=rebase requires file_name; image_base vs use_stated_image_base is validated in
+        // code
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_REBASE)),
                 SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FILE_NAME)),
         // action=undo requires file_name
         SchemaBuilder.objectDraft7(mapper)
@@ -211,6 +257,7 @@ public class ProjectTool extends BaseMcpTool {
                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool);
                 case ACTION_RUN_ANALYSIS -> handleRunAnalysis(program);
                 case ACTION_SAVE -> handleSave(program);
+                case ACTION_REBASE -> handleRebase(program, args);
                 case ACTION_UNDO -> handleUndo(program, args);
                 case ACTION_REDO -> handleRedo(program, args);
                 case ACTION_HISTORY -> handleHistory(program);
@@ -218,15 +265,21 @@ public class ProjectTool extends BaseMcpTool {
                   // Program metadata and program lists live on the ghidra:// resources, not on
                   // this tool. Redirect common metadata-style guesses to the right surface.
                   java.util.Map<String, String> aliases =
-                      java.util.Map.of(
-                          "info", "use the ghidra://program/{name} resource for program metadata",
-                          "list_programs", "use the ghidra://programs resource",
-                          "list", "use the ghidra://programs resource",
-                          "analyze", ACTION_RUN_ANALYSIS,
-                          "analysis", ACTION_LIST_ANALYSIS_OPTIONS,
-                          "options", ACTION_LIST_ANALYSIS_OPTIONS,
-                          "goto", ACTION_GO_TO_ADDRESS,
-                          "navigate", ACTION_GO_TO_ADDRESS);
+                      java.util.Map.ofEntries(
+                          java.util.Map.entry(
+                              "info",
+                              "use the ghidra://program/{name} resource for program metadata"),
+                          java.util.Map.entry(
+                              "list_programs", "use the ghidra://programs resource"),
+                          java.util.Map.entry("list", "use the ghidra://programs resource"),
+                          java.util.Map.entry("analyze", ACTION_RUN_ANALYSIS),
+                          java.util.Map.entry("analysis", ACTION_LIST_ANALYSIS_OPTIONS),
+                          java.util.Map.entry("options", ACTION_LIST_ANALYSIS_OPTIONS),
+                          java.util.Map.entry("goto", ACTION_GO_TO_ADDRESS),
+                          java.util.Map.entry("navigate", ACTION_GO_TO_ADDRESS),
+                          java.util.Map.entry("set_image_base", ACTION_REBASE),
+                          java.util.Map.entry("image_base", ACTION_REBASE),
+                          java.util.Map.entry("rebase_image", ACTION_REBASE));
                   GhidraMcpError error =
                       com.themixednuts.utils.GhidraMcpErrorUtils.invalidAction(
                           action,
@@ -235,6 +288,7 @@ public class ProjectTool extends BaseMcpTool {
                               ACTION_GO_TO_ADDRESS,
                               ACTION_RUN_ANALYSIS,
                               ACTION_SAVE,
+                              ACTION_REBASE,
                               ACTION_UNDO,
                               ACTION_REDO,
                               ACTION_HISTORY),
@@ -391,24 +445,8 @@ public class ProjectTool extends BaseMcpTool {
                 Mono.fromCallable(
                     () -> {
                       Address address = addressResult.getAddress();
-                      GoToService goToService =
-                          tool != null ? tool.getService(GoToService.class) : null;
-                      if (goToService == null) {
-                        GhidraMcpError error =
-                            GhidraMcpError.of(
-                                "GoToService is not available in the current tool context.");
-                        throw new GhidraMcpException(error);
-                      }
-
-                      boolean success = goToService.goTo(address, program);
-                      if (!success) {
-                        String normalizedAddress = addressResult.getAddressString();
-                        GhidraMcpError error =
-                            GhidraMcpError.failed(
-                                "navigate to address " + normalizedAddress,
-                                "ensure Listing or Decompiler views are open");
-                        throw new GhidraMcpException(error);
-                      }
+                      GhidraUiCoordinator.applyRequired(
+                          tool, NavigateToAddressEffect.listing(program, address));
 
                       return OperationResult.success(
                           ACTION_GO_TO_ADDRESS,
@@ -465,6 +503,58 @@ public class ProjectTool extends BaseMcpTool {
               program.getName(),
               "Program '" + program.getName() + "' saved successfully.");
         });
+  }
+
+  // =================== rebase ===================
+
+  private Mono<? extends Object> handleRebase(Program program, Map<String, Object> args) {
+    Optional<String> explicitImageBase = getOptionalStringArgument(args, ARG_IMAGE_BASE);
+    boolean useStatedImageBase =
+        getOptionalBooleanArgument(args, ARG_USE_STATED_IMAGE_BASE).orElse(false);
+
+    if (explicitImageBase.isPresent() && useStatedImageBase) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_USE_STATED_IMAGE_BASE, true, "cannot be combined with " + ARG_IMAGE_BASE)));
+    }
+    if (explicitImageBase.isEmpty() && !useStatedImageBase) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_IMAGE_BASE,
+                  null,
+                  "provide an explicit image_base or set use_stated_image_base=true")));
+    }
+
+    return Mono.fromCallable(
+            () -> {
+              ResolvedImageBase resolved =
+                  useStatedImageBase
+                      ? resolveStatedImageBase(program)
+                      : resolveExplicitImageBase(program, explicitImageBase.get());
+              Address previousBase = program.getImageBase();
+              boolean changed = previousBase == null || !previousBase.equals(resolved.address());
+              return new RebasePlan(resolved, previousBase, changed);
+            })
+        .flatMap(
+            plan -> {
+              if (!plan.changed()) {
+                return Mono.just(
+                    createRebaseResult(
+                        program, plan.resolved(), plan.previousBase(), plan.previousBase(), false));
+              }
+
+              return executeInTransaction(
+                  program,
+                  "project.rebase",
+                  () -> {
+                    program.setImageBase(plan.resolved().address(), true);
+                    Address newBase = program.getImageBase();
+                    return createRebaseResult(
+                        program, plan.resolved(), plan.previousBase(), newBase, true);
+                  });
+            });
   }
 
   // =================== undo ===================
@@ -572,6 +662,139 @@ public class ProjectTool extends BaseMcpTool {
 
   // =================== helpers ===================
 
+  private ResolvedImageBase resolveExplicitImageBase(Program program, String imageBaseString)
+      throws GhidraMcpException {
+    String input = imageBaseString == null ? "" : imageBaseString.trim();
+    if (input.isEmpty()) {
+      throw new GhidraMcpException(GhidraMcpError.parse(ARG_IMAGE_BASE, imageBaseString));
+    }
+    if (input.contains("+")) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_IMAGE_BASE,
+              imageBaseString,
+              "must be an absolute address, not an image-base-relative offset"));
+    }
+
+    return new ResolvedImageBase(
+        parseDefaultSpaceAddress(program, input, ARG_IMAGE_BASE), "explicit", null, null);
+  }
+
+  private ResolvedImageBase resolveStatedImageBase(Program program) throws GhidraMcpException {
+    String executablePath = Optional.ofNullable(program.getExecutablePath()).orElse("").trim();
+    if (executablePath.isEmpty()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed(
+              "read stated image base",
+              "Program executable_path is empty; provide image_base explicitly."));
+    }
+
+    File executableFile = new File(executablePath);
+    if (!executableFile.isFile()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed(
+              "read stated image base",
+              "Program executable_path does not refer to a readable file: "
+                  + executableFile.getAbsolutePath()
+                  + ". Provide image_base explicitly."));
+    }
+
+    try (ByteProvider provider = new FileByteProvider(executableFile, null, AccessMode.READ)) {
+      PortableExecutable pe =
+          new PortableExecutable(provider, PortableExecutable.SectionLayout.FILE, false, false);
+      NTHeader ntHeader = pe.getNTHeader();
+      if (ntHeader == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.failed(
+                "read stated image base", "PE NT header was not present in executable_path."));
+      }
+      OptionalHeader optionalHeader = ntHeader.getOptionalHeader();
+      if (optionalHeader == null) {
+        throw new GhidraMcpException(
+            GhidraMcpError.failed(
+                "read stated image base",
+                "PE optional header was not present in executable_path."));
+      }
+
+      String statedImageBase = toUnsignedHexAddress(optionalHeader.getImageBase());
+      Address imageBase =
+          parseDefaultSpaceAddress(program, statedImageBase, ARG_USE_STATED_IMAGE_BASE);
+      return new ResolvedImageBase(
+          imageBase, "pe_optional_header", executableFile.getAbsolutePath(), statedImageBase);
+    } catch (GhidraMcpException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed(
+              "read stated image base",
+              "Unable to read a PE optional-header ImageBase from executable_path '"
+                  + executableFile.getAbsolutePath()
+                  + "': "
+                  + Optional.ofNullable(e.getMessage()).orElse(e.getClass().getSimpleName())
+                  + ". Provide image_base explicitly for non-PE or missing original files."),
+          e);
+    }
+  }
+
+  private Address parseDefaultSpaceAddress(
+      Program program, String addressString, String argumentName) throws GhidraMcpException {
+    Address address = program.getAddressFactory().getAddress(addressString);
+    if (address == null) {
+      throw new GhidraMcpException(GhidraMcpError.parse(argumentName, addressString));
+    }
+
+    AddressSpace defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
+    if (defaultSpace != null && !defaultSpace.equals(address.getAddressSpace())) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              argumentName,
+              addressString,
+              "must resolve in the program default address space '"
+                  + defaultSpace.getName()
+                  + "'"));
+    }
+    return address;
+  }
+
+  private OperationResult createRebaseResult(
+      Program program,
+      ResolvedImageBase resolved,
+      Address previousBase,
+      Address newBase,
+      boolean changed) {
+    String message =
+        changed
+            ? "Image base rebased successfully."
+            : "Image base already matched the requested base.";
+
+    Map<String, Object> metadata = new HashMap<>();
+    metadata.put("program", program.getName());
+    metadata.put("previous_image_base", formatAddress(previousBase));
+    metadata.put("new_image_base", formatAddress(newBase));
+    metadata.put("changed", changed);
+    metadata.put("source", resolved.source());
+    metadata.put("commit", true);
+    putIfPresent(metadata, "source_detail", resolved.sourceDetail());
+    putIfPresent(metadata, "stated_image_base", resolved.statedImageBase());
+
+    return OperationResult.success(ACTION_REBASE, formatAddress(newBase), message)
+        .setMetadata(metadata);
+  }
+
+  private void putIfPresent(Map<String, Object> map, String key, Object value) {
+    if (value != null) {
+      map.put(key, value);
+    }
+  }
+
+  private String formatAddress(Address address) {
+    return address != null ? address.toString() : null;
+  }
+
+  private String toUnsignedHexAddress(long value) {
+    return "0x" + Long.toUnsignedString(value, 16);
+  }
+
   private Map<String, Object> createUndoRedoResult(
       String action, String operationName, Program program) {
     Map<String, Object> result = new HashMap<>();
@@ -596,4 +819,9 @@ public class ProjectTool extends BaseMcpTool {
 
     return result;
   }
+
+  private record ResolvedImageBase(
+      Address address, String source, String sourceDetail, String statedImageBase) {}
+
+  private record RebasePlan(ResolvedImageBase resolved, Address previousBase, boolean changed) {}
 }
