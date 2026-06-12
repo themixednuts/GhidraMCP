@@ -41,7 +41,7 @@ import org.eclipse.jetty.server.ServerConnector;
 public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
-  private static final String SERVER_VERSION = "0.7.1";
+  private static final String SERVER_VERSION = "0.8.0";
   private static final String LOOPBACK_BIND_HOST = "127.0.0.1";
   private static final String MCP_ENDPOINT = "/mcp";
   private static final String MCP_PATH_SPEC = MCP_ENDPOINT;
@@ -67,13 +67,18 @@ public final class GhidraMcpServer {
           + "- Use `analyze` (demangle, rtti, graph, call_graph) for structural analysis\n"
           + "- Use `functions`, `symbols`, `data_types` to create and modify program entities\n"
           + "- Use `memory` to read/write bytes, define data types at addresses, and search\n"
+          + "- Use `debugger` for active trace status, execution control, breakpoints, and"
+          + " Debugger listing navigation\n"
           + "- Use `annotate` (set_comment, create_bookmark) to document findings\n"
           + "- Use `delete` for destructive removals (isolated for permission control)\n"
           + "- Use `vt_sessions` and `vt_operations` for binary comparison\n\n"
           + "All tools use an `action` parameter to select the operation.\n"
           + "Use `name_pattern` (regex) for filtering in list operations.\n"
           + "Identifiers use direct args: symbol_id, address, name (no target_type/target_value).\n"
-          + "Use paginated cursors for large result sets.\n"
+          + "For large output, set page_size, max_lines, or max_results and pass returned"
+          + " next_cursor values back as cursor.\n"
+          + "Focused CodeBrowser calls automatically navigate the active Ghidra UI when"
+          + " navigation services are available.\n"
           + "Pass file_name explicitly when operating on program data.";
 
   private static final Object lock = new Object();

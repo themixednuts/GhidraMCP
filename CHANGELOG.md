@@ -7,6 +7,20 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-12
+
+### Added
+- **Image-base rebasing** - Added `project.rebase` to set a program image base explicitly or from a PE optional-header ImageBase in the original executable.
+
+### Changed
+- **Large output handling** - Removed automatic temp-file output offloading. Tools now keep structured payloads inline and rely on explicit `page_size`, `max_lines`, or `max_results` arguments plus `next_cursor` pagination for large result sets.
+- **CodeBrowser UI sync** - Focused tools now apply best-effort Ghidra UI navigation after successful execution, so `inspect`, `functions`, and `memory.define` calls move the active CodeBrowser to the resolved function or address while preserving existing MCP response shapes.
+- **Typed memory mapping** - Added `memory.map_data_type` and `debugger.map_data_type` to apply data types at addresses and return cursor-bounded byte-to-field mappings.
+- **Debugger support** - Added a `debugger` tool for Ghidra debugger sessions, including Trace RMI server/connect/accept, launcher listing/launching, target lifecycle, trace/target/thread/frame/object/time/platform activation, live target memory reads/writes, trace byte/state operations, static module/section/region/address mappings, remote method invocation, emulation, breakpoints/watchpoints, register reads/writes, watches, typed memory mapping, and Debugger listing navigation/selection.
+
+### Removed
+- **`read_tool_output`** - Removed the replay tool, temp-file output store, and related Ghidra options.
+
 ## [0.7.1] - 2026-05-20
 
 ### Fixed

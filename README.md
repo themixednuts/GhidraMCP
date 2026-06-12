@@ -27,14 +27,19 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 - 14 MCP tools covering analysis, inspection, editing, project workflows, and Version Tracking
 - MCP resources for common program views such as program info, listing, imports/exports, strings, RTTI, and decompilation
 - Built-in MCP prompts and argument completions for common reverse engineering workflows
-- Structured responses with pagination and opaque cursors for large datasets
-- Oversized outputs can be resumed with `read_tool_output`, which defaults to the actual tool payload, prefers plain-text agent-facing views when available, and still exposes the full structured response envelope as an explicit debug view
+- Structured responses with explicit per-call limits and opaque cursors for large datasets
+- Large outputs are bounded by tool arguments such as `page_size`, `max_lines`, or `max_results`; pass returned `next_cursor` values back as `cursor` to continue
+- Debugger support for Trace RMI connect/accept/launch, target lifecycle, trace/thread/stack/object discovery, live memory/register/watch operations, static mappings, remote methods, and emulation
+- Typed memory mapping applies a data type and returns bounded byte-to-field rows for program memory or the active debugger trace
+- Project workflows can rebase program image bases explicitly or from a PE binary's stated ImageBase
+- Focused CodeBrowser and Debugger operations automatically navigate the user's active Ghidra UI to the relevant function or address
 
 ### Tool Commands
 
 - **Analysis & inspection:** `analyze`, `inspect`, `script_guidance`
 - **Program changes:** `annotate`, `functions`, `symbols`, `data_types`, `memory`, `delete`
-- **Project workflows:** `project`, `batch_operations`, `read_tool_output`
+- **Debugging:** `debugger`
+- **Project workflows:** `project`, `batch_operations`
 - **Version tracking:** `vt_sessions`, `vt_operations`
 
 ### Resource Templates
@@ -140,7 +145,7 @@ The steps below are only for building from source.
    - The manual "Dependency Maintenance" GitHub workflow validates dependency and Ghidra update candidates without opening bot PRs
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.7.1.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.8.0.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 
