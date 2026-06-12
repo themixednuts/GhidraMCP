@@ -1,7 +1,10 @@
 package com.themixednuts.tools;
 
 import ghidra.program.database.ProgramBuilder;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataTypeConflictHandler;
 import ghidra.program.model.data.IntegerDataType;
+import ghidra.program.model.data.StructureDataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.LocalVariableImpl;
 import ghidra.program.model.listing.Program;
@@ -29,6 +32,7 @@ final class InMemoryProgramFixtureSupport {
     builder.setBytes("0x401020", "55 48 89 e5 b8 01 00 00 00 c3");
     builder.setBytes("0x401040", "c3");
     builder.setBytes("0x402000", "11 22 33 44");
+    builder.setBytes("0x402010", "43 61 6e 76 61 73 41 73 73 65 74 00");
     builder.disassemble("0x401000", 10);
     builder.disassemble("0x401020", 10);
     builder.disassemble("0x401040", 1);
@@ -45,6 +49,13 @@ final class InMemoryProgramFixtureSupport {
       textBlock.setPermissions(true, true, true);
       MemoryBlock dataBlock = program.getMemory().getBlock(".data");
       dataBlock.setPermissions(true, true, false);
+
+      StructureDataType fixtureStruct =
+          new StructureDataType(new CategoryPath("/Fixture"), "FixtureStruct", 0);
+      fixtureStruct.add(IntegerDataType.dataType, "value", null);
+      program
+          .getDataTypeManager()
+          .addDataType(fixtureStruct, DataTypeConflictHandler.DEFAULT_HANDLER);
       commit = true;
     } finally {
       program.endTransaction(txId, commit);

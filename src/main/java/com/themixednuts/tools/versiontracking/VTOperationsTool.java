@@ -67,6 +67,8 @@ import reactor.core.publisher.Mono;
         - Markup can only be applied to ACCEPTED matches
         - Changes are persisted to the VT session file automatically
         - Use exclude_default_names: true in list_matches to find matches with user-defined source names for propagation
+        - list_matches is bounded by page_size. Pass returned next_cursor as cursor to continue
+          with the same match filters.
         - Recommended multi-pass workflow for finding changed functions between binary versions:
           1. Run exact correlators (symbol_name, exact_bytes, exact_instructions) to establish baseline matches
           2. accept_bulk the high-confidence exact matches (similarity=1.0)
@@ -352,7 +354,9 @@ public class VTOperationsTool extends BaseVTTool {
     schemaRoot.property(
         ARG_CURSOR,
         SchemaBuilder.string(mapper)
-            .description("Pagination cursor from previous request (for list_matches)"));
+            .description(
+                "Opaque cursor copied from the previous list_matches next_cursor. Keep session and"
+                    + " match filters unchanged."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,

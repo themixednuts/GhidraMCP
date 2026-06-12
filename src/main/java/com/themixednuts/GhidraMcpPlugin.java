@@ -4,7 +4,6 @@ import com.themixednuts.services.IGhidraMcpCompletionProvider;
 import com.themixednuts.services.IGhidraMcpPromptProvider;
 import com.themixednuts.services.IGhidraMcpResourceProvider;
 import com.themixednuts.services.IGhidraMcpToolProvider;
-import com.themixednuts.utils.ToolOutputStore;
 import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.events.ProgramClosedPluginEvent;
 import ghidra.app.events.ProgramOpenedPluginEvent;
@@ -58,10 +57,6 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
   private static final String TIMEOUT_DESCRIPTION =
       "Maximum time in seconds for a single MCP request. Increase for large binaries.";
   private static final int DEFAULT_TIMEOUT_SECONDS = 600;
-  private static final String TOOL_OUTPUT_DIR_OPTION = "Tool Output Storage Directory";
-  private static final String TOOL_OUTPUT_DIR_DESCRIPTION =
-      "Directory where oversized tool outputs are stored for chunked retrieval."
-          + " You can safely delete this folder when the server is not running.";
   private static final int DEFAULT_PORT = 8080;
   private static final int RESTART_DEBOUNCE_MS = 1000;
 
@@ -110,16 +105,6 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
         TIMEOUT_DESCRIPTION,
         (java.util.function.Supplier<java.beans.PropertyEditor>) null);
 
-    // Register tool output directory (informational, read-only)
-    options.registerOption(
-        TOOL_OUTPUT_DIR_OPTION,
-        OptionType.STRING_TYPE,
-        ToolOutputStore.ROOT_DIRECTORY.toAbsolutePath().toString(),
-        new HelpLocation("GhidraMCP", "ToolOutputStorageOption"),
-        TOOL_OUTPUT_DIR_DESCRIPTION);
-
-    McpOutputOptions.registerOptions(options, "GhidraMCP");
-
     // Register tool enable/disable options
     GhidraMcpTools.registerOptions(options, "GhidraMCP");
     GhidraMcpResources.registerOptions(options, "GhidraMCP");
@@ -149,8 +134,6 @@ public class GhidraMcpPlugin extends Plugin implements ApplicationLevelOnlyPlugi
               currentTimeoutSeconds = newTimeout;
               scheduleServerReconfigure(true);
             }
-          } else if (TOOL_OUTPUT_DIR_OPTION.equals(name)) {
-            return;
           } else if (isCompletionOption(name)) {
             scheduleServerReconfigure(true);
           } else {

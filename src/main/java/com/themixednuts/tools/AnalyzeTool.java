@@ -107,7 +107,7 @@ import reactor.core.publisher.Mono;
         - symbol_id: (graph, call_graph) Symbol ID to identify a function
         - name: (graph, call_graph) Function name for lookup
         - name_pattern: (list_rtti) Regex filter on class name
-        - cursor: (list_rtti) Pagination cursor
+        - cursor: (list_rtti) Copy next_cursor from the previous response to continue
         - page_size: (list_rtti) Results per page, default 100, max 500
         - depth: (call_graph) Traversal depth, default 3, max 10
         - direction: (call_graph) callers, callees, or both (default both)
@@ -263,12 +263,16 @@ public class AnalyzeTool extends BaseMcpTool {
         SchemaBuilder.string(mapper).description("Regex filter on class name (list_rtti)."));
 
     schemaRoot.property(
-        ARG_CURSOR, SchemaBuilder.string(mapper).description("Pagination cursor for list_rtti."));
+        ARG_CURSOR,
+        SchemaBuilder.string(mapper)
+            .description(
+                "Opaque cursor copied from the previous analyze.list_rtti next_cursor. Keep"
+                    + " name_pattern and custom_tags unchanged."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
         SchemaBuilder.integer(mapper)
-            .description("Results per page (list_rtti, default 100, max 500).")
+            .description("Results per page for list_rtti (default 100, max 500).")
             .minimum(1)
             .maximum(LIST_RTTI_MAX_PAGE_SIZE));
 

@@ -1,10 +1,11 @@
 package com.themixednuts.tools;
 
-import com.themixednuts.McpOutputOptions;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.McpResponse;
+import com.themixednuts.ui.GhidraUiCoordinator;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.GhidraAddressParser;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
@@ -14,7 +15,6 @@ import com.themixednuts.utils.JsonMapperHolder;
 import com.themixednuts.utils.McpTransportContexts;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
-import com.themixednuts.utils.ToolOutputStore;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.framework.model.DomainFile;
@@ -122,19 +122,13 @@ public abstract class BaseMcpTool {
     T execute(TaskMonitor monitor) throws Exception;
   }
 
-  /**
-   * Soft cap on serialized tool-result size before output gets offloaded to {@link
-   * com.themixednuts.utils.ToolOutputStore} for chunked retrieval. Modern MCP transports handle
-   * payloads well past this budget; the cap exists to bound a single tool call's contribution to
-   * the model's context window, not to satisfy a wire limit.
-   */
-  protected static final int INLINE_RESPONSE_CHAR_LIMIT =
-      McpOutputOptions.DEFAULT_INLINE_RESPONSE_CHAR_LIMIT;
+  /** Budget for optional text content added alongside structured tool responses. */
+  protected static final int INLINE_RESPONSE_CHAR_LIMIT = 48_000;
 
   private static final int TEXT_CONTENT_SERIALIZATION_OVERHEAD = 768;
-  private static final String TOOL_OUTPUT_READER_NAME = "read_tool_output";
   private static final List<String> UNSUPPORTED_TOP_LEVEL_COMPOSITION_KEYS =
       List.of("allOf", "anyOf", "oneOf");
+  private static final Map<String, Object> DEFAULT_OUTPUT_SCHEMA = Map.of("type", "object");
   // =================== Argument Name Constants (snake_case) ===================
 
   public static final String ARG_FILE_NAME = "file_name";
@@ -176,7 +170,6 @@ public abstract class BaseMcpTool {
   public static final String ARG_PAGE_SIZE = "page_size";
   public static final String ARG_TARGET_TYPE = "target_type";
   public static final String ARG_TARGET_VALUE = "target_value";
-  public static final String ARG_TOOL_OUTPUT_SESSION_ID = "tool_output_session_id";
 
   protected static final String ADDRESS_PATTERN = GhidraAddressParser.ADDRESS_PATTERN;
 
@@ -276,15 +269,15 @@ public abstract class BaseMcpTool {
   /**
    * Returns the MCP output schema advertised for this tool.
    *
-   * <p>Most tools intentionally omit an advertised output schema while still returning {@code
-   * structuredContent}. The shared response envelope supports several valid shapes
-   * (object-flattened success payloads, paginated arrays under {@code data}, primitive data plus
-   * {@code next_cursor}, and flattened error fields). A generic schema is either too strict and
-   * breaks real results under SDK validation, or too broad to help clients. Tools should override
-   * this only when they can describe every success and error shape exactly.
+   * <p>The shared response envelope always serializes {@code structuredContent} as an object root:
+   * object-shaped success payloads flatten into that root, list/string/primitive payloads are
+   * placed under {@code data}, cursors use {@code next_cursor}, and error fields flatten into the
+   * same root. The default schema is intentionally broad so SDK/client validators have a real
+   * contract that matches every shared envelope shape. Tools should override this only when they
+   * can describe every success and error shape exactly.
    */
   protected Map<String, Object> outputSchema() {
-    return null;
+    return DEFAULT_OUTPUT_SCHEMA;
   }
 
   /**
@@ -333,16 +326,22 @@ public abstract class BaseMcpTool {
             result -> {
               long duration = System.currentTimeMillis() - startTime;
               McpResponse<?> response;
+              Object responseData = result;
+
+              if (result instanceof ToolOutcome<?> outcome) {
+                GhidraUiCoordinator.applyBestEffort(this, tool, outcome.uiEffects());
+                responseData = outcome.data();
+              }
 
               // Handle cursor-bearing wrappers specially to flatten cursor to root level.
-              if (result instanceof CursorDataResult<?> cursorData) {
+              if (responseData instanceof CursorDataResult<?> cursorData) {
                 response =
                     new McpResponse.Builder<>()
                         .data(cursorData.data)
                         .nextCursor(cursorData.nextCursor)
                         .durationMs(duration)
                         .build();
-              } else if (result instanceof PaginatedResult<?> paginated) {
+              } else if (responseData instanceof PaginatedResult<?> paginated) {
                 response =
                     McpResponse.paginated(
                         toolName,
@@ -352,10 +351,10 @@ public abstract class BaseMcpTool {
                         null,
                         duration);
               } else {
-                response = McpResponse.success(toolName, operation, result, duration);
+                response = McpResponse.success(toolName, operation, responseData, duration);
               }
 
-              return createSuccessResultInternal(response, args, tool, toolName, operation);
+              return createSuccessResultInternal(response, args, toolName, operation);
             })
         .onErrorResume(
             t -> {
@@ -509,13 +508,8 @@ public abstract class BaseMcpTool {
   // =================== Result Creation ===================
 
   private CallToolResult createSuccessResultInternal(
-      McpResponse<?> response,
-      Map<String, Object> args,
-      PluginTool pluginTool,
-      String toolName,
-      String operation) {
+      McpResponse<?> response, Map<String, Object> args, String toolName, String operation) {
     try {
-      McpOutputOptions.Limits outputLimits = McpOutputOptions.from(pluginTool);
       String successText =
           createSuccessTextContent(response, args, toolName, operation)
               .filter(text -> text != null && !text.isBlank())
@@ -526,26 +520,18 @@ public abstract class BaseMcpTool {
         successText = text.toString();
       }
 
-      String payloadJson = mapper.writeValueAsString(response.getData());
       String jsonResult = mapper.writeValueAsString(response);
-
-      if (jsonResult.length() > outputLimits.inlineResponseCharLimit()) {
-        String requestedSessionId =
-            getOptionalStringArgument(args, ARG_TOOL_OUTPUT_SESSION_ID).orElse(null);
-        ToolOutputStore.StoredOutputRef outputRef =
-            ToolOutputStore.store(
-                requestedSessionId,
-                toolName,
-                operation,
-                ToolOutputStore.StoredOutputViews.withEnvelope(
-                    payloadJson, jsonResult, successText));
-        response = wrapOversizedOutput(response, outputRef);
-        jsonResult = mapper.writeValueAsString(response);
-      }
-
       String inlineText =
-          fitTextContentWithinBudget(
-              successText, jsonResult.length(), outputLimits.inlineResponseCharLimit());
+          fitTextContentWithinBudget(successText, jsonResult.length(), INLINE_RESPONSE_CHAR_LIMIT);
+      if (inlineText == null) {
+        inlineText =
+            fitTextContentWithinBudget(jsonResult, jsonResult.length(), INLINE_RESPONSE_CHAR_LIMIT);
+      }
+      if (inlineText == null) {
+        inlineText =
+            "Structured response is too large for text fallback; request a smaller page when the"
+                + " tool supports page_size/cursor.";
+      }
       return buildStructuredToolResult(response, false, inlineText);
     } catch (JacksonException e) {
       Msg.error(this, "Error serializing response to JSON: " + e.getMessage());
@@ -585,26 +571,6 @@ public abstract class BaseMcpTool {
     return builder.build();
   }
 
-  private McpResponse<?> wrapOversizedOutput(
-      McpResponse<?> originalResponse, ToolOutputStore.StoredOutputRef outputRef) {
-    Map<String, Object> inlineNotice = new LinkedHashMap<>();
-    // Lean inline notice: the agent only needs to know how to fetch the rest. Tool name,
-    // operation, file name, available views, char counts, and inline-preview hints are all
-    // either echo of the request or metadata that list_outputs can surface on demand.
-    inlineNotice.put(
-        "message",
-        "Output exceeded inline size; fetch remainder via " + TOOL_OUTPUT_READER_NAME + ".");
-    inlineNotice.put("session_id", outputRef.sessionId());
-    inlineNotice.put("output_id", outputRef.outputId());
-
-    return new McpResponse.Builder<Object>()
-        .data(inlineNotice)
-        .nextCursor(originalResponse.getNextCursor())
-        .durationMs(originalResponse.getDurationMs())
-        .error(originalResponse.getError())
-        .build();
-  }
-
   private Mono<CallToolResult> createErrorResultInternal(
       McpResponse<?> response, GhidraMcpException exception) {
     String logMessage =
@@ -635,49 +601,8 @@ public abstract class BaseMcpTool {
       return null;
     }
 
-    return truncateTextToSerializedBudget(textContent.stripTrailing(), maxSerializedChars);
-  }
-
-  private String truncateTextToSerializedBudget(String textContent, int maxSerializedChars) {
-    if (textContent == null || textContent.isBlank() || maxSerializedChars <= 0) {
-      return null;
-    }
-
-    if (serializedStringLength(textContent) <= maxSerializedChars) {
-      return textContent;
-    }
-
-    String suffix = "\n...[truncated]";
-    int low = 0;
-    int high = textContent.length();
-    String best = null;
-
-    while (low <= high) {
-      int mid = (low + high) >>> 1;
-      String candidate = buildTruncatedText(textContent, mid, suffix);
-      int serializedLength = serializedStringLength(candidate);
-
-      if (serializedLength <= maxSerializedChars) {
-        best = candidate;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    return best;
-  }
-
-  private String buildTruncatedText(String textContent, int endExclusive, String suffix) {
-    if (endExclusive >= textContent.length()) {
-      return textContent;
-    }
-
-    String truncated = textContent.substring(0, Math.max(0, endExclusive)).stripTrailing();
-    if (truncated.isEmpty()) {
-      return suffix.stripLeading();
-    }
-    return truncated + suffix;
+    String normalizedText = textContent.stripTrailing();
+    return serializedStringLength(normalizedText) <= maxSerializedChars ? normalizedText : null;
   }
 
   private int serializedStringLength(String value) {

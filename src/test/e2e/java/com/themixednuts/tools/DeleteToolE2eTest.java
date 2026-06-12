@@ -12,6 +12,7 @@ import com.themixednuts.models.DataTypeDeleteResult;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.ui.ToolOutcome;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DataType;
@@ -48,7 +49,7 @@ class DeleteToolE2eTest {
                       "function_name", "temp_delete_function"),
                   null)
               .block();
-      FunctionInfo created = assertInstanceOf(FunctionInfo.class, createdRaw);
+      FunctionInfo created = assertInstanceOf(FunctionInfo.class, unwrapOutcome(createdRaw));
       assertTrue(created.getEntryPoint().toLowerCase().contains("401040"));
 
       Object deletedRaw =
@@ -245,6 +246,13 @@ class DeleteToolE2eTest {
     } finally {
       fixture.close();
     }
+  }
+
+  private static Object unwrapOutcome(Object raw) {
+    if (raw instanceof ToolOutcome<?> outcome) {
+      return outcome.data();
+    }
+    return raw;
   }
 
   @GhidraMcpTool(

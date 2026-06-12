@@ -8,12 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
+import com.themixednuts.models.DataTypeListEntry;
 import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.SymbolInfo;
 import com.themixednuts.models.SymbolListEntry;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.address.Address;
@@ -91,7 +93,7 @@ class QueryToolsE2eTest {
                       firstFunction.getEntryPoint()),
                   null)
               .block();
-      FunctionInfo singleResult = assertInstanceOf(FunctionInfo.class, singleRaw);
+      FunctionInfo singleResult = assertInstanceOf(FunctionInfo.class, unwrapOutcome(singleRaw));
       assertEquals(firstFunction.getEntryPoint(), singleResult.getEntryPoint());
     } finally {
       fixture.close();
@@ -114,6 +116,16 @@ class QueryToolsE2eTest {
               .block();
       SymbolInfo singleResult = assertInstanceOf(SymbolInfo.class, singleRaw);
       assertEquals("entry_main", singleResult.getName());
+
+      Object addressRaw =
+          tool.execute(
+                  null,
+                  Map.of("file_name", "fixture", "action", "get", "address", "0x401000"),
+                  null)
+              .block();
+      SymbolInfo addressResult = assertInstanceOf(SymbolInfo.class, addressRaw);
+      assertEquals("Function", addressResult.getType());
+      assertEquals("entry_main", addressResult.getName());
 
       Object listRaw =
           tool.execute(
@@ -189,7 +201,8 @@ class QueryToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      CursorDataResult<String> result = assertInstanceOf(CursorDataResult.class, raw);
+      CursorDataResult<String> result =
+          assertInstanceOf(CursorDataResult.class, unwrapOutcome(raw));
 
       assertNotNull(result.data);
       assertFalse(result.data.isBlank());
@@ -226,7 +239,8 @@ class QueryToolsE2eTest {
               .block();
 
       @SuppressWarnings("unchecked")
-      CursorDataResult<String> result = assertInstanceOf(CursorDataResult.class, raw);
+      CursorDataResult<String> result =
+          assertInstanceOf(CursorDataResult.class, unwrapOutcome(raw));
       assertNotNull(result.data);
       assertFalse(result.data.isBlank());
       assertTrue(result.data.lines().findFirst().isPresent());
@@ -271,6 +285,31 @@ class QueryToolsE2eTest {
   }
 
   @Test
+  void dataTypesListReturnsCursorPagedRows() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      Object raw =
+          tool.execute(null, Map.of("file_name", "fixture", "action", "list", "page_size", 1), null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<DataTypeListEntry> result = assertInstanceOf(PaginatedResult.class, raw);
+
+      assertEquals(1, result.results.size());
+      assertNotNull(result.nextCursor);
+      assertNotNull(result.results.get(0).getName());
+      assertNotNull(result.results.get(0).getPath());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
   void queryToolsAcceptImageBaseRelativeAddressOffsets() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
@@ -293,7 +332,8 @@ class QueryToolsE2eTest {
                   Map.of("file_name", "fixture", "action", "get", "address", entryOffset),
                   null)
               .block();
-      FunctionInfo functionResult = assertInstanceOf(FunctionInfo.class, functionRaw);
+      FunctionInfo functionResult =
+          assertInstanceOf(FunctionInfo.class, unwrapOutcome(functionRaw));
       assertEquals(entryAddress.toString(), functionResult.getEntryPoint());
 
       Object listingRaw =
@@ -314,7 +354,8 @@ class QueryToolsE2eTest {
                   null)
               .block();
       @SuppressWarnings("unchecked")
-      CursorDataResult<String> listingResult = assertInstanceOf(CursorDataResult.class, listingRaw);
+      CursorDataResult<String> listingResult =
+          assertInstanceOf(CursorDataResult.class, unwrapOutcome(listingRaw));
       assertTrue(listingResult.data.lines().anyMatch(line -> line.contains("PUSH")));
 
       Address dataAddress = program.getAddressFactory().getAddress("0x402000");
@@ -345,6 +386,13 @@ class QueryToolsE2eTest {
     Address address = program.getAddressFactory().getAddress(absoluteAddress);
     long offset = address.subtract(program.getImageBase());
     return "+0x" + Long.toHexString(offset);
+  }
+
+  private static Object unwrapOutcome(Object raw) {
+    if (raw instanceof ToolOutcome<?> outcome) {
+      return outcome.data();
+    }
+    return raw;
   }
 
   private static final class InMemoryFunctionsTool extends FunctionsTool {
@@ -403,6 +451,25 @@ class QueryToolsE2eTest {
     private final Program program;
 
     InMemoryMemoryTool(Program program) {
+      this.program = program;
+    }
+
+    @Override
+    protected Mono<Program> getProgram(
+        Map<String, Object> args, ghidra.framework.plugintool.PluginTool tool) {
+      return Mono.just(program);
+    }
+  }
+
+  @GhidraMcpTool(
+      name = "Data Types Test",
+      description = "In-memory data_types test wrapper",
+      mcpName = "data_types",
+      mcpDescription = "In-memory wrapper for data_types")
+  private static final class InMemoryDataTypesTool extends DataTypesTool {
+    private final Program program;
+
+    InMemoryDataTypesTool(Program program) {
       this.program = program;
     }
 

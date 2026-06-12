@@ -4,11 +4,11 @@ com.themixednuts.tools.DataTypesTool
 com.themixednuts.tools.MemoryTool
 com.themixednuts.tools.SymbolsTool
 com.themixednuts.tools.ProjectTool
+com.themixednuts.tools.DebuggerTool
 com.themixednuts.tools.DeleteTool
 com.themixednuts.tools.ExecuteScriptTool
 com.themixednuts.tools.AnalyzeTool
 com.themixednuts.tools.BatchOperationsTool
-com.themixednuts.tools.ReadToolOutputTool
 com.themixednuts.tools.versiontracking.VTSessionsTool
 com.themixednuts.tools.versiontracking.VTOperationsTool
 com.themixednuts.tools.AnnotateTool

@@ -6,6 +6,8 @@ import com.themixednuts.models.FunctionInfo;
 import com.themixednuts.models.FunctionListEntry;
 import com.themixednuts.models.FunctionVariableInfo;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.ui.NavigateToAddressEffect;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
@@ -70,9 +72,11 @@ import reactor.core.publisher.Mono;
          - Supports multiple function identification methods (name, address, symbol ID)
          - List mode returns compact rows with symbol_id, name, and entry_point. Pass verbose=true
            to include signature and namespace; use get for full metadata.
-         - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, and cursor-based pagination
+         - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, explicit page_size limits, and cursor-based pagination. Keep filters stable and pass next_cursor as cursor to continue.
          - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
          - Handles function creation with automatic boundary detection
+         - Successful get/create/update_prototype calls navigate the active Ghidra UI to the target
+           function entry when the CodeBrowser navigation service is available.
          - list_variables returns stable variable targets used by update_variable / rename_variable; pass verbose=true to include data_type, storage, and is_parameter metadata
          - update_variable (rename_variable also supported as a compatibility alias) can rename and/or retype locals and parameters
          - BATCH RENAMES: Use variable_symbol_id (from list_variables variable_symbol_id) instead of current_name. Auto-generated names (bVar0, bVar1, etc.) renumber when any variable is renamed. If you must use current_name, rename in descending order (highest-numbered first)
@@ -272,8 +276,9 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Opaque pagination cursor from previous functions.list response"
-                                    + " (format: v1:<base64url_symbol_id>)"))
+                                "Opaque cursor copied from the previous functions.list"
+                                    + " next_cursor. Keep name_pattern/address bounds unchanged."
+                                    + " Format: v1:<base64url_symbol_id>."))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -407,7 +412,10 @@ public class FunctionsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor (format: v1:<base64url_variable_symbol_id>)"))
+                                "Opaque cursor copied from the previous"
+                                    + " functions.list_variables next_cursor. Keep the same"
+                                    + " function identifier and filters. Format:"
+                                    + " v1:<base64url_variable_symbol_id>."))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -658,7 +666,7 @@ public class FunctionsTool extends BaseMcpTool {
         && function.getSymbol().getID() == cursor.symbolId;
   }
 
-  private Mono<FunctionInfo> handleGet(Program program, Map<String, Object> args) {
+  private Mono<? extends Object> handleGet(Program program, Map<String, Object> args) {
     return Mono.fromCallable(
         () -> {
           FunctionManager functionManager = program.getFunctionManager();
@@ -667,16 +675,28 @@ public class FunctionsTool extends BaseMcpTool {
           Optional<String> addressOpt = getOptionalStringArgument(args, ARG_ADDRESS);
           Optional<String> nameOpt = getOptionalStringArgument(args, ARG_NAME);
 
+          FunctionInfo info;
+
           // Apply precedence: symbol_id > address > name
           if (symbolIdOpt.isPresent()) {
-            return readBySymbolId(program, functionManager, symbolIdOpt.get());
+            info = readBySymbolId(program, functionManager, symbolIdOpt.get());
           } else if (addressOpt.isPresent()) {
-            return readByAddress(program, functionManager, addressOpt.get());
+            info = readByAddress(program, functionManager, addressOpt.get());
           } else if (nameOpt.isPresent()) {
-            return readByName(program, nameOpt.get());
+            info = readByName(program, nameOpt.get());
           } else {
             throw new GhidraMcpException(GhidraMcpError.missing("symbol_id, address, or name"));
           }
+
+          Address entryPoint =
+              info.getEntryPoint() != null
+                  ? program.getAddressFactory().getAddress(info.getEntryPoint())
+                  : null;
+          if (entryPoint == null) {
+            return info;
+          }
+
+          return ToolOutcome.of(info, NavigateToAddressEffect.listing(program, entryPoint));
         });
   }
 
@@ -765,7 +785,9 @@ public class FunctionsTool extends BaseMcpTool {
                               "Function creation succeeded but returned no function object"));
                     }
 
-                    return new FunctionInfo(createdFunction);
+                    return ToolOutcome.of(
+                        new FunctionInfo(createdFunction),
+                        NavigateToAddressEffect.listing(program, createdFunction.getEntryPoint()));
                   });
             });
   }
@@ -863,7 +885,9 @@ public class FunctionsTool extends BaseMcpTool {
         throw new GhidraMcpException(GhidraMcpError.failed("apply function prototype", status));
       }
 
-      return new FunctionInfo(function);
+      return ToolOutcome.of(
+          new FunctionInfo(function),
+          NavigateToAddressEffect.listing(program, function.getEntryPoint()));
     } catch (GhidraMcpException e) {
       throw e;
     } catch (Exception e) {

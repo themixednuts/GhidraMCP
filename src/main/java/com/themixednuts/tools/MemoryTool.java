@@ -8,9 +8,13 @@ import com.themixednuts.models.MemoryBlockInfo;
 import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.models.OperationResult;
+import com.themixednuts.ui.NavigateToAddressEffect;
+import com.themixednuts.ui.ToolOutcome;
+import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
+import com.themixednuts.utils.TypedMemoryMapper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
 import ghidra.features.base.memsearch.format.SearchFormat;
@@ -52,22 +56,28 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Memory",
     description =
-        "Memory operations: read, write, define, undefine, list_blocks, and search memory.",
+        "Memory operations: read, write, define/map data types, undefine, list_blocks, and search.",
     mcpName = "memory",
     mcpDescription =
         """
         <use_case>
         Memory operations for reverse engineering. Read and write bytes, define data types at
-        addresses, undefine code units, list memory blocks with filtering, and search for patterns.
-        Essential for understanding program structure, applying structs/vtables, patching code,
-        clearing incorrect disassembly, and finding data in memory.
+        addresses, map bytes through data types, undefine code units, list memory blocks with
+        filtering, and search for patterns. Essential for understanding program structure,
+        applying structs/vtables, patching code, clearing incorrect disassembly, and finding data
+        in memory.
         </use_case>
 
         <important_notes>
         - Read/write operations validate memory accessibility and permissions
         - Memory modifications are transactional and reversible
         - list_blocks supports filtering by name, permissions, and size
+        - list_blocks and search are bounded by page_size. map_data_type is bounded by
+          max_fields. Pass returned next_cursor as cursor to continue with the same filters and
+          address bounds.
         - search supports string, hex, binary, decimal, float, double, and regex patterns
+        - Successful define and map_data_type calls navigate the active Ghidra UI to the address
+          where the data type was applied when the CodeBrowser navigation service is available.
         - Use `inspect` (action: references_to/references_from) for cross-reference analysis
         - For memory layout overview, use the ghidra://program/{name}/memory resource
         </important_notes>
@@ -94,6 +104,15 @@ import reactor.core.publisher.Mono;
           "file_name": "program.exe",
           "action": "undefine",
           "address": "0x401000"
+        }
+
+        Apply a data type and return a byte-to-field mapping:
+        {
+          "file_name": "program.exe",
+          "action": "map_data_type",
+          "address": "0x401000",
+          "data_type_path": "/PacketHeader",
+          "max_fields": 128
         }
 
         List memory blocks:
@@ -147,10 +166,12 @@ public class MemoryTool extends BaseMcpTool {
   public static final String ARG_ADDRESS_START = "address_start";
   public static final String ARG_ADDRESS_END = "address_end";
   public static final String ARG_MAX_SLOTS = "max_slots";
+  public static final String ARG_MAX_FIELDS = "max_fields";
 
   private static final String ACTION_READ = "read";
   private static final String ACTION_WRITE = "write";
   private static final String ACTION_DEFINE = "define";
+  private static final String ACTION_MAP_DATA_TYPE = "map_data_type";
   private static final String ACTION_UNDEFINE = "undefine";
   private static final String ACTION_LIST_BLOCKS = "list_blocks";
   private static final String ACTION_SEARCH = "search";
@@ -158,6 +179,8 @@ public class MemoryTool extends BaseMcpTool {
 
   private static final int DEFAULT_VTABLE_MAX_SLOTS = 256;
   private static final int MAX_VTABLE_MAX_SLOTS = 4096;
+  private static final int DEFAULT_MAX_FIELDS = 256;
+  private static final int MAX_FIELDS_LIMIT = 4096;
 
   /** Enumeration of supported memory search types. */
   public enum SearchType {
@@ -272,6 +295,7 @@ public class MemoryTool extends BaseMcpTool {
                 ACTION_READ,
                 ACTION_WRITE,
                 ACTION_DEFINE,
+                ACTION_MAP_DATA_TYPE,
                 ACTION_UNDEFINE,
                 ACTION_LIST_BLOCKS,
                 ACTION_SEARCH,
@@ -312,12 +336,26 @@ public class MemoryTool extends BaseMcpTool {
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
             .description(
                 "Data type path to apply at address (e.g., '/MyStruct', 'int', 'char[16]')."
-                    + " Used with the 'define' action."));
+                    + " Used with the 'define' and 'map_data_type' actions."));
 
     schemaRoot.property(
         ARG_DATA_TYPE_ID,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
-            .description("Data type ID as alternative to data_type_path for the 'define' action."));
+            .description(
+                "Data type ID as alternative to data_type_path for the 'define' and"
+                    + " 'map_data_type' actions."));
+
+    schemaRoot.property(
+        ARG_MAX_FIELDS,
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
+            .description(
+                "map_data_type: maximum typed fields/components to return (default: "
+                    + DEFAULT_MAX_FIELDS
+                    + ", max: "
+                    + MAX_FIELDS_LIMIT
+                    + "). Use returned next_cursor as cursor to continue.")
+            .minimum(1)
+            .maximum(MAX_FIELDS_LIMIT));
 
     // list_blocks filter properties
     schemaRoot.property(
@@ -405,7 +443,10 @@ public class MemoryTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_CURSOR,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
-            .description("Pagination cursor from previous request"));
+            .description(
+                "Opaque cursor copied from the previous memory list/search/map_data_type"
+                    + " next_cursor. Keep the same action, filters, search value, address bounds,"
+                    + " and data type while paging."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
@@ -422,7 +463,9 @@ public class MemoryTool extends BaseMcpTool {
     schemaRoot.property(
         "max_results",
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)
-            .description("Alias for page_size (backward compatibility)")
+            .description(
+                "Alias for page_size. Prefer page_size for new calls; use cursor/next_cursor to"
+                    + " continue additional pages.")
             .minimum(1)
             .maximum(MAX_PAGE_LIMIT));
 
@@ -460,6 +503,17 @@ public class MemoryTool extends BaseMcpTool {
                         ARG_ACTION,
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                             .constValue(ACTION_DEFINE)),
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_ADDRESS)),
+        // action=map_data_type requires address (and data_type_path or data_type_id, validated at
+        // runtime)
+        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
+                            .constValue(ACTION_MAP_DATA_TYPE)),
                 com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.objectDraft7(mapper)
                     .requiredProperty(ARG_ADDRESS)),
         // action=undefine requires address
@@ -519,6 +573,7 @@ public class MemoryTool extends BaseMcpTool {
                 case ACTION_READ -> handleRead(program, args, annotation);
                 case ACTION_WRITE -> handleWrite(program, args, annotation);
                 case ACTION_DEFINE -> handleDefine(program, args);
+                case ACTION_MAP_DATA_TYPE -> handleMapDataType(program, args);
                 case ACTION_UNDEFINE -> handleUndefine(program, args, annotation);
                 case ACTION_LIST_BLOCKS -> handleListBlocks(program, args);
                 case ACTION_SEARCH -> handleSearch(program, args);
@@ -542,6 +597,7 @@ public class MemoryTool extends BaseMcpTool {
                               ACTION_READ,
                               ACTION_WRITE,
                               ACTION_DEFINE,
+                              ACTION_MAP_DATA_TYPE,
                               ACTION_UNDEFINE,
                               ACTION_LIST_BLOCKS,
                               ACTION_SEARCH,
@@ -764,20 +820,99 @@ public class MemoryTool extends BaseMcpTool {
                             e);
                       }
 
-                      return OperationResult.success(
-                              ACTION_DEFINE,
-                              address.toString(),
-                              "Applied data type '"
-                                  + dataType.getPathName()
-                                  + "' ("
-                                  + dataType.getLength()
-                                  + " bytes) at "
-                                  + address.toString())
-                          .setMetadata(
-                              Map.of(
-                                  "dataType", dataType.getPathName(),
-                                  "dataTypeSize", dataType.getLength()));
+                      OperationResult result =
+                          OperationResult.success(
+                                  ACTION_DEFINE,
+                                  address.toString(),
+                                  "Applied data type '"
+                                      + dataType.getPathName()
+                                      + "' ("
+                                      + dataType.getLength()
+                                      + " bytes) at "
+                                      + address.toString())
+                              .setMetadata(
+                                  Map.of(
+                                      "dataType", dataType.getPathName(),
+                                      "dataTypeSize", dataType.getLength()));
+                      return ToolOutcome.of(
+                          result, NavigateToAddressEffect.listing(program, address));
                     }));
+  }
+
+  private Mono<? extends Object> handleMapDataType(Program program, Map<String, Object> args) {
+    String addressStr = getRequiredStringArgument(args, ARG_ADDRESS);
+
+    return executeInTransaction(
+        program,
+        "MCP - Map data type at " + addressStr,
+        () -> {
+          Address address = parseAddressValue(program, addressStr, ARG_ADDRESS);
+          DataType dataType = resolveRequestedDataType(program.getDataTypeManager(), args);
+          int maxFields = getBoundedMaxFields(args);
+          int fieldOffset = getFieldCursorOffset(args);
+
+          CursorDataResult<?> result =
+              TypedMemoryMapper.applyAndMap(program, address, dataType, maxFields, fieldOffset);
+          return ToolOutcome.of(result, NavigateToAddressEffect.listing(program, address));
+        });
+  }
+
+  private DataType resolveRequestedDataType(DataTypeManager dtm, Map<String, Object> args)
+      throws GhidraMcpException {
+    String dataTypePath = getOptionalStringArgument(args, ARG_DATA_TYPE_PATH).orElse(null);
+    Long dataTypeId = getOptionalLongArgument(args, ARG_DATA_TYPE_ID).orElse(null);
+
+    if (dataTypePath == null && dataTypeId == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.validation()
+              .message("Either data_type_path or data_type_id must be provided.")
+              .build());
+    }
+
+    if (dataTypeId != null) {
+      DataType dataType = dtm.getDataType(dataTypeId);
+      if (dataType == null) {
+        throw new GhidraMcpException(GhidraMcpError.notFound("data type", "ID=" + dataTypeId));
+      }
+      return dataType;
+    }
+
+    DataType dataType = resolveDataTypeWithFallback(dtm, dataTypePath);
+    if (dataType == null) {
+      throw new GhidraMcpException(GhidraMcpError.notFound("data type", dataTypePath));
+    }
+    return dataType;
+  }
+
+  private int getBoundedMaxFields(Map<String, Object> args) throws GhidraMcpException {
+    int maxFields = getOptionalIntArgument(args, ARG_MAX_FIELDS).orElse(DEFAULT_MAX_FIELDS);
+    if (maxFields < 1 || maxFields > MAX_FIELDS_LIMIT) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_MAX_FIELDS, maxFields, "must be between 1 and " + MAX_FIELDS_LIMIT));
+    }
+    return maxFields;
+  }
+
+  private int getFieldCursorOffset(Map<String, Object> args) throws GhidraMcpException {
+    Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
+    if (cursorOpt.isEmpty()) {
+      return 0;
+    }
+
+    String decoded =
+        decodeOpaqueCursorSingleV1(
+            cursorOpt.get(), ARG_CURSOR, "v1:<base64url_typed_field_offset>");
+    try {
+      int offset = Integer.parseInt(decoded);
+      if (offset < 0) {
+        throw new NumberFormatException("negative");
+      }
+      return offset;
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, cursorOpt.get(), "cursor field offset is invalid"));
+    }
   }
 
   private Mono<? extends Object> handleUndefine(

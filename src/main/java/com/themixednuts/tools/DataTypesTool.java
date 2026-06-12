@@ -47,6 +47,7 @@ import reactor.core.publisher.Mono;
         <important_notes>
         - Actions: list, get, create, update (no "create_category" — use create with data_type_kind="category")
         - list returns compact summary rows; use get to fetch full struct/union/enum/function details
+        - list is bounded by page_size. Pass returned next_cursor as cursor to continue with the same filters
         - Required param for create/update: data_type_kind (NOT "kind" or "type")
         - Struct/union members use "members" array (NOT "fields"), with "data_type_path" for types (NOT "type")
         - Enum values use "entries" array with "name" and "value" keys
@@ -260,8 +261,10 @@ public class DataTypesTool extends BaseMcpTool {
                         ARG_CURSOR,
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor from previous request (format:"
-                                    + " v1:<base64url_data_type_name>:<base64url_data_type_path>)"))
+                                "Opaque cursor copied from the previous data_types.list"
+                                    + " next_cursor. Keep name_pattern, type_kind, and"
+                                    + " category_path unchanged. Format:"
+                                    + " v1:<base64url_data_type_name>:<base64url_data_type_path>."))
                     .property(
                         ARG_PAGE_SIZE,
                         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.integer(mapper)

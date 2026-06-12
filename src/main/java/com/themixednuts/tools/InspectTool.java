@@ -6,6 +6,8 @@ import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
 import com.themixednuts.models.ReferenceInfo;
+import com.themixednuts.ui.NavigateToAddressEffect;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.GhidraAddressParser;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
@@ -70,7 +72,10 @@ import reactor.core.publisher.Mono;
         - references_to: Find all cross-references pointing TO a given address
         - references_from: Find all cross-references going FROM a given address
         - Listing requires an explicit target (address, function name, or symbol_id)
-        - Results are paginated where applicable
+        - Successful decompile and listing calls navigate the active Ghidra UI to the resolved
+          function or address when the CodeBrowser navigation service is available.
+        - Listing uses max_lines. Listing and reference actions return next_cursor when more data
+          is available; pass it back as cursor with the same target/filter arguments.
         - For quick decompilation without advanced options, use the ghidra://program/{name}/function/{address}/decompile resource. For basic assembly view, use the ghidra://program/{name}/listing/{address} resource.
         </important_notes>
 
@@ -251,7 +256,9 @@ public class InspectTool extends BaseMcpTool {
                     .property(
                         ARG_MAX_LINES,
                         SchemaBuilder.integer(mapper)
-                            .description("Maximum number of lines to return (default: 100)")
+                            .description(
+                                "Maximum listing lines to return (default: 100, max: 1000)."
+                                    + " Use next_cursor/cursor to continue long listings.")
                             .minimum(1)
                             .maximum(1000)
                             .defaultValue(DEFAULT_MAX_LINES))
@@ -259,8 +266,9 @@ public class InspectTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Pagination cursor from previous request (format:"
-                                    + " v1:<base64url_listing_address>)"))
+                                "Opaque cursor copied from the previous inspect.listing"
+                                    + " next_cursor. Keep address/name/symbol_id and end_address"
+                                    + " unchanged. Format: v1:<base64url_listing_address>."))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
@@ -286,7 +294,9 @@ public class InspectTool extends BaseMcpTool {
                     .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
-                            .description("Pagination cursor from previous request"))
+                            .description(
+                                "Opaque cursor copied from the previous references_to"
+                                    + " next_cursor. Keep address and reference_type unchanged."))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -320,7 +330,9 @@ public class InspectTool extends BaseMcpTool {
                     .property(
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
-                            .description("Pagination cursor from previous request"))
+                            .description(
+                                "Opaque cursor copied from the previous references_from"
+                                    + " next_cursor. Keep address and reference_type unchanged."))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)
@@ -410,8 +422,11 @@ public class InspectTool extends BaseMcpTool {
         "inspect.decompile",
         monitor -> {
           Function targetFunction = resolveFunctionForDecompilation(program, args);
-          return performDecompilation(
-              program, targetFunction, includePcode, includeAst, timeout, annotation, monitor);
+          DecompilationResult result =
+              performDecompilation(
+                  program, targetFunction, includePcode, includeAst, timeout, annotation, monitor);
+          return ToolOutcome.of(
+              result, NavigateToAddressEffect.decompiler(program, targetFunction.getEntryPoint()));
         });
   }
 
@@ -489,21 +504,27 @@ public class InspectTool extends BaseMcpTool {
                         Instruction instruction = listing.getInstructionAt(address);
 
                         if (instruction != null) {
-                          return analyzeInstructionPcode(instruction, address);
+                          return ToolOutcome.of(
+                              analyzeInstructionPcode(instruction, address),
+                              NavigateToAddressEffect.listing(program, address));
                         }
 
                         throw new GhidraMcpException(
                             GhidraMcpError.notFound("function or instruction", addressStr));
                       }
 
-                      return performDecompilation(
-                          program,
-                          function,
-                          includePcode,
-                          includeAst,
-                          timeout,
-                          annotation,
-                          monitor);
+                      DecompilationResult result =
+                          performDecompilation(
+                              program,
+                              function,
+                              includePcode,
+                              includeAst,
+                              timeout,
+                              annotation,
+                              monitor);
+                      return ToolOutcome.of(
+                          result,
+                          NavigateToAddressEffect.decompiler(program, function.getEntryPoint()));
                     }));
   }
 
@@ -700,7 +721,9 @@ public class InspectTool extends BaseMcpTool {
                       // so callers get a uniform output regardless of how they targeted it.
                       ListingInfo info = createListingInfo(program, codeUnit);
                       String rendered = renderListingText(info).orElse("");
-                      return new CursorDataResult<>(rendered, null);
+                      return ToolOutcome.of(
+                          new CursorDataResult<>(rendered, null),
+                          NavigateToAddressEffect.listing(program, address));
                     }));
   }
 
@@ -748,12 +771,15 @@ public class InspectTool extends BaseMcpTool {
             function = SymbolLookupHelper.resolveFunction(program, functionSelector);
           }
 
-          return listListingInRange(
-              program,
-              function.getEntryPoint(),
-              function.getBody().getMaxAddress(),
-              args,
-              annotation);
+          CursorDataResult<String> result =
+              listListingInRange(
+                  program,
+                  function.getEntryPoint(),
+                  function.getBody().getMaxAddress(),
+                  args,
+                  annotation);
+          return ToolOutcome.of(
+              result, NavigateToAddressEffect.listing(program, function.getEntryPoint()));
         });
   }
 
@@ -806,7 +832,12 @@ public class InspectTool extends BaseMcpTool {
                   }
 
                   return Mono.fromCallable(
-                      () -> listListingInRange(program, startAddr, endAddr, args, annotation));
+                      () -> {
+                        CursorDataResult<String> result =
+                            listListingInRange(program, startAddr, endAddr, args, annotation);
+                        return ToolOutcome.of(
+                            result, NavigateToAddressEffect.listing(program, startAddr));
+                      });
                 }));
   }
 

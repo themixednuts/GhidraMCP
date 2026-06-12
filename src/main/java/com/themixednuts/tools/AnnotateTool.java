@@ -40,6 +40,8 @@ import reactor.core.publisher.Mono;
           PLATE (block header), REPEATABLE (inherited by references)
         - Setting a comment with empty text removes the existing comment of that type
         - Bookmarks require type, category, and comment — use for marking locations for review
+        - list_bookmarks is bounded by page_size. Pass returned next_cursor as cursor to continue
+          with the same filters.
         - Use `delete` tool to remove bookmarks (destructive operation kept separate)
         - Comments and bookmarks are the agent's primary output mechanism for documenting findings
         </important_notes>
@@ -121,12 +123,15 @@ public class AnnotateTool extends BaseMcpTool {
 
     schemaRoot.property(
         ARG_CURSOR,
-        SchemaBuilder.string(mapper).description("Pagination cursor from a previous request."));
+        SchemaBuilder.string(mapper)
+            .description(
+                "Opaque cursor copied from the previous list_bookmarks next_cursor. Keep bookmark"
+                    + " filters unchanged."));
 
     schemaRoot.property(
         ARG_PAGE_SIZE,
         SchemaBuilder.integer(mapper)
-            .description("Number of results per page (default 50, max 500)."));
+            .description("Number of bookmarks per page (default 50, max 500)."));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
 

@@ -49,6 +49,8 @@ import reactor.core.publisher.Mono;
          - Supports multiple symbol identification methods (name, address, symbol_id)
          - List mode returns compact rows in address order by default. Prefix regex filters such
            as "^entry_.*" use Ghidra's name-ordered symbol scan for faster search.
+         - List mode is bounded by page_size. Pass returned next_cursor as cursor to continue
+           with the same filters.
          - List rows include symbol_id for stable follow-up get/update/delete calls. Use get for
            detailed source/primary/global/external metadata.
          - Get mode returns detailed SymbolInfo by symbol_id, address, or name (with wildcard support)
@@ -201,8 +203,9 @@ public class SymbolsTool extends BaseMcpTool {
                         ARG_CURSOR,
                         SchemaBuilder.string(mapper)
                             .description(
-                                "Opaque pagination cursor from previous symbols.list response"
-                                    + " (format: v1:<base64url_symbol_id>)"))
+                                "Opaque cursor copied from the previous symbols.list"
+                                    + " next_cursor. Keep list filters unchanged. Format:"
+                                    + " v1:<base64url_symbol_id>."))
                     .property(
                         ARG_PAGE_SIZE,
                         SchemaBuilder.integer(mapper)

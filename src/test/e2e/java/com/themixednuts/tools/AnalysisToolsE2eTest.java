@@ -11,6 +11,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.AnalysisOptionInfo;
 import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.tools.MemoryTool.SearchResult;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.address.Address;
@@ -60,6 +61,59 @@ class AnalysisToolsE2eTest {
               .collect(Collectors.toSet());
       assertTrue(addresses.stream().anyMatch(address -> address.contains("401000")));
       assertTrue(addresses.stream().anyMatch(address -> address.contains("401020")));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void searchMemoryFindsKnownStringAndRegexPatterns() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      MemoryTool tool = new InMemoryMemoryTool(fixture.program());
+
+      Object stringRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "search",
+                      "search_type", "string",
+                      "search_value", "CanvasAsset",
+                      "case_sensitive", true,
+                      "page_size", 10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<SearchResult> stringResult =
+          assertInstanceOf(PaginatedResult.class, stringRaw);
+
+      assertTrue(
+          stringResult.results.stream()
+              .anyMatch(match -> match.getAddress().toLowerCase().contains("402010")));
+
+      Object regexRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "search",
+                      "search_type", "regex",
+                      "search_value", "CanvasAsset",
+                      "case_sensitive", true,
+                      "page_size", 10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<SearchResult> regexResult = assertInstanceOf(PaginatedResult.class, regexRaw);
+
+      assertTrue(
+          regexResult.results.stream()
+              .anyMatch(match -> match.getAddress().toLowerCase().contains("402010")));
     } finally {
       fixture.close();
     }
@@ -172,7 +226,7 @@ class AnalysisToolsE2eTest {
                       30),
                   null)
               .block();
-      DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
+      DecompilationResult result = assertInstanceOf(DecompilationResult.class, unwrapOutcome(raw));
 
       assertTrue(result.getEntryAddress().toLowerCase().contains("401000"));
       assertNotNull(result.getDecompiledCode());
@@ -205,7 +259,7 @@ class AnalysisToolsE2eTest {
                       "timeout", 30),
                   null)
               .block();
-      DecompilationResult result = assertInstanceOf(DecompilationResult.class, raw);
+      DecompilationResult result = assertInstanceOf(DecompilationResult.class, unwrapOutcome(raw));
 
       assertEquals("entry_main", result.getTargetName());
       assertNotNull(result.getDecompiledCode());
@@ -349,6 +403,13 @@ class AnalysisToolsE2eTest {
     } finally {
       program.endTransaction(txId, commit);
     }
+  }
+
+  private static Object unwrapOutcome(Object raw) {
+    if (raw instanceof ToolOutcome<?> outcome) {
+      return outcome.data();
+    }
+    return raw;
   }
 
   @GhidraMcpTool(

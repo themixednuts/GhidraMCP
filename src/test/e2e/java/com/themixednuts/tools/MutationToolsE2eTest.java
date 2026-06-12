@@ -19,6 +19,7 @@ import com.themixednuts.models.MemoryReadResult;
 import com.themixednuts.models.MemoryWriteResult;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.models.SymbolInfo;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.listing.Program;
 import java.util.List;
@@ -154,7 +155,7 @@ class MutationToolsE2eTest {
                       "function_name", "new_func"),
                   null)
               .block();
-      FunctionInfo created = assertInstanceOf(FunctionInfo.class, createdRaw);
+      FunctionInfo created = assertInstanceOf(FunctionInfo.class, unwrapOutcome(createdRaw));
       assertNotNull(created.getEntryPoint());
       assertTrue(created.getEntryPoint().toLowerCase().contains("401040"));
     } finally {
@@ -1097,6 +1098,13 @@ class MutationToolsE2eTest {
     } finally {
       fixture.close();
     }
+  }
+
+  private static Object unwrapOutcome(Object raw) {
+    if (raw instanceof ToolOutcome<?> outcome) {
+      return outcome.data();
+    }
+    return raw;
   }
 
   @GhidraMcpTool(

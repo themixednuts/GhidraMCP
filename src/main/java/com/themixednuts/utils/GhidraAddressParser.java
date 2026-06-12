@@ -13,10 +13,10 @@ import java.util.regex.Pattern;
 public final class GhidraAddressParser {
 
   public static final String ADDRESS_PATTERN =
-      "^(\\+(0[xX])?[0-9a-fA-F]+|([A-Za-z_][A-Za-z0-9_]*:)?(0[xX])?[0-9a-fA-F]+)$";
+      "^(([A-Za-z_][A-Za-z0-9_.-]*)?\\s*\\+\\s*(0[xX])?[0-9a-fA-F]+|([A-Za-z_][A-Za-z0-9_]*:)?(0[xX])?[0-9a-fA-F]+)$";
 
   private static final Pattern IMAGE_BASE_OFFSET_PATTERN =
-      Pattern.compile("^\\+(?:0[xX])?([0-9a-fA-F]+)$");
+      Pattern.compile("^(?:[A-Za-z_][A-Za-z0-9_.-]*)?\\s*\\+\\s*(?:0[xX])?([0-9a-fA-F]+)$");
 
   private GhidraAddressParser() {}
 
@@ -26,6 +26,7 @@ public final class GhidraAddressParser {
    * <ul>
    *   <li>Ghidra absolute address strings, including address-space-qualified values.
    *   <li>{@code +0xNNN} / {@code +NNN} image-base-relative hex offsets.
+   *   <li>{@code module+0xNNN} WinDbg-style image-base-relative hex offsets.
    * </ul>
    */
   public static Address parse(Program program, String addressString, String argumentName)
