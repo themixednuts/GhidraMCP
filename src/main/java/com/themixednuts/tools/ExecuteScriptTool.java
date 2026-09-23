@@ -22,40 +22,10 @@ import reactor.core.publisher.Mono;
     idempotentHint = true,
     mcpDescription =
         """
-        <use_case>
-        Provides guidance on using Ghidra's built-in scripts, particularly DemangleAllScript.java which offers
-        more powerful demangling capabilities than the basic DemanglerUtil API. This is especially useful for
-        complex scenarios like Win64 DLLs with PDB files where standard demangling might fail.
-        Use this tool when you need information about how to access and use Ghidra's advanced scripting capabilities.
-        </use_case>
-
-        <ghidra_specific_notes>
-        - Provides step-by-step instructions for accessing Ghidra scripts
-        - Explains how to use DemangleAllScript for advanced demangling
-        - Covers both built-in scripts and custom script execution
-        - Includes troubleshooting tips for common script execution issues
-        - References the Script Manager interface in Ghidra
-        </ghidra_specific_notes>
-
-        <parameters_summary>
-        - 'script_name': Name of the script you want guidance on (e.g., 'DemangleAllScript')
-        - 'guidance_type': Type of guidance needed (e.g., 'access', 'usage', 'troubleshooting')
-        </parameters_summary>
-
-        <return_value_summary>
-        Returns a ScriptGuidance object containing:
-        - 'script_name': The script you requested guidance for
-        - 'guidance_type': The type of guidance provided
-        - 'instructions': Step-by-step instructions
-        - 'tips': Additional tips and best practices
-        - 'troubleshooting': Common issues and solutions
-        </return_value_summary>
-
-        <agent_response_guidance>
-        Present the guidance in a clear, step-by-step format that's easy to follow.
-        For DemangleAllScript, emphasize that it's more powerful than basic demangling tools.
-        Include practical tips and troubleshooting advice for common issues.
-        </agent_response_guidance>
+        Return instructions for finding, running, or troubleshooting a Ghidra script in Script
+        Manager. This tool does not execute scripts. Pass script_name and optionally guidance_type.
+        Use it for scripts such as DemangleAllScript when the direct analyze.demangle action is
+        insufficient.
         """)
 public class ExecuteScriptTool extends BaseMcpTool {
 

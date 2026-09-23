@@ -268,6 +268,11 @@ public final class GhidraMcpServer {
     return SERVER_VERSION;
   }
 
+  /** Returns the user-configured limit for one MCP request. */
+  public static int getRequestTimeoutSeconds() {
+    return Math.toIntExact(requestTimeout.getSeconds());
+  }
+
   // =================== Private Implementation ===================
 
   private static boolean cleanup() {

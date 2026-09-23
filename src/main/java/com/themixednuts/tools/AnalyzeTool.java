@@ -5,6 +5,7 @@ import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.RTTIAnalysisResult;
 import com.themixednuts.models.RttiListEntry;
+import com.themixednuts.utils.NameFilterPattern;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
@@ -73,6 +74,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import mdemangler.MDMangGhidra;
 import mdemangler.MDParsableItem;
 import reactor.core.publisher.Mono;
@@ -87,65 +89,10 @@ import reactor.core.publisher.Mono;
     idempotentHint = true,
     mcpDescription =
         """
-        <use_case>
-        Decode, visualize, and analyze structure. Demangle mangled C++ symbols, analyze RTTI
-        metadata (Microsoft, Itanium, Go), list RTTI-discovered classes as compact summary rows
-        with demangled names and lambda context, visualize control flow graphs of functions, and
-        extract caller/callee call graphs. Use this tool when you need to understand symbol
-        names, class hierarchies, function control flow, or call relationships.
-        </use_case>
-
-        <parameters_summary>
-        - action: Operation to perform (demangle, rtti, list_rtti, graph, call_graph)
-        - file_name: The program file to analyze (required)
-        - mangled_symbol: (demangle) The mangled symbol to decode
-        - address: (rtti, graph, call_graph) Address for analysis
-        - backend: (rtti) Backend adapter: auto|microsoft|itanium|go
-        - validate_referred_to_data: (rtti, microsoft-only) Validate referenced RTTI structures
-        - ignore_instructions: (rtti, microsoft-only) Ignore existing instructions
-        - ignore_defined_data: (rtti, microsoft-only) Ignore existing defined data
-        - symbol_id: (graph, call_graph) Symbol ID to identify a function
-        - name: (graph, call_graph) Function name for lookup
-        - name_pattern: (list_rtti) Regex filter on class name
-        - cursor: (list_rtti) Copy next_cursor from the previous response to continue
-        - page_size: (list_rtti) Results per page, default 100, max 500
-        - depth: (call_graph) Traversal depth, default 3, max 10
-        - direction: (call_graph) callers, callees, or both (default both)
-        </parameters_summary>
-
-        <return_value_summary>
-        - demangle: DemangleResult with original/demangled symbol, type, namespace, class info
-        - rtti: RTTIAnalysisResult with detected type, validity, class hierarchy
-        - list_rtti: Paginated MSVC RTTI class summaries (PE only; Itanium ABI not supported).
-          Each row includes compact identifiers such as name, mangled symbol, type_kind,
-          rtti0_address, and summary counts like method_count or base_class_count when available.
-          Lambda rows flatten enclosing method context into simple fields instead of nested objects.
-          Use action=rtti with rtti0_address for full RTTI hierarchy details.
-          Use custom_tags to label classes by template patterns (e.g., sp_ms_deleter → smart_ptr_managed)
-        - graph: Control flow graph with nodes (basic blocks) and edges (flow connections)
-        - call_graph: Call graph with function nodes and caller/callee edges
-        </return_value_summary>
-
-        <examples>
-        Demangle a C++ symbol:
-        { "file_name": "program.exe", "action": "demangle", "mangled_symbol": "_Z3fooi" }
-
-        Analyze RTTI at an address:
-        { "file_name": "program.exe", "action": "rtti", "address": "0x401000" }
-
-        List all RTTI classes:
-        { "file_name": "program.exe", "action": "list_rtti" }
-
-        List RTTI classes matching a pattern:
-        { "file_name": "program.exe", "action": "list_rtti", "name_pattern": "Weapon.*" }
-
-        Get control flow graph of a function:
-        { "file_name": "program.exe", "action": "graph", "name": "main" }
-
-        Get call graph around a function:
-        { "file_name": "program.exe", "action": "call_graph", "address": "0x401000",
-          "depth": 2, "direction": "callees" }
-        </examples>
+        Read-only structural analysis of an open program. Use action=demangle for one C++ symbol, rtti
+        for metadata at an address, list_rtti for paged MSVC class summaries in PE files, graph for a
+        function's control-flow graph, or call_graph for caller and callee relationships. Pass
+        file_name. Use rtti with a list_rtti row's rtti0_address to get full class details.
         """)
 public class AnalyzeTool extends BaseMcpTool {
 
@@ -260,7 +207,8 @@ public class AnalyzeTool extends BaseMcpTool {
     // List RTTI properties
     schemaRoot.property(
         ARG_NAME_PATTERN,
-        SchemaBuilder.string(mapper).description("Regex filter on class name (list_rtti)."));
+        SchemaBuilder.string(mapper)
+            .description("Regex or * and ? glob filter on class name (list_rtti)."));
 
     schemaRoot.property(
         ARG_CURSOR,
@@ -1652,7 +1600,13 @@ public class AnalyzeTool extends BaseMcpTool {
 
           Pattern nameFilter = null;
           if (namePatternOpt.isPresent() && !namePatternOpt.get().isBlank()) {
-            nameFilter = Pattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
+            try {
+              nameFilter =
+                  NameFilterPattern.compile(namePatternOpt.get(), Pattern.CASE_INSENSITIVE);
+            } catch (PatternSyntaxException e) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.invalid(ARG_NAME_PATTERN, namePatternOpt.get(), e.getMessage()));
+            }
           }
 
           // Parse caller-defined custom tag patterns. Each {template, tag} entry tags any RTTI

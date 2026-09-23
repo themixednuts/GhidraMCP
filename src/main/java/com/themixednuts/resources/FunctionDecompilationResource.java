@@ -1,5 +1,6 @@
 package com.themixednuts.resources;
 
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpResource;
 import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.app.decompiler.DecompInterface;
@@ -24,8 +25,6 @@ import reactor.core.publisher.Mono;
     mimeType = "application/json",
     template = true)
 public class FunctionDecompilationResource extends BaseMcpResource {
-
-  private static final int DECOMPILE_TIMEOUT_SECONDS = 30;
 
   @Override
   public Mono<String> read(McpTransportContext context, String uri, PluginTool tool) {
@@ -63,7 +62,7 @@ public class FunctionDecompilationResource extends BaseMcpResource {
             // Decompile the function
             DecompileResults results =
                 decompiler.decompileFunction(
-                    function, DECOMPILE_TIMEOUT_SECONDS, TaskMonitor.DUMMY);
+                    function, GhidraMcpServer.getRequestTimeoutSeconds(), TaskMonitor.DUMMY);
 
             Map<String, Object> result = new HashMap<>();
             result.put("programName", programName);
@@ -71,14 +70,16 @@ public class FunctionDecompilationResource extends BaseMcpResource {
             result.put("entryPoint", function.getEntryPoint().toString());
             result.put("signature", function.getPrototypeString(false, false));
 
-            if (results.decompileCompleted() && results.getDecompiledFunction() != null) {
+            if (results != null
+                && results.decompileCompleted()
+                && results.getDecompiledFunction() != null) {
               result.put("decompilation", results.getDecompiledFunction().getC());
               result.put("success", true);
             } else {
               result.put("success", false);
               result.put(
                   "error",
-                  results.getErrorMessage() != null
+                  results != null && results.getErrorMessage() != null
                       ? results.getErrorMessage()
                       : "Decompilation failed or produced no output");
             }

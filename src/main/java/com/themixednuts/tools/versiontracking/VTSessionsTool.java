@@ -35,25 +35,10 @@ import reactor.core.publisher.Mono;
     mcpName = "vt_sessions",
     mcpDescription =
         """
-        <use_case>
-        Manage Version Tracking sessions which are used to compare different versions of programs
-        and migrate analysis (functions, symbols, data types, comments) between them. Sessions
-        store matches and markup state between source and destination programs.
-        </use_case>
-
-        <important_notes>
-        - VT sessions require both source and destination programs to exist in the project
-        - Sessions are stored as .vt files in the project
-        - Creating a session does not automatically run correlators - use vt_operations after
-        - Close sessions when done to release resources
-        - NOTE: Session creation requires DB.jar to be present in lib/
-        </important_notes>
-
-        <return_value_summary>
-        - create/open/info: Returns VTSessionInfo with program names and match statistics
-        - list: Returns list of available VT session project paths (for example, /Folder/Session.vt)
-        - close: Returns OperationResult confirming closure
-        </return_value_summary>
+        Create, open, list, inspect, or close Ghidra Version Tracking sessions used to compare two
+        programs. Both source and destination programs must exist in the project. A created session
+        stores matches and markup state but does not run correlators; use vt_operations for matching
+        and markup.
         """)
 public class VTSessionsTool extends BaseVTTool {
   public static final String ARG_SOURCE_FILE = "source_file";

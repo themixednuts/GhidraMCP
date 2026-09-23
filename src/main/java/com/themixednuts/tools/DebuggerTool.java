@@ -116,66 +116,15 @@ import reactor.core.publisher.Mono;
     mcpName = "debugger",
     mcpDescription =
         """
-        <use_case>
-        Connect, launch, control, and inspect Ghidra debugger sessions. Use this tool when you need
-        to start/accept/connect Trace RMI, launch a debugger from a static Program, activate traces
-        or targets, inspect threads/stack/snapshots/objects, map a running module/section/region
-        back to a static Program, resume/interrupt/step, execute debugger console commands, manage
-        breakpoints/watchpoints, inspect/update registers and watches, read/write live target
-        memory, manage trace-backed bytes/states, map trace bytes to data types, invoke Trace RMI
-        remote methods, run debugger emulation, or navigate/select in the Debugger listing.
-        </use_case>
-
-        <important_notes>
-        - Connection/launch actions require Ghidra's Trace RMI services.
-        - Control actions require Ghidra's Debugger services and an active trace/target.
-        - status reports open traces plus the current target, thread, snap, frame, control mode,
-          and execution state when available.
-        - list_launchers/launch wrap Ghidra Trace RMI launcher offers for a static Program.
-        - apply_mapping supports mapping_kind=module, section, region, address, and identity.
-          module is the normal "running executable -> analyzed program" bridge; section/region
-          are better when module-wide scoring is ambiguous.
-        - map_dynamic_to_static and map_static_to_dynamic resolve existing static mappings.
-        - read_memory refreshes from the live target by default when a target is selected, then
-          reads trace-backed bytes. read_trace_bytes skips the live target and only reads the trace.
-        - write_memory writes the live target. write_trace_bytes writes cached trace bytes only.
-        - execute sends a raw command to the current target; prefer structured actions like
-          resume, interrupt, detach, kill, read_memory, and write_memory when they express the
-          operation.
-        - Breakpoint actions use the current trace and accept breakpoint_kinds values:
-          sw_execute, hw_execute, read, write, access. Defaults to sw_execute; access expands to
-          read+write because those are Ghidra's concrete trace breakpoint kinds.
-        - list_remote_methods/invoke_remote_method expose backend-specific Trace RMI methods. Use
-          them when a debugger adapter supports an action that does not yet have a structured MCP
-          wrapper.
-        - list_threads/list_stack/list_snapshots/list_objects/get_object are cursor-paged trace
-          model views for discovering coordinates before activation.
-        - Emulation actions use Ghidra's DebuggerEmulationService and operate on trace schedules.
-        - map_data_type applies the selected data type in the current trace view and returns a
-          bounded field/byte mapping. Use next_cursor/cursor to continue large mappings.
-        - read_registers refreshes from the live target when possible before reading trace-backed
-          register values. list_registers/read_registers are cursor-paged.
-        - Watch actions use Ghidra's Debugger watch service and update the visible Watches UI.
-        - go_to_address navigates the active Debugger listing. select_range updates the visible
-          Debugger listing selection. Address-affecting actions return UI effects so the visible
-          Ghidra UI follows successful MCP calls when the service is available.
-        </important_notes>
-
-        <return_value_summary>
-        - status: map with current debugger coordinates and target state.
-        - connection/launch/lifecycle actions: Trace RMI server, connection, target, trace, or
-          launcher metadata.
-        - list_* discovery actions: bounded rows and optional next_cursor.
-        - mapping actions: proposal/application metadata or translated dynamic/static addresses.
-        - execute/control actions: map or OperationResult describing the completed target action.
-        - list_breakpoints: list of logical breakpoints in the current trace.
-        - breakpoint mutations: OperationResult with affected address/count metadata.
-        - memory actions: hex_data/ascii/state rows or OperationResult for writes/cache changes.
-        - map_data_type: typed bytes plus bounded field rows and optional next_cursor.
-        - register/watch/object/remote/emulation actions: bounded rows or structured metadata.
-        </return_value_summary>
+        Connect to, control, and inspect Ghidra debugger targets and traces. Use status to find the
+        current target and trace before control actions. Live connection and launch actions require
+        Trace RMI services; control actions require an active target. read_memory refreshes live bytes
+        when possible, while read_trace_bytes reads cached trace bytes. write_memory changes the live
+        target; write_trace_bytes changes the trace cache. Many discovery actions return paged rows. Use
+        structured control actions before the raw execute command.
         """,
-    readOnlyHint = false)
+    readOnlyHint = false,
+    openWorldHint = true)
 public class DebuggerTool extends BaseMcpTool {
 
   private static final String ACTION_STATUS = "status";

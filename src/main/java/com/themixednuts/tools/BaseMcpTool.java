@@ -48,6 +48,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -244,7 +245,7 @@ public abstract class BaseMcpTool {
                       .name(annotation.mcpName())
                       .description(annotation.mcpDescription())
                       .inputSchema(mcpSchema)
-                      .title(annotation.title().isEmpty() ? null : annotation.title())
+                      .title(annotation.title().isEmpty() ? annotation.name() : annotation.title())
                       .annotations(createToolAnnotations(annotation));
               Map<String, Object> toolOutputSchema = outputSchema();
               if (toolOutputSchema != null) {
@@ -280,28 +281,19 @@ public abstract class BaseMcpTool {
     return DEFAULT_OUTPUT_SCHEMA;
   }
 
-  /**
-   * Creates ToolAnnotations from the @GhidraMcpTool annotation hints. Returns null if all hints are
-   * at their default values.
-   */
+  /** Creates ToolAnnotations from the @GhidraMcpTool annotation hints. */
   private ToolAnnotations createToolAnnotations(GhidraMcpTool annotation) {
     boolean hasTitle = !annotation.title().isEmpty();
     boolean hasReadOnly = annotation.readOnlyHint();
     boolean hasDestructive = annotation.destructiveHint();
     boolean hasIdempotent = annotation.idempotentHint();
-    boolean hasOpenWorld = annotation.openWorldHint();
-
-    // Only create annotations if at least one hint is set
-    if (!hasTitle && !hasReadOnly && !hasDestructive && !hasIdempotent && !hasOpenWorld) {
-      return null;
-    }
 
     return new ToolAnnotations(
         hasTitle ? annotation.title() : null,
         hasReadOnly ? Boolean.TRUE : null,
         hasDestructive ? Boolean.TRUE : null,
         hasIdempotent ? Boolean.TRUE : null,
-        hasOpenWorld ? Boolean.TRUE : null,
+        annotation.openWorldHint(),
         null // returnDirect - not exposed in annotation
         );
   }
@@ -934,21 +926,33 @@ public abstract class BaseMcpTool {
   }
 
   /** Retrieves an optional List of Maps argument. */
-  @SuppressWarnings("unchecked")
   protected Optional<List<Map<String, Object>>> getOptionalListArgument(
       Map<String, Object> args, String argumentName) {
-    return Optional.ofNullable(args.get(argumentName))
-        .filter(List.class::isInstance)
-        .map(List.class::cast)
-        .flatMap(
-            list -> {
-              try {
-                return Optional.of((List<Map<String, Object>>) list);
-              } catch (ClassCastException e) {
-                Msg.warn(this, "Argument '" + argumentName + "' contains unexpected types.", e);
-                return Optional.empty();
-              }
-            });
+    Object value = args.get(argumentName);
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof List<?> list)) {
+      throw new GhidraMcpException(GhidraMcpError.invalid(argumentName, "expected an array"));
+    }
+    List<Map<String, Object>> items = new ArrayList<>(list.size());
+    for (int index = 0; index < list.size(); index++) {
+      Object item = list.get(index);
+      if (!(item instanceof Map<?, ?> map)) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(argumentName + "[" + index + "]", "expected an object"));
+      }
+      Map<String, Object> fields = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        if (!(entry.getKey() instanceof String key)) {
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(argumentName + "[" + index + "]", "expected string keys"));
+        }
+        fields.put(key, entry.getValue());
+      }
+      items.add(fields);
+    }
+    return Optional.of(items);
   }
 
   /** Retrieves an optional Map<String, Object> argument. */
@@ -1289,7 +1293,21 @@ public abstract class BaseMcpTool {
       }
     }
 
-    // Phase 4: array reconstruction for edge forms (e.g. "/MyStruct [2]").
+    // Phase 4: pointer reconstruction for edge forms (e.g. "/MyStruct *").
+    LinkedHashSet<String> pointerCandidates = new LinkedHashSet<>();
+    addCandidate(pointerCandidates, trimmedName);
+    addCandidate(pointerCandidates, collapsedWhitespace);
+    addCandidate(pointerCandidates, normalizedArraySpacing);
+    pointerCandidates.addAll(extensionCandidates);
+
+    for (String candidate : pointerCandidates) {
+      DataType pointerResolved = tryResolvePointerExpression(dtm, candidate);
+      if (pointerResolved != null) {
+        return pointerResolved;
+      }
+    }
+
+    // Phase 5: array reconstruction for edge forms (e.g. "/MyStruct [2]").
     LinkedHashSet<String> arrayCandidates = new LinkedHashSet<>();
     addCandidate(arrayCandidates, trimmedName);
     addCandidate(arrayCandidates, collapsedWhitespace);
@@ -1304,6 +1322,66 @@ public abstract class BaseMcpTool {
     }
 
     return null;
+  }
+
+  private DataType tryResolvePointerExpression(DataTypeManager dtm, String expression) {
+    if (expression == null) {
+      return null;
+    }
+
+    DataType pointer = tryResolvePointerCandidate(dtm, expression.trim());
+    if (pointer != null) {
+      return pointer;
+    }
+
+    String qualifierStripped = stripTypeQualifiers(expression);
+    if (!qualifierStripped.equals(expression.trim())) {
+      return tryResolvePointerCandidate(dtm, qualifierStripped);
+    }
+
+    return null;
+  }
+
+  private DataType tryResolvePointerCandidate(DataTypeManager dtm, String candidate) {
+    int end = candidate.length() - 1;
+    int pointerDepth = 0;
+    while (end >= 0) {
+      while (end >= 0 && Character.isWhitespace(candidate.charAt(end))) {
+        end--;
+      }
+      if (end < 0 || candidate.charAt(end) != '*') {
+        break;
+      }
+      pointerDepth++;
+      end--;
+    }
+
+    if (pointerDepth == 0) {
+      return null;
+    }
+
+    String baseExpression = candidate.substring(0, end + 1).trim();
+    if (baseExpression.isEmpty()) {
+      return null;
+    }
+
+    DataType resolved = resolveBaseDataTypeExpression(dtm, baseExpression);
+    if (resolved == null) {
+      return null;
+    }
+
+    for (int i = 0; i < pointerDepth; i++) {
+      resolved = dtm.getPointer(resolved);
+    }
+    return resolved;
+  }
+
+  private String stripTypeQualifiers(String expression) {
+    String stripped =
+        expression.replaceAll(
+            "(?i)\\b(const|volatile|restrict|__restrict|__ptr32|__ptr64|__unaligned)\\b", " ");
+    stripped = stripped.replaceAll("\\s*\\*\\s*", " * ");
+    return collapseWhitespace(stripped);
   }
 
   private LinkedHashSet<String> buildExtendedDataTypeCandidates(
@@ -1413,7 +1491,7 @@ public abstract class BaseMcpTool {
       return null;
     }
 
-    DataType baseType = resolveBaseDataTypeExpression(dtm, baseExpression);
+    DataType baseType = resolveDataTypeWithFallback(dtm, baseExpression);
     if (baseType == null) {
       return null;
     }

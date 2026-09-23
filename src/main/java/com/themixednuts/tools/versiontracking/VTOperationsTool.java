@@ -52,42 +52,10 @@ import reactor.core.publisher.Mono;
     mcpName = "vt_operations",
     mcpDescription =
         """
-        <use_case>
-        Perform all Version Tracking operations within a session: run correlators to find matches,
-        list/accept/reject matches, and apply/unapply markup items to migrate analysis between
-        source and destination programs.
-        </use_case>
-
-        <important_notes>
-        - Session must be created first with vt_sessions
-        - Actions for matches: accept, reject, clear, accept_bulk, reject_bulk, list_matches
-        - Actions for correlators: list_correlators, run_correlator
-        - Actions for markup: list_markup, apply_markup, apply_all_markup, unapply_markup
-        - Accepting a match may block other matches that conflict with it
-        - Markup can only be applied to ACCEPTED matches
-        - Changes are persisted to the VT session file automatically
-        - Use exclude_default_names: true in list_matches to find matches with user-defined source names for propagation
-        - list_matches is bounded by page_size. Pass returned next_cursor as cursor to continue
-          with the same match filters.
-        - Recommended multi-pass workflow for finding changed functions between binary versions:
-          1. Run exact correlators (symbol_name, exact_bytes, exact_instructions) to establish baseline matches
-          2. accept_bulk the high-confidence exact matches (similarity=1.0)
-          3. Run reference-based correlators (combined_reference, function_reference) with min_similarity=0.5
-          4. Matches with similarity < 1.0 from step 3 are functions that CHANGED between versions
-          5. Use list_matches with min_similarity/max_similarity filters to find specific ranges
-          6. Apply markup to propagate analysis from accepted matches
-        - Reference correlators (function_reference, data_reference, combined_reference) require accepted matches to work — run exact correlators and accept first
-        - Use min_similarity and min_confidence args with run_correlator to tune reference/similarity correlator thresholds
-        </important_notes>
-
-        <return_value_summary>
-        - accept/reject/clear: Returns affected count and blocked count
-        - accept_bulk/reject_bulk: Returns count of matches processed
-        - list_matches: Returns paginated VTMatchInfo list
-        - list_correlators: Returns available correlator types
-        - run_correlator: Returns match count from correlator run
-        - list_markup/apply_markup/apply_all_markup/unapply_markup: Returns markup operation results
-        </return_value_summary>
+        Compare programs within an existing Version Tracking session. Run or list correlators, list
+        and accept or reject matches, then apply or unapply markup to transfer analysis. Reference
+        correlators need accepted baseline matches, and markup applies only to accepted matches.
+        list_matches returns paged rows. Create or open the session with vt_sessions first.
         """)
 public class VTOperationsTool extends BaseVTTool {
 

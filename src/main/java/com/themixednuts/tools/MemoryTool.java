@@ -60,95 +60,11 @@ import reactor.core.publisher.Mono;
     mcpName = "memory",
     mcpDescription =
         """
-        <use_case>
-        Memory operations for reverse engineering. Read and write bytes, define data types at
-        addresses, map bytes through data types, undefine code units, list memory blocks with
-        filtering, and search for patterns. Essential for understanding program structure,
-        applying structs/vtables, patching code, clearing incorrect disassembly, and finding data
-        in memory.
-        </use_case>
-
-        <important_notes>
-        - Read/write operations validate memory accessibility and permissions
-        - Memory modifications are transactional and reversible
-        - list_blocks supports filtering by name, permissions, and size
-        - list_blocks and search are bounded by page_size. map_data_type is bounded by
-          max_fields. Pass returned next_cursor as cursor to continue with the same filters and
-          address bounds.
-        - search supports string, hex, binary, decimal, float, double, and regex patterns
-        - Successful define and map_data_type calls navigate the active Ghidra UI to the address
-          where the data type was applied when the CodeBrowser navigation service is available.
-        - Use `inspect` (action: references_to/references_from) for cross-reference analysis
-        - For memory layout overview, use the ghidra://program/{name}/memory resource
-        </important_notes>
-
-        <examples>
-        Read memory bytes:
-        {
-          "file_name": "program.exe",
-          "action": "read",
-          "address": "0x401000",
-          "length": 16
-        }
-
-        Write bytes to memory:
-        {
-          "file_name": "program.exe",
-          "action": "write",
-          "address": "0x401000",
-          "bytes_hex": "4889e5"
-        }
-
-        Undefine code unit at address:
-        {
-          "file_name": "program.exe",
-          "action": "undefine",
-          "address": "0x401000"
-        }
-
-        Apply a data type and return a byte-to-field mapping:
-        {
-          "file_name": "program.exe",
-          "action": "map_data_type",
-          "address": "0x401000",
-          "data_type_path": "/PacketHeader",
-          "max_fields": 128
-        }
-
-        List memory blocks:
-        {
-          "file_name": "program.exe",
-          "action": "list_blocks"
-        }
-
-        Search memory for hex pattern:
-        {
-          "file_name": "program.exe",
-          "action": "search",
-          "search_type": "hex",
-          "search_value": "55 48 89 e5"
-        }
-
-        Search a bounded address range for a string:
-        {
-          "file_name": "program.exe",
-          "action": "search",
-          "search_type": "string",
-          "search_value": "decrypt",
-          "address_start": "0x140001000",
-          "address_end":   "0x140100000"
-        }
-
-        Apply a function-pointer vtable starting at an address. Walks forward
-        defining each slot as a pointer and creating the target function until
-        a slot fails the function-pointer test or another structure begins:
-        {
-          "file_name": "program.exe",
-          "action": "apply_vtable",
-          "address": "0x140100000",
-          "max_slots": 64
-        }
-        </examples>
+        Read or modify static program memory. Use read and write for bytes, define or map_data_type
+        for typed data, undefine to clear code or data, apply_vtable for function-pointer tables,
+        list_blocks for layout, and search for byte or value patterns. list_blocks, search, and
+        map_data_type return bounded results that can be paged. Pass file_name and an address for
+        location-based actions.
         """)
 public class MemoryTool extends BaseMcpTool {
 
@@ -305,7 +221,8 @@ public class MemoryTool extends BaseMcpTool {
     schemaRoot.property(
         ARG_ADDRESS,
         com.themixednuts.utils.jsonschema.draft7.SchemaBuilder.string(mapper)
-            .description("Memory address for read/write operations")
+            .description(
+                "Start address for read, write, define, map_data_type, undefine, or apply_vtable")
             .pattern(ADDRESS_PATTERN));
 
     schemaRoot.property(
@@ -1129,19 +1046,7 @@ public class MemoryTool extends BaseMcpTool {
           AddressSetView fullAddressSet = program.getMemory().getLoadedAndInitializedAddressSet();
 
           if (fullAddressSet.isEmpty()) {
-            throw new GhidraMcpException(
-                GhidraMcpError.searchNoResults()
-                    .errorCode(GhidraMcpError.ErrorCode.NO_SEARCH_RESULTS)
-                    .message("No initialized memory regions found in the program")
-                    .context(
-                        new GhidraMcpError.ErrorContext(
-                            getMcpName(),
-                            "memory region check",
-                            Map.of(
-                                "search_value", searchValue, "search_type", searchType.getValue()),
-                            Map.of("address_set_size", fullAddressSet.getNumAddresses()),
-                            Map.of("program_name", program.getName())))
-                    .build());
+            return new PaginatedResult<>(Collections.<SearchResult>emptyList(), null);
           }
 
           // Apply optional explicit bounds (address_start/address_end) on top of the full set,
@@ -1183,28 +1088,7 @@ public class MemoryTool extends BaseMcpTool {
                   .collect(Collectors.toList());
 
           if (allResults.isEmpty()) {
-            throw new GhidraMcpException(
-                GhidraMcpError.searchNoResults()
-                    .errorCode(GhidraMcpError.ErrorCode.NO_SEARCH_RESULTS)
-                    .message("No matches found for the search pattern")
-                    .context(
-                        new GhidraMcpError.ErrorContext(
-                            getMcpName(),
-                            "search execution",
-                            Map.of(
-                                "search_value", searchValue, "search_type", searchType.getValue()),
-                            Map.of(
-                                "address_set_size",
-                                fullAddressSet.getNumAddresses(),
-                                "page_size",
-                                pageSize),
-                            Map.of(
-                                "program_name",
-                                program.getName(),
-                                "endianness",
-                                program.getMemory().isBigEndian() ? "big" : "little")))
-                    .suggestions(buildNoResultsSuggestions(searchType, searchValue, caseSensitive))
-                    .build());
+            return new PaginatedResult<>(Collections.<SearchResult>emptyList(), null);
           }
 
           boolean hasMore = allResults.size() > pageSize;
@@ -1347,99 +1231,6 @@ public class MemoryTool extends BaseMcpTool {
           GhidraMcpError.invalid(ARG_CURSOR, cursor, "cursor must be a valid memory address"));
     }
     return decodedAddress;
-  }
-
-  /**
-   * Builds zero-result recovery suggestions tailored to the search type — UTF-16-as-hex,
-   * case-insensitivity, regex/string crossovers, address-range bounding — so the caller can rerun
-   * with a likelier-to-hit configuration on the next attempt.
-   */
-  private List<GhidraMcpError.ErrorSuggestion> buildNoResultsSuggestions(
-      SearchType searchType, String searchValue, boolean caseSensitive) {
-    List<GhidraMcpError.ErrorSuggestion> suggestions = new ArrayList<>();
-
-    if (searchType == SearchType.STRING) {
-      List<String> examples = new ArrayList<>();
-      if (caseSensitive) {
-        examples.add(
-            "Retry with case_sensitive=false (the search ran case-sensitive by default off but"
-                + " the value may have alternate casing)");
-      }
-      // UTF-16LE-as-hex fallback: a string searched as UTF-16 in a Windows binary often misses on
-      // a plain string match. Provide the literal hex pattern so the agent can paste it back.
-      String utf16Hex = formatUtf16LeHex(searchValue);
-      if (utf16Hex != null) {
-        examples.add(
-            "Try search_type=hex with UTF-16LE bytes: '"
-                + utf16Hex
-                + "' (interleaves null bytes for wide-char strings)");
-      }
-      examples.add(
-          "Try search_type=regex with a relaxed pattern (e.g. surrounding the term with .*)");
-      examples.add("Constrain with address_start/address_end to skip unrelated regions");
-      suggestions.add(
-          new GhidraMcpError.ErrorSuggestion(
-              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-              "String not found — try wider encoding or pattern",
-              "Common reasons: the program stores it as UTF-16LE, the casing differs, or the"
-                  + " literal is split across constants",
-              examples,
-              null));
-    } else if (searchType == SearchType.HEX) {
-      suggestions.add(
-          new GhidraMcpError.ErrorSuggestion(
-              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-              "Hex pattern not found — verify byte order and grouping",
-              "Hex bytes must be space-separated; multibyte values respect program endianness",
-              List.of(
-                  "Use space-separated bytes: '48 65 6c 6c 6f'",
-                  "Reverse byte order if you wrote a big-endian value on a little-endian program",
-                  "Drop trailing wildcards (Ghidra hex search does not accept '?'); use regex"
-                      + " instead"),
-              null));
-    } else if (searchType == SearchType.REGEX) {
-      suggestions.add(
-          new GhidraMcpError.ErrorSuggestion(
-              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-              "Regex matched nothing — broaden the pattern",
-              "Ghidra's regex search runs over raw memory bytes, not decoded text",
-              List.of(
-                  "Try search_type=string for plain text",
-                  "Anchor less aggressively (avoid leading '^' / trailing '$')",
-                  "Check for embedded null bytes if the target is UTF-16"),
-              null));
-    } else {
-      suggestions.add(
-          new GhidraMcpError.ErrorSuggestion(
-              GhidraMcpError.ErrorSuggestion.SuggestionType.FIX_REQUEST,
-              "Try a different search type",
-              "Numeric searches honor program endianness and width",
-              List.of(
-                  "Switch search_type to hex for an explicit byte pattern",
-                  "Bound the search with address_start/address_end if the value is"
-                      + " region-specific"),
-              null));
-    }
-    return suggestions;
-  }
-
-  private static String formatUtf16LeHex(String value) {
-    if (value == null || value.isEmpty()) {
-      return null;
-    }
-    StringBuilder builder = new StringBuilder(value.length() * 6);
-    for (int i = 0; i < value.length(); i++) {
-      char c = value.charAt(i);
-      if (c > 0xFF) {
-        // Non-ASCII chars — give up rather than emit a misleading hint.
-        return null;
-      }
-      if (builder.length() > 0) {
-        builder.append(' ');
-      }
-      builder.append(String.format("%02x 00", (int) c));
-    }
-    return builder.toString();
   }
 
   /** Validates hex format and provides helpful suggestions for common format issues. */

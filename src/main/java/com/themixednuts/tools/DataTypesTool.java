@@ -37,124 +37,11 @@ import reactor.core.publisher.Mono;
     mcpName = "data_types",
     mcpDescription =
         """
-        <use_case>
-        Data type lifecycle operations for Ghidra programs. List and browse data types with filtering
-        and pagination, get detailed data type info, create and update structures, enums, unions,
-        typedefs, pointers, function definitions, and categories. Essential for reverse engineering
-        when you need to define custom data structures and organize type information.
-        </use_case>
-
-        <important_notes>
-        - Actions: list, get, create, update (no "create_category" — use create with data_type_kind="category")
-        - list returns compact summary rows; use get to fetch full struct/union/enum/function details
-        - list is bounded by page_size. Pass returned next_cursor as cursor to continue with the same filters
-        - Required param for create/update: data_type_kind (NOT "kind" or "type")
-        - Struct/union members use "members" array (NOT "fields"), with "data_type_path" for types (NOT "type")
-        - Enum values use "entries" array with "name" and "value" keys
-        - Update with members defaults to replacing ALL existing members; use member_update_mode="patch" for granular edits (by offset for structs, by ordinal for unions)
-        - Use 'update' instead of 'delete' + 'create' to preserve existing references
-        - For browsing without filtering, use the ghidra://program/{name}/datatypes resource
-        </important_notes>
-
-        <member_format>
-        Struct/union members: {"name": "field_name", "data_type_path": "int", "comment": "optional"}
-        - data_type_path accepts: "int", "byte", "ushort", "char *", "/MyCategory/MyType", "int[10]"
-        - Alternative: use "data_type_id" (numeric) instead of "data_type_path" for known types
-        - For structs: optional "offset" (-1 or omit to append)
-        - For struct patch mode: "offset" is required, only provided fields (name, data_type_path, comment) are updated
-        Enum entries: {"name": "ENTRY_NAME", "value": 42, "comment": "optional"}
-        Function parameters: {"name": "param1", "type": "int *"}
-        </member_format>
-
-        <examples>
-        List all data types (first page):
-        {
-          "file_name": "program.exe",
-          "action": "list"
-        }
-
-        List data types matching a regex pattern:
-        {
-          "file_name": "program.exe",
-          "action": "list",
-          "name_pattern": ".*MyStruct.*"
-        }
-
-        Get a single data type by name:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "category_path": "/MyTypes"
-        }
-
-        Get a single data type by ID:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "data_type_kind": "struct",
-          "data_type_id": 12345
-        }
-
-        Create a category:
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "data_type_kind": "category",
-          "name": "MyCategory",
-          "category_path": "/"
-        }
-
-        Create a struct with members:
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "members": [
-            {"name": "field1", "data_type_path": "int"},
-            {"name": "field2", "data_type_path": "char *"}
-          ]
-        }
-
-        Update an existing struct (RECOMMENDED over delete+create):
-        {
-          "file_name": "program.exe",
-          "action": "update",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "members": [
-            {"name": "field1", "data_type_path": "int"},
-            {"name": "field2", "data_type_path": "char *"},
-            {"name": "field3", "data_type_path": "float"}
-          ]
-        }
-
-        Patch a struct member (rename field at offset 4):
-        {
-          "file_name": "program.exe",
-          "action": "update",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "member_update_mode": "patch",
-          "members": [
-            {"offset": 4, "name": "new_field_name"}
-          ]
-        }
-
-        Patch a struct member (change type and comment at offset 8):
-        {
-          "file_name": "program.exe",
-          "action": "update",
-          "data_type_kind": "struct",
-          "name": "MyStruct",
-          "member_update_mode": "patch",
-          "members": [
-            {"offset": 8, "data_type_path": "long", "comment": "updated comment"}
-          ]
-        }
-        </examples>
+        List, get, create, or update Ghidra structures, unions, enums, typedefs, function definitions,
+        and categories in an open program. list returns paged summaries; get returns one type's
+        details. For create or update, set data_type_kind. Structures and unions use members with
+        data_type_path; enums use entries. Updating members replaces the full member set unless
+        member_update_mode=patch is set.
         """)
 public class DataTypesTool extends BaseMcpTool {
 
@@ -773,6 +660,9 @@ public class DataTypesTool extends BaseMcpTool {
     if (dataType instanceof ghidra.program.model.data.Enum) {
       return "enum";
     }
+    if (isPointerAlias(dataType)) {
+      return "pointer";
+    }
     if (dataType instanceof TypeDef) {
       return "typedef";
     }
@@ -819,7 +709,7 @@ public class DataTypesTool extends BaseMcpTool {
       case "composite" -> dataType instanceof Composite;
       case "enum" -> dataType instanceof ghidra.program.model.data.Enum;
       case "typedef" -> dataType instanceof TypeDef;
-      case "pointer" -> dataType instanceof Pointer;
+      case "pointer" -> dataType instanceof Pointer || isPointerAlias(dataType);
       case "array" -> dataType instanceof Array;
       case "function", "function_definition" -> dataType instanceof FunctionDefinition;
       default -> dataType.getClass().getSimpleName().toLowerCase().contains(kind);
@@ -846,6 +736,9 @@ public class DataTypesTool extends BaseMcpTool {
                     .map(CategoryPath::new)
                     .orElse(CategoryPath.ROOT);
             dataType = dtm.getDataType(categoryPath, nameOpt.get());
+            if (dataType == null && looksLikeDataTypePathOrExpression(nameOpt.get())) {
+              dataType = resolveDataTypeWithFallback(dtm, nameOpt.get());
+            }
           }
 
           if (dataType == null) {
@@ -930,12 +823,30 @@ public class DataTypesTool extends BaseMcpTool {
     if (dataType instanceof Structure) return "struct";
     if (dataType instanceof ghidra.program.model.data.Enum) return "enum";
     if (dataType instanceof Union) return "union";
+    if (isPointerAlias(dataType)) return "pointer";
     if (dataType instanceof TypeDef) return "typedef";
     if (dataType instanceof Pointer) return "pointer";
     if (dataType instanceof FunctionDefinitionDataType) return "function_definition";
     if (dataType instanceof Array) return "array";
 
     return dataType.getClass().getSimpleName().toLowerCase();
+  }
+
+  private boolean looksLikeDataTypePathOrExpression(String name) {
+    if (name == null) {
+      return false;
+    }
+    return name.startsWith("/")
+        || name.contains("*")
+        || name.contains("[")
+        || name.contains("]")
+        || name.contains("::")
+        || name.contains("<")
+        || name.contains(">");
+  }
+
+  private boolean isPointerAlias(DataType dataType) {
+    return dataType instanceof TypeDef typedef && typedef.getBaseDataType() instanceof Pointer;
   }
 
   private Object buildUpdateResult(
@@ -1209,6 +1120,7 @@ public class DataTypesTool extends BaseMcpTool {
             .orElse(CategoryPath.ROOT);
 
     ensureCategoryExists(dtm, categoryPath);
+    checkDataTypeExists(dtm, categoryPath, name);
 
     String baseType = getRequiredStringArgument(args, "base_type");
     DataType baseDataType = resolveDataTypeWithFallback(dtm, baseType);
@@ -1241,6 +1153,7 @@ public class DataTypesTool extends BaseMcpTool {
             .orElse(CategoryPath.ROOT);
 
     ensureCategoryExists(dtm, categoryPath);
+    checkDataTypeExists(dtm, categoryPath, name);
 
     String baseType = getRequiredStringArgument(args, "base_type");
     DataType baseDataType = resolveDataTypeWithFallback(dtm, baseType);
@@ -1276,6 +1189,7 @@ public class DataTypesTool extends BaseMcpTool {
             .orElse(CategoryPath.ROOT);
 
     ensureCategoryExists(dtm, categoryPath);
+    checkDataTypeExists(dtm, categoryPath, name);
 
     String returnType = getOptionalStringArgument(args, "return_type").orElse("void");
     DataType returnDataType = resolveDataTypeWithFallback(dtm, returnType);

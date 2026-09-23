@@ -1,5 +1,6 @@
 package com.themixednuts.prompts;
 
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpPrompt;
 import com.themixednuts.utils.GhidraAddressParser;
 import ghidra.app.decompiler.DecompInterface;
@@ -30,8 +31,6 @@ import reactor.core.publisher.Mono;
         "Analyze a function in detail including decompiled code, references, and potential issues. "
             + "Provide comprehensive reverse engineering insights.")
 public class AnalyzeFunctionPrompt extends BaseMcpPrompt {
-
-  private static final int DECOMPILE_TIMEOUT_SECONDS = 30;
 
   @Override
   public List<PromptArgument> getArguments() {
@@ -73,7 +72,7 @@ public class AnalyzeFunctionPrompt extends BaseMcpPrompt {
             decompiler.openProgram(program);
             DecompileResults results =
                 decompiler.decompileFunction(
-                    function, DECOMPILE_TIMEOUT_SECONDS, TaskMonitor.DUMMY);
+                    function, GhidraMcpServer.getRequestTimeoutSeconds(), TaskMonitor.DUMMY);
 
             // Build the prompt content
             StringBuilder promptText = new StringBuilder();
@@ -98,12 +97,16 @@ public class AnalyzeFunctionPrompt extends BaseMcpPrompt {
 
             // Add decompiled code
             promptText.append("## Decompiled Code\n```c\n");
-            if (results.decompileCompleted() && results.getDecompiledFunction() != null) {
+            if (results != null
+                && results.decompileCompleted()
+                && results.getDecompiledFunction() != null) {
               promptText.append(results.getDecompiledFunction().getC());
             } else {
               promptText.append("// Decompilation failed: ");
               promptText.append(
-                  results.getErrorMessage() != null ? results.getErrorMessage() : "Unknown error");
+                  results != null && results.getErrorMessage() != null
+                      ? results.getErrorMessage()
+                      : "Unknown error");
             }
             promptText.append("\n```\n\n");
 

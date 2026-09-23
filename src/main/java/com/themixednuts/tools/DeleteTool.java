@@ -40,40 +40,10 @@ import reactor.core.publisher.Mono;
     destructiveHint = true,
     mcpDescription =
         """
-        <use_case>
-        Single destructive tool that handles deletion of functions, symbols, data types,
-        and bookmarks. All destructive delete operations are consolidated here so MCP clients
-        can deny this single tool to prevent any data loss.
-        </use_case>
-
-        <important_notes>
-        - DESTRUCTIVE: All actions in this tool permanently remove data from the program
-        - MCP clients can deny this entire tool to prevent accidental data loss
-        - Prefer update actions (functions, symbols, data_types) over delete-and-recreate
-        - Undo/redo is the only recovery mechanism after deletion
-        - Four actions: function, symbol, data_type, bookmark
-        - Bookmark deletion requires at least one filter OR explicit delete_all=true
-        </important_notes>
-
-        <examples>
-        Delete a function by address:
-        { "file_name": "program.exe", "action": "function", "address": "0x401500" }
-
-        Delete a symbol by name:
-        { "file_name": "program.exe", "action": "symbol", "name": "old_label" }
-
-        Delete a data type by name:
-        { "file_name": "program.exe", "action": "data_type", "data_type_kind": "struct",
-          "name": "MyStruct", "category_path": "/MyTypes" }
-
-        Delete bookmarks with a filter:
-        { "file_name": "program.exe", "action": "bookmark", "address": "0x401000",
-          "bookmark_type": "Note", "bookmark_category": "Analysis" }
-
-        Delete all bookmarks at an address:
-        { "file_name": "program.exe", "action": "bookmark", "address": "0x401000",
-          "delete_all": true }
-        </examples>
+        Delete a function, symbol, data type, or bookmark from an open program. Choose
+        action=function, symbol, data_type, or bookmark and pass file_name. These actions remove
+        program data; use an update action when changing an existing item. Bookmark deletion requires
+        a filter or explicit delete_all=true.
         """)
 public class DeleteTool extends BaseMcpTool {
 

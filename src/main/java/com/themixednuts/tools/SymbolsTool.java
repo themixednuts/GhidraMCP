@@ -39,98 +39,10 @@ import reactor.core.publisher.Mono;
     mcpName = "symbols",
     mcpDescription =
         """
-         <use_case>
-         Symbol lifecycle operations for reverse engineering workflows. List and browse symbols
-         with filtering and pagination, get detailed symbol info by identifier, create labels and
-         namespaces, rename symbols, update symbol properties, and convert namespaces to classes.
-         </use_case>
-
-         <important_notes>
-         - Supports multiple symbol identification methods (name, address, symbol_id)
-         - List mode returns compact rows in address order by default. Prefix regex filters such
-           as "^entry_.*" use Ghidra's name-ordered symbol scan for faster search.
-         - List mode is bounded by page_size. Pass returned next_cursor as cursor to continue
-           with the same filters.
-         - List rows include symbol_id for stable follow-up get/update/delete calls. Use get for
-           detailed source/primary/global/external metadata.
-         - Get mode returns detailed SymbolInfo by symbol_id, address, or name (with wildcard support)
-         - Handles namespace organization and symbol scoping
-         - Validates symbol names according to Ghidra rules
-         - Can convert existing namespaces to classes using the convert_to_class action
-         - Namespace to class conversion requires the namespace to not be within a function
-         - For deleting symbols, use the `delete` tool (action: symbol) instead
-         - For browsing all symbols without filtering, use the ghidra://program/{name}/symbols resource
-         </important_notes>
-
-        <examples>
-        List all symbols (first page):
-        {
-          "file_name": "program.exe",
-          "action": "list"
-        }
-
-        List symbols matching regex pattern:
-        {
-          "file_name": "program.exe",
-          "action": "list",
-          "name_pattern": ".*decrypt.*"
-        }
-
-        Get a symbol by ID:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "symbol_id": 12345
-        }
-
-        Get a symbol at an address:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "address": "0x401000"
-        }
-
-        Get a symbol by name:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "name": "main"
-        }
-
-        Create a label at a specific address:
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "symbol_type": "label",
-          "address": "0x401000",
-          "name": "main_entry"
-        }
-
-        Create a namespace:
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "symbol_type": "namespace",
-          "name": "MyNamespace",
-          "namespace": "ParentNamespace"
-        }
-
-        Rename a symbol by its current name:
-        {
-          "file_name": "program.exe",
-          "action": "update",
-          "current_name": "FUN_00401000",
-          "new_name": "main_function"
-        }
-
-        Convert a namespace to a class:
-        {
-          "file_name": "program.exe",
-          "action": "convert_to_class",
-          "name": "AutoClass3",
-          "namespace": "optional::parent::namespace"
-        }
-        </examples>
+        List, get, create, or update symbols, labels, and namespaces in an open program;
+        convert_to_class changes a namespace to a class. list returns paged summary rows with
+        symbol_id; get returns full symbol details. Use symbol_id for stable follow-up edits. Pass
+        file_name. Use delete with action=symbol to remove a symbol.
         """)
 public class SymbolsTool extends BaseMcpTool {
 
@@ -735,7 +647,9 @@ public class SymbolsTool extends BaseMcpTool {
       Optional<String> namespaceOpt,
       GhidraMcpTool annotation)
       throws GhidraMcpException {
-    AddLabelCmd cmd = new AddLabelCmd(address, name, SourceType.USER_DEFINED);
+    SymbolTable symbolTable = program.getSymbolTable();
+    Namespace namespace = resolveTargetNamespace(symbolTable, program, namespaceOpt);
+    AddLabelCmd cmd = new AddLabelCmd(address, name, namespace, SourceType.USER_DEFINED);
 
     if (!cmd.applyTo(program)) {
       throw new GhidraMcpException(
@@ -744,13 +658,9 @@ public class SymbolsTool extends BaseMcpTool {
     }
 
     // Get the created symbol to return its info
-    Symbol[] symbols = program.getSymbolTable().getSymbols(address);
-    Symbol createdSymbol = null;
-    for (Symbol symbol : symbols) {
-      if (symbol.getName().equals(name)) {
-        createdSymbol = symbol;
-        break;
-      }
+    Symbol createdSymbol = cmd.getSymbol();
+    if (createdSymbol == null) {
+      createdSymbol = symbolTable.getSymbol(name, address, namespace);
     }
 
     if (createdSymbol == null) {
@@ -779,9 +689,10 @@ public class SymbolsTool extends BaseMcpTool {
       // Use NamespaceUtils for clean hierarchical class creation:
       // 1. Create full namespace hierarchy (even for simple names)
       // 2. Convert the final namespace to a class
+      String classPath = sanitizeNamespacePathForCreation(name);
       Namespace namespace =
           NamespaceUtils.createNamespaceHierarchy(
-              name, parentNamespace, program, SourceType.USER_DEFINED);
+              classPath, parentNamespace, program, SourceType.USER_DEFINED);
 
       // Convert the namespace to a class
       Namespace classNamespace = NamespaceUtils.convertNamespaceToClass(namespace);
@@ -817,9 +728,10 @@ public class SymbolsTool extends BaseMcpTool {
       }
 
       // Use NamespaceUtils to create namespace hierarchy if needed
+      String namespacePath = sanitizeNamespacePathForCreation(name);
       Namespace namespace =
           NamespaceUtils.createNamespaceHierarchy(
-              name, parentNamespace, program, SourceType.USER_DEFINED);
+              namespacePath, parentNamespace, program, SourceType.USER_DEFINED);
 
       Symbol namespaceSymbol = namespace.getSymbol();
       return new SymbolInfo(namespaceSymbol);
@@ -987,19 +899,21 @@ public class SymbolsTool extends BaseMcpTool {
       return program.getGlobalNamespace();
     }
 
-    String namespacePath = namespaceOpt.get();
+    String namespacePath = namespaceOpt.get().trim();
+    String creatableNamespacePath = sanitizeNamespacePathForCreation(namespacePath);
 
     // Try to resolve namespace by path (supports hierarchical paths like
     // "Outer::Inner")
-    try {
-      List<Namespace> namespaces =
-          NamespaceUtils.getNamespaceByPath(program, program.getGlobalNamespace(), namespacePath);
+    Namespace resolved = resolveNamespaceByPath(program, namespacePath);
+    if (resolved != null) {
+      return resolved;
+    }
 
-      if (namespaces != null && !namespaces.isEmpty()) {
-        return namespaces.get(0);
+    if (!creatableNamespacePath.equals(namespacePath)) {
+      resolved = resolveNamespaceByPath(program, creatableNamespacePath);
+      if (resolved != null) {
+        return resolved;
       }
-    } catch (Exception e) {
-      // Fall through to auto-create
     }
 
     // Auto-create the namespace hierarchy if it doesn't exist.
@@ -1007,7 +921,10 @@ public class SymbolsTool extends BaseMcpTool {
     try {
       Namespace created =
           NamespaceUtils.createNamespaceHierarchy(
-              namespacePath, program.getGlobalNamespace(), program, SourceType.USER_DEFINED);
+              creatableNamespacePath,
+              program.getGlobalNamespace(),
+              program,
+              SourceType.USER_DEFINED);
       // Convert the leaf namespace to a class (agents typically work with classes)
       if (created != null && !(created instanceof ghidra.program.model.listing.GhidraClass)) {
         try {
@@ -1019,8 +936,87 @@ public class SymbolsTool extends BaseMcpTool {
       return created;
     } catch (Exception e) {
       throw new GhidraMcpException(
-          GhidraMcpError.failed("create namespace", namespacePath + ": " + e.getMessage()));
+          GhidraMcpError.failed(
+              "create namespace", creatableNamespacePath + ": " + e.getMessage()));
     }
+  }
+
+  private Namespace resolveNamespaceByPath(Program program, String namespacePath) {
+    try {
+      List<Namespace> namespaces =
+          NamespaceUtils.getNamespaceByPath(program, program.getGlobalNamespace(), namespacePath);
+      if (namespaces != null && !namespaces.isEmpty()) {
+        return namespaces.get(0);
+      }
+    } catch (Exception ignored) {
+      // Invalid or unresolved paths fall through to sanitized namespace creation.
+    }
+    return null;
+  }
+
+  private String sanitizeNamespacePathForCreation(String namespacePath) throws GhidraMcpException {
+    List<String> sanitizedSegments = new ArrayList<>();
+    for (String segment : splitNamespacePath(namespacePath)) {
+      String rawSegment = segment.trim();
+      if (rawSegment.isBlank()) {
+        continue;
+      }
+      if (sanitizedSegments.isEmpty() && rawSegment.equalsIgnoreCase("global")) {
+        continue;
+      }
+      String sanitized = sanitizeNamespaceSegment(segment);
+      if (!sanitized.isBlank()) {
+        sanitizedSegments.add(sanitized);
+      }
+    }
+
+    if (sanitizedSegments.isEmpty()) {
+      throw new GhidraMcpException(GhidraMcpError.invalid(ARG_NAMESPACE, namespacePath, "empty"));
+    }
+
+    return String.join("::", sanitizedSegments);
+  }
+
+  private List<String> splitNamespacePath(String namespacePath) {
+    List<String> segments = new ArrayList<>();
+    int templateDepth = 0;
+    int segmentStart = 0;
+    for (int i = 0; i < namespacePath.length(); i++) {
+      char c = namespacePath.charAt(i);
+      if (c == '<') {
+        templateDepth++;
+      } else if (c == '>' && templateDepth > 0) {
+        templateDepth--;
+      } else if (c == ':' && i + 1 < namespacePath.length() && namespacePath.charAt(i + 1) == ':') {
+        if (templateDepth == 0) {
+          segments.add(namespacePath.substring(segmentStart, i));
+          i++;
+          segmentStart = i + 1;
+        }
+      }
+    }
+    segments.add(namespacePath.substring(segmentStart));
+    return segments;
+  }
+
+  private String sanitizeNamespaceSegment(String segment) throws GhidraMcpException {
+    String templateSafeSegment = segment.trim().replaceAll("[<>,:\\s\\*&\\[\\]]+", "_");
+    String sanitized =
+        SymbolUtilities.replaceInvalidChars(templateSafeSegment, true)
+            .replaceAll("_+", "_")
+            .replaceAll("^_+|_+$", "");
+
+    if (sanitized.isBlank()) {
+      throw new GhidraMcpException(GhidraMcpError.invalid(ARG_NAMESPACE, segment, "empty segment"));
+    }
+
+    try {
+      SymbolUtilities.validateName(sanitized);
+    } catch (InvalidInputException e) {
+      throw new GhidraMcpException(GhidraMcpError.invalid(ARG_NAMESPACE, segment, e.getMessage()));
+    }
+
+    return sanitized;
   }
 
   private GhidraMcpException multipleIdentifierError(

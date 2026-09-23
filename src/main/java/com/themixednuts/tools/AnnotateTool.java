@@ -29,38 +29,10 @@ import reactor.core.publisher.Mono;
     mcpName = "annotate",
     mcpDescription =
         """
-        <use_case>
-        Document findings at program locations using comments and bookmarks. This is the
-        primary tool for writing back analysis results — every effective RE workflow ends
-        with renaming, commenting, and retyping. Use after inspecting and understanding code.
-        </use_case>
-
-        <important_notes>
-        - Comments support 5 types: EOL (end-of-line), PRE (before code), POST (after code),
-          PLATE (block header), REPEATABLE (inherited by references)
-        - Setting a comment with empty text removes the existing comment of that type
-        - Bookmarks require type, category, and comment — use for marking locations for review
-        - list_bookmarks is bounded by page_size. Pass returned next_cursor as cursor to continue
-          with the same filters.
-        - Use `delete` tool to remove bookmarks (destructive operation kept separate)
-        - Comments and bookmarks are the agent's primary output mechanism for documenting findings
-        </important_notes>
-
-        <examples>
-        Set an end-of-line comment:
-        { "file_name": "program.exe", "action": "set_comment", "address": "0x401000",
-          "comment_type": "EOL", "text": "Main entry point — initializes subsystems" }
-
-        Get all comments at an address:
-        { "file_name": "program.exe", "action": "get_comments", "address": "0x401000" }
-
-        Create a bookmark for later review:
-        { "file_name": "program.exe", "action": "create_bookmark", "address": "0x401500",
-          "bookmark_type": "Analysis", "bookmark_category": "Suspicious", "comment": "Potential C2 callback" }
-
-        List all bookmarks:
-        { "file_name": "program.exe", "action": "list_bookmarks" }
-        </examples>
+        Read or set comments and create or list bookmarks in an open program. Use set_comment,
+        get_comments, create_bookmark, or list_bookmarks with file_name. An empty set_comment text
+        clears that comment type. list_bookmarks returns paged rows. Use delete with action=bookmark
+        to remove bookmarks.
         """)
 public class AnnotateTool extends BaseMcpTool {
 

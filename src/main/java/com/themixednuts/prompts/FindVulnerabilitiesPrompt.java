@@ -1,5 +1,6 @@
 package com.themixednuts.prompts;
 
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpPrompt;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -32,8 +33,6 @@ import reactor.core.publisher.Mono;
         "Scan the program for potential security vulnerabilities by identifying "
             + "dangerous function calls and providing decompiled context for analysis.")
 public class FindVulnerabilitiesPrompt extends BaseMcpPrompt {
-
-  private static final int DECOMPILE_TIMEOUT_SECONDS = 15;
 
   // Common dangerous functions
   private static final Set<String> DANGEROUS_FUNCTIONS =
@@ -174,10 +173,12 @@ public class FindVulnerabilitiesPrompt extends BaseMcpPrompt {
 
                 DecompileResults results =
                     decompiler.decompileFunction(
-                        func, DECOMPILE_TIMEOUT_SECONDS, TaskMonitor.DUMMY);
+                        func, GhidraMcpServer.getRequestTimeoutSeconds(), TaskMonitor.DUMMY);
 
                 promptText.append("```c\n");
-                if (results.decompileCompleted() && results.getDecompiledFunction() != null) {
+                if (results != null
+                    && results.decompileCompleted()
+                    && results.getDecompiledFunction() != null) {
                   promptText.append(results.getDecompiledFunction().getC());
                 } else {
                   promptText.append("// Decompilation failed\n");

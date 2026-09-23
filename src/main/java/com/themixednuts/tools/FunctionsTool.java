@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.FunctionInfo;
@@ -9,12 +10,16 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.ui.NavigateToAddressEffect;
 import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
+import com.themixednuts.utils.NameFilterPattern;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.SymbolLookupHelper;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.cmd.function.CreateFunctionCmd;
+import ghidra.app.decompiler.ClangFieldToken;
+import ghidra.app.decompiler.ClangNode;
+import ghidra.app.decompiler.ClangTokenGroup;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
@@ -23,19 +28,29 @@ import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
+import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.Pointer;
+import ghidra.program.model.data.TypeDef;
+import ghidra.program.model.data.Union;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
+import ghidra.program.model.pcode.DynamicHash;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.HighVariable;
 import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.pcode.PartialUnion;
+import ghidra.program.model.pcode.PcodeOp;
+import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
@@ -44,10 +59,13 @@ import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -57,143 +75,15 @@ import reactor.core.publisher.Mono;
 @GhidraMcpTool(
     name = "Functions",
     description =
-        "Function lifecycle: list, get, create, update prototypes, list/rename/retype variables.",
+        "Function lifecycle: list, get, create, update prototypes, variables, union facets.",
     mcpName = "functions",
     mcpDescription =
         """
-         <use_case>
-         Function lifecycle operations for reverse engineering workflows. List and browse functions
-         with filtering and pagination, get detailed function info by identifier, create functions,
-         update function prototypes, list stable decompiler variable targets, and rename/retype
-         local variables within functions.
-         </use_case>
-
-         <important_notes>
-         - Supports multiple function identification methods (name, address, symbol ID)
-         - List mode returns compact rows with symbol_id, name, and entry_point. Pass verbose=true
-           to include signature and namespace; use get for full metadata.
-         - List mode supports regex filtering by name_pattern, optional address_start/address_end bounds, explicit page_size limits, and cursor-based pagination. Keep filters stable and pass next_cursor as cursor to continue.
-         - Get mode returns detailed FunctionInfo by symbol_id, address, or name (with wildcard support)
-         - Handles function creation with automatic boundary detection
-         - Successful get/create/update_prototype calls navigate the active Ghidra UI to the target
-           function entry when the CodeBrowser navigation service is available.
-         - list_variables returns stable variable targets used by update_variable / rename_variable; pass verbose=true to include data_type, storage, and is_parameter metadata
-         - update_variable (rename_variable also supported as a compatibility alias) can rename and/or retype locals and parameters
-         - BATCH RENAMES: Use variable_symbol_id (from list_variables variable_symbol_id) instead of current_name. Auto-generated names (bVar0, bVar1, etc.) renumber when any variable is renamed. If you must use current_name, rename in descending order (highest-numbered first)
-         - Use `inspect` (action: decompile) for decompilation analysis
-         - For browsing all functions without filtering, use the ghidra://program/{name}/functions resource
-         </important_notes>
-
-        <examples>
-        List all functions (first page):
-        {
-          "file_name": "program.exe",
-          "action": "list"
-        }
-
-        List functions matching pattern:
-        {
-          "file_name": "program.exe",
-          "action": "list",
-          "name_pattern": ".*decrypt.*"
-        }
-
-        List functions whose entry points fall in a range:
-        {
-          "file_name": "program.exe",
-          "action": "list",
-          "address_start": "0x140001000",
-          "address_end":   "0x140002000"
-        }
-
-        Get a function by address:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "address": "0x401000"
-        }
-
-        Get a function by name:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "name": "main"
-        }
-
-        Get a function by symbol ID:
-        {
-          "file_name": "program.exe",
-          "action": "get",
-          "symbol_id": 12345
-        }
-
-        Create a function at an address with custom name:
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "address": "0x401000",
-          "function_name": "decrypt_data"
-        }
-
-        Create a function at an address (auto-generated name):
-        {
-          "file_name": "program.exe",
-          "action": "create",
-          "address": "0x401000"
-        }
-
-         List variables in a function (compact default):
-         {
-           "file_name": "program.exe",
-           "action": "list_variables",
-           "name": "main"
-         }
-
-         List variables with metadata:
-         {
-           "file_name": "program.exe",
-           "action": "list_variables",
-           "name": "main",
-           "verbose": true
-         }
-
-        Rename a local variable:
-        {
-          "file_name": "program.exe",
-          "action": "rename_variable",
-          "name": "main",
-          "current_name": "local_10",
-          "new_name": "buffer_size"
-        }
-
-        Rename a variable by symbol ID (stable for batch operations):
-        {
-          "file_name": "program.exe",
-          "action": "update_variable",
-          "name": "main",
-          "variable_symbol_id": "12345",
-          "new_name": "buffer_size"
-        }
-
-        Change a local variable's type:
-        {
-          "file_name": "program.exe",
-          "action": "update_variable",
-          "name": "main",
-          "variable_symbol_id": "12345",
-          "new_data_type": "char *"
-        }
-
-        Rename and retype a variable in one operation:
-        {
-          "file_name": "program.exe",
-          "action": "update_variable",
-          "name": "main",
-          "variable_symbol_id": "12345",
-          "new_name": "buffer",
-          "new_data_type": "char *"
-        }
-        </examples>
+        List, get, create, and edit functions in an open program. Use update_prototype for signatures,
+        list_variables and update_variable for locals or parameters, and list_union_field_candidates
+        before force_union_field. list returns paged summary rows with symbol_id; get returns full
+        metadata. For repeated variable edits, use variable_symbol_id from list_variables because
+        generated variable names can change after renaming. Use inspect to decompile code.
         """)
 public class FunctionsTool extends BaseMcpTool {
 
@@ -216,6 +106,13 @@ public class FunctionsTool extends BaseMcpTool {
   public static final String ARG_VERBOSE = "verbose";
   public static final String ARG_ADDRESS_START = "address_start";
   public static final String ARG_ADDRESS_END = "address_end";
+  public static final String ARG_UNION_TYPE_PATH = "union_type_path";
+  public static final String ARG_TOKEN_TEXT = "token_text";
+  public static final String ARG_CANDIDATE_INDEX = "candidate_index";
+  public static final String ARG_PC_ADDRESS = "pc_address";
+  public static final String ARG_DYNAMIC_HASH = "dynamic_hash";
+  public static final String ARG_FIELD_NAME = "field_name";
+  public static final String ARG_FIELD_ORDINAL = "field_ordinal";
 
   private static final String ACTION_LIST = "list";
   private static final String ACTION_GET = "get";
@@ -224,6 +121,8 @@ public class FunctionsTool extends BaseMcpTool {
   private static final String ACTION_LIST_VARIABLES = "list_variables";
   private static final String ACTION_RENAME_VARIABLE = "rename_variable";
   private static final String ACTION_UPDATE_VARIABLE = "update_variable";
+  private static final String ACTION_LIST_UNION_FIELD_CANDIDATES = "list_union_field_candidates";
+  private static final String ACTION_FORCE_UNION_FIELD = "force_union_field";
 
   @Override
   public JsonSchema schema() {
@@ -242,7 +141,9 @@ public class FunctionsTool extends BaseMcpTool {
                 ACTION_UPDATE_PROTOTYPE,
                 ACTION_LIST_VARIABLES,
                 ACTION_RENAME_VARIABLE,
-                ACTION_UPDATE_VARIABLE)
+                ACTION_UPDATE_VARIABLE,
+                ACTION_LIST_UNION_FIELD_CANDIDATES,
+                ACTION_FORCE_UNION_FIELD)
             .description("Action to perform on functions"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
@@ -257,7 +158,7 @@ public class FunctionsTool extends BaseMcpTool {
                     .property(
                         ARG_NAME_PATTERN,
                         SchemaBuilder.string(mapper)
-                            .description("Optional regex pattern to filter function names"))
+                            .description("Optional regex or * and ? glob to filter function names"))
                     .property(
                         ARG_ADDRESS_START,
                         SchemaBuilder.string(mapper)
@@ -378,7 +279,13 @@ public class FunctionsTool extends BaseMcpTool {
                     .property(
                         ARG_PARAMETERS,
                         SchemaBuilder.array(mapper)
-                            .description("Function parameters with 'name' and 'data_type' fields"))
+                            .description("Function parameters with 'name' and 'data_type' fields")
+                            .items(
+                                SchemaBuilder.object(mapper)
+                                    .property(ARG_PARAMETER_NAME, SchemaBuilder.string(mapper))
+                                    .property(ARG_PARAMETER_DATA_TYPE, SchemaBuilder.string(mapper))
+                                    .requiredProperty(ARG_PARAMETER_NAME)
+                                    .requiredProperty(ARG_PARAMETER_DATA_TYPE)))
                     .property(
                         ARG_NO_RETURN,
                         SchemaBuilder.bool(mapper).description("Whether function does not return"))
@@ -501,7 +408,135 @@ public class FunctionsTool extends BaseMcpTool {
                             .anyOf(
                                 SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                                 SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME)))));
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME)))),
+        // action=list_union_field_candidates: requires a function identifier, optional filters
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        SchemaBuilder.string(mapper)
+                            .constValue(ACTION_LIST_UNION_FIELD_CANDIDATES)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_SYMBOL_ID,
+                        SchemaBuilder.integer(mapper)
+                            .description("Function symbol ID for identification"))
+                    .property(
+                        ARG_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description("Function address for identification")
+                            .pattern(ADDRESS_PATTERN))
+                    .property(
+                        ARG_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description("Function name for identification"))
+                    .property(
+                        ARG_UNION_TYPE_PATH,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional union data type path/name filter"))
+                    .property(
+                        ARG_TOKEN_TEXT,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional currently displayed field token filter"))
+                    .property(
+                        ARG_PC_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional dynamic-hash address filter")
+                            .pattern(ADDRESS_PATTERN))
+                    .property(
+                        ARG_DYNAMIC_HASH,
+                        SchemaBuilder.anyOf(
+                                SchemaBuilder.string(mapper)
+                                    .pattern("^(?:-?\\d+|0[xX][0-9a-fA-F]+)$"),
+                                SchemaBuilder.integer(mapper))
+                            .description(
+                                "Optional dynamic hash filter. Pass as a string to avoid JSON"
+                                    + " number precision loss."))
+                    .anyOf(
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
+        // action=force_union_field: requires a function identifier, candidate target, and field
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        SchemaBuilder.string(mapper).constValue(ACTION_FORCE_UNION_FIELD)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_SYMBOL_ID,
+                        SchemaBuilder.integer(mapper)
+                            .description("Function symbol ID for identification"))
+                    .property(
+                        ARG_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description("Function address for identification")
+                            .pattern(ADDRESS_PATTERN))
+                    .property(
+                        ARG_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description("Function name for identification"))
+                    .property(
+                        ARG_CANDIDATE_INDEX,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Candidate index from list_union_field_candidates. Preferred."))
+                    .property(
+                        ARG_PC_ADDRESS,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Dynamic-hash address from list_union_field_candidates; use with"
+                                    + " dynamic_hash when candidate_index is not supplied")
+                            .pattern(ADDRESS_PATTERN))
+                    .property(
+                        ARG_DYNAMIC_HASH,
+                        SchemaBuilder.anyOf(
+                                SchemaBuilder.string(mapper)
+                                    .pattern("^(?:-?\\d+|0[xX][0-9a-fA-F]+)$"),
+                                SchemaBuilder.integer(mapper))
+                            .description(
+                                "Dynamic hash from list_union_field_candidates. Pass as a string"
+                                    + " to avoid JSON number precision loss."))
+                    .property(
+                        ARG_UNION_TYPE_PATH,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional union data type path/name filter"))
+                    .property(
+                        ARG_TOKEN_TEXT,
+                        SchemaBuilder.string(mapper)
+                            .description("Optional currently displayed field token filter"))
+                    .property(
+                        ARG_FIELD_NAME,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Union field name to force. Use \"(no field)\" to clear the"
+                                    + " forced field."))
+                    .property(
+                        ARG_FIELD_ORDINAL,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Zero-based union field ordinal to force; -1 clears the forced"
+                                    + " field."))
+                    .allOf(
+                        SchemaBuilder.objectDraft7(mapper)
+                            .anyOf(
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME)),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .anyOf(
+                                SchemaBuilder.objectDraft7(mapper)
+                                    .requiredProperty(ARG_CANDIDATE_INDEX),
+                                SchemaBuilder.objectDraft7(mapper)
+                                    .requiredProperty(ARG_PC_ADDRESS)
+                                    .requiredProperty(ARG_DYNAMIC_HASH)),
+                        SchemaBuilder.objectDraft7(mapper)
+                            .anyOf(
+                                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FIELD_NAME),
+                                SchemaBuilder.objectDraft7(mapper)
+                                    .requiredProperty(ARG_FIELD_ORDINAL)))));
 
     return schemaRoot.build();
   }
@@ -534,20 +569,25 @@ public class FunctionsTool extends BaseMcpTool {
                 case ACTION_RENAME_VARIABLE, ACTION_UPDATE_VARIABLE ->
                     handleUpdateVariable(
                         program, args, annotation, action.toLowerCase(Locale.ROOT));
+                case ACTION_LIST_UNION_FIELD_CANDIDATES ->
+                    handleListUnionFieldCandidates(program, args, annotation);
+                case ACTION_FORCE_UNION_FIELD -> handleForceUnionField(program, args, annotation);
                 default -> {
                   // Common cross-tool guesses (disassemble/decompile/delete/etc.) — return a
                   // redirect rather than the bare valid-actions list so the next call lands.
                   Map<String, String> aliases =
-                      Map.of(
-                          "disassemble", "use `inspect` (action: listing)",
-                          "decompile", "use `inspect` (action: decompile)",
-                          "delete", "use `delete` tool",
-                          "remove", "use `delete` tool",
-                          "find", ACTION_GET,
-                          "resolve", ACTION_GET,
-                          "search", ACTION_LIST,
-                          "rename", ACTION_UPDATE_VARIABLE,
-                          "update", ACTION_UPDATE_PROTOTYPE);
+                      Map.ofEntries(
+                          Map.entry("disassemble", "use `inspect` (action: listing)"),
+                          Map.entry("decompile", "use `inspect` (action: decompile)"),
+                          Map.entry("delete", "use `delete` tool"),
+                          Map.entry("remove", "use `delete` tool"),
+                          Map.entry("find", ACTION_GET),
+                          Map.entry("resolve", ACTION_GET),
+                          Map.entry("search", ACTION_LIST),
+                          Map.entry("rename", ACTION_UPDATE_VARIABLE),
+                          Map.entry("update", ACTION_UPDATE_PROTOTYPE),
+                          Map.entry("force_field", ACTION_FORCE_UNION_FIELD),
+                          Map.entry("select_union_field", ACTION_FORCE_UNION_FIELD));
                   GhidraMcpError error =
                       GhidraMcpErrorUtils.invalidAction(
                           action,
@@ -558,7 +598,9 @@ public class FunctionsTool extends BaseMcpTool {
                               ACTION_UPDATE_PROTOTYPE,
                               ACTION_LIST_VARIABLES,
                               ACTION_RENAME_VARIABLE,
-                              ACTION_UPDATE_VARIABLE),
+                              ACTION_UPDATE_VARIABLE,
+                              ACTION_LIST_UNION_FIELD_CANDIDATES,
+                              ACTION_FORCE_UNION_FIELD),
                           aliases);
                   yield Mono.error(new GhidraMcpException(error));
                 }
@@ -588,7 +630,7 @@ public class FunctionsTool extends BaseMcpTool {
     Pattern namePattern = null;
     if (namePatternOpt.isPresent()) {
       try {
-        namePattern = Pattern.compile(namePatternOpt.get());
+        namePattern = NameFilterPattern.compile(namePatternOpt.get(), 0);
       } catch (PatternSyntaxException e) {
         throw new GhidraMcpException(
             GhidraMcpError.invalid("name_pattern", namePatternOpt.get(), e.getMessage()));
@@ -1256,6 +1298,597 @@ public class FunctionsTool extends BaseMcpTool {
   private record UpdateVariableContext(
       Function function, HighSymbol symbol, String newName, DataType newDataType) {}
 
+  private Mono<? extends Object> handleListUnionFieldCandidates(
+      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    String toolOperation = annotation.mcpName() + "." + ACTION_LIST_UNION_FIELD_CANDIDATES;
+
+    FunctionIdentifiers identifiers;
+    try {
+      identifiers = extractFunctionIdentifiers(args);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
+
+    if (identifiers.isEmpty()) {
+      return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
+    }
+
+    return withTaskMonitor(
+        "functions.list_union_field_candidates",
+        monitor -> {
+          Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
+          List<UnionFieldCandidate> candidates = discoverUnionFieldCandidates(function, monitor);
+          return filterUnionFieldCandidates(program, candidates, args).stream()
+              .map(this::unionFieldCandidateToMap)
+              .collect(Collectors.toList());
+        });
+  }
+
+  private Mono<? extends Object> handleForceUnionField(
+      Program program, Map<String, Object> args, GhidraMcpTool annotation) {
+    String toolOperation = annotation.mcpName() + "." + ACTION_FORCE_UNION_FIELD;
+
+    FunctionIdentifiers identifiers;
+    try {
+      identifiers = extractFunctionIdentifiers(args);
+    } catch (GhidraMcpException e) {
+      return Mono.error(e);
+    }
+
+    if (identifiers.isEmpty()) {
+      return Mono.error(new GhidraMcpException(createMissingIdentifierError()));
+    }
+
+    return withTaskMonitor(
+            "functions.force_union_field",
+            monitor -> {
+              Function function = resolveFunctionByIdentifiers(program, identifiers, toolOperation);
+              List<UnionFieldCandidate> candidates =
+                  discoverUnionFieldCandidates(function, monitor);
+              UnionFieldCandidate candidate = selectUnionFieldCandidate(program, candidates, args);
+              int fieldOrdinal = resolveUnionFieldOrdinal(candidate, args);
+              String fieldName = getUnionFieldName(candidate, fieldOrdinal);
+              return new ForceUnionFieldContext(function, candidate, fieldOrdinal, fieldName);
+            })
+        .flatMap(
+            context ->
+                executeInTransaction(
+                    program,
+                    "MCP - Force Union Field: "
+                        + context.function().getName()
+                        + " -> "
+                        + context.fieldName(),
+                    () -> {
+                      try {
+                        HighFunctionDBUtil.writeUnionFacet(
+                            context.function(),
+                            context.candidate().parentDataType(),
+                            context.fieldOrdinal(),
+                            context.candidate().pcAddress(),
+                            context.candidate().dynamicHash(),
+                            SourceType.USER_DEFINED);
+                      } catch (Exception e) {
+                        throw new GhidraMcpException(
+                            GhidraMcpError.failed("force union field", e.getMessage()));
+                      }
+
+                      Map<String, Object> result = new LinkedHashMap<>();
+                      result.put("function", context.function().getName());
+                      result.put("entry_point", context.function().getEntryPoint().toString());
+                      result.put("candidate_index", context.candidate().index());
+                      result.put("pc_address", context.candidate().pcAddress().toString());
+                      result.put("dynamic_hash", Long.toString(context.candidate().dynamicHash()));
+                      result.put(
+                          "dynamic_hash_hex",
+                          "0x" + Long.toUnsignedString(context.candidate().dynamicHash(), 16));
+                      result.put("union_type", context.candidate().unionTypePath());
+                      result.put("parent_data_type", context.candidate().parentDataTypePath());
+                      result.put("field_ordinal", context.fieldOrdinal());
+                      result.put("field_name", context.fieldName());
+                      return ToolOutcome.of(
+                          result,
+                          NavigateToAddressEffect.decompiler(
+                              program, context.function().getEntryPoint()));
+                    }));
+  }
+
+  private List<UnionFieldCandidate> discoverUnionFieldCandidates(
+      Function function, TaskMonitor monitor) {
+    DecompInterface decompInterface = new DecompInterface();
+    try {
+      decompInterface.setOptions(new DecompileOptions());
+      decompInterface.openProgram(function.getProgram());
+      DecompileResults results =
+          decompInterface.decompileFunction(
+              function, GhidraMcpServer.getRequestTimeoutSeconds(), monitor);
+      if (results == null || !results.decompileCompleted()) {
+        String error =
+            results != null && results.getErrorMessage() != null
+                ? results.getErrorMessage()
+                : "decompilation did not complete";
+        throw new GhidraMcpException(GhidraMcpError.failed("list union field candidates", error));
+      }
+
+      HighFunction highFunction = results.getHighFunction();
+      ClangTokenGroup markup = results.getCCodeMarkup();
+      if (highFunction == null || markup == null) {
+        return List.of();
+      }
+
+      List<ClangNode> flattened = new ArrayList<>();
+      markup.flatten(flattened);
+
+      LinkedHashMap<String, UnionFieldCandidate> candidatesByKey = new LinkedHashMap<>();
+      for (ClangNode node : flattened) {
+        if (!(node instanceof ClangFieldToken token)) {
+          continue;
+        }
+
+        Composite composite = getCompositeDataType(token);
+        if (!(composite instanceof Union unionDataType)) {
+          continue;
+        }
+
+        UnionFacetTarget target = determineUnionFacetTarget(token, unionDataType);
+        if (target == null || target.accessOp() == null || target.accessVarnode() == null) {
+          continue;
+        }
+
+        DynamicHash dynamicHash =
+            new DynamicHash(target.accessOp(), target.accessSlot(), highFunction);
+        Address pcAddress = dynamicHash.getAddress();
+        if (pcAddress == null || pcAddress == Address.NO_ADDRESS) {
+          continue;
+        }
+
+        List<UnionFieldOption> fieldOptions =
+            buildUnionFieldOptions(unionDataType, target.parentDataType(), target.accessVarnode());
+        Set<Integer> selectableOrdinals =
+            fieldOptions.stream()
+                .filter(UnionFieldOption::selectable)
+                .map(UnionFieldOption::ordinal)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        String key =
+            pcAddress
+                + ":"
+                + dynamicHash.getHash()
+                + ":"
+                + target.accessSlot()
+                + ":"
+                + dataTypePath(target.parentDataType());
+        if (!candidatesByKey.containsKey(key)) {
+          int index = candidatesByKey.size();
+          candidatesByKey.put(
+              key,
+              new UnionFieldCandidate(
+                  index,
+                  token.getText(),
+                  addressToString(token.getMinAddress()),
+                  dataTypePath(unionDataType),
+                  unionDataType.getName(),
+                  dataTypePath(target.parentDataType()),
+                  target.parentDataType(),
+                  target.accessSlot(),
+                  target.accessOp().getMnemonic(),
+                  target.accessOp().toString(),
+                  addressToString(target.accessOp().getSeqnum().getTarget()),
+                  pcAddress,
+                  dynamicHash.getHash(),
+                  fieldOptions,
+                  selectableOrdinals));
+        }
+      }
+
+      return new ArrayList<>(candidatesByKey.values());
+    } finally {
+      decompInterface.dispose();
+    }
+  }
+
+  private Composite getCompositeDataType(ClangFieldToken token) {
+    DataType dataType = unwrapTypeDef(token.getDataType());
+    return dataType instanceof Composite composite ? composite : null;
+  }
+
+  private UnionFacetTarget determineUnionFacetTarget(ClangFieldToken token, Union unionDataType) {
+    PcodeOp accessOp = token.getPcodeOp();
+    if (accessOp == null) {
+      return null;
+    }
+
+    int opcode = accessOp.getOpcode();
+    DataType parentDataType = null;
+    Varnode accessVarnode = null;
+    int accessSlot = 0;
+
+    if (opcode == PcodeOp.PTRSUB) {
+      parentDataType = typeIsUnionRelated(accessOp.getInput(0), unionDataType);
+      if (parentDataType != null) {
+        accessVarnode = accessOp.getInput(0);
+        accessSlot = 0;
+
+        while (accessOp.getInput(1).getOffset() == 0) {
+          Varnode output = accessOp.getOutput();
+          if (output == null) {
+            break;
+          }
+          PcodeOp loneDescendant = output.getLoneDescend();
+          if (loneDescendant == null) {
+            break;
+          }
+
+          accessOp = loneDescendant;
+          accessVarnode = output;
+          accessSlot = accessOp.getSlot(accessVarnode);
+          if (accessOp.getOpcode() != PcodeOp.PTRSUB || accessOp.getInput(1).getOffset() != 0) {
+            break;
+          }
+        }
+
+        return new UnionFacetTarget(accessOp, accessVarnode, accessSlot, parentDataType);
+      }
+    } else {
+      for (accessSlot = 0; accessSlot < accessOp.getNumInputs(); accessSlot++) {
+        accessVarnode = accessOp.getInput(accessSlot);
+        parentDataType = typeIsUnionRelated(accessVarnode, unionDataType);
+        if (parentDataType != null) {
+          break;
+        }
+      }
+
+      if (parentDataType != null) {
+        if (opcode == PcodeOp.SUBPIECE && accessSlot == 0 && !(parentDataType instanceof Pointer)) {
+          accessSlot = -1;
+          accessVarnode = accessOp.getOutput();
+        }
+        return new UnionFacetTarget(accessOp, accessVarnode, accessSlot, parentDataType);
+      }
+    }
+
+    accessSlot = -1;
+    accessVarnode = accessOp.getOutput();
+    if (accessVarnode != null) {
+      parentDataType = typeIsUnionRelated(accessVarnode, unionDataType);
+      if (parentDataType != null) {
+        return new UnionFacetTarget(accessOp, accessVarnode, accessSlot, parentDataType);
+      }
+    }
+
+    return null;
+  }
+
+  private DataType typeIsUnionRelated(Varnode varnode, Union unionDataType) {
+    if (varnode == null) {
+      return null;
+    }
+
+    HighVariable highVariable = varnode.getHigh();
+    if (highVariable == null) {
+      return null;
+    }
+
+    DataType dataType = unwrapTypeDef(highVariable.getDataType());
+    DataType candidate = dataType;
+    if (candidate instanceof Pointer pointer) {
+      candidate = pointer.getDataType();
+    } else if (candidate instanceof PartialUnion partialUnion) {
+      candidate = partialUnion.getParent();
+      candidate = unwrapTypeDef(candidate);
+    }
+
+    if (isSameDataType(candidate, unionDataType)) {
+      return dataType;
+    }
+
+    HighSymbol symbol = highVariable.getSymbol();
+    if (symbol == null) {
+      return null;
+    }
+
+    dataType = unwrapTypeDef(symbol.getDataType());
+    return isSameDataType(dataType, unionDataType) ? dataType : null;
+  }
+
+  private DataType unwrapTypeDef(DataType dataType) {
+    while (dataType instanceof TypeDef typeDef) {
+      dataType = typeDef.getBaseDataType();
+    }
+    return dataType;
+  }
+
+  private boolean isSameDataType(DataType candidate, DataType expected) {
+    if (candidate == expected) {
+      return true;
+    }
+    if (candidate == null || expected == null) {
+      return false;
+    }
+    String candidatePath = candidate.getPathName();
+    String expectedPath = expected.getPathName();
+    return candidatePath != null && candidatePath.equals(expectedPath);
+  }
+
+  private List<UnionFieldOption> buildUnionFieldOptions(
+      Union unionDataType, DataType parentDataType, Varnode accessVarnode) {
+    int accessSize = accessVarnode.getSize();
+    int accessStartOffset = 0;
+    boolean requireExactFit = true;
+
+    if (parentDataType instanceof Pointer) {
+      accessSize = 0;
+    }
+    if (parentDataType instanceof PartialUnion partialUnion) {
+      accessStartOffset = partialUnion.getOffset();
+      requireExactFit = false;
+    }
+
+    int accessEndOffset = accessStartOffset + accessSize;
+    List<UnionFieldOption> options = new ArrayList<>();
+    boolean noFieldSelectable =
+        accessSize == 0 || (requireExactFit && accessSize == parentDataType.getLength());
+    options.add(new UnionFieldOption(-1, "(no field)", null, null, null, noFieldSelectable));
+
+    DataTypeComponent[] components = unionDataType.getDefinedComponents();
+    for (int i = 0; i < components.length; i++) {
+      DataTypeComponent component = components[i];
+      String fieldName = component.getFieldName();
+      if (fieldName == null || fieldName.isBlank()) {
+        fieldName = component.getDefaultFieldName();
+      }
+
+      int componentStart = component.getOffset();
+      int componentEnd = component.getOffset() + component.getLength();
+      boolean selectable =
+          accessSize == 0
+              || (requireExactFit
+                  ? accessStartOffset == componentStart && accessEndOffset == componentEnd
+                  : accessStartOffset >= componentStart && accessEndOffset <= componentEnd);
+
+      options.add(
+          new UnionFieldOption(
+              i,
+              fieldName,
+              component.getOffset(),
+              component.getLength(),
+              dataTypePath(component.getDataType()),
+              selectable));
+    }
+
+    return options;
+  }
+
+  private List<UnionFieldCandidate> filterUnionFieldCandidates(
+      Program program, List<UnionFieldCandidate> candidates, Map<String, Object> args) {
+    Optional<String> unionFilter =
+        getOptionalStringArgument(args, ARG_UNION_TYPE_PATH)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty());
+    Optional<String> tokenTextFilter =
+        getOptionalStringArgument(args, ARG_TOKEN_TEXT).map(String::trim).filter(v -> !v.isEmpty());
+    Optional<Address> pcAddressFilter =
+        getOptionalStringArgument(args, ARG_PC_ADDRESS)
+            .map(String::trim)
+            .filter(v -> !v.isEmpty())
+            .map(value -> parseAddressValue(program, value, ARG_PC_ADDRESS));
+    Optional<Long> dynamicHashFilter = parseOptionalFlexibleLong(args, ARG_DYNAMIC_HASH);
+
+    return candidates.stream()
+        .filter(
+            candidate -> unionFilter.isEmpty() || matchesUnionFilter(candidate, unionFilter.get()))
+        .filter(
+            candidate ->
+                tokenTextFilter.isEmpty()
+                    || tokenTextFilter.get().equalsIgnoreCase(candidate.tokenText()))
+        .filter(
+            candidate ->
+                pcAddressFilter.isEmpty() || candidate.pcAddress().equals(pcAddressFilter.get()))
+        .filter(
+            candidate ->
+                dynamicHashFilter.isEmpty() || candidate.dynamicHash() == dynamicHashFilter.get())
+        .collect(Collectors.toList());
+  }
+
+  private boolean matchesUnionFilter(UnionFieldCandidate candidate, String filter) {
+    return filter.equalsIgnoreCase(candidate.unionTypePath())
+        || filter.equalsIgnoreCase(candidate.unionName())
+        || filter.equalsIgnoreCase(candidate.parentDataTypePath());
+  }
+
+  private UnionFieldCandidate selectUnionFieldCandidate(
+      Program program, List<UnionFieldCandidate> candidates, Map<String, Object> args) {
+    List<UnionFieldCandidate> filteredCandidates =
+        filterUnionFieldCandidates(program, candidates, args);
+    Optional<Integer> candidateIndexOpt = getOptionalIntArgument(args, ARG_CANDIDATE_INDEX);
+
+    if (candidateIndexOpt.isPresent()) {
+      int candidateIndex = candidateIndexOpt.get();
+      return filteredCandidates.stream()
+          .filter(candidate -> candidate.index() == candidateIndex)
+          .findFirst()
+          .orElseThrow(
+              () ->
+                  new GhidraMcpException(
+                      GhidraMcpError.notFound(
+                          "union field candidate", "candidate_index=" + candidateIndex)));
+    }
+
+    if (filteredCandidates.isEmpty()) {
+      throw new GhidraMcpException(
+          GhidraMcpError.notFound("union field candidate", "pc_address/dynamic_hash filters"));
+    }
+    if (filteredCandidates.size() > 1) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              "union field candidate",
+              filteredCandidates.size(),
+              "filters matched multiple candidates; pass candidate_index"));
+    }
+    return filteredCandidates.get(0);
+  }
+
+  private int resolveUnionFieldOrdinal(UnionFieldCandidate candidate, Map<String, Object> args) {
+    Optional<Integer> fieldOrdinalOpt = getOptionalIntArgument(args, ARG_FIELD_ORDINAL);
+    if (fieldOrdinalOpt.isPresent()) {
+      int fieldOrdinal = fieldOrdinalOpt.get();
+      validateUnionFieldOrdinal(candidate, fieldOrdinal, ARG_FIELD_ORDINAL);
+      return fieldOrdinal;
+    }
+
+    String fieldName = getRequiredStringArgument(args, ARG_FIELD_NAME);
+    if ("(no field)".equalsIgnoreCase(fieldName.trim())
+        || "none".equalsIgnoreCase(fieldName.trim())) {
+      validateUnionFieldOrdinal(candidate, -1, ARG_FIELD_NAME);
+      return -1;
+    }
+
+    for (UnionFieldOption option : candidate.fieldOptions()) {
+      if (option.ordinal() >= 0 && option.name().equalsIgnoreCase(fieldName.trim())) {
+        validateUnionFieldOrdinal(candidate, option.ordinal(), ARG_FIELD_NAME);
+        return option.ordinal();
+      }
+    }
+
+    throw new GhidraMcpException(
+        GhidraMcpError.invalid(
+            ARG_FIELD_NAME,
+            fieldName,
+            "not a field of "
+                + candidate.unionTypePath()
+                + "; selectable fields: "
+                + selectableFieldNames(candidate)));
+  }
+
+  private void validateUnionFieldOrdinal(
+      UnionFieldCandidate candidate, int fieldOrdinal, String argumentName) {
+    if (!candidate.selectableFieldOrdinals().contains(fieldOrdinal)) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              argumentName,
+              fieldOrdinal,
+              "field is not selectable for this p-code access; selectable fields: "
+                  + selectableFieldNames(candidate)));
+    }
+  }
+
+  private String selectableFieldNames(UnionFieldCandidate candidate) {
+    return candidate.fieldOptions().stream()
+        .filter(UnionFieldOption::selectable)
+        .map(UnionFieldOption::name)
+        .collect(Collectors.joining(", "));
+  }
+
+  private String getUnionFieldName(UnionFieldCandidate candidate, int fieldOrdinal) {
+    return candidate.fieldOptions().stream()
+        .filter(option -> option.ordinal() == fieldOrdinal)
+        .map(UnionFieldOption::name)
+        .findFirst()
+        .orElse("(unknown)");
+  }
+
+  private Map<String, Object> unionFieldCandidateToMap(UnionFieldCandidate candidate) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("candidate_index", candidate.index());
+    result.put("token_text", candidate.tokenText());
+    result.put("token_address", candidate.tokenAddress());
+    result.put("union_type", candidate.unionTypePath());
+    result.put("union_name", candidate.unionName());
+    result.put("parent_data_type", candidate.parentDataTypePath());
+    result.put("access_slot", candidate.accessSlot());
+    result.put("pcode_mnemonic", candidate.pcodeMnemonic());
+    result.put("pcode", candidate.pcodeText());
+    result.put("pcode_address", candidate.pcodeAddress());
+    result.put("pc_address", candidate.pcAddress().toString());
+    result.put("dynamic_hash", Long.toString(candidate.dynamicHash()));
+    result.put("dynamic_hash_hex", "0x" + Long.toUnsignedString(candidate.dynamicHash(), 16));
+    result.put(
+        "fields",
+        candidate.fieldOptions().stream()
+            .map(this::unionFieldOptionToMap)
+            .collect(Collectors.toList()));
+    return result;
+  }
+
+  private Map<String, Object> unionFieldOptionToMap(UnionFieldOption option) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("ordinal", option.ordinal());
+    result.put("name", option.name());
+    result.put("selectable", option.selectable());
+    if (option.offset() != null) {
+      result.put("offset", option.offset());
+    }
+    if (option.length() != null) {
+      result.put("length", option.length());
+    }
+    if (option.dataType() != null) {
+      result.put("data_type", option.dataType());
+    }
+    return result;
+  }
+
+  private Optional<Long> parseOptionalFlexibleLong(Map<String, Object> args, String argumentName) {
+    Object rawValue = args.get(argumentName);
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+
+    String value =
+        rawValue instanceof String ? ((String) rawValue).trim() : rawValue.toString().trim();
+    if (value.isEmpty()) {
+      return Optional.empty();
+    }
+
+    try {
+      if (value.startsWith("0x") || value.startsWith("0X")) {
+        return Optional.of((long) Long.parseUnsignedLong(value.substring(2), 16));
+      }
+      return Optional.of(Long.parseLong(value));
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              argumentName, rawValue, "must be a signed integer or 0x hex value"));
+    }
+  }
+
+  private String dataTypePath(DataType dataType) {
+    return dataType != null ? dataType.getPathName() : null;
+  }
+
+  private String addressToString(Address address) {
+    return address != null && address != Address.NO_ADDRESS ? address.toString() : null;
+  }
+
+  private record UnionFacetTarget(
+      PcodeOp accessOp, Varnode accessVarnode, int accessSlot, DataType parentDataType) {}
+
+  private record UnionFieldOption(
+      int ordinal,
+      String name,
+      Integer offset,
+      Integer length,
+      String dataType,
+      boolean selectable) {}
+
+  private record UnionFieldCandidate(
+      int index,
+      String tokenText,
+      String tokenAddress,
+      String unionTypePath,
+      String unionName,
+      String parentDataTypePath,
+      DataType parentDataType,
+      int accessSlot,
+      String pcodeMnemonic,
+      String pcodeText,
+      String pcodeAddress,
+      Address pcAddress,
+      long dynamicHash,
+      List<UnionFieldOption> fieldOptions,
+      Set<Integer> selectableFieldOrdinals) {}
+
+  private record ForceUnionFieldContext(
+      Function function, UnionFieldCandidate candidate, int fieldOrdinal, String fieldName) {}
+
   private PaginatedResult<FunctionVariableInfo> listFunctionVariables(
       Function function, Program program, Map<String, Object> args, TaskMonitor monitor) {
     Optional<String> cursorOpt = getOptionalStringArgument(args, ARG_CURSOR);
@@ -1411,7 +2044,7 @@ public class FunctionsTool extends BaseMcpTool {
       decompInterface.openProgram(program);
       DecompileResults results =
           decompInterface.decompileFunction(
-              function, decompInterface.getOptions().getDefaultTimeout(), monitor);
+              function, GhidraMcpServer.getRequestTimeoutSeconds(), monitor);
 
       if (results == null || results.getHighFunction() == null) {
         throw new GhidraMcpException(

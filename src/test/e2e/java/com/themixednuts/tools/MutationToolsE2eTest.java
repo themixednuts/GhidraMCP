@@ -136,6 +136,71 @@ class MutationToolsE2eTest {
   }
 
   @Test
+  void manageSymbolsSanitizesTemplatedNamespacePathsForRename() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      SymbolsTool tool = new InMemorySymbolsTool(fixture.program());
+
+      Object createdRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "create",
+                      "symbol_type", "label",
+                      "address", "0x401064",
+                      "name", "templated_namespace_target"),
+                  null)
+              .block();
+      SymbolInfo created = assertInstanceOf(SymbolInfo.class, createdRaw);
+
+      Object updatedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "update",
+                      "symbol_id", created.getSymbolId(),
+                      "new_name", "insert_unique",
+                      "namespace", "AZStd::unordered_map<u32, string>"),
+                  null)
+              .block();
+      SymbolInfo updated = assertInstanceOf(SymbolInfo.class, updatedRaw);
+
+      assertEquals("insert_unique", updated.getName());
+      assertEquals("AZStd::unordered_map_u32_string", updated.getNamespace());
+
+      Object createdInNamespaceRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "create",
+                      "symbol_type",
+                      "label",
+                      "address",
+                      "0x401068",
+                      "name",
+                      "namespaced_create_target",
+                      "namespace",
+                      "::AZStd::unordered_map<AZ::EntityId, AZStd::string>"),
+                  null)
+              .block();
+      SymbolInfo createdInNamespace = assertInstanceOf(SymbolInfo.class, createdInNamespaceRaw);
+      assertEquals(
+          "AZStd::unordered_map_AZ_EntityId_AZStd_string", createdInNamespace.getNamespace());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
   void manageFunctionsSupportsCreateAtAddress() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
@@ -237,6 +302,184 @@ class MutationToolsE2eTest {
       assertTrue(
           readBack.getEnumValues().stream()
               .anyMatch(v -> "BLUE".equals(v.name()) && v.value() == 3));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void manageDataTypesResolvesTemplatePathPointersAndListsPointerAliases() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      DataTypesTool tool = new InMemoryDataTypesTool(fixture.program());
+
+      tool.execute(
+              null,
+              Map.of(
+                  "file_name", "fixture",
+                  "action", "create",
+                  "data_type_kind", "category",
+                  "name", "AZStd",
+                  "category_path", "/"),
+              null)
+          .block();
+
+      Object listStructRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "create",
+                      "data_type_kind",
+                      "struct",
+                      "category_path",
+                      "/AZStd",
+                      "name",
+                      "list<u32, string>",
+                      "size",
+                      8),
+                  null)
+              .block();
+      CreateDataTypeResult listStruct = assertInstanceOf(CreateDataTypeResult.class, listStructRaw);
+      assertEquals("/AZStd/list<u32, string>", listStruct.getPathName());
+
+      Object holderRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "create",
+                      "data_type_kind",
+                      "struct",
+                      "name",
+                      "TemplatePointerHolder",
+                      "members",
+                      List.of(
+                          Map.of(
+                              "name",
+                              "items",
+                              "data_type_path",
+                              "const /AZStd/list<u32, string> * const"))),
+                  null)
+              .block();
+      CreateDataTypeResult holder = assertInstanceOf(CreateDataTypeResult.class, holderRaw);
+      assertEquals("TemplatePointerHolder", holder.getName());
+
+      Object pointerAliasRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "create",
+                      "data_type_kind",
+                      "pointer",
+                      "category_path",
+                      "/AZStd",
+                      "name",
+                      "ListPtr",
+                      "base_type",
+                      "/AZStd/list<u32, string>"),
+                  null)
+              .block();
+      CreateDataTypeResult pointerAlias =
+          assertInstanceOf(CreateDataTypeResult.class, pointerAliasRaw);
+      assertEquals("pointer", pointerAlias.getKind());
+
+      Object readHolderRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "struct",
+                      "name", "TemplatePointerHolder"),
+                  null)
+              .block();
+      DataTypeReadResult readHolder = assertInstanceOf(DataTypeReadResult.class, readHolderRaw);
+      assertTrue(readHolder.getComponents().get(0).type().contains("*"));
+
+      Object readPointerRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "get",
+                      "data_type_kind", "pointer",
+                      "name", "/AZStd/ListPtr"),
+                  null)
+              .block();
+      DataTypeReadResult readPointer = assertInstanceOf(DataTypeReadResult.class, readPointerRaw);
+      assertEquals("pointer", readPointer.getKind());
+
+      Object listedRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "type_kind",
+                      "pointer",
+                      "name_pattern",
+                      "^ListPtr$",
+                      "page_size",
+                      10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<DataTypeListEntry> listed =
+          assertInstanceOf(PaginatedResult.class, listedRaw);
+      assertEquals(1, listed.results.size());
+      assertEquals("pointer", listed.results.get(0).getKind());
+
+      Mono<? extends Object> duplicate =
+          tool.execute(
+              null,
+              Map.of(
+                  "file_name",
+                  "fixture",
+                  "action",
+                  "create",
+                  "data_type_kind",
+                  "pointer",
+                  "category_path",
+                  "/AZStd",
+                  "name",
+                  "ListPtr",
+                  "base_type",
+                  "/AZStd/list<u32, string>"),
+              null);
+      assertThrows(Exception.class, duplicate::block);
+
+      Object conflictListRaw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name",
+                      "fixture",
+                      "action",
+                      "list",
+                      "name_pattern",
+                      "ListPtr.*conflict",
+                      "page_size",
+                      10),
+                  null)
+              .block();
+      @SuppressWarnings("unchecked")
+      PaginatedResult<DataTypeListEntry> conflictList =
+          assertInstanceOf(PaginatedResult.class, conflictListRaw);
+      assertTrue(conflictList.results.isEmpty());
     } finally {
       fixture.close();
     }

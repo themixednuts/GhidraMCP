@@ -5,6 +5,7 @@ import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
 import com.themixednuts.models.BatchOperationResult;
 import com.themixednuts.models.GhidraMcpError;
+import com.themixednuts.ui.ToolOutcome;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder;
 import com.themixednuts.utils.jsonschema.google.SchemaBuilder.IObjectSchemaBuilder;
@@ -30,138 +31,10 @@ import reactor.util.context.ContextView;
     mcpName = "batch_operations",
     mcpDescription =
         """
-        <use_case>
-        Executes multiple Ghidra tool operations in sequence within a single transaction.
-        Useful for bulk operations like defining multiple symbols, creating multiple data types,
-        or performing complex multi-step modifications. All operations are executed in order,
-        and if any operation fails, the entire transaction is rolled back.
-        </use_case>
-
-        <important_notes>
-        - All operations are executed within a single database transaction
-        - Operations are executed in the order provided
-        - If ANY operation fails, ALL changes are reverted (transaction rollback)
-        - The failing operation's error details are included in the response
-        - Each operation must specify a valid tool mcpName and its required arguments
-        - The 'file_name' argument is required at the batch level and applies to all operations
-        </important_notes>
-
-        <parameters_summary>
-        - 'file_name': The program file to operate on (required, applies to all operations)
-        - 'operations': Array of operations to execute (required), each containing:
-          - 'tool': The mcpName of the tool to execute (e.g., "symbols", "data_types")
-          - 'arguments': Map of arguments to pass to the tool (each tool has its own schema)
-        </parameters_summary>
-
-        <workflow>
-        1. Validates that all specified tools exist and are available
-        2. Opens the specified program
-        3. Starts a single transaction
-        4. Executes each operation in sequence:
-           a. Loads the tool instance
-           b. Executes the tool with provided arguments
-           c. Collects the result
-        5. If any operation fails:
-           a. Transaction is automatically rolled back
-           b. Returns error details from the failed operation
-           c. No subsequent operations are executed
-        6. If all operations succeed:
-           a. Transaction is committed
-           b. Returns all operation results
-        </workflow>
-
-        <return_value_summary>
-        Returns a BatchOperationResult containing:
-        - 'successful_operations': Number of operations that succeeded before any failure
-        - 'failed_operations': Number of operations that failed (0 or 1)
-        - Total operation count is implicit in operations.length
-        - 'operations': Array of individual operation results, each containing:
-          - 'operation_index': Index of the operation (0-based)
-          - 'tool_name': Name of the tool executed
-          - 'success': Whether this specific operation succeeded
-          - 'result': The tool's result object (if successful)
-          - 'error': Structured error details (if failed)
-        </return_value_summary>
-
-        <agent_response_guidance>
-        After execution, inform the user about:
-        - The number of operations that were executed
-        - Whether all operations succeeded or which operation failed
-        - Key changes made (summarize, don't dump all details)
-        - If a failure occurred, explain which operation failed and why
-
-        Example success response:
-        "I executed 5 operations in a single transaction: created 3 symbols, defined 1 struct, and set 1 comment.
-        All operations completed successfully."
-
-        Example failure response:
-        "I attempted to execute 5 operations, but operation #3 (data_types) failed because the struct 'MyStruct'
-        already exists. All changes have been rolled back. Would you like me to retry with different parameters?"
-
-        MUST NOT simply dump the raw JSON response to the user.
-        </agent_response_guidance>
-
-        <examples>
-        Create multiple symbols at once:
-        {
-          "file_name": "program.exe",
-          "operations": [
-            {
-              "tool": "symbols",
-              "arguments": {
-                "action": "create",
-                "name": "g_config",
-                "address": "0x401000",
-                "symbol_type": "label"
-              }
-            },
-            {
-              "tool": "symbols",
-              "arguments": {
-                "action": "create",
-                "name": "g_buffer",
-                "address": "0x401010",
-                "symbol_type": "label"
-              }
-            }
-          ]
-        }
-
-        Define a struct and apply it to memory:
-        {
-          "file_name": "program.exe",
-          "operations": [
-            {
-              "tool": "data_types",
-              "arguments": {
-                "action": "create",
-                "data_type_kind": "struct",
-                "name": "Config",
-                "members": [
-                  {"name": "version", "data_type_path": "int"},
-                  {"name": "flags", "data_type_path": "int"}
-                ]
-              }
-            },
-            {
-              "tool": "memory",
-              "arguments": {
-                "action": "apply_data_type",
-                "address": "0x401000",
-                "data_type_path": "/Config"
-              }
-            }
-          ]
-        }
-        </examples>
-
-        <error_handling_summary>
-        - Throws VALIDATION error if 'operations' array is empty or missing
-        - Throws VALIDATION error if a specified tool mcpName is not found
-        - Throws VALIDATION error if operation arguments are missing required fields
-        - Propagates the original tool's error if an operation fails during execution
-        - Transaction rollback is automatic on any failure
-        </error_handling_summary>
+        Run related tool operations against one file_name in a single Ghidra transaction. Each
+        operations entry names a tool and supplies that tool's arguments. Operations run in order. On
+        the first failure, execution stops and the transaction rolls back; the result identifies the
+        failed operation. Use when several program edits must succeed together.
         """)
 public class BatchOperationsTool extends BaseMcpTool {
 
@@ -363,7 +236,9 @@ public class BatchOperationsTool extends BaseMcpTool {
                   .execute(context, toolArgs, pluginTool)
                   .contextWrite(ctx -> ctx.putAll(parentContext))
                   .block();
-          results.add(BatchOperationResult.IndividualOperationResult.success(i, toolName, result));
+          Object responseData = result instanceof ToolOutcome<?> outcome ? outcome.data() : result;
+          results.add(
+              BatchOperationResult.IndividualOperationResult.success(i, toolName, responseData));
         } catch (Exception e) {
           Throwable root = unwrapExecutionException(e);
           GhidraMcpError error;

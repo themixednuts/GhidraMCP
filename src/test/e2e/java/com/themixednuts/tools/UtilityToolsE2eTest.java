@@ -348,6 +348,45 @@ class UtilityToolsE2eTest {
   }
 
   @Test
+  void batchOperationsUnwrapsUiOutcomeBeforeReturningResults() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      BatchOperationsTool tool = new InMemoryBatchOperationsTool(fixture.program());
+      BatchOperationResult result =
+          assertInstanceOf(
+              BatchOperationResult.class,
+              tool.execute(
+                      null,
+                      Map.of(
+                          "file_name",
+                          "fixture",
+                          "operations",
+                          List.of(
+                              Map.of(
+                                  "tool",
+                                  "memory",
+                                  "arguments",
+                                  Map.of(
+                                      "action",
+                                      "define",
+                                      "address",
+                                      "0x4010a0",
+                                      "data_type_path",
+                                      "int")))),
+                      null)
+                  .block());
+
+      assertInstanceOf(OperationResult.class, result.getOperations().get(0).getResult());
+      com.themixednuts.utils.JsonMapperHolder.getMapper().writeValueAsString(result);
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
   void batchOperationsRollsBackEarlierChangesWhenLaterOperationFails() throws Exception {
     assumeTrue(
         Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");

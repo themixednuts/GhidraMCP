@@ -42,40 +42,10 @@ import reactor.core.publisher.Mono;
     mcpName = "project",
     mcpDescription =
         """
-        <use_case>
-        Perform project-level actions such as inspecting analysis options, running analysis,
-        navigating to addresses, rebasing program image bases, and managing undo/redo operations.
-        </use_case>
-
-        <important_notes>
-        - All actions require an open program; provide file_name for those requests.
-        - For program metadata, use the ghidra://program/{name}/info resource.
-        - For listing available programs, use the ghidra://programs resource.
-        - For imports/exports use ghidra://program/{name}/imports and ghidra://program/{name}/exports resources.
-        - For defined strings use ghidra://program/{name}/strings resource.
-        - Navigation relies on GoToService being available in the active tool.
-        - rebase permanently changes the program image base and marks the program changed.
-        - rebase can use an explicit image_base or use_stated_image_base=true for PE optional-header ImageBase.
-        - Analysis option listing reflects current values and flags options still using defaults.
-        - list_analysis_options is bounded by page_size. Pass returned next_cursor as cursor to
-          continue with the same filters.
-        - Undo/redo operations are performed on the Swing EDT thread.
-        </important_notes>
-
-        <return_value_summary>
-        - list_analysis_options: returns a paginated list of AnalysisOptionInfo objects.
-        - run_analysis: returns OperationResult describing the triggered analysis.
-        - save: saves the program to the project, preserving all changes.
-        - go_to_address: returns OperationResult describing navigation outcome.
-        - rebase: returns OperationResult with previous/new image-base metadata.
-        - undo/redo: returns a map with action, success, and current undo/redo state.
-        - history: returns a map with available undo/redo operation lists.
-        </return_value_summary>
-
-        <agent_response_guidance>
-        Summarize the performed action, highlight key fields (e.g., address,
-        notable analysis options), and mention any suggested follow-up steps when appropriate.
-        </agent_response_guidance>
+        Operate on an open Ghidra program: list_analysis_options, run_analysis, save, go_to_address,
+        rebase, undo, redo, or history. Pass file_name. list_analysis_options returns paged rows.
+        rebase changes the program image base. For program lists or metadata, read the
+        ghidra://programs or ghidra://program/{name}/info resource.
         """)
 public class ProjectTool extends BaseMcpTool {
 

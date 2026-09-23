@@ -1,5 +1,6 @@
 package com.themixednuts.tools;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,10 +18,10 @@ class ToolAnnotationHintsCoverageTest {
   private static final String TOOL_PACKAGE = "com.themixednuts.tools";
 
   private static final Set<String> READ_ONLY_IDEMPOTENT_TOOL_NAMES =
-      Set.of("inspect", "demangle_symbol", "analyze_rtti", "script_guidance");
+      Set.of("inspect", "analyze", "script_guidance");
 
   @Test
-  void readAndDeleteToolHintsMatchConventions() {
+  void toolMetadataMatchesConventions() {
     Reflections reflections = new Reflections(TOOL_PACKAGE, Scanners.SubTypes);
     Set<Class<? extends BaseMcpTool>> toolClasses = reflections.getSubTypesOf(BaseMcpTool.class);
 
@@ -47,8 +48,18 @@ class ToolAnnotationHintsCoverageTest {
         }
       }
 
-      if (mcpName.startsWith("delete_") && !annotation.destructiveHint()) {
+      if (mcpName.equals("delete") && !annotation.destructiveHint()) {
         failures.add(toolClass.getSimpleName() + " must set destructiveHint=true");
+      }
+
+      String description = annotation.mcpDescription();
+      if (description.isBlank() || description.length() > 800) {
+        failures.add(
+            toolClass.getSimpleName() + " must have an MCP description of 1-800 characters");
+      }
+      if (description.contains("<use_case>") || description.contains("<examples>")) {
+        failures.add(
+            toolClass.getSimpleName() + " must not duplicate guidance in its MCP description");
       }
     }
 
@@ -56,6 +67,15 @@ class ToolAnnotationHintsCoverageTest {
         failures.isEmpty() && toolClasses.isEmpty(),
         "No tool classes discovered for hint coverage");
     assertTrue(failures.isEmpty(), String.join("\n", failures));
+  }
+
+  @Test
+  void closedWorldAndDebuggerHintsAppearInToolSpecifications() {
+    var inspect = new InspectTool().specification(null).tool();
+    assertEquals("Inspect", inspect.title());
+    assertEquals(Boolean.FALSE, inspect.annotations().openWorldHint());
+    assertEquals(
+        Boolean.TRUE, new DebuggerTool().specification(null).tool().annotations().openWorldHint());
   }
 
   private boolean requiresReadOnlyAndIdempotentHints(String mcpName) {
