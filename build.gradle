@@ -116,7 +116,7 @@ Map<String, String> resolveGhidraRelease(String requestedSelector) {
     ghidraVersion = normalizeVersion(selector)
     if (!ghidraVersion) {
       throw new GradleException(
-        "Invalid Ghidra release selector '${selector}'. Use 'latest', '12.0.4', or 'Ghidra_12.0.4_build'.")
+        "Invalid Ghidra release selector '${selector}'. Use 'latest', '12.1.4', or 'Ghidra_12.1.4_build'.")
     }
 
     String tagName = selector.startsWith('Ghidra_') ? selector : "Ghidra_${ghidraVersion}_build"

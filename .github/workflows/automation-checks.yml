@@ -17,13 +17,13 @@ jobs:
   wrapper-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: gradle/actions/wrapper-validation@v6.1.0
+      - uses: actions/checkout@v7.0.1
+      - uses: gradle/actions/wrapper-validation@v6.3.0
 
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       - name: Install actionlint
         run: |
