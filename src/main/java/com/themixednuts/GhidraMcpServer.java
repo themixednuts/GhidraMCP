@@ -42,7 +42,7 @@ import org.eclipse.jetty.server.ServerConnector;
 public final class GhidraMcpServer {
 
   private static final String SERVER_NAME = "ghidra-mcp";
-  private static final String SERVER_VERSION = "0.8.0";
+  private static final String SERVER_VERSION = "0.9.0";
   private static final String LOOPBACK_BIND_HOST = "127.0.0.1";
   private static final String MCP_ENDPOINT = "/mcp";
   private static final String MCP_PATH_SPEC = MCP_ENDPOINT;

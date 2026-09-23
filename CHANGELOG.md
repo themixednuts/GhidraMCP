@@ -7,6 +7,22 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-22
+
+### Added
+- **Program-wide code search** - `inspect.search_code` scans decompiled functions in bounded, cursor-paged batches and returns matching source lines with context and function addresses.
+- **Reusable decompilation snapshots** - `inspect.decompile` returns `decompilation_id` so subsequent line windows and text searches can reuse completed pseudocode without running the decompiler again.
+- **Union field selection** - `functions.list_union_field_candidates` and `functions.force_union_field` expose and apply decompiler union field choices with stable candidate details.
+
+### Changed
+- **Faster lookups** - Namespace-qualified function and symbol searches query Ghidra's symbol name index before checking full paths. Code search reuses one decompiler session per page.
+- **Smaller MCP context** - Tool descriptions are concise, tool order is stable for prompt caching, and agent guidance selects one response representation when text and structured content overlap.
+- **Dependency refresh** - Updated to Ghidra 12.1.4, MCP Java SDK 2.0.1, Gradle 9.7.1, and current pinned libraries and GitHub Actions.
+
+### Fixed
+- **Decompilation timeout** - Removed the fixed 30-second decompiler limit; decompilation now follows the user-configured MCP request timeout or a shorter per-call limit.
+- **Tool errors and output** - Tightened argument validation, corrected batch result serialization, improved namespace and pointer type handling, and bounded source and memory search output.
+
 ## [0.8.0] - 2026-06-12
 
 ### Added

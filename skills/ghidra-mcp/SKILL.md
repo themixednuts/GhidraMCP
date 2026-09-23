@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires GhidraMCP server running with Ghidra
 metadata:
   author: themixednuts
-  version: "0.5.2"
+  version: "0.9.0"
 ---
 
 # Ghidra MCP Skill
