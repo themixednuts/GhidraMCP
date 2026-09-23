@@ -20,6 +20,8 @@ import com.themixednuts.utils.CursorDataResult;
 import com.themixednuts.utils.PaginatedResult;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.SourceType;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -95,6 +97,60 @@ class QueryToolsE2eTest {
               .block();
       FunctionInfo singleResult = assertInstanceOf(FunctionInfo.class, unwrapOutcome(singleRaw));
       assertEquals(firstFunction.getEntryPoint(), singleResult.getEntryPoint());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void qualifiedFunctionAndSymbolLookupsUseTheLeafNameIndex() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      Program program = fixture.program();
+      int transaction = program.startTransaction("Put entry_main in namespace");
+      try {
+        Namespace group =
+            program.getSymbolTable().createNameSpace(null, "SearchGroup", SourceType.USER_DEFINED);
+        program
+            .getFunctionManager()
+            .getFunctionAt(program.getAddressFactory().getAddress("0x401000"))
+            .getSymbol()
+            .setNamespace(group);
+      } finally {
+        program.endTransaction(transaction, true);
+      }
+
+      FunctionInfo function =
+          assertInstanceOf(
+              FunctionInfo.class,
+              unwrapOutcome(
+                  new InMemoryFunctionsTool(program)
+                      .execute(
+                          null,
+                          Map.of(
+                              "file_name", "fixture",
+                              "action", "get",
+                              "name", "SearchGroup::entry_main"),
+                          null)
+                      .block()));
+      assertEquals("entry_main", function.getName());
+
+      SymbolInfo symbol =
+          assertInstanceOf(
+              SymbolInfo.class,
+              new InMemorySymbolsTool(program)
+                  .execute(
+                      null,
+                      Map.of(
+                          "file_name", "fixture",
+                          "action", "get",
+                          "name", "SearchGroup::entry_main"),
+                      null)
+                  .block());
+      assertEquals("entry_main", symbol.getName());
     } finally {
       fixture.close();
     }

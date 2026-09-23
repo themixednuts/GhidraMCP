@@ -1,7 +1,9 @@
 package com.themixednuts.tools;
 
+import com.themixednuts.GhidraMcpServer;
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.CodeSearchResult;
 import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.ListingInfo;
@@ -13,6 +15,8 @@ import com.themixednuts.utils.GhidraAddressParser;
 import com.themixednuts.utils.GhidraMcpErrorUtils;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.SymbolLookupHelper;
+import com.themixednuts.utils.TextSearch;
+import com.themixednuts.utils.TextWindow;
 import com.themixednuts.utils.jsonschema.JsonSchema;
 import com.themixednuts.utils.jsonschema.draft7.SchemaBuilder;
 import ghidra.app.decompiler.DecompInterface;
@@ -23,6 +27,7 @@ import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
@@ -37,15 +42,21 @@ import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.task.TaskMonitor;
 import io.modelcontextprotocol.common.McpTransportContext;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import reactor.core.publisher.Mono;
@@ -59,71 +70,12 @@ import reactor.core.publisher.Mono;
     idempotentHint = true,
     mcpDescription =
         """
-        <use_case>
-        Show me what's at this location. Decompile functions to C-like pseudocode, view assembly
-        listing (disassembly), and find cross-references to or from addresses. Essential for
-        reverse engineering, understanding program structure, and navigating code flow.
-        </use_case>
-
-        <important_notes>
-        - Four actions: decompile, listing, references_to, references_from
-        - decompile: Decompile a function by name/address/symbol_id to C pseudocode with optional P-code and AST
-        - listing: View assembly instructions by address, address range, or function name
-        - references_to: Find all cross-references pointing TO a given address
-        - references_from: Find all cross-references going FROM a given address
-        - Listing requires an explicit target (address, function name, or symbol_id)
-        - Successful decompile and listing calls navigate the active Ghidra UI to the resolved
-          function or address when the CodeBrowser navigation service is available.
-        - Listing uses max_lines. Listing and reference actions return next_cursor when more data
-          is available; pass it back as cursor with the same target/filter arguments.
-        - For quick decompilation without advanced options, use the ghidra://program/{name}/function/{address}/decompile resource. For basic assembly view, use the ghidra://program/{name}/listing/{address} resource.
-        </important_notes>
-
-        <examples>
-        Decompile function by name:
-        {
-          "file_name": "program.exe",
-          "action": "decompile",
-          "name": "main",
-          "include_pcode": true
-        }
-
-        Decompile function at address:
-        {
-          "file_name": "program.exe",
-          "action": "decompile",
-          "address": "0x401000"
-        }
-
-        View assembly listing at address range:
-        {
-          "file_name": "program.exe",
-          "action": "listing",
-          "address": "0x401000",
-          "end_address": "0x401050"
-        }
-
-        View listing for a function:
-        {
-          "file_name": "program.exe",
-          "action": "listing",
-          "name": "main"
-        }
-
-        Find references to an address:
-        {
-          "file_name": "program.exe",
-          "action": "references_to",
-          "address": "0x401000"
-        }
-
-        Find references from an address:
-        {
-          "file_name": "program.exe",
-          "action": "references_from",
-          "address": "0x401060"
-        }
-        </examples>
+        Read code in an open program. Use decompile for C-like pseudocode, search_code to find
+        text across functions, listing for assembly, and references_to or references_from for
+        cross-references. Decompile returns 200 source lines by default. Follow next_line with
+        start_line, or search with search_text; pass decompilation_id on follow-up reads to reuse
+        the completed result. Decompilation uses the configured request timeout unless a shorter
+        timeout is supplied. Search, listing, and reference results are paged.
         """)
 public class InspectTool extends BaseMcpTool {
 
@@ -140,7 +92,60 @@ public class InspectTool extends BaseMcpTool {
     }
 
     if (ACTION_DECOMPILE.equals(operation)) {
-      return renderDecompileText(data);
+      Optional<String> rendered = renderDecompileText(data);
+      String snapshotHint =
+          data instanceof DecompilationResult result && result.getDecompilationId() != null
+              ? "\n// Reuse with decompilation_id=" + result.getDecompilationId() + "."
+              : "";
+      if (data instanceof DecompilationResult result && result.getSearchText() != null) {
+        String summary =
+            "// "
+                + result.getTotalMatches()
+                + " matching source lines; "
+                + result.getOmittedMatches()
+                + " omitted."
+                + (result.getNextMatchOffset() != null
+                    ? " Continue with match_offset=" + result.getNextMatchOffset() + "."
+                    : "");
+        return Optional.of(rendered.map(code -> code + summary + snapshotHint).orElse(summary));
+      }
+      if (data instanceof DecompilationResult result && result.getNextLine() != null) {
+        return rendered.map(
+            code ->
+                code
+                    + "\n// Lines "
+                    + result.getCodeStartLine()
+                    + "-"
+                    + (result.getNextLine() - 1)
+                    + " of "
+                    + result.getCodeTotalLines()
+                    + ". Continue with start_line="
+                    + result.getNextLine()
+                    + "."
+                    + snapshotHint);
+      }
+      return rendered.map(code -> code + snapshotHint);
+    }
+    if (ACTION_SEARCH_CODE.equals(operation) && data instanceof CodeSearchResult result) {
+      StringBuilder output = new StringBuilder();
+      for (CodeSearchResult.Hit hit : result.matches()) {
+        output.append("// ").append(hit.functionName()).append(" @ ").append(hit.entryAddress());
+        if (hit.decompilationId() != null) {
+          output.append("; decompilation_id=").append(hit.decompilationId());
+        }
+        output.append('\n').append(hit.excerpt());
+      }
+      output.append("// Scanned ").append(result.functionsScanned()).append(" functions.");
+      if (result.nextCursor() != null) {
+        output.append(" Continue with cursor=").append(result.nextCursor()).append('.');
+      }
+      if (result.interruptedAt() != null) {
+        output
+            .append(" Decompilation paused at ")
+            .append(result.interruptedAt())
+            .append("; increase MCP Request Timeout if it repeats.");
+      }
+      return Optional.of(output.toString());
     }
     if (ACTION_LISTING.equals(operation)) {
       return renderListingText(data);
@@ -155,18 +160,35 @@ public class InspectTool extends BaseMcpTool {
   public static final String ARG_ANALYSIS_LEVEL = "analysis_level";
   public static final String ARG_END_ADDRESS = "end_address";
   public static final String ARG_MAX_LINES = "max_lines";
+  public static final String ARG_START_LINE = "start_line";
+  public static final String ARG_SEARCH_TEXT = "search_text";
+  public static final String ARG_CASE_SENSITIVE = "case_sensitive";
+  public static final String ARG_CONTEXT_LINES = "context_lines";
+  public static final String ARG_MAX_MATCHES = "max_matches";
+  public static final String ARG_MATCH_OFFSET = "match_offset";
+  public static final String ARG_DECOMPILATION_ID = "decompilation_id";
   public static final String ARG_REFERENCE_TYPE = "reference_type";
 
   private static final String ACTION_DECOMPILE = "decompile";
+  private static final String ACTION_SEARCH_CODE = "search_code";
   private static final String ACTION_LISTING = "listing";
   private static final String ACTION_REFERENCES_TO = "references_to";
   private static final String ACTION_REFERENCES_FROM = "references_from";
 
   private static final int DEFAULT_MAX_LINES = 100;
+  private static final int DEFAULT_DECOMPILE_MAX_LINES = 200;
+  private static final int DEFAULT_SEARCH_CONTEXT_LINES = 2;
+  private static final int DEFAULT_SEARCH_MAX_MATCHES = 8;
+  private static final int DEFAULT_SEARCH_MAX_FUNCTIONS = 8;
+  private final DecompilationSnapshots snapshots = new DecompilationSnapshots();
+
+  private record TextSearchOptions(
+      String query, boolean caseSensitive, int contextLines, int matchOffset, int maxMatches) {}
 
   @Override
   public JsonSchema schema() {
     var schemaRoot = createDraft7SchemaNode();
+    int requestTimeoutSeconds = GhidraMcpServer.getRequestTimeoutSeconds();
 
     schemaRoot.property(
         ARG_FILE_NAME, SchemaBuilder.string(mapper).description("The name of the program file."));
@@ -175,7 +197,11 @@ public class InspectTool extends BaseMcpTool {
         ARG_ACTION,
         SchemaBuilder.string(mapper)
             .enumValues(
-                ACTION_DECOMPILE, ACTION_LISTING, ACTION_REFERENCES_TO, ACTION_REFERENCES_FROM)
+                ACTION_DECOMPILE,
+                ACTION_SEARCH_CODE,
+                ACTION_LISTING,
+                ACTION_REFERENCES_TO,
+                ACTION_REFERENCES_FROM)
             .description("Inspection action to perform"));
 
     schemaRoot.requiredProperty(ARG_FILE_NAME).requiredProperty(ARG_ACTION);
@@ -192,6 +218,11 @@ public class InspectTool extends BaseMcpTool {
                         ARG_SYMBOL_ID,
                         SchemaBuilder.integer(mapper)
                             .description("Function symbol ID to decompile"))
+                    .property(
+                        ARG_DECOMPILATION_ID,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "ID from a previous decompile result; reuses its saved code"))
                     .property(
                         ARG_ADDRESS,
                         SchemaBuilder.string(mapper)
@@ -214,20 +245,114 @@ public class InspectTool extends BaseMcpTool {
                     .property(
                         ARG_TIMEOUT,
                         SchemaBuilder.integer(mapper)
-                            .description("Decompilation timeout in seconds")
-                            .minimum(5)
-                            .maximum(300)
-                            .defaultValue(30))
+                            .description(
+                                "Decompilation timeout in seconds, up to the configured MCP"
+                                    + " Request Timeout")
+                            .minimum(1)
+                            .maximum(requestTimeoutSeconds)
+                            .defaultValue(requestTimeoutSeconds))
                     .property(
                         ARG_ANALYSIS_LEVEL,
                         SchemaBuilder.string(mapper)
                             .enumValues("basic", "standard", "advanced")
                             .description("Level of decompilation analysis")
                             .defaultValue("standard"))
+                    .property(
+                        ARG_START_LINE,
+                        SchemaBuilder.integer(mapper)
+                            .description("One-based first decompiled source line to return")
+                            .minimum(1)
+                            .defaultValue(1))
+                    .property(
+                        ARG_MAX_LINES,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Decompiled source lines to return (default: 200, max: 1000)."
+                                    + " Use 0 for the full function; follow next_line to continue.")
+                            .minimum(0)
+                            .maximum(1000)
+                            .defaultValue(DEFAULT_DECOMPILE_MAX_LINES))
+                    .property(
+                        ARG_SEARCH_TEXT,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Literal text to find across all decompiled source lines."
+                                    + " When supplied, returns numbered matches with context"
+                                    + " instead of the start_line/max_lines window."))
+                    .property(
+                        ARG_CASE_SENSITIVE,
+                        SchemaBuilder.bool(mapper)
+                            .description("Match search_text case exactly (default: false)")
+                            .defaultValue(false))
+                    .property(
+                        ARG_CONTEXT_LINES,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Source lines before and after each match (default: 2, max: 3)")
+                            .minimum(0)
+                            .maximum(3)
+                            .defaultValue(DEFAULT_SEARCH_CONTEXT_LINES))
+                    .property(
+                        ARG_MAX_MATCHES,
+                        SchemaBuilder.integer(mapper)
+                            .description("Matching source lines per page (default: 8, max: 10)")
+                            .minimum(1)
+                            .maximum(10)
+                            .defaultValue(DEFAULT_SEARCH_MAX_MATCHES))
+                    .property(
+                        ARG_MATCH_OFFSET,
+                        SchemaBuilder.integer(mapper)
+                            .description(
+                                "Matching lines to skip; copy next_match_offset to continue")
+                            .minimum(0)
+                            .defaultValue(0))
                     .anyOf(
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_SYMBOL_ID),
                         SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_ADDRESS),
-                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME))),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_NAME),
+                        SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_DECOMPILATION_ID))),
+
+        // action=search_code: bounded program-wide decompiled source search
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION, SchemaBuilder.string(mapper).constValue(ACTION_SEARCH_CODE)),
+                SchemaBuilder.objectDraft7(mapper)
+                    .requiredProperty(ARG_SEARCH_TEXT)
+                    .property(
+                        ARG_SEARCH_TEXT,
+                        SchemaBuilder.string(mapper)
+                            .description("Literal text to find in decompiled functions")
+                            .minLength(1)
+                            .maxLength(256))
+                    .property(
+                        ARG_CASE_SENSITIVE,
+                        SchemaBuilder.bool(mapper)
+                            .description("Match case exactly (default: false)"))
+                    .property(
+                        ARG_CONTEXT_LINES,
+                        SchemaBuilder.integer(mapper)
+                            .description("Context lines around each match (default: 2, max: 3)")
+                            .minimum(0)
+                            .maximum(3))
+                    .property(
+                        ARG_MAX_MATCHES,
+                        SchemaBuilder.integer(mapper)
+                            .description("Matching lines per page (default: 8, max: 10)")
+                            .minimum(1)
+                            .maximum(10))
+                    .property(
+                        "max_functions",
+                        SchemaBuilder.integer(mapper)
+                            .description("Functions to scan per page (default: 8, max: 50)")
+                            .minimum(1)
+                            .maximum(50))
+                    .property(
+                        ARG_CURSOR,
+                        SchemaBuilder.string(mapper)
+                            .description(
+                                "Opaque continuation cursor from search_code next_cursor"))),
 
         // action=listing: requires explicit target (address, name, or symbol_id)
         SchemaBuilder.objectDraft7(mapper)
@@ -365,6 +490,7 @@ public class InspectTool extends BaseMcpTool {
 
               return switch (action.toLowerCase()) {
                 case ACTION_DECOMPILE -> executeDecompile(program, args, annotation);
+                case ACTION_SEARCH_CODE -> executeSearchCode(program, args);
                 case ACTION_LISTING -> executeListing(program, args, annotation);
                 // Aliases for the common shorthand names — references / xrefs / xrefs_to(from).
                 case ACTION_REFERENCES_TO, "references", "xrefs", "xrefs_to" ->
@@ -386,6 +512,7 @@ public class InspectTool extends BaseMcpTool {
                           action,
                           List.of(
                               ACTION_DECOMPILE,
+                              ACTION_SEARCH_CODE,
                               ACTION_LISTING,
                               ACTION_REFERENCES_TO,
                               ACTION_REFERENCES_FROM),
@@ -402,7 +529,54 @@ public class InspectTool extends BaseMcpTool {
       Program program, Map<String, Object> args, GhidraMcpTool annotation) {
     boolean includePcode = getOptionalBooleanArgument(args, ARG_INCLUDE_PCODE).orElse(false);
     boolean includeAst = getOptionalBooleanArgument(args, ARG_INCLUDE_AST).orElse(false);
-    int timeout = getOptionalIntArgument(args, ARG_TIMEOUT).orElse(30);
+    int requestTimeoutSeconds = GhidraMcpServer.getRequestTimeoutSeconds();
+    int timeout = getOptionalIntArgument(args, ARG_TIMEOUT).orElse(requestTimeoutSeconds);
+    if (timeout < 1 || timeout > requestTimeoutSeconds) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_TIMEOUT,
+                  timeout,
+                  "must be between 1 and the configured MCP Request Timeout of "
+                      + requestTimeoutSeconds
+                      + " seconds")));
+    }
+    int startLine = getOptionalIntArgument(args, ARG_START_LINE).orElse(1);
+    int maxLines = getOptionalIntArgument(args, ARG_MAX_LINES).orElse(DEFAULT_DECOMPILE_MAX_LINES);
+    TextSearchOptions searchOptions = parseTextSearchOptions(args);
+    if (startLine < 1 || maxLines < 0 || maxLines > 1000) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  "decompile line window", startLine + "/" + maxLines, "invalid line range")));
+    }
+
+    Optional<String> decompilationId = getOptionalStringArgument(args, ARG_DECOMPILATION_ID);
+    if (decompilationId.isPresent()) {
+      DecompilationSnapshots.Snapshot snapshot = snapshots.get(decompilationId.get(), program);
+      if (snapshot == null) {
+        return Mono.error(
+            new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_DECOMPILATION_ID,
+                    decompilationId.get(),
+                    "snapshot expired, was evicted, or belongs to another program; decompile"
+                        + " again")));
+      }
+      if ((includePcode && snapshot.pcodeOperations() == null)
+          || (includeAst && snapshot.basicBlockCount() == null)) {
+        return Mono.error(
+            new GhidraMcpException(
+                GhidraMcpError.invalid(
+                    ARG_DECOMPILATION_ID,
+                    decompilationId.get(),
+                    "requested P-code or AST was not captured; decompile again with that option")));
+      }
+      return Mono.fromCallable(
+          () ->
+              renderSnapshot(
+                  snapshot, includePcode, includeAst, startLine, maxLines, searchOptions));
+    }
 
     // Determine if we have an address-only target (no function name/symbol)
     Optional<Long> symbolId = getOptionalLongArgument(args, ARG_SYMBOL_ID);
@@ -414,7 +588,15 @@ public class InspectTool extends BaseMcpTool {
     // If only address is given (no name, no symbol_id), try address-mode decompile
     if (symbolId.isEmpty() && nameOpt.isEmpty() && addressOpt.isPresent()) {
       return decompileAtAddress(
-          program, addressOpt.get(), includePcode, includeAst, timeout, annotation);
+          program,
+          addressOpt.get(),
+          includePcode,
+          includeAst,
+          timeout,
+          startLine,
+          maxLines,
+          searchOptions,
+          annotation);
     }
 
     // Otherwise resolve as function
@@ -424,10 +606,247 @@ public class InspectTool extends BaseMcpTool {
           Function targetFunction = resolveFunctionForDecompilation(program, args);
           DecompilationResult result =
               performDecompilation(
-                  program, targetFunction, includePcode, includeAst, timeout, annotation, monitor);
+                  program,
+                  targetFunction,
+                  includePcode,
+                  includeAst,
+                  timeout,
+                  startLine,
+                  maxLines,
+                  searchOptions,
+                  annotation,
+                  monitor);
           return ToolOutcome.of(
               result, NavigateToAddressEffect.decompiler(program, targetFunction.getEntryPoint()));
         });
+  }
+
+  private TextSearchOptions parseTextSearchOptions(Map<String, Object> args) {
+    Optional<String> queryOpt = getOptionalStringArgument(args, ARG_SEARCH_TEXT);
+    if (queryOpt.isEmpty()) {
+      return null;
+    }
+    String query = queryOpt.get();
+    if (query.isBlank()
+        || query.length() > 256
+        || query.indexOf('\n') >= 0
+        || query.indexOf('\r') >= 0) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              ARG_SEARCH_TEXT, "must be a nonblank single line of at most 256 characters"));
+    }
+    int contextLines =
+        getOptionalIntArgument(args, ARG_CONTEXT_LINES).orElse(DEFAULT_SEARCH_CONTEXT_LINES);
+    int maxMatches =
+        getOptionalIntArgument(args, ARG_MAX_MATCHES).orElse(DEFAULT_SEARCH_MAX_MATCHES);
+    int matchOffset = getOptionalIntArgument(args, ARG_MATCH_OFFSET).orElse(0);
+    if (contextLines < 0
+        || contextLines > 3
+        || maxMatches < 1
+        || maxMatches > 10
+        || matchOffset < 0) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(
+              "decompile search bounds",
+              "context_lines, max_matches, or match_offset is out of range"));
+    }
+    boolean caseSensitive = getOptionalBooleanArgument(args, ARG_CASE_SENSITIVE).orElse(false);
+    return new TextSearchOptions(query, caseSensitive, contextLines, matchOffset, maxMatches);
+  }
+
+  private record CodeSearchCursor(Address address, int matchOffset, String snapshotId) {}
+
+  private Mono<CodeSearchResult> executeSearchCode(Program program, Map<String, Object> args) {
+    TextSearchOptions options = parseTextSearchOptions(args);
+    if (options == null) {
+      return Mono.error(new GhidraMcpException(GhidraMcpError.missing(ARG_SEARCH_TEXT)));
+    }
+    int maxFunctions =
+        getOptionalIntArgument(args, "max_functions").orElse(DEFAULT_SEARCH_MAX_FUNCTIONS);
+    if (maxFunctions < 1 || maxFunctions > 50) {
+      return Mono.error(
+          new GhidraMcpException(
+              GhidraMcpError.invalid("max_functions", maxFunctions, "must be between 1 and 50")));
+    }
+    CodeSearchCursor cursor =
+        getOptionalStringArgument(args, ARG_CURSOR)
+            .map(value -> parseCodeSearchCursor(program, value, options))
+            .orElse(null);
+    return withTaskMonitor(
+        "inspect.search_code",
+        monitor -> searchCode(program, options, maxFunctions, cursor, monitor));
+  }
+
+  private CodeSearchCursor parseCodeSearchCursor(
+      Program program, String value, TextSearchOptions options) {
+    List<String> parts =
+        decodeOpaqueCursorV1(
+            value, 4, ARG_CURSOR, "v1:<address>:<match_offset>:<search_key>:<snapshot_id>");
+    Address address = parseAddressValue(program, parts.get(0), ARG_CURSOR);
+    int offset;
+    try {
+      offset = Integer.parseInt(parts.get(1));
+    } catch (NumberFormatException e) {
+      throw new GhidraMcpException(GhidraMcpError.invalid(ARG_CURSOR, value, "invalid offset"));
+    }
+    if (offset < -1 || !parts.get(2).equals(searchFingerprint(options))) {
+      throw new GhidraMcpException(
+          GhidraMcpError.invalid(ARG_CURSOR, value, "cursor does not match this search"));
+    }
+    return new CodeSearchCursor(address, offset, parts.get(3));
+  }
+
+  private String encodeCodeSearchCursor(
+      Address address, int matchOffset, TextSearchOptions options, String snapshotId) {
+    return OpaqueCursorCodec.encodeV1(
+        address.toString(),
+        Integer.toString(matchOffset),
+        searchFingerprint(options),
+        snapshotId == null ? "none" : snapshotId);
+  }
+
+  private String searchFingerprint(TextSearchOptions options) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      digest.update((byte) (options.caseSensitive() ? 1 : 0));
+      byte[] hash = digest.digest(options.query().getBytes(StandardCharsets.UTF_8));
+      return Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(hash, 12));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 is unavailable", e);
+    }
+  }
+
+  private CodeSearchResult searchCode(
+      Program program,
+      TextSearchOptions options,
+      int maxFunctions,
+      CodeSearchCursor cursor,
+      TaskMonitor monitor) {
+    FunctionManager manager = program.getFunctionManager();
+    FunctionIterator functions =
+        cursor == null ? manager.getFunctions(true) : manager.getFunctions(cursor.address(), true);
+    List<CodeSearchResult.Hit> hits = new ArrayList<>();
+    int scanned = 0;
+    int returnedMatches = 0;
+    Address lastAddress = cursor == null ? null : cursor.address();
+    int nextOffset = -1;
+    String nextSnapshotId = null;
+    String interruptedAt = null;
+    int requestTimeout = GhidraMcpServer.getRequestTimeoutSeconds();
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(requestTimeout);
+    DecompInterface decomp = null;
+    try {
+      while (functions.hasNext()
+          && scanned < maxFunctions
+          && returnedMatches < options.maxMatches()) {
+        monitor.checkCancelled();
+        if (scanned > 0 && deadline - System.nanoTime() < TimeUnit.SECONDS.toNanos(3)) {
+          break;
+        }
+        Function function = functions.next();
+        Address address = function.getEntryPoint();
+        if (cursor != null
+            && scanned == 0
+            && address.equals(cursor.address())
+            && cursor.matchOffset() == -1) {
+          continue;
+        }
+        int matchOffset =
+            cursor != null && scanned == 0 && address.equals(cursor.address())
+                ? cursor.matchOffset()
+                : 0;
+        DecompilationSnapshots.Snapshot snapshot =
+            cursor != null && scanned == 0 && matchOffset > 0
+                ? snapshots.get(cursor.snapshotId(), program)
+                : null;
+        if (snapshot != null && !snapshot.entryAddress().equals(address.toString())) {
+          snapshot = null;
+        }
+        if (snapshot == null) {
+          if (decomp == null) {
+            decomp = new DecompInterface();
+            if (!decomp.openProgram(program)) {
+              throw new GhidraMcpException(
+                  GhidraMcpError.failed("decompilation", "could not open program"));
+            }
+          }
+          long remainingSeconds =
+              Math.max(
+                  1,
+                  TimeUnit.NANOSECONDS.toSeconds(
+                      deadline - System.nanoTime() - TimeUnit.SECONDS.toNanos(2)));
+          int timeout = (int) Math.min(requestTimeout, remainingSeconds);
+          DecompileResults decompResult = decomp.decompileFunction(function, timeout, monitor);
+          if (decompResult == null || !decompResult.decompileCompleted()) {
+            boolean timedOut = decompResult == null || decompResult.isTimedOut();
+            if (timedOut && scanned > 0) {
+              lastAddress = address;
+              nextOffset = 0;
+              interruptedAt = address.toString();
+              break;
+            }
+            String reason =
+                decompResult == null
+                    ? "timed out"
+                    : Optional.ofNullable(decompResult.getErrorMessage()).orElse("no result");
+            throw new GhidraMcpException(
+                GhidraMcpError.failed(
+                    "decompilation at " + address,
+                    timedOut
+                        ? reason + "; increase MCP Request Timeout and retry the search"
+                        : reason));
+          }
+          snapshot = saveDecompilation(program, function, decompResult, false, false);
+          decomp.flushCache();
+        }
+        scanned++;
+        lastAddress = address;
+        TextSearch search =
+            TextSearch.of(
+                snapshot.code(),
+                options.query(),
+                options.caseSensitive(),
+                options.contextLines(),
+                matchOffset,
+                options.maxMatches() - returnedMatches);
+        if (matchOffset > search.totalMatches()) {
+          throw new GhidraMcpException(
+              GhidraMcpError.invalid(
+                  ARG_CURSOR, matchOffset, "match offset is past the end of this function"));
+        }
+        if (!search.matchingLines().isEmpty()) {
+          hits.add(
+              new CodeSearchResult.Hit(
+                  snapshot.targetName(),
+                  snapshot.entryAddress(),
+                  snapshot.id(),
+                  search.excerpt(),
+                  search.matchingLines(),
+                  search.totalMatches()));
+          returnedMatches += search.matchingLines().size();
+        }
+        if (search.nextMatchOffset() != null) {
+          nextOffset = search.nextMatchOffset();
+          nextSnapshotId = snapshot.id();
+          break;
+        }
+      }
+      String nextCursor =
+          lastAddress != null && (nextOffset >= 0 || functions.hasNext())
+              ? encodeCodeSearchCursor(lastAddress, nextOffset, options, nextSnapshotId)
+              : null;
+      return new CodeSearchResult(
+          List.copyOf(hits), scanned, nextCursor, nextCursor == null, interruptedAt);
+    } catch (GhidraMcpException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed("code search", describeDecompilationFailure(e)), e);
+    } finally {
+      if (decomp != null) {
+        decomp.dispose();
+      }
+    }
   }
 
   private Function resolveFunctionForDecompilation(Program program, Map<String, Object> args)
@@ -485,6 +904,9 @@ public class InspectTool extends BaseMcpTool {
       boolean includePcode,
       boolean includeAst,
       int timeout,
+      int startLine,
+      int maxLines,
+      TextSearchOptions searchOptions,
       GhidraMcpTool annotation) {
     return parseAddress(program, addressStr, "inspect.decompile")
         .flatMap(
@@ -520,6 +942,9 @@ public class InspectTool extends BaseMcpTool {
                               includePcode,
                               includeAst,
                               timeout,
+                              startLine,
+                              maxLines,
+                              searchOptions,
                               annotation,
                               monitor);
                       return ToolOutcome.of(
@@ -570,6 +995,9 @@ public class InspectTool extends BaseMcpTool {
       boolean includePcode,
       boolean includeAst,
       int timeout,
+      int startLine,
+      int maxLines,
+      TextSearchOptions searchOptions,
       GhidraMcpTool annotation,
       TaskMonitor monitor)
       throws GhidraMcpException {
@@ -583,9 +1011,30 @@ public class InspectTool extends BaseMcpTool {
             Optional.ofNullable(decompResult)
                 .map(DecompileResults::getErrorMessage)
                 .orElse("Unknown decompilation error");
+        if ((decompResult != null && decompResult.isTimedOut())
+            || errorMsg.toLowerCase(Locale.ROOT).contains("timeout")) {
+          throw new GhidraMcpException(
+              GhidraMcpError.execution()
+                  .message("Decompilation exceeded the " + timeout + "-second limit")
+                  .hint(
+                      "Increase GhidraMCP HTTP Server > Request Timeout in Ghidra, then"
+                          + " retry. A shorter per-call timeout can also be supplied.")
+                  .context(
+                      new GhidraMcpError.ErrorContext(
+                          annotation.mcpName(),
+                          ACTION_DECOMPILE,
+                          null,
+                          Map.of(ARG_TIMEOUT, timeout),
+                          Map.of(
+                              "configured_request_timeout_seconds",
+                              GhidraMcpServer.getRequestTimeoutSeconds())))
+                  .build());
+        }
         throw new GhidraMcpException(GhidraMcpError.failed("decompilation", errorMsg));
       }
-      return createSuccessfulDecompilation(function, decompResult, includePcode, includeAst);
+      DecompilationSnapshots.Snapshot snapshot =
+          saveDecompilation(program, function, decompResult, includePcode, includeAst);
+      return renderSnapshot(snapshot, includePcode, includeAst, startLine, maxLines, searchOptions);
 
     } catch (GhidraMcpException e) {
       throw e;
@@ -597,47 +1046,93 @@ public class InspectTool extends BaseMcpTool {
     }
   }
 
-  private DecompilationResult createSuccessfulDecompilation(
-      Function function, DecompileResults decompResult, boolean includePcode, boolean includeAst) {
+  private DecompilationSnapshots.Snapshot saveDecompilation(
+      Program program,
+      Function function,
+      DecompileResults decompResult,
+      boolean includePcode,
+      boolean includeAst) {
     String code =
         Optional.ofNullable(decompResult.getDecompiledFunction())
             .map(df -> df.getC())
             .orElse("// Decompilation produced no output");
+    HighFunction highFunction = decompResult.getHighFunction();
+    Integer basicBlockCount =
+        includeAst && highFunction != null ? highFunction.getBasicBlocks().size() : null;
+    List<Map<String, Object>> pcodeOperations =
+        includePcode && highFunction != null ? collectPcodeOperations(highFunction) : null;
+    return snapshots.put(
+        program,
+        function.getName(),
+        function.getEntryPoint().toString(),
+        code,
+        (int) function.getBody().getNumAddresses(),
+        basicBlockCount,
+        pcodeOperations);
+  }
 
-    DecompilationResult result =
-        new DecompilationResult(
-            function.getName(),
-            function.getEntryPoint().toString(),
-            code,
-            (int) function.getBody().getNumAddresses());
+  private DecompilationResult renderSnapshot(
+      DecompilationSnapshots.Snapshot snapshot,
+      boolean includePcode,
+      boolean includeAst,
+      int startLine,
+      int maxLines,
+      TextSearchOptions searchOptions) {
+    String code = snapshot.code();
+    DecompilationResult result;
+    if (searchOptions != null) {
+      TextSearch search =
+          TextSearch.of(
+              code,
+              searchOptions.query(),
+              searchOptions.caseSensitive(),
+              searchOptions.contextLines(),
+              searchOptions.matchOffset(),
+              searchOptions.maxMatches());
+      result =
+          new DecompilationResult(
+              snapshot.targetName(),
+              snapshot.entryAddress(),
+              search.excerpt(),
+              snapshot.bodySize());
+      result.setCodeSearch(searchOptions.query(), search);
+    } else {
+      TextWindow window = TextWindow.of(code, startLine, maxLines);
+      if (startLine > window.totalLines()) {
+        throw new GhidraMcpException(
+            GhidraMcpError.invalid(
+                ARG_START_LINE, startLine, "past end of " + window.totalLines() + " lines"));
+      }
+      result =
+          new DecompilationResult(
+              snapshot.targetName(), snapshot.entryAddress(), window.text(), snapshot.bodySize());
+      result.setCodeWindow(window.startLine(), window.totalLines(), window.nextLine());
+    }
 
-    Optional.ofNullable(decompResult.getHighFunction())
-        .filter(hf -> includePcode)
-        .ifPresent(hf -> addPcodeOperations(result, hf));
-
-    Optional.ofNullable(decompResult.getHighFunction())
-        .filter(hf -> includeAst)
-        .ifPresent(hf -> result.setBasicBlockCount(hf.getBasicBlocks().size()));
+    result.setDecompilationId(snapshot.id());
+    if (includePcode) {
+      result.setPcodeOperations(snapshot.pcodeOperations());
+    }
+    if (includeAst) {
+      result.setBasicBlockCount(snapshot.basicBlockCount());
+    }
 
     return result;
   }
 
-  private void addPcodeOperations(DecompilationResult result, HighFunction highFunc) {
-    List<Map<String, Object>> pcodeOps =
-        StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(highFunc.getPcodeOps(), Spliterator.ORDERED),
-                false)
-            .limit(100)
-            .map(
-                op ->
-                    Map.<String, Object>of(
-                        "opcode", op.getOpcode(),
-                        "mnemonic", op.getMnemonic(),
-                        "sequence", op.getSeqnum().getTime(),
-                        "address", op.getSeqnum().getTarget().toString(),
-                        "operation", op.toString()))
-            .collect(Collectors.toList());
-    result.setPcodeOperations(pcodeOps);
+  private List<Map<String, Object>> collectPcodeOperations(HighFunction highFunc) {
+    return StreamSupport.stream(
+            Spliterators.spliteratorUnknownSize(highFunc.getPcodeOps(), Spliterator.ORDERED), false)
+        .limit(100)
+        .map(
+            op ->
+                Map.<String, Object>of(
+                    "opcode", op.getOpcode(),
+                    "mnemonic", op.getMnemonic(),
+                    "sequence", op.getSeqnum().getTime(),
+                    "address", op.getSeqnum().getTarget().toString(),
+                    "operation", op.toString()))
+        .collect(Collectors.toList());
   }
 
   private String describeDecompilationFailure(Throwable throwable) {

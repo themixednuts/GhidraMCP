@@ -2,6 +2,7 @@ package com.themixednuts.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.themixednuts.utils.TextSearch;
 import java.util.List;
 import java.util.Map;
 
@@ -16,8 +17,17 @@ public class DecompilationResult {
   private final String entryAddress;
   private final String decompiledCode;
   private final Integer bodySize;
+  private String decompilationId;
+  private Integer codeStartLine;
+  private Integer codeTotalLines;
+  private Integer nextLine;
   private Integer basicBlockCount;
   private List<Map<String, Object>> pcodeOperations;
+  private String searchText;
+  private Integer totalMatches;
+  private Integer omittedMatches;
+  private Integer nextMatchOffset;
+  private List<Integer> matchingLines;
 
   public DecompilationResult(
       String targetName, String entryAddress, String decompiledCode, Integer bodySize) {
@@ -45,6 +55,70 @@ public class DecompilationResult {
   @JsonProperty("body_size")
   public Integer getBodySize() {
     return bodySize;
+  }
+
+  @JsonProperty("decompilation_id")
+  public String getDecompilationId() {
+    return decompilationId;
+  }
+
+  public void setDecompilationId(String decompilationId) {
+    this.decompilationId = decompilationId;
+  }
+
+  @JsonProperty("code_start_line")
+  public Integer getCodeStartLine() {
+    return codeStartLine;
+  }
+
+  @JsonProperty("code_total_lines")
+  public Integer getCodeTotalLines() {
+    return codeTotalLines;
+  }
+
+  @JsonProperty("next_line")
+  public Integer getNextLine() {
+    return nextLine;
+  }
+
+  public void setCodeWindow(int startLine, int totalLines, Integer nextLine) {
+    this.codeStartLine = startLine;
+    this.codeTotalLines = totalLines;
+    this.nextLine = nextLine;
+  }
+
+  public void setCodeSearch(String query, TextSearch search) {
+    this.searchText = query;
+    this.codeTotalLines = search.totalLines();
+    this.totalMatches = search.totalMatches();
+    this.omittedMatches = search.omittedMatches();
+    this.nextMatchOffset = search.nextMatchOffset();
+    this.matchingLines = search.matchingLines();
+  }
+
+  @JsonProperty("search_text")
+  public String getSearchText() {
+    return searchText;
+  }
+
+  @JsonProperty("total_matches")
+  public Integer getTotalMatches() {
+    return totalMatches;
+  }
+
+  @JsonProperty("omitted_matches")
+  public Integer getOmittedMatches() {
+    return omittedMatches;
+  }
+
+  @JsonProperty("next_match_offset")
+  public Integer getNextMatchOffset() {
+    return nextMatchOffset;
+  }
+
+  @JsonProperty("matching_lines")
+  public List<Integer> getMatchingLines() {
+    return matchingLines;
   }
 
   @JsonProperty("basic_block_count")

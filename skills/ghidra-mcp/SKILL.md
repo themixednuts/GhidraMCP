@@ -26,6 +26,11 @@ This skill enables reverse engineering workflows using Ghidra through the Model 
 1. Read `ghidra://programs` to confirm the binary is loaded
 2. Use `functions` with `action: "list"` to get compact function rows
 3. Use `inspect` with `action: "decompile"` on interesting functions
+   - For a known token in a large function, pass `search_text` and follow
+     `next_match_offset`. Omit `search_text` and use `start_line` to read a source window.
+     Pass the returned `decompilation_id` on either follow-up path to reuse the completed result.
+   - When the function is unknown, use `inspect` with `action: "search_code"` and
+     `search_text`. Follow `next_cursor` until `complete` is true.
 4. Use `inspect` reference actions to understand how functions/data are used
 5. Use `symbols` / `functions` update actions to rename symbols and variables
 
@@ -52,6 +57,20 @@ This skill enables reverse engineering workflows using Ghidra through the Model 
 3. `memory` with `action: "search"` and `search_type: "regex"` for complex patterns
 4. Follow up with `inspect` reference actions on interesting addresses
 
+### MCP Result Handling
+
+When a programmable MCP host hands a tool result to the model, pass
+`{isError, result: structuredContent ?? content}`. Keep the full tool result for
+the host UI or logs. This selects one response representation for model context
+while the server retains the text fallback for compatible MCP clients.
+
+For Codex `functions.exec`, project the nested MCP result before emitting it:
+
+```js
+const result = await tools.mcp__ghidra__inspect(args);
+text({ isError: result.isError === true, result: result.structuredContent ?? result.content });
+```
+
 ### Bulk Operations
 
 Use `batch_operations` to execute multiple changes atomically:
@@ -69,7 +88,7 @@ Use `batch_operations` to execute multiple changes atomically:
 | `symbols` | List/get/create/update symbols, labels, namespaces, classes |
 | `data_types` | List/get/create/update data types |
 | `memory` | List/search memory, read/write bytes, and map data types |
-| `inspect` | Listing, decompile, and references |
+| `inspect` | Listing, decompile, code search, and references |
 | `analyze` | Demangle, RTTI, graph, and call graph |
 | `debugger` | Trace RMI connect/launch, target control, trace model discovery, memory/register/watch operations, mappings, remote methods, emulation, and navigation |
 | `project` | Analysis options, analysis run, save, navigation, image-base rebasing, undo/redo |

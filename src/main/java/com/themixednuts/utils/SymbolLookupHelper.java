@@ -11,9 +11,10 @@ import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
 
 /**
  * Shared helpers for resolving functions and symbols by name, with namespace-qualified and wildcard
@@ -79,16 +80,23 @@ public final class SymbolLookupHelper {
         matcher = qn -> qn.equals(name);
       }
 
-      List<Function> qualifiedMatches =
-          StreamSupport.stream(functionManager.getFunctions(true).spliterator(), false)
-              .filter(
-                  f -> {
-                    String qualifiedName =
-                        NamespaceUtils.getNamespaceQualifiedName(
-                            f.getParentNamespace(), f.getName(), false);
-                    return matcher.test(qualifiedName);
-                  })
-              .toList();
+      List<Function> qualifiedMatches = new ArrayList<>();
+      Set<ghidra.program.model.address.Address> seen = new HashSet<>();
+      SymbolIterator candidates = qualifiedNameCandidates(symbolTable, name);
+      while (candidates.hasNext()) {
+        Symbol symbol = candidates.next();
+        if (symbol.getSymbolType() != SymbolType.FUNCTION) {
+          continue;
+        }
+        Function function = functionManager.getFunctionAt(symbol.getAddress());
+        if (function != null
+            && matcher.test(
+                NamespaceUtils.getNamespaceQualifiedName(
+                    function.getParentNamespace(), function.getName(), false))
+            && seen.add(function.getEntryPoint())) {
+          qualifiedMatches.add(function);
+        }
+      }
 
       if (qualifiedMatches.size() == 1) {
         return qualifiedMatches.get(0);
@@ -166,7 +174,7 @@ public final class SymbolLookupHelper {
       }
 
       List<Symbol> qualifiedMatches = new ArrayList<>();
-      SymbolIterator allIter = symbolTable.getAllSymbols(true);
+      SymbolIterator allIter = qualifiedNameCandidates(symbolTable, name);
       while (allIter.hasNext()) {
         Symbol symbol = allIter.next();
         String qualifiedName =
@@ -278,18 +286,25 @@ public final class SymbolLookupHelper {
 
   // =================== Internal Helpers ===================
 
+  /** Uses the indexed bare-name query before checking the full namespace-qualified name. */
+  private static SymbolIterator qualifiedNameCandidates(SymbolTable symbolTable, String name) {
+    String leafName = name.substring(name.lastIndexOf("::") + 2);
+    return leafName.indexOf('*') >= 0 || leafName.indexOf('?') >= 0
+        ? symbolTable.getSymbolIterator(leafName, false)
+        : symbolTable.getSymbols(leafName);
+  }
+
   /** Collects functions from an exact bare-name symbol lookup, deduplicating by entry point. */
   private static List<Function> collectFunctionSymbols(
       SymbolTable symbolTable, FunctionManager functionManager, String name) {
     List<Function> matches = new ArrayList<>();
+    Set<ghidra.program.model.address.Address> seen = new HashSet<>();
     SymbolIterator iter = symbolTable.getSymbols(name);
     while (iter.hasNext()) {
       Symbol symbol = iter.next();
       if (symbol.getSymbolType() == SymbolType.FUNCTION) {
         Function function = functionManager.getFunctionAt(symbol.getAddress());
-        if (function != null
-            && matches.stream()
-                .noneMatch(existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
+        if (function != null && seen.add(function.getEntryPoint())) {
           matches.add(function);
         }
       }
@@ -304,14 +319,13 @@ public final class SymbolLookupHelper {
   private static List<Function> collectWildcardFunctionSymbols(
       SymbolTable symbolTable, FunctionManager functionManager, String pattern) {
     List<Function> matches = new ArrayList<>();
+    Set<ghidra.program.model.address.Address> seen = new HashSet<>();
     SymbolIterator iter = symbolTable.getSymbolIterator(pattern, false);
     while (iter.hasNext()) {
       Symbol symbol = iter.next();
       if (symbol.getSymbolType() == SymbolType.FUNCTION) {
         Function function = functionManager.getFunctionAt(symbol.getAddress());
-        if (function != null
-            && matches.stream()
-                .noneMatch(existing -> existing.getEntryPoint().equals(function.getEntryPoint()))) {
+        if (function != null && seen.add(function.getEntryPoint())) {
           matches.add(function);
         }
       }

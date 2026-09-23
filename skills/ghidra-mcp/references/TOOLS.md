@@ -133,7 +133,7 @@ List/get/create/update functions and variables. Use `action: "list"` for compact
 | `symbol_id` | integer | Function's symbol ID |
 | `address` | string | Function entry point address |
 | `name` | string | Function name (exact match) |
-| `name_pattern` | string | Regex pattern for filtering (list mode) |
+| `name_pattern` | string | Regex (`.*crypt.*`) or glob (`*crypt*`) for filtering (list mode) |
 
 **Examples:**
 ```json
@@ -289,10 +289,27 @@ Decompile functions to C-like pseudocode.
 | `action` | string | `decompile` |
 | `name` | string | Function name |
 | `address` | string | Function entry address |
+| `decompilation_id` | string | Reuse a completed decompilation from an earlier response |
 | `include_pcode` | boolean | Include P-code IR (default: false) |
 | `include_ast` | boolean | Include AST info (default: false) |
-| `timeout` | integer | Timeout in seconds (5-300, default: 30) |
+| `timeout` | integer | Optional per-call timeout in seconds (1 to the configured MCP Request Timeout); defaults to that request timeout |
 | `analysis_level` | string | `basic`, `standard`, `advanced` |
+| `start_line` | integer | First decompiled source line, starting at 1 (default: 1) |
+| `max_lines` | integer | Source lines to return (default: 200, max: 1000); use 0 for the full function |
+| `search_text` | string | Literal text to find in the full decompiled function; selects search output instead of a line window |
+| `case_sensitive` | boolean | Match search text case exactly (default: false) |
+| `context_lines` | integer | Lines around each match (default: 2, max: 3) |
+| `max_matches` | integer | Matching lines per page (default: 8, max: 10) |
+| `match_offset` | integer | Skip this many matching lines (default: 0) |
+
+The result includes `decompilation_id`, `code_start_line`, and `code_total_lines`. When `next_line` is present,
+call again with that value as `start_line` and `decompilation_id`. Set `max_lines: 0`
+when a complete decompilation is required in one response.
+
+With `search_text`, the result contains numbered excerpts, `matching_lines`,
+`total_matches`, and `omitted_matches`. Pass `next_match_offset` as `match_offset`
+with `decompilation_id` to continue. An empty excerpt with `total_matches: 0` means the text was absent.
+Snapshots expire after 20 minutes or sooner when the bounded cache fills; decompile again if the ID expires.
 
 **Examples:**
 ```json
@@ -310,6 +327,21 @@ Decompile functions to C-like pseudocode.
   "name": "decrypt",
   "include_pcode": true
 }
+```
+
+---
+
+### inspect search_code
+
+Search decompiled source across an open program when the function is unknown.
+Each call scans at most 8 functions by default and returns up to 8 matching lines with context.
+Pass `next_cursor` as `cursor` until `complete` is true. A hit's `decompilation_id`
+can be passed to `inspect` with `action: "decompile"` to read its full source or another window.
+If `interrupted_at` is present, the scan paused at that function; follow `next_cursor` and
+increase MCP Request Timeout if the same function pauses again.
+
+```json
+{"file_name": "prog.exe", "action": "search_code", "search_text": "decrypt", "max_functions": 20}
 ```
 
 ---
@@ -346,6 +378,8 @@ Search program memory for patterns.
 | `search_value` | string | Pattern to search for |
 | `case_sensitive` | boolean | Case sensitivity (default: false) |
 | `max_results` | integer | Max matches to return; use `page_size` for new calls and pass returned `next_cursor` as `cursor` to continue |
+
+Searches with no matches return `data: []` and no `next_cursor`.
 
 **Examples:**
 ```json

@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.themixednuts.annotation.GhidraMcpTool;
 import com.themixednuts.models.AnalysisOptionInfo;
+import com.themixednuts.models.CodeSearchResult;
 import com.themixednuts.models.DecompilationResult;
 import com.themixednuts.tools.MemoryTool.SearchResult;
 import com.themixednuts.ui.ToolOutcome;
@@ -61,6 +63,36 @@ class AnalysisToolsE2eTest {
               .collect(Collectors.toSet());
       assertTrue(addresses.stream().anyMatch(address -> address.contains("401000")));
       assertTrue(addresses.stream().anyMatch(address -> address.contains("401020")));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void searchMemoryReturnsEmptyPageWhenPatternIsAbsent() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      MemoryTool tool = new InMemoryMemoryTool(fixture.program());
+      Object raw =
+          tool.execute(
+                  null,
+                  Map.of(
+                      "file_name", "fixture",
+                      "action", "search",
+                      "search_type", "hex",
+                      "search_value", "13 37 13 37 13 37 13 37",
+                      "page_size", 10),
+                  null)
+              .block();
+
+      @SuppressWarnings("unchecked")
+      PaginatedResult<SearchResult> result = assertInstanceOf(PaginatedResult.class, raw);
+      assertTrue(result.results.isEmpty());
+      assertNull(result.nextCursor);
     } finally {
       fixture.close();
     }
@@ -263,6 +295,237 @@ class AnalysisToolsE2eTest {
 
       assertEquals("entry_main", result.getTargetName());
       assertNotNull(result.getDecompiledCode());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void decompileCodePagesSourceLinesAndAllowsFullOutput() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
+      Map<String, Object> target =
+          Map.of("file_name", "fixture", "action", "decompile", "name", "entry_main");
+      Map<String, Object> firstArgs = new java.util.HashMap<>(target);
+      firstArgs.put("max_lines", 1);
+      DecompilationResult first =
+          assertInstanceOf(
+              DecompilationResult.class,
+              unwrapOutcome(tool.execute(null, firstArgs, null).block()));
+
+      Map<String, Object> fullArgs = new java.util.HashMap<>(target);
+      fullArgs.put("max_lines", 0);
+      DecompilationResult full =
+          assertInstanceOf(
+              DecompilationResult.class, unwrapOutcome(tool.execute(null, fullArgs, null).block()));
+
+      assertEquals(1, first.getCodeStartLine());
+      assertNotNull(first.getDecompilationId());
+      assertEquals(2, first.getNextLine());
+      assertEquals(full.getCodeTotalLines(), first.getCodeTotalLines());
+      assertTrue(full.getDecompiledCode().startsWith(first.getDecompiledCode()));
+      assertNull(full.getNextLine());
+
+      int transaction = fixture.program().startTransaction("Rename after decompilation");
+      try {
+        fixture
+            .program()
+            .getFunctionManager()
+            .getFunctionAt(fixture.program().getAddressFactory().getAddress("0x401000"))
+            .getSymbol()
+            .setName("renamed_main", SourceType.USER_DEFINED);
+      } finally {
+        fixture.program().endTransaction(transaction, true);
+      }
+
+      DecompilationResult reused =
+          assertInstanceOf(
+              DecompilationResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name",
+                              "fixture",
+                              "action",
+                              "decompile",
+                              "decompilation_id",
+                              first.getDecompilationId(),
+                              "max_lines",
+                              0),
+                          null)
+                      .block()));
+      assertEquals(first.getDecompilationId(), reused.getDecompilationId());
+      assertEquals("entry_main", reused.getTargetName());
+      assertEquals(first.getCodeTotalLines(), reused.getCodeTotalLines());
+      assertTrue(reused.getDecompiledCode().startsWith(first.getDecompiledCode()));
+
+      DecompilationResult fresh =
+          assertInstanceOf(
+              DecompilationResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name", "fixture",
+                              "action", "decompile",
+                              "name", "renamed_main",
+                              "max_lines", 1),
+                          null)
+                      .block()));
+      assertEquals("renamed_main", fresh.getTargetName());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void searchCodePagesAcrossFunctionsAndExposesReusableSnapshots() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
+      CodeSearchResult first =
+          assertInstanceOf(
+              CodeSearchResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name", "fixture",
+                              "action", "search_code",
+                              "search_text", "entry_",
+                              "max_functions", 1),
+                          null)
+                      .block()));
+      assertEquals(1, first.functionsScanned());
+      assertEquals("entry_main", first.matches().get(0).functionName());
+      assertNotNull(first.matches().get(0).decompilationId());
+      assertNotNull(first.nextCursor());
+
+      CodeSearchResult second =
+          assertInstanceOf(
+              CodeSearchResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name", "fixture",
+                              "action", "search_code",
+                              "search_text", "entry_",
+                              "max_functions", 1,
+                              "cursor", first.nextCursor()),
+                          null)
+                      .block()));
+      assertEquals("entry_worker", second.matches().get(0).functionName());
+      assertTrue(second.complete());
+      assertNull(second.nextCursor());
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void searchCodeResumesWithinOneFunctionWithoutRepeatingTheFirstMatch() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
+      CodeSearchResult first =
+          assertInstanceOf(
+              CodeSearchResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name",
+                              "fixture",
+                              "action",
+                              "search_code",
+                              "search_text",
+                              "n",
+                              "max_matches",
+                              1,
+                              "context_lines",
+                              0,
+                              "max_functions",
+                              1),
+                          null)
+                      .block()));
+      assertTrue(first.matches().get(0).totalMatchesInFunction() >= 2);
+      assertNotNull(first.nextCursor());
+
+      CodeSearchResult second =
+          assertInstanceOf(
+              CodeSearchResult.class,
+              unwrapOutcome(
+                  tool.execute(
+                          null,
+                          Map.of(
+                              "file_name",
+                              "fixture",
+                              "action",
+                              "search_code",
+                              "search_text",
+                              "n",
+                              "max_matches",
+                              1,
+                              "context_lines",
+                              0,
+                              "max_functions",
+                              1,
+                              "cursor",
+                              first.nextCursor()),
+                          null)
+                      .block()));
+      assertEquals(first.matches().get(0).entryAddress(), second.matches().get(0).entryAddress());
+      assertFalse(
+          first.matches().get(0).matchingLines().equals(second.matches().get(0).matchingLines()));
+    } finally {
+      fixture.close();
+    }
+  }
+
+  @Test
+  void decompileSearchReturnsNumberedMatchesAndEmptyResult() throws Exception {
+    assumeTrue(
+        Boolean.getBoolean("e2e.integration"), "Set -De2e.integration=true to run e2e tests");
+    InMemoryProgramFixtureSupport.ProgramFixture fixture =
+        InMemoryProgramFixtureSupport.createReadAndManageFixtureProgram();
+    try {
+      InspectTool tool = new InMemoryInspectTool(fixture.program());
+      Map<String, Object> target =
+          Map.of("file_name", "fixture", "action", "decompile", "name", "entry_main");
+      Map<String, Object> searchArgs = new java.util.HashMap<>(target);
+      searchArgs.put("search_text", "entry_main");
+      searchArgs.put("context_lines", 0);
+      DecompilationResult found =
+          assertInstanceOf(
+              DecompilationResult.class,
+              unwrapOutcome(tool.execute(null, searchArgs, null).block()));
+
+      assertEquals("entry_main", found.getSearchText());
+      assertTrue(found.getTotalMatches() > 0);
+      assertTrue(found.getDecompiledCode().contains("entry_main"));
+      assertTrue(found.getDecompiledCode().contains(" | "));
+      assertFalse(found.getMatchingLines().isEmpty());
+
+      searchArgs.put("search_text", "__MCP_NO_SUCH_TOKEN_2026__");
+      DecompilationResult absent =
+          assertInstanceOf(
+              DecompilationResult.class,
+              unwrapOutcome(tool.execute(null, searchArgs, null).block()));
+      assertEquals(0, absent.getTotalMatches());
+      assertTrue(absent.getDecompiledCode().isEmpty());
     } finally {
       fixture.close();
     }

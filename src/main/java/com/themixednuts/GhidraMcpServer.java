@@ -19,6 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,7 +47,7 @@ public final class GhidraMcpServer {
   private static final String MCP_ENDPOINT = "/mcp";
   private static final String MCP_PATH_SPEC = MCP_ENDPOINT;
   private static final int DEFAULT_TIMEOUT_SECONDS = 600;
-  private static Duration requestTimeout = Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS);
+  private static volatile Duration requestTimeout = Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS);
   private static final List<String> LOCAL_ALLOWED_ORIGINS =
       List.of(
           "http://127.0.0.1:*",
@@ -58,28 +59,17 @@ public final class GhidraMcpServer {
   private static final List<String> LOCAL_ALLOWED_HOSTS =
       List.of("127.0.0.1:*", "localhost:*", "[::1]:*");
   private static final String SERVER_INSTRUCTIONS =
-      "Use the 14 available tools for reverse engineering analysis:\n\n"
-          + "Workflow: triage -> inspect -> analyze -> annotate\n"
-          + "- Start with `project` (info, list_programs) and resources (strings, imports, memory)"
-          + " for triage\n"
-          + "- Use `inspect` (decompile, listing, references) to understand code at specific"
-          + " locations\n"
-          + "- Use `analyze` (demangle, rtti, graph, call_graph) for structural analysis\n"
-          + "- Use `functions`, `symbols`, `data_types` to create and modify program entities\n"
-          + "- Use `memory` to read/write bytes, define data types at addresses, and search\n"
-          + "- Use `debugger` for active trace status, execution control, breakpoints, and"
-          + " Debugger listing navigation\n"
-          + "- Use `annotate` (set_comment, create_bookmark) to document findings\n"
-          + "- Use `delete` for destructive removals (isolated for permission control)\n"
-          + "- Use `vt_sessions` and `vt_operations` for binary comparison\n\n"
-          + "All tools use an `action` parameter to select the operation.\n"
-          + "Use `name_pattern` (regex) for filtering in list operations.\n"
-          + "Identifiers use direct args: symbol_id, address, name (no target_type/target_value).\n"
-          + "For large output, set page_size, max_lines, or max_results and pass returned"
-          + " next_cursor values back as cursor.\n"
-          + "Focused CodeBrowser calls automatically navigate the active Ghidra UI when"
-          + " navigation services are available.\n"
-          + "Pass file_name explicitly when operating on program data.";
+      "Read ghidra://programs to list project programs and ghidra://program/{name}/info for"
+          + " metadata. Pass file_name for program tools. Use functions and symbols to find"
+          + " targets, inspect for code and references, analyze for RTTI and graphs, and"
+          + " annotate, data_types, functions, or symbols to record findings. debugger handles"
+          + " live targets and traces; vt_sessions and vt_operations compare programs."
+          + " Each tool schema lists its actions and arguments. For paged results, pass"
+          + " next_cursor as cursor with the same filters. For decompiled source, pass"
+          + " next_line as start_line or next_match_offset as match_offset, and pass"
+          + " decompilation_id to reuse the result. Use inspect.search_code to find source"
+          + " across functions. Use delete for"
+          + " removals.";
 
   private static final Object lock = new Object();
   private static final String PROGRAMS_RESOURCE_URI = "ghidra://programs";
@@ -101,8 +91,6 @@ public final class GhidraMcpServer {
    * @return true if started successfully
    */
   public static boolean start(int port, int timeoutSeconds, PluginTool tool) {
-    requestTimeout =
-        Duration.ofSeconds(timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS);
     synchronized (lock) {
       if (isRunning()) {
         Msg.info(GhidraMcpServer.class, "MCP server already running");
@@ -110,6 +98,8 @@ public final class GhidraMcpServer {
       }
 
       try {
+        requestTimeout =
+            Duration.ofSeconds(timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS);
         Msg.info(GhidraMcpServer.class, "Starting MCP server on port " + port);
 
         McpSpecifications specs = loadSpecifications(tool);
@@ -474,7 +464,10 @@ public final class GhidraMcpServer {
     if (toolProvider == null) {
       throw new IllegalStateException("IGhidraMcpToolProvider service not available");
     }
-    List<AsyncToolSpecification> tools = toolProvider.getAvailableToolSpecifications();
+    List<AsyncToolSpecification> tools =
+        toolProvider.getAvailableToolSpecifications().stream()
+            .sorted(Comparator.comparing(specification -> specification.tool().name()))
+            .toList();
     Msg.info(GhidraMcpServer.class, "Loaded " + tools.size() + " tools");
 
     // Resources (optional)
